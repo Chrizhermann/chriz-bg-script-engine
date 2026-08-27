@@ -28,6 +28,9 @@ not evidence that the API is safe in the engine.
 The canonical architecture is:
 
 - `docs/plans/2026-08-27-script-engine-architecture-design.md`
+- `docs/plans/2026-08-27-research-and-vertical-slices.md`
+- `docs/research/research-backlog.md`
+- `docs/compatibility/acceptance-matrix.md`
 
 Future implementation plans belong under `docs/plans/`; verified research memos under
 `docs/research/`; compatibility manifests and acceptance matrices under `docs/compatibility/`.
@@ -90,10 +93,12 @@ artifacts, evidence grade, residual uncertainty, and next decision.
 - WeiDU remains the install-time system of record for patching, backups, uninstall order, and
   inter-mod cooperation.
 - Inventory effective resources after the final intended install order.
-- Fingerprint semantics, dependencies, public readers/writers, and owned regions—not just whole
-  file bytes.
-- A later stack change invalidates affected claims. Combat adapters may revalidate locally;
-  WorldFlow adapters stay stale until public-state reverse references are rescanned.
+- Start activation with exact hashes across declared dependencies/control closure. Semantic
+  fingerprints may replace them only after the relevant loss-aware IR and counterexample suite are
+  proved; unknown syntax remains opaque.
+- A later stack change invalidates affected claims in both domains. Reactivation requires a
+  refreshed dependency/external-control scan; WorldFlow additionally requires refreshed
+  public-state reverse references.
 - Preserve legacy BCS/DLG artifacts so disabling or quarantining an adapter restores ordinary
   fallthrough.
 - Support claims name exact content families, adapter versions, capability profiles, and tested

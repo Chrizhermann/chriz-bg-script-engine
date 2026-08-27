@@ -28,10 +28,12 @@ Start with:
 
 - [`docs/plans/2026-08-27-script-engine-architecture-design.md`](docs/plans/2026-08-27-script-engine-architecture-design.md)
   — approved architecture, compatibility model, risks, gates, and vertical slices.
-- `docs/research/` — evidence memos and the issue-ready research backlog (introduced by the
-  implementation plan).
-- `docs/compatibility/` — support tiers, ownership rules, and acceptance matrices (introduced by
-  the implementation plan).
+- [`docs/plans/2026-08-27-research-and-vertical-slices.md`](docs/plans/2026-08-27-research-and-vertical-slices.md)
+  — 41 dependency-ordered tasks across E0–E11, with G0–G8 stop/go gates.
+- [`docs/research/research-backlog.md`](docs/research/research-backlog.md) — 64 issue-ready research
+  spikes with methods, evidence requirements, dependencies, deliverables, and exit criteria.
+- [`docs/compatibility/acceptance-matrix.md`](docs/compatibility/acceptance-matrix.md) — normative
+  C0–C4 ownership rules and 84 stable compatibility cases.
 
 ## Relationship to SCS
 

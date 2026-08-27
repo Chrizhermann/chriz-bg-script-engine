@@ -324,9 +324,15 @@ valid only while all declared conditions remain true:
   lifecycle state.
 - The intended target/action remains legal immediately before queuing.
 
-The lease ends on queueing, timeout, interruption, target invalidation, phase change, control
-change, error, capability loss, or adapter disable. Plans never justify destructive global
-queue clearing.
+The dispatch lease ends when the action request is queued or when dispatch fails. Queue acceptance
+creates a separate, read-only **in-flight attempt token** that records the intended action and its
+observation state without continuing to own the actor or action queue. While that token is
+unresolved, Combat Intent cannot acquire a conflicting new lease for the actor. Higher authorities
+and ordinary engine/legacy semantics still win, and the observer never clears their queues.
+
+The attempt token ends on observed start/completion/failure, interruption, invalidation, bounded
+timeout, lifecycle discontinuity, capability loss, or adapter disable. Neither the lease nor the
+token is persisted across save/load. Plans never justify destructive global queue clearing.
 
 ### 8.3 WorldFlow claim
 
@@ -572,8 +578,9 @@ Each adapter declares:
 
 Activation has two phases:
 
-1. **Static eligibility:** effective resources, install provenance, semantic fingerprints,
-   dependencies, and capabilities match.
+1. **Static eligibility:** effective resources, install provenance, exact dependency hashes,
+   dependencies, and capabilities match. Selective semantic fingerprints may replace an exact
+   hash only after the relevant loss-aware IR and canonicalization have independent evidence.
 2. **Runtime claim:** the actor or flow has reached the declared safe handoff and immediate
    preconditions still hold.
 
@@ -582,9 +589,13 @@ and legacy execution continues.
 
 ### 11.4 Resource fingerprints
 
-Whole-file hashes are useful evidence but often too strict. The project needs canonical semantic
-fingerprints that preserve claimed meaning while ignoring proven-irrelevant formatting or TLK
-number differences. Fingerprints may cover:
+Whole-file hashes are the conservative initial activation check. They can disable too much but do
+not pretend to understand changes that the project cannot yet parse. Canonical semantic
+fingerprints are a later optimization that may preserve claimed meaning while ignoring
+proven-irrelevant formatting or TLK-number differences. They remain ineligible for activation
+until the relevant loss-aware IR, dependency closure, and counterexample suite are proved.
+
+Eventual fingerprints may cover:
 
 - a CRE's relevant identity fields and script-slot map;
 - the ordered BCS blocks surrounding a handoff;
@@ -594,8 +605,9 @@ number differences. Fingerprints may cover:
 - all known readers/writers of a public quest variable;
 - installed SCS/SR/EET provenance needed by an adapter.
 
-Ambiguous canonicalization is not accepted as a match. Research must demonstrate which changes
-are irrelevant and which affect behavior.
+Ambiguous canonicalization is not accepted as a match. Unknown/opaque syntax makes the affected
+claim ineligible. Research must demonstrate which changes are irrelevant and which affect behavior
+before any adapter stops requiring exact hashes.
 
 ### 11.5 Installation-order behavior
 
@@ -604,7 +616,7 @@ are irrelevant and which affect behavior.
 | Unknown mod installed before us, unrelated resources | Leave it C0; it runs normally. |
 | Unknown mod installed before us, modifies a claim | Fingerprint mismatch disables only that adapter. |
 | Supported variant installed before us | Activate the declared bounded adapter. |
-| Unknown mod installed after us, unrelated content | Combat adapters may revalidate locally; WorldFlow becomes stale until dependency rescan when new scripts could write public state. |
+| Unknown mod installed after us, unrelated content | All active adapters become stale until a refreshed dependency and external-control scan proves the new stack. New content remains C0. |
 | Later mod changes claimed BCS/DLG/ARE/CRE | Bridge declines; later effective logic wins. |
 | Later mod changes a CRE slot | Never force the old assignment back at runtime. |
 | Stack changes without compatibility refresh | Yield wherever full dependency validity cannot be proven. |
@@ -617,13 +629,16 @@ semantics on which the bridge depends.
 
 ### 11.6 Domain-specific compatibility strictness
 
-Combat Intent can often revalidate one actor and its immediate resources after an install-stack
-change. WorldFlow usually cannot: a new script can write an existing quest global without
-modifying the resource currently being controlled. Therefore:
+An actor's apparent local resource envelope is not necessarily its complete control envelope. A
+new area script, shout/global writer, forced action, or encounter controller can change who owns an
+actor without modifying the actor's CRE or generic BCS. WorldFlow has the parallel problem that a
+new script can write an existing quest global without modifying the claimed DLG/BCS.
 
-- Combat Intent may remain active only if its complete local claim can be revalidated.
-- WorldFlow enters stale/pass-through mode after unknown stack drift until a reverse-reference
-  scan rebuilds and verifies the flow's dependency graph.
+Therefore unknown stack drift initially makes **both** domains stale/pass-through. Reactivation
+requires a refreshed dependency scan. Future Combat Intent versions may support narrower local
+reactivation only after research proves an external-control closure that covers encounter/area
+controllers, shouts, shared variables, forced actions, and script-slot topology. WorldFlow always
+requires refreshed public-state reverse references.
 
 ### 11.7 Resource-specific policies
 
