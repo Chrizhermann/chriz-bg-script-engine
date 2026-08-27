@@ -1,0 +1,131 @@
+# Chriz BG Script Engine — Working Agreements
+
+## Project charter
+
+This repository develops a compatibility-first EEex scripting platform with two policy domains:
+
+- **Combat Intent** for combat perception, decision-making, coordination, and verified actions.
+- **WorldFlow** for durable quest, dialogue, cutscene, encounter, and reward state machines.
+
+The domains share infrastructure but not policy or state semantics. Combat state is mostly
+ephemeral; WorldFlow state is durable, versioned, and recoverable.
+
+## Prime compatibility invariant
+
+Unknown, modified, stale, or ambiguous content remains under its original BCS/DLG ownership.
+Adapters claim only explicitly identified resources, decisions, actors, or transitions. A failed
+check disables only the affected adapter and yields to legacy behavior.
+
+Never replace this invariant with a best-effort heuristic, broad creature scan, permissive
+fingerprint, or global fallback mode.
+
+## Current phase
+
+The current phase is research and architecture. Do not create production runtime code until the
+corresponding research gate and implementation task are approved. A document describing an API is
+not evidence that the API is safe in the engine.
+
+The canonical architecture is:
+
+- `docs/plans/2026-08-27-script-engine-architecture-design.md`
+
+Future implementation plans belong under `docs/plans/`; verified research memos under
+`docs/research/`; compatibility manifests and acceptance matrices under `docs/compatibility/`.
+
+## Safety and environments
+
+- Never write to, install into, or test against the user's active game or active playthrough
+  without explicit permission in that conversation.
+- Treat installed games used for source inspection as read-only unless they were explicitly
+  designated disposable.
+- Use synthetic fixtures, host-side simulation, and disposable game copies for destructive or
+  stateful validation.
+- Never claim that an EEex action executed because it was accepted or queued. Observe engine
+  progress and verify an independent postcondition.
+- Never persist EEex userdata, raw object IDs, action-queue ownership, or other session-local
+  handles. Persist stable identities and re-resolve them.
+- A native EEex crash is a failed experiment. Record the exact capability and call shape; do not
+  retry blindly.
+
+## Research evidence
+
+Classify every material claim by its strongest evidence:
+
+1. **E0 — documentation/source:** primary source or upstream implementation inspected.
+2. **E1 — static artifact:** effective resource, decompile, binary, or install output inspected.
+3. **E2 — deterministic host simulation:** pure policy or parser behavior reproduced outside the
+   game.
+4. **E3 — synthetic-engine proof:** minimal controlled fixture exercised in a disposable engine.
+5. **E4 — disposable full-game proof:** realistic disposable install/save exercised.
+6. **E5 — supported-corpus soak:** declared support matrix exercised repeatedly, including
+   save/load and failure paths.
+
+Do not promote E0/E1 conclusions to runtime guarantees. Every research memo must state the
+question, environment, exact versions/fingerprints, method, observations, counterevidence,
+artifacts, evidence grade, residual uncertainty, and next decision.
+
+## Engineering rules
+
+- Keep EEex/native calls behind a narrow, versioned engine boundary. Policy modules consume
+  scalar snapshots and issue typed requests.
+- Use normal engine actions when aura, casting time, interruption, inventory, spell expenditure,
+  or target legality matters. Direct effect application is not a substitute for fair casting.
+- Revalidate immediately before action dispatch; execution-time state may differ from
+  decision-time state.
+- Model accepted, started, completed, failed, interrupted, invalidated, and unknown outcomes
+  separately.
+- Combat ownership is a short lease, normally one ordinary action. WorldFlow ownership is a
+  narrow durable transition claim with postconditions and recovery.
+- Preserve public quest variables, dialogue entry points, creature death variables, and expected
+  resource identities when migrating supported content unless a reviewed adapter says otherwise.
+- Use stable, seeded randomness in simulations. Record all decision inputs, candidate scores,
+  exclusions, tie-breaking, selected intent, action result, and fallback reason.
+- Write failing tests before implementation for each approved production task.
+- Investigate every failing test. Never weaken a safety assertion merely to pass a gate.
+- No adapter may activate without static eligibility and runtime ownership checks.
+- No unsupported resource may be enrolled by naming convention alone.
+
+## Compatibility and install order
+
+- WeiDU remains the install-time system of record for patching, backups, uninstall order, and
+  inter-mod cooperation.
+- Inventory effective resources after the final intended install order.
+- Fingerprint semantics, dependencies, public readers/writers, and owned regions—not just whole
+  file bytes.
+- A later stack change invalidates affected claims. Combat adapters may revalidate locally;
+  WorldFlow adapters stay stale until public-state reverse references are rescanned.
+- Preserve legacy BCS/DLG artifacts so disabling or quarantining an adapter restores ordinary
+  fallthrough.
+- Support claims name exact content families, adapter versions, capability profiles, and tested
+  install stacks. “Compatible with mods” is not a sufficient claim.
+
+## SCS and upstream provenance
+
+SCS is a first-class knowledge source, not disposable scaffolding. Preserve its tactical intent,
+encounter exceptions, fairness rules, and compatibility learning where evidence supports them.
+
+For each SCS-derived family, maintain a migration ledger containing upstream version/component,
+source artifacts, effective generated artifacts, behavior summary, preserved rules, intentional
+changes, omitted rules, tests, attribution, and redistribution decision.
+
+Do not infer stable identity from generated `dw#*` resrefs. Do not redistribute source, generated
+BCS, fixtures, prose, or data until its license/provenance category is documented. Credit SCS
+(DavidW), Spell Revisions (Demivrgvs/G3), and other upstream authors prominently and specifically.
+
+## Scope control and delegation
+
+Good bounded tasks include one evidence spike, parser subset, pure policy module, adapter family,
+simulation scenario, linter rule, compatibility cell, or WorldFlow transition. Avoid tasks such as
+“rewrite mage AI,” “convert every quest,” or “support arbitrary mod stacks.”
+
+The integration owner retains ownership/fallback schemas, shared public interfaces, disposable
+engine execution, release claims, and active-game decisions. Freeze schemas at milestone gates
+before parallel implementation.
+
+## Git and publication
+
+- Keep commits narrow and evidence-backed.
+- Do not add a GitHub remote, publish the repository, release artifacts, or contact upstream
+  authors unless explicitly authorized.
+- Do not commit installed-game files, copyrighted upstream artifacts, generated effective BCS/DLG,
+  saves, logs containing personal paths, credentials, or authentication state.

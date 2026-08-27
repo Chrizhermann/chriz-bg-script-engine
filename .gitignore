@@ -1,0 +1,11 @@
+# Local and generated artifacts
+*.log
+*.tmp
+*.bak
+__pycache__/
+.pytest_cache/
+
+# Disposable fixtures and generated game trees
+build/
+dist/
+.work/
