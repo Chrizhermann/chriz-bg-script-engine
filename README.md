@@ -19,10 +19,11 @@ ownership, persistence, diagnostics, and conservative fallback.
 
 ## Status
 
-The repository is currently in architecture and research planning. It contains no production
-runtime and makes no support claim yet. The active playthrough is a read-only research source,
-not a test environment. Future engine validation must use synthetic fixtures and explicitly
-approved disposable game installations.
+The repository is currently in architecture and research planning. It contains one experimental,
+unloaded SCS historical-prebuff bridge helper, but no production runtime, bootstrap, or support
+claim. The active playthrough is a read-only research source, not a test environment. Future
+engine validation must use synthetic fixtures and explicitly approved disposable game
+installations.
 
 Start with:
 

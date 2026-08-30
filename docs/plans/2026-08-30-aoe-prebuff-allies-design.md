@@ -1,6 +1,7 @@
 # AoE Historical Prebuff Delivery — Design
 
-**Status:** Approved feature direction; architecture exception and implementation remain gated
+**Status:** Native Haste bridge mechanism proven in one manual E4 probe; automatic AI integration
+remains deferred
 
 **Date:** 2026-08-30
 
@@ -27,6 +28,14 @@ The first implementation decision is deliberately conditional: prove the unmodif
 in a disposable engine. If SCS already buffs eligible allies, add preservation tests and no new
 delivery code. Build adapter execution only when later migration work actually takes ownership of
 the prebuff family.
+
+A narrower disposable probe completed on 2026-08-30 manually invoked the proposed bridge with the
+installed SCS Haste prebuff clone (`dwsw305`) and its original-spell debit (`2305`). The native cast
+delivered Haste effects to the caster and the other party member in the tested positioning, while
+each successful response spent exactly one prepared Haste. This proves the bridge mechanism on
+that exact stack. It does not prove
+an assigned AI actor reaches the handoff, establish a radius boundary, or activate this adapter in
+production.
 
 ## 2. Goals
 
@@ -255,6 +264,22 @@ If the baseline passes, write acceptance fixtures that ensure observation/migrat
 it. If it fails, record the exact action/resource/projectile shape and diagnose before authorizing
 any exception.
 
+### Completed narrow bridge probe
+
+The authorized disposable EET/SCS/SR/EEex probe established only the following bounded facts:
+
+- `ReallyForceSpellRES("dwsw305",Myself)` delivered the installed clone through its native area
+  behavior to the selected caster and an ally;
+- the adjacent `RemoveSpell(2305)` reduced available `SPWI305` copies `2 -> 1 -> 0` across two
+  successful responses; after one rejected invocation, the next success still reported one copy
+  available before dispatch;
+- visible Haste and `DWSW305`-sourced timed effects were present even though the generic
+  `EEex_Sprite_GetSpellState(sprite, 1)` probe remained false on this stack; and
+- the committed bridge remains an unloaded helper with no automatic AI call site.
+
+This result rejects a generic per-ally fan-out implementation for the tested mechanism. It does
+not complete the unmodified-SCS actor baseline described above.
+
 ### Supported-corpus evidence
 
 Broader claims require repeated supported-stack scenarios, save/load cycles, failure injection,
@@ -289,4 +314,5 @@ These are research questions, not unresolved product-design choices:
   recipient outcomes?
 - Does save/load ever serialize or replay either half of the compound response?
 
-Until evidence answers them, the adapter does not claim the decision.
+Until the main SCS migration reaches a reviewed historical-prebuff handoff, the experimental
+helper remains unloaded and the adapter does not claim the decision.

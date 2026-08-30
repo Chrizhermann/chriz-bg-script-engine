@@ -1,11 +1,12 @@
-# SCS AoE Prebuff Delivery — Static Evidence Memo
+# SCS AoE Prebuff Delivery — Evidence Memo
 
-**Status:** Conditional mechanism recommendation; runtime ally-delivery result unknown
+**Status:** Native Haste bridge mechanism observed in one manual disposable-engine probe;
+automatic AI handoff remains unproved
 
 **Date:** 2026-08-30
 
-**Applicable evidence layers:** evidence:E0 claim/documentation input plus evidence:E1 pinned static
-evidence
+**Applicable evidence layers:** evidence:E0 claim/documentation input, evidence:E1 pinned static
+evidence, evidence:E2 deterministic bridge test, and evidence:E4 disposable-engine probe
 
 **Related design:** `docs/plans/2026-08-30-aoe-prebuff-allies-design.md`
 
@@ -26,16 +27,17 @@ historical cast or implement a new ally fan-out mechanism. A wrong choice can gr
 duplicate an area effect, bypass projectiles and protections, select the wrong caster-level
 ability, or affect actors that the installed spell would not reach.
 
-This memo does not authorize runtime ownership or game mutation. It establishes an implementation
-hypothesis and the minimum disposable-engine experiment needed to prove or reject it.
+This memo does not authorize runtime ownership. It records the static implementation hypothesis
+and one explicitly authorized manual disposable-engine probe of the narrow bridge mechanism.
 
 ## Evidence classification
 
 The G0 decision defines evidence layers as distinct proof environments rather than a scalar
 maturity ladder. Revision-pinned upstream source, hashed generated BAF, and installed SPL/resource
 inspection in this memo are evidence:E1. Unpinned action documentation and design assumptions are
-evidence:E0 inputs. No evidence:E2 host simulation, evidence:E3 synthetic-game integration,
-evidence:E4 disposable-engine behavior, or evidence:E5 supported-corpus soak is claimed.
+evidence:E0 inputs. The focused mocked-EEex bridge test is evidence:E2. The later manual Haste
+probe in an isolated full game is evidence:E4. No evidence:E3 synthetic-game integration or
+evidence:E5 supported-corpus soak is claimed.
 
 ## Environment
 
@@ -64,8 +66,22 @@ Upstream comparison:
 - Action reference:
   [IESDP BG(2)EE actions](https://gibberlings3.github.io/iesdp/scripting/actions/bgeeactions.htm)
 
-No game process was launched. No action was queued. No save, CRE assignment, or effective BCS was
-inspected. No installed file was written or copied into the repository.
+During the static inspection phase, no game process was launched and no action was queued. No save,
+CRE assignment, or effective BCS was inspected. No installed game artifact was copied into the
+repository.
+
+Authorized disposable-engine probe:
+
+- Disposable game: a temporary copy of the inspected BG2:EE/EET installation with a unique
+  `engine_name` and isolated user profile
+- Bridge commit: `bdfe096`
+- Installed bridge SHA-256:
+  `9858914FA3380AAABD251690D75420A8CFC576DAF12094FCBFE285C25F7B084C`
+- Haste prebuff clone: `dwsw305.spl`, SHA-256
+  `E04AAAE94B1D34ADCC385CFC79B8776F1FB1C490E681CA269365EC03988E0F20`
+- Delivery/accounting pair: `dwsw305` plus numeric spell ID `2305` (`WIZARD_HASTE`)
+- Invocation: manual EEex Remote Console call on a selected party mage; not an assigned AI actor
+- Retention: results recorded here; disposable game/profile removed after verification
 
 Relevant local source/artifact fingerprints:
 
@@ -102,6 +118,13 @@ Attribution and retention policy:
 5. Compare the action with documented `ReallyForceSpellRES` and `ApplySpellRES` behavior.
 6. Search generated BAF output for concrete invocations rather than inferring behavior from spell
    names or `prebuff.2da` membership.
+7. Install a temporary component that copies the committed bridge byte-for-byte into the isolated
+   game; verify its hash and WeiDU component record.
+8. Record selected-caster `SPWI305` availability and party `DWSW305`-sourced timed-effect counts.
+9. Queue the bridge response, wait for engine ticks, and independently inspect slot and effect
+   postconditions rather than treating `QUEUED_ONLY` as completion.
+10. Repeat once to distinguish one-spell accounting from recipient count and record the rejected
+    no-slot preflight separately.
 
 The SPL parser was a read-only PowerShell 7.6.5 script using little-endian
 `System.BitConverter`. It read the SPL V1 ability table offset at `0x64`, ability count at `0x68`,
@@ -302,6 +325,26 @@ delivery and caster-level ability selection. It also creates unproved preservati
 
 Manual EEex effect injection would require reimplementing still more of SPL/projectile resolution.
 
+### O7 — The manual Haste bridge probe delivered to an ally and spent once per cast
+
+**Evidence:** evidence:E2 focused bridge test plus evidence:E4 disposable-engine observation
+
+The selected caster began with two available `SPWI305` memorisations. The first successful bridge
+response reduced the count to one and left ten `DWSW305`-sourced timed effects on the caster. A
+subsequent invocation returned the no-available-copy preflight error; the next successful caster
+invocation still reported one copy before dispatch. That second successful response reduced the
+count from one to zero; post-tick inspection showed twenty `DWSW305`-sourced effects on the caster
+and ten on the ally. The user independently observed both characters under Haste.
+
+This establishes, for this exact installed clone and stack, that one native cast can select an
+ally and that the adjacent accounting action spends one prepared Haste per successful response,
+not one per recipient. It does not establish an exact radius, hostile/neutral/summon behavior,
+cleric families, automatic SCS actor eligibility, or interruption outcomes.
+
+`EEex_Sprite_GetSpellState(sprite, 1)` remained false for both actors despite visible Haste and the
+source-matched timed effects. A hard-coded vanilla Haste state probe is therefore not an
+authoritative positive or negative for this effective SCS/SR prebuff clone.
+
 ## Artifacts
 
 | Artifact class | Location/retention | Use |
@@ -310,19 +353,22 @@ Manual EEex effect injection would require reimplementing still more of SPL/proj
 | SCS source and generated workspace | Local read-only installation; not committed | Source/generation inspection only |
 | Effective original/prebuff SPL files | Local read-only installation; not committed | Header-shape and hash comparison only |
 | Full command output | Ephemeral terminal output; not committed | Reproduced into decision-relevant metadata above |
+| Bridge helper and focused unit test | Repository | Authored two-action response and deterministic queue-shape proof |
+| Temporary WeiDU harness and isolated save | Disposable game/profile; removed after capture | Manual E4 invocation and observation only |
 | Effective BCS, CRE assignments, PRO closure, saves | Not inspected | Explicit future evidence gap |
 
 ## Residual uncertainty and counterevidence
 
-- No engine cast was performed, so actual ally delivery remains unproved.
+- No automatically assigned AI actor executed a generated SCS prebuff; the E4 probe manually
+  invoked the bridge on a selected party mage.
 - The effective projectile resources and any secondary projectiles were not recursively inspected.
 - No effective generated BCS or CRE script-slot assignment was inspected.
-- Static similarity does not prove source caster identity, caster level, protection behavior,
-  probability granularity, or effect source resrefs after delivery.
+- The probe did not establish a radius boundary, hostile/neutral/summon selection, protection
+  behavior, caster-level selection across headers, or probability granularity.
 - Deleting the selected opcodes may remove substantive behavior if another mod repurposes one of
   them; each supported effective spell still needs dependency-closure inspection.
-- `ReallyForceSpellRES` plus `RemoveSpell` is a non-atomic two-action sequence. Static inspection
-  cannot show whether both parts execute under queue clearing, death, area transition, or save/load.
+- `ReallyForceSpellRES` plus `RemoveSpell` is a non-atomic two-action sequence. The successful path
+  was observed, but queue clearing, death, area transition, and save/load were not tested.
 - The inspected stack is one SCS 35.21 + SR 4.19 + EET 14.0 installation. Generated resources are
   install-specific and cannot be generalized to unknown stacks.
 - Source-level requests can disappear during generation, as the Protection from Evil 10' example
@@ -330,25 +376,25 @@ Manual EEex effect injection would require reimplementing still more of SPL/proj
 
 ## Conclusion
 
-**Mechanism outcome:** Conditional
+**Mechanism outcome:** Proven for the exact manual Haste bridge probe
 
-**Runtime ally-delivery outcome:** Unknown
+**Runtime ally-delivery outcome:** Observed for one ally on the tested stack
 
-The evidence supports testing one native historical cast as the preferred generic hypothesis. The
-cloned spell/projectile would perform recipient selection, while the generated response separately
-attempts one original-spell debit. Recipient coverage and exactly-once accounting remain unknown.
-The inspected SCS helper uses this forced historical-cast pattern rather than an actor-wide
-aura-cleansing modifier or a per-ally application mechanism; comparative runtime safety remains
-untested.
+**Automatic AI handoff outcome:** Unproved
 
-The evidence does not establish that allies actually receive the effects. The current behavior may
-already satisfy the desired requirement; production code would be premature until an isolated
-engine test observes recipients and accounting.
+The evidence supports one native historical cast rather than actor-wide aura-cleansing state or a
+per-ally application mechanism. In the completed Haste probe, the installed clone selected the ally
+and the adjacent action spent one original memorisation per successful cast. This is sufficient to
+retain the bridge helper for the future SCS migration handoff.
+
+The result does not make the current library a gameplay component: no production bootstrap loads
+it and no AI prebuff path calls it. Packaging and activation remain deferred until the main SCS
+migration reaches that handoff.
 
 ## Next decision and minimum runtime proof
 
-Before any adapter claims the action, run an explicitly authorized disposable-engine experiment
-against unmodified SCS behavior:
+The completed manual probe removes any need to invent generic ally fan-out. Before an adapter claims
+an actual AI decision, the remaining baseline work is still to test unmodified SCS actor behavior:
 
 1. Resolve the exact effective projectile/PRO closure and use actors at controlled distances before
    labeling any position inside, at, or outside a radius.
