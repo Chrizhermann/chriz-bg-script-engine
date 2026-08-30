@@ -67,7 +67,7 @@ and remaining evidence; it never marks the whole spike complete by association.
   `scs-compatibility.md`, `ie-scripting.md`, `eeex-actions.md`, `eeex-persistence.md`,
   `eeex-sprites.md`, `weidu.md`, and `weidu-testing.md`
 
-Research memos are authoritative only for the exact environment and evidence grade they name.
+Research memos are authoritative only for the exact environments and evidence layers they name.
 Support manifests and effective resource fingerprints outrank remembered install details.
 
 ## 3. Program dependency map
@@ -90,9 +90,13 @@ E6 + E8 + E9b ───────> E10 Supported-alpha hardening
 E10 ─────────────────> E11 Deliberate supported-corpus expansion
 ```
 
-WorldFlow research may run beside Combat Intent research after E3. WorldFlow may not schedule a
+The `E0` through `E11` identifiers in dependency maps and phase headings are program epics.
+Evidence grades are written as `evidence:E0` through `evidence:E5`, and epic labels as `epic:E0`
+through `epic:E11`. Bare `E*` references are not used where the namespace is ambiguous.
+
+WorldFlow research may run beside Combat Intent research after epic E3. WorldFlow may not schedule a
 persistent world mutation until the action observer, ownership handoff, adapter quarantine, and
-save/load behavior have passed the relevant E3/E5 tests.
+save/load behavior have passed the relevant epic E3 and G5 tests.
 
 E9 is one epic with two maturity stages: internal analysis/registration structures may begin after
 E2, but the public SDK is not frozen until one real Combat Intent adapter and one real WorldFlow
@@ -112,7 +116,7 @@ Each issue carries:
 - `epic:E0` through `epic:E11`;
 - `area:kernel`, `area:combat-intent`, `area:worldflow`, `area:adapter`, `area:tooling`,
   `area:packaging`, or `area:research`;
-- `evidence:E0` through `evidence:E5` for the strongest current proof;
+- every `evidence:E0` through `evidence:E5` layer actually reached and still applicable;
 - `compat:C0` through `compat:C4` where applicable;
 - `env:host`, `env:synthetic`, `env:disposable`, or `env:soak`;
 - `priority:P0`, `priority:P1`, or `priority:P2`;
@@ -130,13 +134,13 @@ Issue titles use stable IDs from the research and compatibility backlogs, for ex
 | Gate | Entry | Required exit evidence | Failure response |
 |---|---|---|---|
 | **G0 Charter** | Architecture draft and naming decision | Approved charter, compatibility invariant, safety boundary, non-goals, provenance policy, task map | Resolve design conflict; no runtime work |
-| **G1 Bridge feasibility** | PREP complete; disposable environment explicitly authorized, provisioned, isolated, and reset-tested | Capability profile; safe hook lifecycle; BCS/Lua handoff; normal action and dialogue initiation; action observations; persistence lifecycle; crash and reload procedure; E4 probe evidence | Narrow supported EEex profile or stop native branch |
+| **G1 Bridge feasibility** | PREP complete; disposable environment explicitly authorized, provisioned, isolated, and reset-tested | Capability profile; safe hook lifecycle; BCS/Lua handoff; normal action and dialogue initiation; action observations; persistence lifecycle; crash and reload procedure; evidence E4 probe results | Narrow supported EEex profile or stop native branch |
 | **G2 Unknown pass-through** | Manifest and ownership schemas drafted | Static eligibility plus runtime lease proven; unknown/modified/stale resources remain C0; any post-install drift remains stale with no reactivation; per-adapter quarantine; install-order invalidation; core `COMP-I/B/D/P` tests | Disable takeover path; redesign bridge |
 | **G3 Observer** | G1 and G2 pass | Kernel can observe and explain supported actors without queueing actions or changing world state; bounded performance; save/load clears ephemeral handles | Remain research-only |
-| **G4 Combat shadow** | G3; mage family ledger; frozen snapshot/candidate schemas | Mage/prebuff decisions replay deterministically, obey perception/fairness, compare against legacy/SCS oracle, never dispatch; E4 arena proof | Revise model or abandon family |
+| **G4 Combat shadow** | G3; mage family ledger; frozen snapshot/candidate schemas | Mage/prebuff decisions replay deterministically, obey perception/fairness, compare against legacy/SCS oracle, never dispatch; evidence E4 arena proof | Revise model or abandon family |
 | **G5 Active combat** | G4; action observer and kill switch proven | One ordinary action per lease; revalidation; aura/resource expenditure; started/completed/failed/unknown outcomes; immediate legacy handback; save/load and interruption tests | Return pilot to shadow-only |
 | **G6 Migration economics** | At least one active family and one additional shadow family | Measured person/agent time, fixture cost, exception count, runtime cost, regression rate, and SCS knowledge-retention score fit declared budget | Invest in IR/tooling or stop broad migration |
-| **G7 WorldFlow convergence** | E3 and G5 stable; durable schema approved; persistent mutation specifically approved | Synthetic quest converges across normal/skip/recovery/save/load/upgrade/disable paths; no duplicate reward/spawn/journal; public ABI and handback proven | WorldFlow remains observer/linter-only |
+| **G7 WorldFlow convergence** | Epic E3 and G5 stable; durable schema approved; persistent mutation specifically approved | Synthetic quest converges across normal/skip/recovery/save/load/upgrade/disable paths; no duplicate reward/spawn/journal; public ABI and handback proven | WorldFlow remains observer/linter-only |
 | **G8 Supported alpha** | G5, G7, packaging and matrix candidates | Exact support manifest; installer rollback; diagnostics; provenance/license allowlist; performance budget; supported-corpus soak; known limitations | No release; quarantine failed families |
 
 No date, token budget, or amount of completed code can waive a failed gate.
@@ -183,12 +187,14 @@ paths. A missing tool means the check is unexecuted, not passing.
 - Create: `docs/decisions/0006-runtime-and-host-language-boundaries.md`
 - Create: `docs/decisions/template.md`
 - Create: `docs/decisions/gates/G0-charter.md`
+- Create: `scripts/validate-g0-namespace.ps1`
+- Create: `scripts/validate-g0-decisions.ps1`
 
 **Steps:**
 
 1. Copy the decision, context, alternatives, consequences, compatibility effect, evidence basis,
    reversal condition, and review date into each ADR.
-2. Mark ADR 0006 `provisional` until PREP-02 confirms the host/runtime toolchain.
+2. Mark ADR 0006 `provisional` until Task 2's host/runtime toolchain decision is complete.
 3. Verify every ADR names unknown-content pass-through and the active-game boundary where relevant.
 4. Record G0 as passed only after confirming the initial platform, unique namespace, support tiers,
    kill-switch policy, non-goals, SCS attribution policy, and separation of ephemeral Combat Intent
@@ -196,49 +202,69 @@ paths. A missing tool means the check is unexecuted, not passing.
 5. Run:
 
    ```powershell
-   rg -L "Status:|Decision:|Compatibility:|Evidence:|Revisit when:" docs/decisions/*.md
+   & ./scripts/validate-g0-decisions.ps1
    ```
 
-   Expected: no paths printed.
+   Expected: exit 0 with every required ADR and gate-record field reported present.
 6. Commit: `docs: record script engine architecture decisions`.
 
 **Exit:** G0 has durable, independently reviewable decisions rather than one monolithic document.
 
 ### Task 2: Establish the development and disposable-lab contract
 
-**Research linkage (not automatic closure):** PREP-01, PREP-02, PREP-03
+**Research linkage (not automatic closure):** PREP-01, PREP-03
 
 **Depends on:** Task 1
 
+**Artifact checkpoints:** Task 2 first publishes and reviews
+`docs/research/PREP-01-support-baseline.md`. That artifact, rather than completion of Task 2's
+independent checker, toolchain, and runbook work, releases Task 4's PREP-02 spike. Task 2 may
+continue those independent steps, but it must not begin or close PREP-03 until Task 4 publishes and
+reviews `docs/research/PREP-02-evidence-and-provenance-index.md`.
+
 **Files:**
 
-- Create: `docs/research/PREP-01-environment-inventory.md`
-- Create: `docs/research/PREP-02-toolchain-decision.md`
-- Create: `docs/research/PREP-03-disposable-lab-runbook.md`
+- Create: `docs/research/PREP-01-support-baseline.md`
+- Create: `docs/research/host-runtime-toolchain-decision.md`
+- Create: `docs/research/disposable-lab-runbook.md`
+- Create: `docs/research/PREP-03-failure-safety-compatibility-threat-model.md`
 - Create: `scripts/check-dev-environment.ps1`
 - Test: `tests/tooling/test_environment_contract.py`
 - Create: `pyproject.toml`
 
 **Steps:**
 
-1. Write a failing test that invokes the environment checker with a fixture path matching the
+1. Inventory the current game/EEex/WeiDU/EET/SCS/Spell Revisions ecosystem, upstream revisions,
+   operating-system constraints, and install-order assumptions read-only. This research step may
+   precede the checker test because it writes no production code and is required to define PREP-01.
+2. Complete the PREP-01 support baseline with exact dependency states, versions/revisions where
+   available, capability assumptions, and deterministic non-claim behavior for every unsupported or
+   uncertain case.
+3. Review PREP-01 against its backlog exit criterion, run `git diff --check`, and make the narrow
+   artifact-checkpoint commit `research: pin initial support baseline`. This checkpoint releases
+   Task 4's PREP-02 work; Task 2 remains `in_progress`.
+4. Write a failing test that invokes the environment checker with a fixture path matching the
    documented active game and expects a hard refusal before any file write.
-2. Run `python -m pytest tests/tooling/test_environment_contract.py -q`; expected: FAIL because the
+5. Run `python -m pytest tests/tooling/test_environment_contract.py -q`; expected: FAIL because the
    checker does not exist.
-3. Inventory Python, Lua/LuaJIT candidates, WeiDU versions, EEex versions, Near Infinity, decompiler
+6. Inventory Python, Lua/LuaJIT candidates, Near Infinity, decompiler
    commands, path/encoding constraints, and disposable-disk requirements without modifying a game.
-4. Implement the minimal read-only checker. It must require an explicit
+7. Implement the minimal read-only checker. It must require an explicit
    `BGSE_DISPOSABLE_GAME_ROOT`, resolve the canonical absolute target and every ancestor, reject the
    known active-game root and all descendants/aliases, reject symlinks/junctions/reparse points that
    resolve into or out of the disposable root, reject any intended write target escaping that root,
    reject a root without a disposable marker file, and print capability results without secrets.
-5. Run the focused test; expected: PASS for a temporary marked fixture and PASS-by-refusal for the
+8. Run the focused test; expected: PASS for a temporary marked fixture and PASS-by-refusal for the
    active path.
-6. Create a clean disposable-lab runbook covering copy creation, marker, launch, log capture, save
+9. Create a clean disposable-lab runbook covering copy creation, marker, launch, log capture, save
    reset, crash detection, process shutdown, restore, and evidence retention. Do not create the
    actual game copy without explicit approval.
-7. Decide the host test/runtime toolchain in ADR 0006 and document unsupported alternatives.
-8. Run the full host suite and commit: `test: establish safe development environment contract`.
+10. Decide the host test/runtime toolchain in ADR 0006 and document unsupported alternatives.
+11. Stop at the PREP-02 artifact barrier if Task 4 has not published and reviewed
+    `docs/research/PREP-02-evidence-and-provenance-index.md`. Once it has, complete the PREP-03 risk
+    register with prevention, detection, fallback, recovery, responsible subsystem, and planned
+    validation for every critical failure class.
+12. Run the full host suite and commit: `test: establish safe development environment contract`.
 
 **Exit:** repeatable commands exist, but no active or disposable game has been mutated merely by
 running the checker.
@@ -282,13 +308,19 @@ substitute the active installation if this task is pending or fails.
 
 ### Task 4: Define evidence, fixture, corpus, and redistribution governance
 
-**Research linkage (not automatic closure):** TEST-01, TEST-02, LIC-01 through LIC-04
+**Research linkage (not automatic closure):** PREP-02, TEST-01, TEST-02, LIC-01 through LIC-04
 
-**Depends on:** Task 1
+**Depends on:** Task 1 plus Task 2's reviewed `docs/research/PREP-01-support-baseline.md` artifact;
+Task 2 need not be complete
+
+**Artifact checkpoint:** PREP-02 is the first independently reviewed output of this task. Publishing
+`docs/research/PREP-02-evidence-and-provenance-index.md` releases Task 2's PREP-03 work while the
+remaining fixture, licensing, and redistribution governance continues here.
 
 **Files:**
 
 - Create: `docs/research/evidence-template.md`
+- Create: `docs/research/PREP-02-evidence-and-provenance-index.md`
 - Create: `docs/provenance/artifact-policy.md`
 - Create: `docs/provenance/upstream-register.md`
 - Create: `docs/provenance/fixture-allowlist.md`
@@ -303,15 +335,23 @@ substitute the active installation if this task is pending or fails.
 3. Define classifications for independently authored metadata, short factual extracts, generated
    fingerprints, locally generated effective artifacts, redistributable synthetic fixtures,
    upstream source, and forbidden packaged content.
-4. Record SCS's exact source/version and reuse statement as an E0 licensing input, explicitly noting
-   that project interpretation is not legal advice and does not itself authorize redistribution.
-5. Implement the evidence schema and validate one positive and one negative fixture.
-6. Verify the fixture allowlist excludes full SCS source/generated BCS, installed binaries, TLK,
+4. Implement the minimum schema, template, and evidence index needed to satisfy PREP-02. Validate a
+   sample Combat Intent rule and WorldFlow compatibility contract end-to-end without consulting the
+   active game or personal memory.
+5. Record SCS's exact source/version and reuse statement as E1 pinned static evidence. Record any
+   interpretation of what that statement permits separately as an E0 claim or policy decision; it
+   is not legal advice and does not itself authorize redistribution.
+6. Run focused schema tests and `git diff --check`, review PREP-02 against its backlog exit criterion,
+   and make the narrow checkpoint commit `docs: establish evidence and provenance ledger`. This
+   releases Task 2's PREP-03 step; Task 4 remains `in_progress`.
+7. Complete the remaining provenance classifications and validate one positive and one negative
+   fixture.
+8. Verify the fixture allowlist excludes full SCS source/generated BCS, installed binaries, TLK,
    saves, and personal-path logs.
-7. Run focused and full tests; commit: `docs: define evidence and provenance governance`.
+9. Run focused and full tests; commit: `docs: define fixture and provenance governance`.
 
-**Exit:** every future fixture and migrated behavior has a place, an owner, an evidence grade, and a
-distribution decision.
+**Exit:** every future fixture and migrated behavior has a place, an owner, its applicable evidence
+layers, and a distribution decision.
 
 ### Task 5: Build the effective-install inventory and exact ownership-manifest prototype
 
@@ -349,8 +389,8 @@ distribution decision.
    research memo.
 8. Run tests and commit: `feat: add conservative install inventory prototype`.
 
-**Exit:** E2 can identify exact resources and reject uncertainty with no selective semantic match;
-it does not yet activate runtime ownership.
+**Exit:** epic:E2 can identify exact resources and reject uncertainty with no selective semantic
+match; it does not yet activate runtime ownership.
 
 ### Task 6: Characterize the SCS combat corpus and create migration ledgers
 
@@ -419,8 +459,8 @@ copied or activated.
 5. Run focused tests; expected: deterministic capability profiles and explicit unavailable reasons.
 6. Commit: `feat: add versioned EEex capability profiles`.
 
-**Exit:** capability detection exists as a pure contract; engine safety is still E0/E2 until the
-disposable probes pass.
+**Exit:** capability detection exists as a pure contract; engine safety remains bounded by
+evidence:E0 and evidence:E2 until the disposable probes pass.
 
 ### Task 8: Prove observer registration and hot-reload safety
 
@@ -430,11 +470,16 @@ disposable probes pass.
 
 **Files:**
 
-- Create: `experiments/eeex-observer/M_bgse_obs.lua`
-- Create: `experiments/eeex-observer/bgse_obs.lua`
+- Create: `experiments/eeex-observer/M_B-K.lua`
+- Create: `experiments/eeex-observer/{allocated-observer-stem}.lua`
 - Create: `experiments/eeex-observer/README.md`
 - Create: `docs/research/EEEX-03-observer-probe.md`
 - Test: `tests/unit/kernel/test_listener_trampoline.lua`
+
+`{allocated-observer-stem}` is a non-literal planning token. Before creating the experiment,
+record a one-to-one logical-artifact allocation whose stem satisfies
+`^B-[KCWX][A-Z0-9]{5}$`; do not truncate or hash an adapter ID into that stem. `M_B-K.lua` is the
+fixed planned bootstrap name, while its autoload and ordering remain Task 8 evidence questions.
 
 **Steps:**
 
@@ -452,7 +497,7 @@ disposable probes pass.
 7. Commit host tests and redistributable experiment source/log excerpts only:
    `research: prove EEex observer lifecycle`.
 
-**Exit:** E4 evidence identifies a safe observer lifecycle or G1 fails.
+**Exit:** evidence:E4 identifies a safe observer lifecycle or G1 fails.
 
 ### Task 9: Prove normal-action outcome observation
 
@@ -485,8 +530,8 @@ disposable probes pass.
    clearing.
 7. Commit: `research: define and prove action outcome states`.
 
-**Exit:** one ordinary action family has an E4 observer with explicit unknown outcomes; otherwise
-active control remains forbidden.
+**Exit:** one ordinary action family's observer is proved at evidence:E4 with explicit unknown
+outcomes; otherwise active control remains forbidden.
 
 ### Task 10: Prove persistence, stack epochs, diagnostics, and baseline cost
 
@@ -532,11 +577,17 @@ measured baseline.
 - Create: `docs/research/BCS-01-lua-handoff.md`
 - Create: `docs/research/DLG-01-normal-dialogue-initiation.md`
 - Create: `docs/research/FLOW-01-legacy-decline-and-handback.md`
-- Create: `experiments/bridge/bgse_bridge.baf`
-- Create: `experiments/bridge/bgse_dialogue.d`
-- Create: `experiments/bridge/bgse_bridge.lua`
+- Create: `experiments/bridge/{allocated-bridge-script-stem}.baf`
+- Create: `experiments/bridge/{allocated-dialogue-stem}.d`
+- Create: `experiments/bridge/{allocated-bridge-lua-stem}.lua`
 - Create: `experiments/bridge/setup-bgse-bridge.tp2`
 - Test: `tests/integration/test_bridge_installer.py`
+
+Each `{allocated-...-stem}` is a non-literal planning token. Before creating the bridge fixture,
+record a separate one-to-one logical-artifact allocation whose engine stem satisfies
+`^B-[KCWX][A-Z0-9]{5}$` and is unique case-insensitively across extensions. Never truncate or hash
+an adapter ID into an engine name. `bgse` is the host-only installer slug and is not an engine
+resource derivation.
 
 **Steps:**
 
@@ -572,7 +623,8 @@ failure visibly restore the legacy path.
 
 1. Assemble exact capability profile, source revisions, engine build, experiment IDs, crashes,
    unsupported calls, lifecycle gaps, action observation limits, persistence result, and cost.
-2. Mark each claim E0-E5 and each capability `supported`, `shadow-only`, `unavailable`, or
+2. Mark each claim with every applicable `evidence:E0` through `evidence:E5` layer and each
+   capability `supported`, `shadow-only`, `unavailable`, or
    `quarantined`.
 3. Run all host tests and reproduce the disposable smoke sequence from a reset lab state.
 4. Review against every G1 exit criterion and P0 open question.
@@ -605,8 +657,9 @@ failure visibly restore the legacy path.
 1. Write failing Lua tests for injected monotonic time, deterministic sequence replay, independent
    RNG streams, integer/float boundary behavior, invalid seeds, and no access to ambient wall clock
    or global random state.
-2. Implement a Python runner that launches the interpreter selected by PREP-02, reports every test
-   file, preserves stdout/stderr, and fails if no tests are discovered.
+2. Implement a Python runner that launches the interpreter selected by
+   `docs/research/host-runtime-toolchain-decision.md`, reports every test file, preserves
+   stdout/stderr, and fails if no tests are discovered.
 3. Run `pwsh -File scripts/test.ps1 -Suite unit`; expected: intentional RED for missing clock/RNG.
 4. Implement minimal Lua 5.1-compatible clock and RNG interfaces. Do not optimize or add policy.
 5. Run the unit suite twice with shuffled test order; expected: identical decisions and no global
@@ -750,20 +803,23 @@ without behavioral mutation.
 2. Write failing cases for unknown mod before, unknown mod after, recognized resource modified
    before, recognized resource modified after, occupied slots, added public-global writer, removed
    dependency, version upgrade, runtime disable, exception, and capability loss.
-3. Run the focused integration tests; expected: intentional RED.
-4. Wire inventory, eligibility, bridge, observer, and lease code into the fake-game installer.
-5. Prove unknown bytes remain untouched in the fake game. In a disposable sentinel scenario, prove
+3. Add COMP-I07 RED fixtures for an occupied engine resource prefix, bootstrap filename, adapter ID,
+   and exclusive internal-variable claim. Hash the fixture tree before the attempted install and
+   prove each collision is rejected before any byte is changed.
+4. Run the focused integration tests; expected: intentional RED.
+5. Wire inventory, eligibility, bridge, observer, and lease code into the fake-game installer.
+6. Prove unknown bytes remain untouched in the fake game. In a disposable sentinel scenario, prove
    one unknown actor and one unknown quest/controller continue their observable legacy behavior
    while the kernel is loaded. After any unknown stack drift, both domains remain stale/pass-through
    for G2; no adapter reactivates. Successful refreshed reactivation is separate G5/G8 research
    requiring a proved dependency, public-state, and external-control closure.
-6. Install, reinstall, upgrade, disable, and uninstall. Verify publication allowlist and byte-exact
+7. Install, reinstall, upgrade, disable, and uninstall. Verify publication allowlist and byte-exact
    restoration of fixture-owned originals.
-7. Map results to stable `COMP-*` IDs and record unexecuted cells explicitly.
-8. Commit: `test: prove unknown-content legacy ownership`.
+8. Map results to stable `COMP-*` IDs and record unexecuted cells explicitly.
+9. Commit: `test: prove unknown-content legacy ownership`.
 
-**Exit:** the primary compatibility invariant has E3 structural/restoration evidence and E4
-sentinel-behavior evidence rather than prose.
+**Exit:** the primary compatibility invariant has evidence:E3 structural/restoration proof and
+evidence:E4 sentinel-behavior proof rather than prose.
 
 ### Task 18: Review and record G2 and G3
 
@@ -814,7 +870,7 @@ FLOW-01, FLOW-02, WF-06
    final world invariants, and legacy re-entry/handback.
 4. Validate against synthetic scripts with an unknown later writer/controller; expected: the graph
    reports incomplete closure and any hypothetical claim remains stale/pass-through.
-5. Inspect representative effective content read-only and record E1 evidence, uncertainties, and
+5. Inspect representative effective content read-only and record evidence:E1, uncertainties, and
    unsupported constructs without converting or patching it.
 6. Commit: `research: map WorldFlow semantics and public ABI`.
 
@@ -1083,8 +1139,8 @@ omniscient.
 2. Write failing pure tests for ally-in-AoE, uncertain radius, chokepoint, unreachable candidate,
    occupied destination, caster threat, retreat bias, and no safe movement.
 3. Implement a small sampled candidate set; do not build a full path planner.
-4. Exclude any AoE/movement candidate whose geometry or reachability cannot be supported at the
-   required evidence level.
+4. Exclude any AoE/movement candidate whose geometry or reachability lacks the required evidence
+   layer or combination of layers.
 5. Validate only safe read/query calls in the disposable arena; stop on native fault.
 6. Commit: `feat: add conservative spatial reasoning`.
 

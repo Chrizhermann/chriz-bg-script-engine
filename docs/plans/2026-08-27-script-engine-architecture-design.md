@@ -849,16 +849,27 @@ unsafe rewriting. WeiDU remains the compiler/installer until evidence supports a
 
 ### 16.1 Evidence levels
 
-Research conclusions use an explicit scale:
+Research conclusions use distinct proof layers:
 
-- **E0 — source/documentation claim**
-- **E1 — static artifact or binary/decompile proof**
-- **E2 — deterministic pure-host simulation**
-- **E3 — real WeiDU against a synthetic game**
-- **E4 — disposable full-game engine proof**
-- **E5 — supported-corpus soak/compatibility proof**
+Evidence grades identify proof environments, not substitutable confidence levels. A
+higher-numbered layer does not discharge a required lower-layer proof; record combinations such as
+E3+E4 when both installer/restoration and runtime behavior matter.
 
-Safety-critical runtime claims cannot graduate on E0 alone.
+- **E0 — claim/documentation input:** upstream documentation, comments, forum statements,
+  unpinned source, or an unverified design assumption.
+- **E1 — pinned static evidence:** revision-pinned source inspection, effective resources,
+  binaries, decompiles, install output, or a reproducible provenance chain.
+- **E2 — deterministic pure-host simulation:** pure Lua/model tests, replay, property tests, or
+  state-machine exploration outside the game process.
+- **E3 — synthetic-game integration:** real WeiDU operates on a minimal fake game to prove
+  compilation, patching, packaging and publication-allowlist enforcement, reinstall, and
+  restoration without launching a game executable.
+- **E4 — disposable full-game engine proof:** behavior is observed in an isolated full BG2:EE plus
+  EEex environment, including runtime/save behavior where relevant.
+- **E5 — supported-corpus soak/compatibility proof:** the declared support matrix is exercised
+  repeatedly, including compatibility variants, save/load, performance stress, and failure paths.
+
+E0 alone cannot establish a safety-critical runtime claim.
 
 ### 16.2 Test layers
 
@@ -921,8 +932,8 @@ Before an alpha, test at least:
 ## 17. Research and preparation program
 
 Research is a first-class deliverable. Each spike ends as **Proven**, **Conditional**,
-**Rejected**, or **Unknown**, with evidence level, artifacts, decision, remaining uncertainty,
-and dependent work unblocked or blocked.
+**Rejected**, or **Unknown**, with its applicable evidence layer or layers, artifacts, decision,
+remaining uncertainty, and dependent work unblocked or blocked.
 
 ### 17.1 Foundation research
 
@@ -1008,6 +1019,10 @@ and dependent work unblocked or blocked.
 - Save-safety and performance soak procedures.
 
 ## 18. Program epics and gates
+
+The `E0` through `E11` identifiers in this section are **program epics**, not evidence grades.
+Records and issue labels must use `epic:E*` or `evidence:E*` whenever the namespace would otherwise
+be ambiguous.
 
 ```text
 E0 Charter / compatibility / provenance

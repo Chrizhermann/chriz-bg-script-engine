@@ -52,16 +52,24 @@ Future implementation plans belong under `docs/plans/`; verified research memos 
 
 ## Research evidence
 
-Classify every material claim by its strongest evidence:
+Classify each material claim by the applicable evidence layer or combination of layers. Evidence
+grades identify distinct proof environments, not substitutable confidence levels. A higher-numbered
+layer does not discharge a required lower-layer proof; record combinations such as E3+E4 when both
+installer/restoration and runtime behavior matter.
 
-1. **E0 — documentation/source:** primary source or upstream implementation inspected.
-2. **E1 — static artifact:** effective resource, decompile, binary, or install output inspected.
-3. **E2 — deterministic host simulation:** pure policy or parser behavior reproduced outside the
-   game.
-4. **E3 — synthetic-engine proof:** minimal controlled fixture exercised in a disposable engine.
-5. **E4 — disposable full-game proof:** realistic disposable install/save exercised.
-6. **E5 — supported-corpus soak:** declared support matrix exercised repeatedly, including
-   save/load and failure paths.
+1. **E0 — claim/documentation input:** upstream documentation, comments, forum statements,
+   unpinned source, or an unverified design assumption inspected.
+2. **E1 — pinned static evidence:** revision-pinned source inspection, effective resource,
+   decompile, binary, install output, or provenance chain inspected reproducibly.
+3. **E2 — deterministic host simulation:** pure policy, parser, replay, property-test, or state
+   machine behavior reproduced outside the game process.
+4. **E3 — synthetic-game integration:** real WeiDU operates on a minimal fake game to prove
+   compilation, patching, packaging and publication-allowlist enforcement, reinstall, and
+   restoration without launching a game executable.
+5. **E4 — disposable-engine proof:** behavior is observed in an isolated full BG2:EE plus EEex
+   environment, including runtime/save behavior where relevant.
+6. **E5 — supported-corpus soak:** the declared support matrix is exercised repeatedly, including
+   compatibility variants, save/load, performance stress, and failure paths.
 
 Do not promote E0/E1 conclusions to runtime guarantees. Every research memo must state the
 question, environment, exact versions/fingerprints, method, observations, counterevidence,

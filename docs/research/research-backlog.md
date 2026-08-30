@@ -28,7 +28,7 @@ The program is deliberately incremental. It does not assume that arbitrary BCS o
 
 ## Evidence grades
 
-Every research issue must close with one outcome: **Proven**, **Conditional**, **Rejected**, or **Unknown**. It must cite the strongest evidence grade reached.
+Every research issue must close with one outcome: **Proven**, **Conditional**, **Rejected**, or **Unknown**. It must cite every applicable evidence layer reached and any required layer that remains unexecuted.
 
 | Grade | Meaning | Acceptable use |
 |---|---|---|
@@ -56,9 +56,13 @@ Priority meanings:
 - **P1:** Required before the corresponding subsystem can expand beyond a narrow pilot.
 - **P2:** Required before supported-corpus expansion or public preview, but not the first feasibility proof.
 
-`Dependencies` lists hard prerequisites for beginning the spike and is intentionally acyclic.
-Later disposable or soak issues may upgrade a spike's evidence grade without becoming a backward
-dependency; record those as validation links when closing the later issue.
+`Dependencies` lists hard prerequisites for beginning the spike and is intentionally acyclic. A
+dependency is satisfied by review of the prerequisite spike's exit artifact, not by completion of
+unrelated work in the same implementation task. When dependent spikes cross task boundaries, the
+implementation plan must name the artifact checkpoint that releases the dependent work.
+
+Later disposable or soak issues may add evidence layers without becoming a backward dependency;
+record those as validation links when closing the later issue.
 
 ## Research gates
 
@@ -104,7 +108,7 @@ Licensing, provenance, release packaging, byte-exact uninstall, performance budg
 
 **Method and evidence:** Inventory the current target ecosystem read-only, pin upstream source revisions where available, and classify each dependency as required, optional adapter, observed-only, or explicitly deferred. Define behavior for version mismatch, missing capability, and an unrecognized resource. Evidence target: E1.
 
-**Artifacts and deliverable:** docs/research/support-matrix.md containing version identifiers, capability assumptions, install-order expectations, adapter applicability, and the normative yield-to-legacy rule.
+**Artifacts and deliverable:** `docs/research/PREP-01-support-baseline.md` containing version identifiers, capability assumptions, install-order expectations, adapter applicability, and the normative yield-to-legacy rule.
 
 **Exit criterion:** Every dependency has an explicit support state; every unsupported or uncertain case has a deterministic non-claim outcome; no document implies support for an untested engine or EEex version.
 
@@ -138,7 +142,7 @@ Licensing, provenance, release packaging, byte-exact uninstall, performance budg
 
 **Why it matters:** A clever decision engine is not valuable if it creates delayed casts, duplicate rewards, stuck cutscenes, poisoned saves, or silently suppresses third-party content.
 
-**Method and evidence:** Catalog known and hypothesized hazards: queue-success versus execution, script-slot shadowing, repeated listener registration, stale object IDs, partial sprite initialization, save/load interruption, non-idempotent side effects, cutscene stacking, skip-path drift, Project Image owner lock, action races, resource replacement after installation, native access violations, and uninstall during in-flight state. Rank severity, detectability, reversibility, and blast radius. Evidence target: E1 initially, upgraded by later E4/E5 spikes.
+**Method and evidence:** Catalog known and hypothesized hazards: queue-success versus execution, script-slot shadowing, repeated listener registration, stale object IDs, partial sprite initialization, save/load interruption, non-idempotent side effects, cutscene stacking, skip-path drift, Project Image owner lock, action races, resource replacement after installation, native access violations, and uninstall during in-flight state. Rank severity, detectability, reversibility, and blast radius. Evidence target: E1 initially; later E4/E5 spikes add their distinct runtime and soak evidence layers.
 
 **Artifacts and deliverable:** Risk register with prevention, detection, fallback, recovery, responsible subsystem, and validation scenario for each critical risk.
 
@@ -426,7 +430,8 @@ controllers, forced actions, dialog starts, and external script references. For 
 define an external-control closure that can detect a later controller even when it does not modify
 the actor's CRE or generic BCS. Separate internal implementation details from externally observed
 contracts. Exercise later-mod counterexamples in the synthetic and disposable compatibility labs.
-Evidence target: E1 plus E3/E4 for activation safety.
+Evidence target: evidence:E1 pinned static inspection plus evidence:E3 synthetic-game integration
+and evidence:E4 disposable-engine runtime proof for activation safety.
 
 **Artifacts and deliverable:** Compatibility-contract inventory, external-control-closure model,
 and graph query format.
@@ -1285,7 +1290,7 @@ proved resource family; no classifier enrolls unknown resources by class alone.
 
 **Why it matters:** Research requires real-shaped local evidence, but the public artifact must contain only approved original, synthetic, or permitted upstream material.
 
-**Method and evidence:** Define a publication allowlist and scan source trees, fixtures, archives, and generated outputs for known resource formats, save/TLK signatures, local paths, secrets, and unclassified provenance. Build from a clean checkout. Evidence target: E3.
+**Method and evidence:** Define a publication allowlist and deterministically scan source trees, fixtures, archives, and generated outputs for known resource formats, save/TLK signatures, local paths, secrets, and unclassified provenance. Build from a clean checkout, then install, reinstall, and uninstall the resulting package with pinned WeiDU against the synthetic fake game and compare it with the publication manifest. Evidence target: E2 for scanner/allowlist enforcement and E3 for fake-game package enforcement.
 
 **Artifacts and deliverable:** Release audit specification/script plan, fixture classification enforcement, clean-build manifest, and third-party notices template.
 
@@ -1382,7 +1387,8 @@ Complete WF-07, PERF-03 through PERF-05, TEST-08, LIC-03/LIC-04, byte-exact inst
 Every research issue derived from this backlog must include in its closing comment or result document:
 
 1. Outcome: Proven, Conditional, Rejected, or Unknown.
-2. Strongest evidence grade reached and exact artifacts used.
+2. Applicable evidence layer or layer combination reached, exact artifacts used, and required layers
+   that remain unexecuted.
 3. Reproduction steps that do not write to the active game.
 4. Finding and limitations, including competing explanations rejected.
 5. Architectural consequence: proceed, change design, reduce scope, or block.
