@@ -187,6 +187,7 @@ paths. A missing tool means the check is unexecuted, not passing.
 - Create: `docs/decisions/0006-runtime-and-host-language-boundaries.md`
 - Create: `docs/decisions/template.md`
 - Create: `docs/decisions/gates/G0-charter.md`
+- Create: `scripts/validate-g0-decisions.ps1`
 
 **Steps:**
 
@@ -200,10 +201,10 @@ paths. A missing tool means the check is unexecuted, not passing.
 5. Run:
 
    ```powershell
-   rg -L "Status:|Decision:|Compatibility:|Evidence:|Revisit when:" docs/decisions/*.md
+   & ./scripts/validate-g0-decisions.ps1
    ```
 
-   Expected: no paths printed.
+   Expected: exit 0 with every required ADR and gate-record field reported present.
 6. Commit: `docs: record script engine architecture decisions`.
 
 **Exit:** G0 has durable, independently reviewable decisions rather than one monolithic document.
