@@ -1,0 +1,71 @@
+{
+  "planPath": "docs/plans/2026-08-30-aoe-historical-prebuff-research-and-implementation.md",
+  "tasks": [
+    {
+      "id": 0,
+      "subject": "Task 0: Reconcile with integrated G0 and refresh temporary evidence vocabulary",
+      "status": "pending",
+      "externalPrerequisites": ["Canonical Task 1 integrated"]
+    },
+    {
+      "id": 1,
+      "subject": "Task 1: Canonicalize the E1 evidence in the Task 6 SCS prebuff ledger",
+      "status": "pending",
+      "blockedBy": [0],
+      "externalPrerequisites": ["Canonical Tasks 4, 5, 6, and 13 complete"]
+    },
+    {
+      "id": 2,
+      "subject": "Task 2: Add deterministic SPL delivery-shape extraction",
+      "status": "pending",
+      "blockedBy": [0],
+      "externalPrerequisites": ["Canonical Tasks 4, 5, and 13 complete"]
+    },
+    {
+      "id": 3,
+      "subject": "Task 3: Prove fake-game eligibility, legacy response shape, and rollback",
+      "status": "pending",
+      "blockedBy": [1, 2],
+      "externalPrerequisites": ["Canonical Tasks 14 through 17 complete"]
+    },
+    {
+      "id": 4,
+      "subject": "Task 4: Model the AoE historical-prebuff candidate in mutation-free shadow mode",
+      "status": "pending",
+      "blockedBy": [1, 2, 3],
+      "externalPrerequisites": ["Canonical Tasks 20 through 24 and G4 prerequisites complete"]
+    },
+    {
+      "id": 5,
+      "subject": "Task 5: Prove the unmodified SCS baseline in the disposable engine",
+      "status": "pending",
+      "blockedBy": [1, 2, 3, 4],
+      "externalPrerequisites": [
+        "Canonical Task 3 explicitly authorized and complete",
+        "Canonical Tasks 6, 9, 26, and 28 complete",
+        "G5 and SPACE-02 evidence available"
+      ]
+    },
+    {
+      "id": 6,
+      "subject": "Task 6: Record the post-G5 architecture and go/no-go decision",
+      "status": "pending",
+      "blockedBy": [4, 5],
+      "externalPrerequisites": ["Integration owner review"]
+    },
+    {
+      "id": 7,
+      "subject": "Task 7: Execute the selected implementation branch",
+      "status": "pending",
+      "blockedBy": [6]
+    },
+    {
+      "id": 8,
+      "subject": "Task 8: Add supported-stack matrix and soak coverage",
+      "status": "pending",
+      "blockedBy": [7],
+      "externalPrerequisites": ["Integration owner assigns this as a canonical Task 40 sub-work-item before Task 40 closes"]
+    }
+  ],
+  "lastUpdated": "2026-08-30T10:12:48.9412455+09:00"
+}
