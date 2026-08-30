@@ -52,7 +52,10 @@ Future implementation plans belong under `docs/plans/`; verified research memos 
 
 ## Research evidence
 
-Classify every material claim by its strongest evidence:
+Classify each material claim by the applicable evidence layer or combination of layers. Evidence
+grades identify distinct proof environments, not substitutable confidence levels. A higher-numbered
+layer does not discharge a required lower-layer proof; record combinations such as E3+E4 when both
+installer/restoration and runtime behavior matter.
 
 1. **E0 — claim/documentation input:** upstream documentation, comments, forum statements,
    unpinned source, or an unverified design assumption inspected.
@@ -61,8 +64,8 @@ Classify every material claim by its strongest evidence:
 3. **E2 — deterministic host simulation:** pure policy, parser, replay, property-test, or state
    machine behavior reproduced outside the game process.
 4. **E3 — synthetic-game integration:** real WeiDU operates on a minimal fake game to prove
-   compilation, patching, publication, reinstall, and restoration without launching a game
-   executable.
+   compilation, patching, packaging and publication-allowlist enforcement, reinstall, and
+   restoration without launching a game executable.
 5. **E4 — disposable-engine proof:** behavior is observed in an isolated full BG2:EE plus EEex
    environment, including runtime/save behavior where relevant.
 6. **E5 — supported-corpus soak:** the declared support matrix is exercised repeatedly, including

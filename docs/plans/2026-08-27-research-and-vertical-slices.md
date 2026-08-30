@@ -192,7 +192,7 @@ paths. A missing tool means the check is unexecuted, not passing.
 
 1. Copy the decision, context, alternatives, consequences, compatibility effect, evidence basis,
    reversal condition, and review date into each ADR.
-2. Mark ADR 0006 `provisional` until PREP-02 confirms the host/runtime toolchain.
+2. Mark ADR 0006 `provisional` until Task 2's host/runtime toolchain decision is complete.
 3. Verify every ADR names unknown-content pass-through and the active-game boundary where relevant.
 4. Record G0 as passed only after confirming the initial platform, unique namespace, support tiers,
    kill-switch policy, non-goals, SCS attribution policy, and separation of ephemeral Combat Intent
@@ -210,15 +210,16 @@ paths. A missing tool means the check is unexecuted, not passing.
 
 ### Task 2: Establish the development and disposable-lab contract
 
-**Research linkage (not automatic closure):** PREP-01, PREP-02, PREP-03
+**Research linkage (not automatic closure):** PREP-01, PREP-03
 
 **Depends on:** Task 1
 
 **Files:**
 
-- Create: `docs/research/PREP-01-environment-inventory.md`
-- Create: `docs/research/PREP-02-toolchain-decision.md`
-- Create: `docs/research/PREP-03-disposable-lab-runbook.md`
+- Create: `docs/research/PREP-01-support-baseline.md`
+- Create: `docs/research/host-runtime-toolchain-decision.md`
+- Create: `docs/research/disposable-lab-runbook.md`
+- Create: `docs/research/PREP-03-failure-safety-compatibility-threat-model.md`
 - Create: `scripts/check-dev-environment.ps1`
 - Test: `tests/tooling/test_environment_contract.py`
 - Create: `pyproject.toml`
@@ -241,8 +242,13 @@ paths. A missing tool means the check is unexecuted, not passing.
 6. Create a clean disposable-lab runbook covering copy creation, marker, launch, log capture, save
    reset, crash detection, process shutdown, restore, and evidence retention. Do not create the
    actual game copy without explicit approval.
-7. Decide the host test/runtime toolchain in ADR 0006 and document unsupported alternatives.
-8. Run the full host suite and commit: `test: establish safe development environment contract`.
+7. Complete the PREP-01 support baseline with exact dependency states, versions/revisions where
+   available, capability assumptions, and deterministic non-claim behavior for every unsupported or
+   uncertain case.
+8. Complete the PREP-03 risk register with prevention, detection, fallback, recovery, responsible
+   subsystem, and planned validation for every critical failure class.
+9. Decide the host test/runtime toolchain in ADR 0006 and document unsupported alternatives.
+10. Run the full host suite and commit: `test: establish safe development environment contract`.
 
 **Exit:** repeatable commands exist, but no active or disposable game has been mutated merely by
 running the checker.
@@ -286,13 +292,14 @@ substitute the active installation if this task is pending or fails.
 
 ### Task 4: Define evidence, fixture, corpus, and redistribution governance
 
-**Research linkage (not automatic closure):** TEST-01, TEST-02, LIC-01 through LIC-04
+**Research linkage (not automatic closure):** PREP-02, TEST-01, TEST-02, LIC-01 through LIC-04
 
-**Depends on:** Task 1
+**Depends on:** Tasks 1 and 2
 
 **Files:**
 
 - Create: `docs/research/evidence-template.md`
+- Create: `docs/research/PREP-02-evidence-and-provenance-index.md`
 - Create: `docs/provenance/artifact-policy.md`
 - Create: `docs/provenance/upstream-register.md`
 - Create: `docs/provenance/fixture-allowlist.md`
@@ -307,8 +314,9 @@ substitute the active installation if this task is pending or fails.
 3. Define classifications for independently authored metadata, short factual extracts, generated
    fingerprints, locally generated effective artifacts, redistributable synthetic fixtures,
    upstream source, and forbidden packaged content.
-4. Record SCS's exact source/version and reuse statement as an E0 licensing input, explicitly noting
-   that project interpretation is not legal advice and does not itself authorize redistribution.
+4. Record SCS's exact source/version and reuse statement as E1 pinned static evidence. Record any
+   interpretation of what that statement permits separately as an E0 claim or policy decision; it
+   is not legal advice and does not itself authorize redistribution.
 5. Implement the evidence schema and validate one positive and one negative fixture.
 6. Verify the fixture allowlist excludes full SCS source/generated BCS, installed binaries, TLK,
    saves, and personal-path logs.
@@ -754,17 +762,20 @@ without behavioral mutation.
 2. Write failing cases for unknown mod before, unknown mod after, recognized resource modified
    before, recognized resource modified after, occupied slots, added public-global writer, removed
    dependency, version upgrade, runtime disable, exception, and capability loss.
-3. Run the focused integration tests; expected: intentional RED.
-4. Wire inventory, eligibility, bridge, observer, and lease code into the fake-game installer.
-5. Prove unknown bytes remain untouched in the fake game. In a disposable sentinel scenario, prove
+3. Add COMP-I07 RED fixtures for an occupied engine resource prefix, bootstrap filename, adapter ID,
+   and exclusive internal-variable claim. Hash the fixture tree before the attempted install and
+   prove each collision is rejected before any byte is changed.
+4. Run the focused integration tests; expected: intentional RED.
+5. Wire inventory, eligibility, bridge, observer, and lease code into the fake-game installer.
+6. Prove unknown bytes remain untouched in the fake game. In a disposable sentinel scenario, prove
    one unknown actor and one unknown quest/controller continue their observable legacy behavior
    while the kernel is loaded. After any unknown stack drift, both domains remain stale/pass-through
    for G2; no adapter reactivates. Successful refreshed reactivation is separate G5/G8 research
    requiring a proved dependency, public-state, and external-control closure.
-6. Install, reinstall, upgrade, disable, and uninstall. Verify publication allowlist and byte-exact
+7. Install, reinstall, upgrade, disable, and uninstall. Verify publication allowlist and byte-exact
    restoration of fixture-owned originals.
-7. Map results to stable `COMP-*` IDs and record unexecuted cells explicitly.
-8. Commit: `test: prove unknown-content legacy ownership`.
+8. Map results to stable `COMP-*` IDs and record unexecuted cells explicitly.
+9. Commit: `test: prove unknown-content legacy ownership`.
 
 **Exit:** the primary compatibility invariant has E3 structural/restoration evidence and E4
 sentinel-behavior evidence rather than prose.

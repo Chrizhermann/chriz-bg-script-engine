@@ -849,7 +849,11 @@ unsafe rewriting. WeiDU remains the compiler/installer until evidence supports a
 
 ### 16.1 Evidence levels
 
-Research conclusions use an explicit scale:
+Research conclusions use distinct proof layers:
+
+Evidence grades identify proof environments, not substitutable confidence levels. A
+higher-numbered layer does not discharge a required lower-layer proof; record combinations such as
+E3+E4 when both installer/restoration and runtime behavior matter.
 
 - **E0 — claim/documentation input:** upstream documentation, comments, forum statements,
   unpinned source, or an unverified design assumption.
@@ -858,7 +862,8 @@ Research conclusions use an explicit scale:
 - **E2 — deterministic pure-host simulation:** pure Lua/model tests, replay, property tests, or
   state-machine exploration outside the game process.
 - **E3 — synthetic-game integration:** real WeiDU operates on a minimal fake game to prove
-  compilation, patching, publication, reinstall, and restoration without launching a game executable.
+  compilation, patching, packaging and publication-allowlist enforcement, reinstall, and
+  restoration without launching a game executable.
 - **E4 — disposable full-game engine proof:** behavior is observed in an isolated full BG2:EE plus
   EEex environment, including runtime/save behavior where relevant.
 - **E5 — supported-corpus soak/compatibility proof:** the declared support matrix is exercised

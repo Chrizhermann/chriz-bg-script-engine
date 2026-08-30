@@ -1285,7 +1285,7 @@ proved resource family; no classifier enrolls unknown resources by class alone.
 
 **Why it matters:** Research requires real-shaped local evidence, but the public artifact must contain only approved original, synthetic, or permitted upstream material.
 
-**Method and evidence:** Define a publication allowlist and scan source trees, fixtures, archives, and generated outputs for known resource formats, save/TLK signatures, local paths, secrets, and unclassified provenance. Build from a clean checkout. Evidence target: E3.
+**Method and evidence:** Define a publication allowlist and deterministically scan source trees, fixtures, archives, and generated outputs for known resource formats, save/TLK signatures, local paths, secrets, and unclassified provenance. Build from a clean checkout, then install, reinstall, and uninstall the resulting package with pinned WeiDU against the synthetic fake game and compare it with the publication manifest. Evidence target: E2 for scanner/allowlist enforcement and E3 for fake-game package enforcement.
 
 **Artifacts and deliverable:** Release audit specification/script plan, fixture classification enforcement, clean-build manifest, and third-party notices template.
 

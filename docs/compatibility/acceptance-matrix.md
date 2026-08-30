@@ -25,12 +25,12 @@ mode is a disabled enhancement with a diagnostic, not disabled legacy content.
 The **Evidence** column in this document names the minimum proof required to pass the case, not
 the evidence currently available.
 
-| Tier | Required proof |
+| Grade | Required proof |
 |---|---|
 | E0 | Claim or documentation input inspected: upstream documentation, comments, forum statements, unpinned source, or an unverified design assumption |
 | E1 | Revision-pinned source inspection or reproducible static evidence: effective resource, decompile, binary, install output, or provenance chain |
 | E2 | Deterministic host-side simulation or model proof outside the game process |
-| E3 | Real WeiDU integration against a minimal synthetic fake game, without launching a game executable |
+| E3 | Real WeiDU integration against a minimal synthetic fake game for compilation, patching, packaging, allowlist enforcement, reinstall, and restoration, without launching a game executable |
 | E4 | Disposable full-game BG2:EE plus EEex runtime/save proof |
 | E5 | Repeated supported-corpus compatibility, save/load, performance, failure-path, and soak proof |
 
