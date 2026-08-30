@@ -4,7 +4,8 @@
 
 **Date:** 2026-08-30
 
-**Strongest evidence:** E1 — static installed-artifact evidence
+**Applicable evidence layers:** evidence:E0 claim/documentation input plus evidence:E1 pinned static
+evidence
 
 **Related design:** `docs/plans/2026-08-30-aoe-prebuff-allies-design.md`
 
@@ -28,13 +29,13 @@ ability, or affect actors that the installed spell would not reach.
 This memo does not authorize runtime ownership or game mutation. It establishes an implementation
 hypothesis and the minimum disposable-engine experiment needed to prove or reject it.
 
-## Evidence-grade note
+## Evidence classification
 
-The repository currently contains a taxonomy conflict being handled by the G0 integration task:
-`AGENTS.md` classifies primary source inspection as E0 while the research backlog includes pinned
-source inspection in E1. This memo follows `AGENTS.md` for individual observations. The strongest
-result is E1 under either interpretation because installed generated BAF and SPL artifacts were
-inspected directly.
+The G0 decision defines evidence layers as distinct proof environments rather than a scalar
+maturity ladder. Revision-pinned upstream source, hashed generated BAF, and installed SPL/resource
+inspection in this memo are evidence:E1. Unpinned action documentation and design assumptions are
+evidence:E0 inputs. No evidence:E2 host simulation, evidence:E3 synthetic-game integration,
+evidence:E4 disposable-engine behavior, or evidence:E5 supported-corpus soak is claimed.
 
 ## Environment
 
@@ -165,7 +166,7 @@ reproduced below.
 
 ### O1 — SCS source and sampled generated BAF express a cast-plus-debit sequence
 
-**Grade:** E0 source, corroborated by E1 generated BAF
+**Evidence:** evidence:E1 pinned source and generated BAF
 
 SCS `SpellPrecast` and `SpellPrecastLong` expand to a response that force-casts the generated
 prebuff resource on `Myself`, removes the original memorized spell, and then continues script
@@ -184,7 +185,7 @@ The generated `dw#*` name is install-specific and is evidence, not a stable adap
 
 ### O2 — The prebuff builder clones the effective installed SPL
 
-**Grade:** E0 source, corroborated by E1 installed clone shape
+**Evidence:** evidence:E1 pinned source and installed clone shape
 
 `build_prebuff_spell` uses `COPY_EXISTING` on the current effective spell. In the inspected generic
 branch it
@@ -199,7 +200,7 @@ proved.
 
 ### O3 — Representative installed clones retain ability target and projectile
 
-**Grade:** E1
+**Evidence:** evidence:E1
 
 The following values were read from installed SPL ability headers. `projectile` is the raw SPL
 field. Effective `PROJECTL.IDS`, PRO, and secondary-projectile closure were not inspected, so the
@@ -240,7 +241,7 @@ Representative hashes:
 
 ### O4 — The installed mapping includes representative group-buff candidates
 
-**Grade:** E1
+**Evidence:** evidence:E1
 
 As install-local metadata, `instant_prebuff_spells.2da` maps the wizard and cleric Haste logical
 prebuffs to `dwsw305`, Improved Haste to `dwsw613`, Remove Fear to `dwsp108`, Defensive Harmony to
@@ -255,7 +256,7 @@ script actually invokes that clone.
 
 ### O5 — The bounded generated-BAF corpus differs from source/list membership
 
-**Grade:** E1
+**Evidence:** evidence:E1
 
 The searched corpus was all 276 `.baf` files directly under the inspected
 `weidu_external/workspace/ssl_out` directory. Mage prep source requests Haste and Improved Haste.
@@ -285,7 +286,7 @@ must still be traced.
 
 ### O6 — `ApplySpellRES` is not an equivalent fallback
 
-**Grade:** E0 documentation/source
+**Evidence:** evidence:E0 documentation input
 
 IESDP documents `ReallyForceSpellRES` as an instant, casting-time-zero, uninterruptible cast. It
 still casts the spell through the engine. IESDP documents `ApplySpellRES` as ignoring the spell's

@@ -4,12 +4,12 @@
     {
       "id": 0,
       "subject": "Task 0: Reconcile with integrated G0 and refresh temporary evidence vocabulary",
-      "status": "pending",
+      "status": "completed",
       "externalPrerequisites": ["Canonical Task 1 integrated"]
     },
     {
       "id": 1,
-      "subject": "Task 1: Canonicalize the E1 evidence in the Task 6 SCS prebuff ledger",
+      "subject": "Task 1: Canonicalize the evidence:E1 material in the Task 6 SCS prebuff ledger",
       "status": "pending",
       "blockedBy": [0],
       "externalPrerequisites": ["Canonical Tasks 4, 5, 6, and 13 complete"]
@@ -67,5 +67,5 @@
       "externalPrerequisites": ["Integration owner assigns this as a canonical Task 40 sub-work-item before Task 40 closes"]
     }
   ],
-  "lastUpdated": "2026-08-30T10:12:48.9412455+09:00"
+  "lastUpdated": "2026-08-30T13:54:17.3362421+09:00"
 }

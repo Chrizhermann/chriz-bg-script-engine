@@ -225,9 +225,10 @@ recovery path requires a separately proven, spell-family-specific design.
 
 ### Static and host-side evidence
 
-- Preserve the preliminary E0/E1 source and artifact ledger in the related research memo. It is
-  pre-Task-6 evidence, closes no SCS-04 item or program gate, and must be canonicalized after Tasks
-  4 and 5. Revisit its temporary taxonomy note after Task 1 merges.
+- Preserve the preliminary evidence:E0 and evidence:E1 source/artifact ledger in the related
+  research memo. Its terminology is aligned with G0, but it remains pre-Task-6 evidence, closes no
+  SCS-04 item or program gate, and must be canonicalized into the frozen ledgers after Tasks 4 and
+  5.
 - Add pure tests only after the integration owner freezes the manifest and request schemas.
 - Host-side cases cover exact-hash eligibility, dependency drift, one-debit invariant, outcome
   classification, retry suppression, and unknown fallback.

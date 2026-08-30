@@ -10,8 +10,7 @@
 
 ---
 
-**Status:** Gated dependency overlay; Task 0 is blocked until the separate Task 1/G0 work is
-integrated
+**Status:** Gated dependency overlay; Task 0 completed after canonical Task 1/G0 integration
 
 **Approved design:** `docs/plans/2026-08-30-aoe-prebuff-allies-design.md`
 
@@ -22,8 +21,9 @@ integrated
 1. Never run an engine experiment against the active game or active playthrough.
 2. Task 3 of the canonical roadmap still requires separate user authorization naming a disposable
    destination. Approval of this feature or plan is not that authorization.
-3. Do not edit canonical ADRs, roadmap, research backlog, or acceptance matrix until the separate
-   Task 1 branch is integrated and this branch is reconciled with it.
+3. Canonical ADRs, roadmap, research backlog, and acceptance matrix remain integration-owner-owned.
+   This feature consumes their frozen contracts and changes them only at an explicitly approved
+   later gate task.
 4. Do not freeze manifest, ownership, identity, action-attempt, capability, snapshot, geometry,
    trace, persistence, or kill-switch schemas in this feature branch. Consume the integration
    owner's frozen contracts.
@@ -45,9 +45,9 @@ integrated
 ## Dependency overview
 
 ```text
-Task 1 / G0 integration
-├── canonical Tasks 4 + 5 + 6 ──> Task 1 below (E1 ledger)
-├── canonical Tasks 5 + 13 ─────> Task 2 below (E2 tooling)
+Canonical Task 1 / G0 integration (completed)
+├── canonical Tasks 4 + 5 + 6 + 13 ──> Task 1 below (evidence:E1 ledger)
+├── canonical Tasks 4 + 5 + 13 ──────> Task 2 below (evidence:E2 tooling)
 ├── canonical Tasks 14–17 ──────> Task 3 below (synthetic-game contract)
 ├── canonical Tasks 20–24 / G4 ─> Task 4 below (shadow-only model)
 └── canonical Task 3 authorization + Tasks 6, 9, 26, 28
@@ -88,11 +88,10 @@ $required = @(
   'docs/decisions/gates/G0-charter.md',
   'scripts/validate-g0-decisions.ps1'
 )
-$required | ForEach-Object { if (-not (Test-Path -LiteralPath $_)) { throw "Task 1 not integrated: $_" } }
+$required | ForEach-Object { if (-not (Test-Path -LiteralPath $_)) { throw "Canonical Task 1 not integrated: $_" } }
 ```
 
-Expected now: STOP, because the separate Task 1 work is not yet in this branch. Expected after
-integration: no output.
+Expected after integration: no output. Task 0 recorded that result before reconciliation.
 
 **Step 3: Run the integrated G0 validator**
 
@@ -117,17 +116,18 @@ Run:
 
 ```powershell
 git diff --check
-git diff -- docs/research/2026-08-30-scs-aoe-prebuff-delivery.md docs/plans/2026-08-30-aoe-prebuff-allies-design.md docs/plans/2026-08-30-aoe-historical-prebuff-research-and-implementation.md
+git diff -- docs/research/2026-08-30-scs-aoe-prebuff-delivery.md docs/plans/2026-08-30-aoe-prebuff-allies-design.md docs/plans/2026-08-30-aoe-historical-prebuff-research-and-implementation.md docs/plans/2026-08-30-aoe-historical-prebuff-research-and-implementation.md.tasks.json
 ```
 
-Expected: only terminology/gate-reference updates. If changed:
+Expected: only terminology/gate-reference updates and synchronized Task 0 status/metadata. If
+changed:
 
 ```powershell
 git add -- docs/research/2026-08-30-scs-aoe-prebuff-delivery.md docs/plans/2026-08-30-aoe-prebuff-allies-design.md docs/plans/2026-08-30-aoe-historical-prebuff-research-and-implementation.md docs/plans/2026-08-30-aoe-historical-prebuff-research-and-implementation.md.tasks.json
 git commit -m "docs: align AoE prebuff work with G0"
 ```
 
-### Task 1: Canonicalize the E1 evidence in the Task 6 SCS prebuff ledger
+### Task 1: Canonicalize the evidence:E1 material in the Task 6 SCS prebuff ledger
 
 **Prerequisites:** Canonical Tasks 4, 5, 6, and 13 have created and frozen the
 evidence/provenance, pilot-ledger, inventory, and test-runner interfaces.
