@@ -28,7 +28,7 @@ The program is deliberately incremental. It does not assume that arbitrary BCS o
 
 ## Evidence grades
 
-Every research issue must close with one outcome: **Proven**, **Conditional**, **Rejected**, or **Unknown**. It must cite the strongest evidence grade reached.
+Every research issue must close with one outcome: **Proven**, **Conditional**, **Rejected**, or **Unknown**. It must cite every applicable evidence layer reached and any required layer that remains unexecuted.
 
 | Grade | Meaning | Acceptable use |
 |---|---|---|
@@ -1382,7 +1382,8 @@ Complete WF-07, PERF-03 through PERF-05, TEST-08, LIC-03/LIC-04, byte-exact inst
 Every research issue derived from this backlog must include in its closing comment or result document:
 
 1. Outcome: Proven, Conditional, Rejected, or Unknown.
-2. Strongest evidence grade reached and exact artifacts used.
+2. Applicable evidence layer or layer combination reached, exact artifacts used, and required layers
+   that remain unexecuted.
 3. Reproduction steps that do not write to the active game.
 4. Finding and limitations, including competing explanations rejected.
 5. Architectural consequence: proceed, change design, reduce scope, or block.
