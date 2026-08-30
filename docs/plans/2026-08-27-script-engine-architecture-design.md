@@ -851,12 +851,18 @@ unsafe rewriting. WeiDU remains the compiler/installer until evidence supports a
 
 Research conclusions use an explicit scale:
 
-- **E0 — source/documentation claim**
-- **E1 — static artifact or binary/decompile proof**
-- **E2 — deterministic pure-host simulation**
-- **E3 — real WeiDU against a synthetic game**
-- **E4 — disposable full-game engine proof**
-- **E5 — supported-corpus soak/compatibility proof**
+- **E0 — claim/documentation input:** upstream documentation, comments, forum statements,
+  unpinned source, or an unverified design assumption.
+- **E1 — pinned static evidence:** revision-pinned source inspection, effective resources,
+  binaries, decompiles, install output, or a reproducible provenance chain.
+- **E2 — deterministic pure-host simulation:** pure Lua/model tests, replay, property tests, or
+  state-machine exploration outside the game process.
+- **E3 — synthetic-game integration:** real WeiDU operates on a minimal fake game to prove
+  compilation, patching, publication, reinstall, and restoration without launching a game executable.
+- **E4 — disposable full-game engine proof:** behavior is observed in an isolated full BG2:EE plus
+  EEex environment, including runtime/save behavior where relevant.
+- **E5 — supported-corpus soak/compatibility proof:** the declared support matrix is exercised
+  repeatedly, including compatibility variants, save/load, performance stress, and failure paths.
 
 Safety-critical runtime claims cannot graduate on E0 alone.
 
@@ -1008,6 +1014,10 @@ and dependent work unblocked or blocked.
 - Save-safety and performance soak procedures.
 
 ## 18. Program epics and gates
+
+The `E0` through `E11` identifiers in this section are **program epics**, not evidence grades.
+Records and issue labels must use `epic:E*` or `evidence:E*` whenever the namespace would otherwise
+be ambiguous.
 
 ```text
 E0 Charter / compatibility / provenance

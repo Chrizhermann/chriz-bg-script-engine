@@ -90,9 +90,13 @@ E6 + E8 + E9b ───────> E10 Supported-alpha hardening
 E10 ─────────────────> E11 Deliberate supported-corpus expansion
 ```
 
-WorldFlow research may run beside Combat Intent research after E3. WorldFlow may not schedule a
+The `E0` through `E11` identifiers in dependency maps and phase headings are program epics.
+Evidence grades are written as `evidence:E0` through `evidence:E5`, and epic labels as `epic:E0`
+through `epic:E11`. Bare `E*` references are not used where the namespace is ambiguous.
+
+WorldFlow research may run beside Combat Intent research after epic E3. WorldFlow may not schedule a
 persistent world mutation until the action observer, ownership handoff, adapter quarantine, and
-save/load behavior have passed the relevant E3/E5 tests.
+save/load behavior have passed the relevant epic E3 and G5 tests.
 
 E9 is one epic with two maturity stages: internal analysis/registration structures may begin after
 E2, but the public SDK is not frozen until one real Combat Intent adapter and one real WorldFlow
@@ -130,13 +134,13 @@ Issue titles use stable IDs from the research and compatibility backlogs, for ex
 | Gate | Entry | Required exit evidence | Failure response |
 |---|---|---|---|
 | **G0 Charter** | Architecture draft and naming decision | Approved charter, compatibility invariant, safety boundary, non-goals, provenance policy, task map | Resolve design conflict; no runtime work |
-| **G1 Bridge feasibility** | PREP complete; disposable environment explicitly authorized, provisioned, isolated, and reset-tested | Capability profile; safe hook lifecycle; BCS/Lua handoff; normal action and dialogue initiation; action observations; persistence lifecycle; crash and reload procedure; E4 probe evidence | Narrow supported EEex profile or stop native branch |
+| **G1 Bridge feasibility** | PREP complete; disposable environment explicitly authorized, provisioned, isolated, and reset-tested | Capability profile; safe hook lifecycle; BCS/Lua handoff; normal action and dialogue initiation; action observations; persistence lifecycle; crash and reload procedure; evidence E4 probe results | Narrow supported EEex profile or stop native branch |
 | **G2 Unknown pass-through** | Manifest and ownership schemas drafted | Static eligibility plus runtime lease proven; unknown/modified/stale resources remain C0; any post-install drift remains stale with no reactivation; per-adapter quarantine; install-order invalidation; core `COMP-I/B/D/P` tests | Disable takeover path; redesign bridge |
 | **G3 Observer** | G1 and G2 pass | Kernel can observe and explain supported actors without queueing actions or changing world state; bounded performance; save/load clears ephemeral handles | Remain research-only |
-| **G4 Combat shadow** | G3; mage family ledger; frozen snapshot/candidate schemas | Mage/prebuff decisions replay deterministically, obey perception/fairness, compare against legacy/SCS oracle, never dispatch; E4 arena proof | Revise model or abandon family |
+| **G4 Combat shadow** | G3; mage family ledger; frozen snapshot/candidate schemas | Mage/prebuff decisions replay deterministically, obey perception/fairness, compare against legacy/SCS oracle, never dispatch; evidence E4 arena proof | Revise model or abandon family |
 | **G5 Active combat** | G4; action observer and kill switch proven | One ordinary action per lease; revalidation; aura/resource expenditure; started/completed/failed/unknown outcomes; immediate legacy handback; save/load and interruption tests | Return pilot to shadow-only |
 | **G6 Migration economics** | At least one active family and one additional shadow family | Measured person/agent time, fixture cost, exception count, runtime cost, regression rate, and SCS knowledge-retention score fit declared budget | Invest in IR/tooling or stop broad migration |
-| **G7 WorldFlow convergence** | E3 and G5 stable; durable schema approved; persistent mutation specifically approved | Synthetic quest converges across normal/skip/recovery/save/load/upgrade/disable paths; no duplicate reward/spawn/journal; public ABI and handback proven | WorldFlow remains observer/linter-only |
+| **G7 WorldFlow convergence** | Epic E3 and G5 stable; durable schema approved; persistent mutation specifically approved | Synthetic quest converges across normal/skip/recovery/save/load/upgrade/disable paths; no duplicate reward/spawn/journal; public ABI and handback proven | WorldFlow remains observer/linter-only |
 | **G8 Supported alpha** | G5, G7, packaging and matrix candidates | Exact support manifest; installer rollback; diagnostics; provenance/license allowlist; performance budget; supported-corpus soak; known limitations | No release; quarantine failed families |
 
 No date, token budget, or amount of completed code can waive a failed gate.
