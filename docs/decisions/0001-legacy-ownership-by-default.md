@@ -65,7 +65,8 @@ Read-only source inspection does not establish runtime safety.
 - E0 architecture: `docs/plans/2026-08-27-script-engine-architecture-design.md`, sections 2, 6, 8,
   and 11.
 - E0 acceptance contract: `docs/compatibility/acceptance-matrix.md`, sections 1, 3, 4, and 10.1.
-- E3/E4 pass-through behavior is planned for Tasks 17-18 and is not yet executed.
+- evidence:E3 synthetic-game pass-through integration and evidence:E4 disposable-engine
+  pass-through behavior are both planned for Tasks 17-18 and are not yet executed.
 
 ## Revisit when
 

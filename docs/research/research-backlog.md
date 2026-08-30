@@ -430,7 +430,8 @@ controllers, forced actions, dialog starts, and external script references. For 
 define an external-control closure that can detect a later controller even when it does not modify
 the actor's CRE or generic BCS. Separate internal implementation details from externally observed
 contracts. Exercise later-mod counterexamples in the synthetic and disposable compatibility labs.
-Evidence target: E1 plus E3/E4 for activation safety.
+Evidence target: evidence:E1 pinned static inspection plus evidence:E3 synthetic-game integration
+and evidence:E4 disposable-engine runtime proof for activation safety.
 
 **Artifacts and deliverable:** Compatibility-contract inventory, external-control-closure model,
 and graph query format.

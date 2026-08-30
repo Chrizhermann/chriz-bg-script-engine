@@ -70,7 +70,8 @@ authorization naming its destination.
 - E0 architecture sections 7.2, 7.3, 16, and 20.
 - E0 EEex/LuaJIT and WeiDU source/documentation inputs referenced by the research backlog.
 - Exact paths, versions, interpreter behavior, and environment guard tests are unexecuted and remain
-  Task 2 work; no E3/E4 claim is made.
+  Task 2 work; no evidence:E3 synthetic-game integration or evidence:E4 disposable-engine runtime
+  claim is made.
 
 ## Revisit when
 

@@ -346,6 +346,68 @@ Test-RequiredText -RelativePath 'docs/decisions/0005-scs-provenance-and-reuse.md
 Test-RequiredText -RelativePath 'docs/decisions/gates/G0-charter.md' `
     -Pattern '(?m)^### Reproduction commands\s*$' `
     -Description 'namespace scan reproduction commands'
+Test-RequiredText -RelativePath 'docs/decisions/gates/G0-charter.md' `
+    -Pattern '(?m)^### Namespace derivation contract\s*$' `
+    -Description 'selected namespace derivation contract'
+Test-RequiredText -RelativePath 'docs/decisions/gates/G0-charter.md' `
+    -Pattern ([regex]::Escape('^B-[KCWX][A-Z0-9]{5}$')) `
+    -Description 'exact engine-resource grammar'
+Test-RequiredText -RelativePath 'docs/decisions/gates/G0-charter.md' `
+    -Pattern ([regex]::Escape('^B-[KCWX][GLA]-[A-Z0-9]+(?:-[A-Z0-9]+)*$')) `
+    -Description 'exact private-variable grammar'
+Test-RequiredText -RelativePath 'docs/decisions/gates/G0-charter.md' `
+    -Pattern ([regex]::Escape('M_B-K.lua')) `
+    -Description 'exact EE bootstrap filename'
+Test-RequiredText -RelativePath 'docs/decisions/gates/G0-charter.md' `
+    -Pattern ([regex]::Escape('_G["B-"]')) `
+    -Description 'quoted Lua root key'
+Test-RequiredText -RelativePath 'docs/decisions/gates/G0-charter.md' `
+    -Pattern ([regex]::Escape('^B-/(kernel\|combat\|worldflow)/[a-z0-9]+(?:-[a-z0-9]+)*$')) `
+    -Description 'exact first-party adapter-ID grammar'
+Test-RequiredText -RelativePath 'docs/decisions/gates/G0-charter.md' `
+    -Pattern ([regex]::Escape('^(kernel\|combat\|worldflow\|synthetic)\.[a-z0-9]+(?:[.-][a-z0-9]+)*$')) `
+    -Description 'exact allocation-ledger logical-artifact grammar'
+Test-RequiredText -RelativePath 'docs/decisions/gates/G0-charter.md' `
+    -Pattern ([regex]::Escape('Every `B-` value is a quoted string')) `
+    -Description 'BAF D and WeiDU B- quoting rule'
+Test-ForbiddenText -RelativePath 'docs/decisions/gates/G0-charter.md' `
+    -Pattern '\bE3/E4\b' `
+    -Description 'conflated E3 synthetic integration and E4 runtime evidence'
+Test-ForbiddenText -RelativePath 'docs/decisions/gates/G0-charter.md' `
+    -Pattern '\bE4/G1-G3\b' `
+    -Description 'conflated E4 evidence layer and G1-G3 gates'
+Test-ForbiddenText -RelativePath 'docs/decisions/gates/G0-charter.md' `
+    -Pattern ([regex]::Escape('non-substitutable gates')) `
+    -Description 'evidence layers mislabeled as authorization gates'
+foreach ($adrName in $adrNames) {
+    Test-ForbiddenText -RelativePath (Join-Path 'docs/decisions' $adrName) `
+        -Pattern '\bE3/E4\b' `
+        -Description 'ambiguous E3/E4 shorthand in Task 1 decision records'
+}
+Test-ForbiddenText -RelativePath 'docs/research/research-backlog.md' `
+    -Pattern '\bE3/E4\b' `
+    -Description 'ambiguous E3/E4 shorthand in the research backlog'
+Test-ForbiddenText -RelativePath $planPath `
+    -Pattern ([regex]::Escape('{engine-prefix}')) `
+    -Description 'obsolete mechanical engine-prefix filename interpolation'
+Test-RequiredText -RelativePath $planPath `
+    -Pattern ([regex]::Escape('experiments/eeex-observer/M_B-K.lua')) `
+    -Description 'fixed observer bootstrap path'
+Test-RequiredText -RelativePath $planPath `
+    -Pattern ([regex]::Escape('experiments/eeex-observer/{allocated-observer-stem}.lua')) `
+    -Description 'explicitly allocated observer resource placeholder'
+Test-RequiredText -RelativePath $planPath `
+    -Pattern ([regex]::Escape('experiments/bridge/{allocated-bridge-script-stem}.baf')) `
+    -Description 'explicitly allocated bridge-script resource placeholder'
+Test-RequiredText -RelativePath $planPath `
+    -Pattern ([regex]::Escape('experiments/bridge/{allocated-dialogue-stem}.d')) `
+    -Description 'explicitly allocated dialogue resource placeholder'
+Test-RequiredText -RelativePath $planPath `
+    -Pattern ([regex]::Escape('experiments/bridge/{allocated-bridge-lua-stem}.lua')) `
+    -Description 'explicitly allocated bridge-Lua resource placeholder'
+Test-RequiredText -RelativePath $planPath `
+    -Pattern ([regex]::Escape('experiments/bridge/setup-bgse-bridge.tp2')) `
+    -Description 'host-only bridge installer slug'
 
 Test-ForbiddenText -RelativePath $planPath -Pattern 'strongest current proof' `
     -Description 'scalar strongest-proof label'
@@ -411,6 +473,14 @@ else {
              $task4[0].status -cne 'pending')) {
             $errors.Add("Pending G0 requires Task 1 in_progress and Tasks 2-4 pending: $taskStatePath")
         }
+        if ($gateStatus -cin @('Pass', 'Pass with narrowed scope') -and
+            $task1[0].status -cne 'completed') {
+            $errors.Add("Passing G0 requires Task 1 completed: $taskStatePath")
+        }
+        if ($task1[0].status -ceq 'completed' -and
+            $gateStatus -cnotin @('Pass', 'Pass with narrowed scope', 'Fail')) {
+            $errors.Add("Completed Task 1 requires a terminal G0 decision: $taskStatePath")
+        }
         if ($task4[0].status -cne 'pending') {
             Test-ReviewedArtifactAtHead -RelativePath $prep01 `
                 -BarrierDescription 'Task 4 PREP-01 start barrier'
@@ -428,6 +498,18 @@ else {
     }
     catch {
         $errors.Add("Task state is invalid or missing artifact-barrier fields: $taskStatePath ($($_.Exception.Message))")
+    }
+}
+
+$namespaceValidatorPath = Join-Path $repositoryPath 'scripts/validate-g0-namespace.ps1'
+if (-not (Test-Path -LiteralPath $namespaceValidatorPath -PathType Leaf)) {
+    $errors.Add("Missing G0 namespace validator: $namespaceValidatorPath")
+}
+else {
+    $namespaceOutput = & $namespaceValidatorPath 2>&1
+    $namespaceSucceeded = $?
+    if (-not $namespaceSucceeded) {
+        $errors.Add("G0 namespace validation failed: $($namespaceOutput -join ' | ')")
     }
 }
 

@@ -70,7 +70,9 @@ destination; general plan approval is not that authorization.
 - E0 normative alignment: `AGENTS.md`, architecture section 16.1, and acceptance-matrix section 2.
 - E0 execution gates: implementation plan section 5 and acceptance-matrix gate table.
 - E2 host validation: `scripts/validate-g0-decisions.ps1` now checks the cross-document evidence
-  vocabulary and rejects the scalar phrases that caused the original conflict.
+  vocabulary, the G0 namespace contract/task-state correlation, and the scalar phrases that caused
+  the original conflict. `scripts/validate-g0-namespace.ps1` checks deterministic namespace
+  grammar and collision vectors without an engine call.
 - The intentional RED and GREEN outcomes are recorded in commits `c2edd57`, `a8078ba`, and
   `1f9e80d`. The durable validator supersedes their one-off assertions.
 - No E3-E5 environment was used.
@@ -81,10 +83,10 @@ Reproduce the current GREEN from the repository root:
 pwsh -NoProfile -File ./scripts/validate-g0-decisions.ps1 -RepositoryRoot .
 ```
 
-Expected prefix of the output while this gate is pending:
+Expected output after the narrowed G0 pass:
 
 ```text
-Task 1 decision-record structure validation passed. G0 gate status: Pending (evaluated separately).
+Task 1 decision-record structure validation passed. G0 gate status: Pass with narrowed scope (evaluated separately).
 ```
 
 Reproduce an isolated historical RED without modifying the checkout:

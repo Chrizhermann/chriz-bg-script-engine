@@ -187,6 +187,7 @@ paths. A missing tool means the check is unexecuted, not passing.
 - Create: `docs/decisions/0006-runtime-and-host-language-boundaries.md`
 - Create: `docs/decisions/template.md`
 - Create: `docs/decisions/gates/G0-charter.md`
+- Create: `scripts/validate-g0-namespace.ps1`
 - Create: `scripts/validate-g0-decisions.ps1`
 
 **Steps:**
@@ -469,14 +470,16 @@ evidence:E0 and evidence:E2 until the disposable probes pass.
 
 **Files:**
 
-- Create: `experiments/eeex-observer/M_{engine-prefix}_obs.lua`
-- Create: `experiments/eeex-observer/{engine-prefix}_obs.lua`
+- Create: `experiments/eeex-observer/M_B-K.lua`
+- Create: `experiments/eeex-observer/{allocated-observer-stem}.lua`
 - Create: `experiments/eeex-observer/README.md`
 - Create: `docs/research/EEEX-03-observer-probe.md`
 - Test: `tests/unit/kernel/test_listener_trampoline.lua`
 
-`{engine-prefix}` is a non-literal planning token. Replace it with the G0-approved filename
-derivation before creating any experiment resource.
+`{allocated-observer-stem}` is a non-literal planning token. Before creating the experiment,
+record a one-to-one logical-artifact allocation whose stem satisfies
+`^B-[KCWX][A-Z0-9]{5}$`; do not truncate or hash an adapter ID into that stem. `M_B-K.lua` is the
+fixed planned bootstrap name, while its autoload and ordering remain Task 8 evidence questions.
 
 **Steps:**
 
@@ -574,14 +577,17 @@ measured baseline.
 - Create: `docs/research/BCS-01-lua-handoff.md`
 - Create: `docs/research/DLG-01-normal-dialogue-initiation.md`
 - Create: `docs/research/FLOW-01-legacy-decline-and-handback.md`
-- Create: `experiments/bridge/{engine-prefix}_bridge.baf`
-- Create: `experiments/bridge/{engine-prefix}_dialogue.d`
-- Create: `experiments/bridge/{engine-prefix}_bridge.lua`
-- Create: `experiments/bridge/setup-{engine-prefix}-bridge.tp2`
+- Create: `experiments/bridge/{allocated-bridge-script-stem}.baf`
+- Create: `experiments/bridge/{allocated-dialogue-stem}.d`
+- Create: `experiments/bridge/{allocated-bridge-lua-stem}.lua`
+- Create: `experiments/bridge/setup-bgse-bridge.tp2`
 - Test: `tests/integration/test_bridge_installer.py`
 
-`{engine-prefix}` is a non-literal planning token. Replace it with the G0-approved filename and
-resource derivations before creating the bridge fixture.
+Each `{allocated-...-stem}` is a non-literal planning token. Before creating the bridge fixture,
+record a separate one-to-one logical-artifact allocation whose engine stem satisfies
+`^B-[KCWX][A-Z0-9]{5}$` and is unique case-insensitively across extensions. Never truncate or hash
+an adapter ID into an engine name. `bgse` is the host-only installer slug and is not an engine
+resource derivation.
 
 **Steps:**
 
