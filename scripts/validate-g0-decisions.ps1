@@ -87,7 +87,7 @@ function Test-SingleMetadataField {
     $escapedName = [regex]::Escape($Name)
     $matches = [regex]::Matches(
         $Content,
-        "(?m)^\*\*${escapedName}:\*\*[ \t]*(?<value>[^\r\n]*?)[ \t]*$"
+        "(?m)^\*\*${escapedName}:\*\*[ \t]*(?<value>[^\r\n]*?)[ \t]*\r?$"
     )
 
     if ($matches.Count -ne 1) {
