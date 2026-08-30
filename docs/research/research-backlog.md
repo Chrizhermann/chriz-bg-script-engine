@@ -56,9 +56,13 @@ Priority meanings:
 - **P1:** Required before the corresponding subsystem can expand beyond a narrow pilot.
 - **P2:** Required before supported-corpus expansion or public preview, but not the first feasibility proof.
 
-`Dependencies` lists hard prerequisites for beginning the spike and is intentionally acyclic.
-Later disposable or soak issues may upgrade a spike's evidence grade without becoming a backward
-dependency; record those as validation links when closing the later issue.
+`Dependencies` lists hard prerequisites for beginning the spike and is intentionally acyclic. A
+dependency is satisfied by review of the prerequisite spike's exit artifact, not by completion of
+unrelated work in the same implementation task. When dependent spikes cross task boundaries, the
+implementation plan must name the artifact checkpoint that releases the dependent work.
+
+Later disposable or soak issues may add evidence layers without becoming a backward dependency;
+record those as validation links when closing the later issue.
 
 ## Research gates
 
@@ -104,7 +108,7 @@ Licensing, provenance, release packaging, byte-exact uninstall, performance budg
 
 **Method and evidence:** Inventory the current target ecosystem read-only, pin upstream source revisions where available, and classify each dependency as required, optional adapter, observed-only, or explicitly deferred. Define behavior for version mismatch, missing capability, and an unrecognized resource. Evidence target: E1.
 
-**Artifacts and deliverable:** docs/research/support-matrix.md containing version identifiers, capability assumptions, install-order expectations, adapter applicability, and the normative yield-to-legacy rule.
+**Artifacts and deliverable:** `docs/research/PREP-01-support-baseline.md` containing version identifiers, capability assumptions, install-order expectations, adapter applicability, and the normative yield-to-legacy rule.
 
 **Exit criterion:** Every dependency has an explicit support state; every unsupported or uncertain case has a deterministic non-claim outcome; no document implies support for an untested engine or EEex version.
 
@@ -138,7 +142,7 @@ Licensing, provenance, release packaging, byte-exact uninstall, performance budg
 
 **Why it matters:** A clever decision engine is not valuable if it creates delayed casts, duplicate rewards, stuck cutscenes, poisoned saves, or silently suppresses third-party content.
 
-**Method and evidence:** Catalog known and hypothesized hazards: queue-success versus execution, script-slot shadowing, repeated listener registration, stale object IDs, partial sprite initialization, save/load interruption, non-idempotent side effects, cutscene stacking, skip-path drift, Project Image owner lock, action races, resource replacement after installation, native access violations, and uninstall during in-flight state. Rank severity, detectability, reversibility, and blast radius. Evidence target: E1 initially, upgraded by later E4/E5 spikes.
+**Method and evidence:** Catalog known and hypothesized hazards: queue-success versus execution, script-slot shadowing, repeated listener registration, stale object IDs, partial sprite initialization, save/load interruption, non-idempotent side effects, cutscene stacking, skip-path drift, Project Image owner lock, action races, resource replacement after installation, native access violations, and uninstall during in-flight state. Rank severity, detectability, reversibility, and blast radius. Evidence target: E1 initially; later E4/E5 spikes add their distinct runtime and soak evidence layers.
 
 **Artifacts and deliverable:** Risk register with prevention, detection, fallback, recovery, responsible subsystem, and validation scenario for each critical risk.
 

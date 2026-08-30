@@ -869,7 +869,7 @@ E3+E4 when both installer/restoration and runtime behavior matter.
 - **E5 — supported-corpus soak/compatibility proof:** the declared support matrix is exercised
   repeatedly, including compatibility variants, save/load, performance stress, and failure paths.
 
-Safety-critical runtime claims cannot graduate on E0 alone.
+E0 alone cannot establish a safety-critical runtime claim.
 
 ### 16.2 Test layers
 
@@ -932,8 +932,8 @@ Before an alpha, test at least:
 ## 17. Research and preparation program
 
 Research is a first-class deliverable. Each spike ends as **Proven**, **Conditional**,
-**Rejected**, or **Unknown**, with evidence level, artifacts, decision, remaining uncertainty,
-and dependent work unblocked or blocked.
+**Rejected**, or **Unknown**, with its applicable evidence layer or layers, artifacts, decision,
+remaining uncertainty, and dependent work unblocked or blocked.
 
 ### 17.1 Foundation research
 

@@ -67,7 +67,7 @@ and remaining evidence; it never marks the whole spike complete by association.
   `scs-compatibility.md`, `ie-scripting.md`, `eeex-actions.md`, `eeex-persistence.md`,
   `eeex-sprites.md`, `weidu.md`, and `weidu-testing.md`
 
-Research memos are authoritative only for the exact environment and evidence grade they name.
+Research memos are authoritative only for the exact environments and evidence layers they name.
 Support manifests and effective resource fingerprints outrank remembered install details.
 
 ## 3. Program dependency map
@@ -116,7 +116,7 @@ Each issue carries:
 - `epic:E0` through `epic:E11`;
 - `area:kernel`, `area:combat-intent`, `area:worldflow`, `area:adapter`, `area:tooling`,
   `area:packaging`, or `area:research`;
-- `evidence:E0` through `evidence:E5` for the strongest current proof;
+- every `evidence:E0` through `evidence:E5` layer actually reached and still applicable;
 - `compat:C0` through `compat:C4` where applicable;
 - `env:host`, `env:synthetic`, `env:disposable`, or `env:soak`;
 - `priority:P0`, `priority:P1`, or `priority:P2`;
@@ -215,6 +215,12 @@ paths. A missing tool means the check is unexecuted, not passing.
 
 **Depends on:** Task 1
 
+**Artifact checkpoints:** Task 2 first publishes and reviews
+`docs/research/PREP-01-support-baseline.md`. That artifact, rather than completion of Task 2's
+independent checker, toolchain, and runbook work, releases Task 4's PREP-02 spike. Task 2 may
+continue those independent steps, but it must not begin or close PREP-03 until Task 4 publishes and
+reviews `docs/research/PREP-02-evidence-and-provenance-index.md`.
+
 **Files:**
 
 - Create: `docs/research/PREP-01-support-baseline.md`
@@ -227,29 +233,37 @@ paths. A missing tool means the check is unexecuted, not passing.
 
 **Steps:**
 
-1. Write a failing test that invokes the environment checker with a fixture path matching the
+1. Inventory the current game/EEex/WeiDU/EET/SCS/Spell Revisions ecosystem, upstream revisions,
+   operating-system constraints, and install-order assumptions read-only. This research step may
+   precede the checker test because it writes no production code and is required to define PREP-01.
+2. Complete the PREP-01 support baseline with exact dependency states, versions/revisions where
+   available, capability assumptions, and deterministic non-claim behavior for every unsupported or
+   uncertain case.
+3. Review PREP-01 against its backlog exit criterion, run `git diff --check`, and make the narrow
+   artifact-checkpoint commit `research: pin initial support baseline`. This checkpoint releases
+   Task 4's PREP-02 work; Task 2 remains `in_progress`.
+4. Write a failing test that invokes the environment checker with a fixture path matching the
    documented active game and expects a hard refusal before any file write.
-2. Run `python -m pytest tests/tooling/test_environment_contract.py -q`; expected: FAIL because the
+5. Run `python -m pytest tests/tooling/test_environment_contract.py -q`; expected: FAIL because the
    checker does not exist.
-3. Inventory Python, Lua/LuaJIT candidates, WeiDU versions, EEex versions, Near Infinity, decompiler
+6. Inventory Python, Lua/LuaJIT candidates, Near Infinity, decompiler
    commands, path/encoding constraints, and disposable-disk requirements without modifying a game.
-4. Implement the minimal read-only checker. It must require an explicit
+7. Implement the minimal read-only checker. It must require an explicit
    `BGSE_DISPOSABLE_GAME_ROOT`, resolve the canonical absolute target and every ancestor, reject the
    known active-game root and all descendants/aliases, reject symlinks/junctions/reparse points that
    resolve into or out of the disposable root, reject any intended write target escaping that root,
    reject a root without a disposable marker file, and print capability results without secrets.
-5. Run the focused test; expected: PASS for a temporary marked fixture and PASS-by-refusal for the
+8. Run the focused test; expected: PASS for a temporary marked fixture and PASS-by-refusal for the
    active path.
-6. Create a clean disposable-lab runbook covering copy creation, marker, launch, log capture, save
+9. Create a clean disposable-lab runbook covering copy creation, marker, launch, log capture, save
    reset, crash detection, process shutdown, restore, and evidence retention. Do not create the
    actual game copy without explicit approval.
-7. Complete the PREP-01 support baseline with exact dependency states, versions/revisions where
-   available, capability assumptions, and deterministic non-claim behavior for every unsupported or
-   uncertain case.
-8. Complete the PREP-03 risk register with prevention, detection, fallback, recovery, responsible
-   subsystem, and planned validation for every critical failure class.
-9. Decide the host test/runtime toolchain in ADR 0006 and document unsupported alternatives.
-10. Run the full host suite and commit: `test: establish safe development environment contract`.
+10. Decide the host test/runtime toolchain in ADR 0006 and document unsupported alternatives.
+11. Stop at the PREP-02 artifact barrier if Task 4 has not published and reviewed
+    `docs/research/PREP-02-evidence-and-provenance-index.md`. Once it has, complete the PREP-03 risk
+    register with prevention, detection, fallback, recovery, responsible subsystem, and planned
+    validation for every critical failure class.
+12. Run the full host suite and commit: `test: establish safe development environment contract`.
 
 **Exit:** repeatable commands exist, but no active or disposable game has been mutated merely by
 running the checker.
@@ -295,7 +309,12 @@ substitute the active installation if this task is pending or fails.
 
 **Research linkage (not automatic closure):** PREP-02, TEST-01, TEST-02, LIC-01 through LIC-04
 
-**Depends on:** Tasks 1 and 2
+**Depends on:** Task 1 plus Task 2's reviewed `docs/research/PREP-01-support-baseline.md` artifact;
+Task 2 need not be complete
+
+**Artifact checkpoint:** PREP-02 is the first independently reviewed output of this task. Publishing
+`docs/research/PREP-02-evidence-and-provenance-index.md` releases Task 2's PREP-03 work while the
+remaining fixture, licensing, and redistribution governance continues here.
 
 **Files:**
 
@@ -315,16 +334,23 @@ substitute the active installation if this task is pending or fails.
 3. Define classifications for independently authored metadata, short factual extracts, generated
    fingerprints, locally generated effective artifacts, redistributable synthetic fixtures,
    upstream source, and forbidden packaged content.
-4. Record SCS's exact source/version and reuse statement as E1 pinned static evidence. Record any
+4. Implement the minimum schema, template, and evidence index needed to satisfy PREP-02. Validate a
+   sample Combat Intent rule and WorldFlow compatibility contract end-to-end without consulting the
+   active game or personal memory.
+5. Record SCS's exact source/version and reuse statement as E1 pinned static evidence. Record any
    interpretation of what that statement permits separately as an E0 claim or policy decision; it
    is not legal advice and does not itself authorize redistribution.
-5. Implement the evidence schema and validate one positive and one negative fixture.
-6. Verify the fixture allowlist excludes full SCS source/generated BCS, installed binaries, TLK,
+6. Run focused schema tests and `git diff --check`, review PREP-02 against its backlog exit criterion,
+   and make the narrow checkpoint commit `docs: establish evidence and provenance ledger`. This
+   releases Task 2's PREP-03 step; Task 4 remains `in_progress`.
+7. Complete the remaining provenance classifications and validate one positive and one negative
+   fixture.
+8. Verify the fixture allowlist excludes full SCS source/generated BCS, installed binaries, TLK,
    saves, and personal-path logs.
-7. Run focused and full tests; commit: `docs: define evidence and provenance governance`.
+9. Run focused and full tests; commit: `docs: define fixture and provenance governance`.
 
-**Exit:** every future fixture and migrated behavior has a place, an owner, an evidence grade, and a
-distribution decision.
+**Exit:** every future fixture and migrated behavior has a place, an owner, its applicable evidence
+layers, and a distribution decision.
 
 ### Task 5: Build the effective-install inventory and exact ownership-manifest prototype
 
@@ -362,8 +388,8 @@ distribution decision.
    research memo.
 8. Run tests and commit: `feat: add conservative install inventory prototype`.
 
-**Exit:** E2 can identify exact resources and reject uncertainty with no selective semantic match;
-it does not yet activate runtime ownership.
+**Exit:** epic:E2 can identify exact resources and reject uncertainty with no selective semantic
+match; it does not yet activate runtime ownership.
 
 ### Task 6: Characterize the SCS combat corpus and create migration ledgers
 
@@ -432,8 +458,8 @@ copied or activated.
 5. Run focused tests; expected: deterministic capability profiles and explicit unavailable reasons.
 6. Commit: `feat: add versioned EEex capability profiles`.
 
-**Exit:** capability detection exists as a pure contract; engine safety is still E0/E2 until the
-disposable probes pass.
+**Exit:** capability detection exists as a pure contract; engine safety remains bounded by
+evidence:E0 and evidence:E2 until the disposable probes pass.
 
 ### Task 8: Prove observer registration and hot-reload safety
 
@@ -443,11 +469,14 @@ disposable probes pass.
 
 **Files:**
 
-- Create: `experiments/eeex-observer/M_bgse_obs.lua`
-- Create: `experiments/eeex-observer/bgse_obs.lua`
+- Create: `experiments/eeex-observer/M_{engine-prefix}_obs.lua`
+- Create: `experiments/eeex-observer/{engine-prefix}_obs.lua`
 - Create: `experiments/eeex-observer/README.md`
 - Create: `docs/research/EEEX-03-observer-probe.md`
 - Test: `tests/unit/kernel/test_listener_trampoline.lua`
+
+`{engine-prefix}` is a non-literal planning token. Replace it with the G0-approved filename
+derivation before creating any experiment resource.
 
 **Steps:**
 
@@ -465,7 +494,7 @@ disposable probes pass.
 7. Commit host tests and redistributable experiment source/log excerpts only:
    `research: prove EEex observer lifecycle`.
 
-**Exit:** E4 evidence identifies a safe observer lifecycle or G1 fails.
+**Exit:** evidence:E4 identifies a safe observer lifecycle or G1 fails.
 
 ### Task 9: Prove normal-action outcome observation
 
@@ -498,8 +527,8 @@ disposable probes pass.
    clearing.
 7. Commit: `research: define and prove action outcome states`.
 
-**Exit:** one ordinary action family has an E4 observer with explicit unknown outcomes; otherwise
-active control remains forbidden.
+**Exit:** one ordinary action family's observer is proved at evidence:E4 with explicit unknown
+outcomes; otherwise active control remains forbidden.
 
 ### Task 10: Prove persistence, stack epochs, diagnostics, and baseline cost
 
@@ -545,11 +574,14 @@ measured baseline.
 - Create: `docs/research/BCS-01-lua-handoff.md`
 - Create: `docs/research/DLG-01-normal-dialogue-initiation.md`
 - Create: `docs/research/FLOW-01-legacy-decline-and-handback.md`
-- Create: `experiments/bridge/bgse_bridge.baf`
-- Create: `experiments/bridge/bgse_dialogue.d`
-- Create: `experiments/bridge/bgse_bridge.lua`
-- Create: `experiments/bridge/setup-bgse-bridge.tp2`
+- Create: `experiments/bridge/{engine-prefix}_bridge.baf`
+- Create: `experiments/bridge/{engine-prefix}_dialogue.d`
+- Create: `experiments/bridge/{engine-prefix}_bridge.lua`
+- Create: `experiments/bridge/setup-{engine-prefix}-bridge.tp2`
 - Test: `tests/integration/test_bridge_installer.py`
+
+`{engine-prefix}` is a non-literal planning token. Replace it with the G0-approved filename and
+resource derivations before creating the bridge fixture.
 
 **Steps:**
 
@@ -585,7 +617,8 @@ failure visibly restore the legacy path.
 
 1. Assemble exact capability profile, source revisions, engine build, experiment IDs, crashes,
    unsupported calls, lifecycle gaps, action observation limits, persistence result, and cost.
-2. Mark each claim E0-E5 and each capability `supported`, `shadow-only`, `unavailable`, or
+2. Mark each claim with every applicable `evidence:E0` through `evidence:E5` layer and each
+   capability `supported`, `shadow-only`, `unavailable`, or
    `quarantined`.
 3. Run all host tests and reproduce the disposable smoke sequence from a reset lab state.
 4. Review against every G1 exit criterion and P0 open question.
@@ -618,8 +651,9 @@ failure visibly restore the legacy path.
 1. Write failing Lua tests for injected monotonic time, deterministic sequence replay, independent
    RNG streams, integer/float boundary behavior, invalid seeds, and no access to ambient wall clock
    or global random state.
-2. Implement a Python runner that launches the interpreter selected by PREP-02, reports every test
-   file, preserves stdout/stderr, and fails if no tests are discovered.
+2. Implement a Python runner that launches the interpreter selected by
+   `docs/research/host-runtime-toolchain-decision.md`, reports every test file, preserves
+   stdout/stderr, and fails if no tests are discovered.
 3. Run `pwsh -File scripts/test.ps1 -Suite unit`; expected: intentional RED for missing clock/RNG.
 4. Implement minimal Lua 5.1-compatible clock and RNG interfaces. Do not optimize or add policy.
 5. Run the unit suite twice with shuffled test order; expected: identical decisions and no global
@@ -778,8 +812,8 @@ without behavioral mutation.
 8. Map results to stable `COMP-*` IDs and record unexecuted cells explicitly.
 9. Commit: `test: prove unknown-content legacy ownership`.
 
-**Exit:** the primary compatibility invariant has E3 structural/restoration evidence and E4
-sentinel-behavior evidence rather than prose.
+**Exit:** the primary compatibility invariant has evidence:E3 structural/restoration proof and
+evidence:E4 sentinel-behavior proof rather than prose.
 
 ### Task 18: Review and record G2 and G3
 
@@ -830,7 +864,7 @@ FLOW-01, FLOW-02, WF-06
    final world invariants, and legacy re-entry/handback.
 4. Validate against synthetic scripts with an unknown later writer/controller; expected: the graph
    reports incomplete closure and any hypothetical claim remains stale/pass-through.
-5. Inspect representative effective content read-only and record E1 evidence, uncertainties, and
+5. Inspect representative effective content read-only and record evidence:E1, uncertainties, and
    unsupported constructs without converting or patching it.
 6. Commit: `research: map WorldFlow semantics and public ABI`.
 
@@ -1099,8 +1133,8 @@ omniscient.
 2. Write failing pure tests for ally-in-AoE, uncertain radius, chokepoint, unreachable candidate,
    occupied destination, caster threat, retreat bias, and no safe movement.
 3. Implement a small sampled candidate set; do not build a full path planner.
-4. Exclude any AoE/movement candidate whose geometry or reachability cannot be supported at the
-   required evidence level.
+4. Exclude any AoE/movement candidate whose geometry or reachability lacks the required evidence
+   layer or combination of layers.
 5. Validate only safe read/query calls in the disposable arena; stop on native fault.
 6. Commit: `feat: add conservative spatial reasoning`.
 
