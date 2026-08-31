@@ -6,7 +6,7 @@
   },
   "tasks": [
     {"id": 1, "subject": "Task 1: Freeze the architectural decisions as ADRs", "status": "completed"},
-    {"id": 2, "subject": "Task 2: Establish the development and disposable-lab contract", "status": "in_progress", "blockedBy": [1], "completionBlockedByArtifacts": ["docs/research/PREP-02-evidence-and-provenance-index.md"]},
+    {"id": 2, "subject": "Task 2: Establish the development and disposable-lab contract", "status": "completed", "blockedBy": [1], "completionBlockedByArtifacts": ["docs/research/PREP-02-evidence-and-provenance-index.md"]},
     {"id": 3, "subject": "Task 3: Obtain authorization and provision the disposable engine laboratory", "status": "pending", "blockedBy": [2], "requiresUserAuthorization": true},
     {"id": 4, "subject": "Task 4: Define evidence, fixture, corpus, and redistribution governance", "status": "in_progress", "blockedBy": [1], "startBlockedByArtifacts": ["docs/research/PREP-01-support-baseline.md"]},
     {"id": 5, "subject": "Task 5: Build the effective-install inventory and exact ownership-manifest prototype", "status": "pending", "blockedBy": [2, 4]},
@@ -47,5 +47,5 @@
     {"id": 40, "subject": "Task 40: Execute the supported compatibility, soak, and performance matrix", "status": "pending", "blockedBy": [26, 30, 35, 37, 38, 39]},
     {"id": 41, "subject": "Task 41: Complete provenance, security, documentation, and G8 review", "status": "pending", "blockedBy": [36, 37, 38, 39, 40]}
   ],
-  "lastUpdated": "2026-08-31T19:22:02+09:00"
+  "lastUpdated": "2026-08-31T20:08:29+09:00"
 }

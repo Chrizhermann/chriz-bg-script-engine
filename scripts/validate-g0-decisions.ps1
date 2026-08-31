@@ -62,7 +62,7 @@ $expectedAdrStatuses = [ordered]@{
     '0003-weidu-remains-installer-of-record.md' = 'Accepted'
     '0004-evidence-and-environment-gates.md' = 'Accepted'
     '0005-scs-provenance-and-reuse.md' = 'Accepted'
-    '0006-runtime-and-host-language-boundaries.md' = 'Provisional'
+    '0006-runtime-and-host-language-boundaries.md' = 'Accepted'
     'template.md' = 'Proposed'
 }
 

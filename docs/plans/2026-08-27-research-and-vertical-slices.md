@@ -19,11 +19,12 @@ policy, lifecycle, persistence, and failure semantics.
 **Tech Stack:** Lua 5.1-compatible policy/runtime code for EEex/LuaJIT, WeiDU for reversible
 installation and BAF/DLG compilation, Python 3 plus `pytest` for host-side tooling and model tests,
 PowerShell for Windows lab orchestration, JSON/JSONL for host artifacts, generated Lua tables for
-runtime manifests. Exact interpreter and version floors remain gated by PREP/EEEX research.
+runtime manifests. Host interpreter floors are recorded in ADR 0006; embedded-runtime and compiler
+support remains gated by PREP/EEEX research.
 
 ---
 
-**Status:** Ready for issue creation; implementation has not started
+**Status:** In execution; canonical per-task state is recorded in the task-state file below
 
 **Date:** 2026-08-27
 

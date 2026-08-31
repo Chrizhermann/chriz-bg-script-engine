@@ -1,0 +1,15 @@
+[project]
+name = "chriz-bg-script-engine"
+version = "0.0.0"
+description = "Compatibility-first host and runtime research for BG2:EE scripting"
+requires-python = ">=3.11,<3.12"
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest>=8.4,<9"]
+
+[tool.pytest.ini_options]
+minversion = "8.4"
+addopts = "-ra"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
