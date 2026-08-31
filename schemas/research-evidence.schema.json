@@ -1,0 +1,407 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/chriz-bg-script-engine/research-evidence.schema.json",
+  "$comment": "Project-required subset only. The stdlib checker is intentionally not a full JSON Schema conformance implementation. PREP-02 cross-field semantics are enforced by tests/schemas/test_research_evidence_schema.py.",
+  "title": "Chriz BG Script Engine research evidence record",
+  "description": "Minimum PREP-02 record for a reproducible research conclusion and its artifact provenance.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "recordType",
+    "title",
+    "outcome",
+    "question",
+    "environment",
+    "versions",
+    "method",
+    "observations",
+    "counterevidence",
+    "artifacts",
+    "evidenceLayers",
+    "claims",
+    "residualUncertainty",
+    "nextDecision"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^research:[a-z0-9][a-z0-9._-]*$"
+    },
+    "recordType": {
+      "type": "string",
+      "const": "research-result"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "outcome": {
+      "type": "string",
+      "enum": [
+        "Proven",
+        "Conditional",
+        "Rejected",
+        "Unknown"
+      ]
+    },
+    "question": {
+      "type": "string",
+      "minLength": 1
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "description",
+        "gameStateAccess"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "env:host",
+            "env:synthetic",
+            "env:disposable",
+            "env:soak"
+          ]
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "gameStateAccess": {
+          "type": "string",
+          "enum": [
+            "none",
+            "read-only",
+            "disposable-write",
+            "soak-write"
+          ]
+        }
+      }
+    },
+    "versions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "component",
+          "version",
+          "revision",
+          "fingerprint",
+          "source"
+        ],
+        "properties": {
+          "component": {
+            "type": "string",
+            "minLength": 1
+          },
+          "version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "revision": {
+            "type": "string",
+            "minLength": 1
+          },
+          "fingerprint": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "method": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "summary",
+        "commands",
+        "constraints"
+      ],
+      "properties": {
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "commands": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "constraints": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "observations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "counterevidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "kind",
+          "classification",
+          "owner",
+          "component",
+          "version",
+          "revision",
+          "sourcePath",
+          "acquisitionDate",
+          "digest",
+          "transformation",
+          "requiredCredit",
+          "redistributionStatus",
+          "evidenceLayers"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^artifact:[a-z0-9][a-z0-9._-]*$"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "source-file",
+              "installed-resource",
+              "decompile",
+              "trace",
+              "fixture",
+              "research-result",
+              "transformation"
+            ]
+          },
+          "classification": {
+            "type": "string",
+            "enum": [
+              "independently-authored-metadata",
+              "short-factual-extract",
+              "generated-fingerprint",
+              "locally-generated-effective-artifact",
+              "redistributable-synthetic-fixture",
+              "upstream-source",
+              "forbidden-packaged-content"
+            ]
+          },
+          "owner": {
+            "type": "string",
+            "minLength": 1
+          },
+          "component": {
+            "type": "string",
+            "minLength": 1
+          },
+          "version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "revision": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sourcePath": {
+            "type": "string",
+            "minLength": 1
+          },
+          "acquisitionDate": {
+            "type": "string",
+            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+          },
+          "digest": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "algorithm",
+              "value"
+            ],
+            "properties": {
+              "algorithm": {
+                "type": "string",
+                "enum": [
+                  "git-blob-sha1",
+                  "sha256"
+                ]
+              },
+              "value": {
+                "type": "string",
+                "pattern": "^(?:[A-Fa-f0-9]{40}|[A-Fa-f0-9]{64})$"
+              }
+            }
+          },
+          "transformation": {
+            "type": "string",
+            "minLength": 1
+          },
+          "requiredCredit": {
+            "type": "string",
+            "minLength": 1
+          },
+          "redistributionStatus": {
+            "type": "string",
+            "enum": [
+              "redistributable",
+              "conditional",
+              "reference-only",
+              "local-only",
+              "forbidden",
+              "unreviewed"
+            ]
+          },
+          "evidenceLayers": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "enum": [
+                "evidence:E0",
+                "evidence:E1",
+                "evidence:E2",
+                "evidence:E3",
+                "evidence:E4",
+                "evidence:E5"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "evidenceLayers": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": [
+          "evidence:E0",
+          "evidence:E1",
+          "evidence:E2",
+          "evidence:E3",
+          "evidence:E4",
+          "evidence:E5"
+        ]
+      }
+    },
+    "claims": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "statement",
+          "evidenceRefs",
+          "limitations"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^claim:[a-z0-9][a-z0-9._-]*$"
+          },
+          "statement": {
+            "type": "string",
+            "minLength": 1
+          },
+          "evidenceRefs": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^artifact:[a-z0-9][a-z0-9._-]*$"
+            }
+          },
+          "limitations": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    "residualUncertainty": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "nextDecision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "decision",
+        "owner",
+        "condition",
+        "fallback"
+      ],
+      "properties": {
+        "decision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "owner": {
+          "type": "string",
+          "minLength": 1
+        },
+        "condition": {
+          "type": "string",
+          "minLength": 1
+        },
+        "fallback": {
+          "type": "string",
+          "enum": [
+            "no-runtime-claim",
+            "outcome-unknown-and-yield",
+            "legacy-yield",
+            "shipping-hold"
+          ]
+        }
+      }
+    }
+  }
+}
