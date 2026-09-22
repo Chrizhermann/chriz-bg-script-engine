@@ -33,9 +33,11 @@ The initial kit branch alone is insufficient: `mage-shared` 472-492 subsequently
 selection inputs, the source path uses `dw#mage.ssl` with `ssl_mage_type=standard_mage`, not just the
 small combat include list. These constraints identify the template lane, not a complete generated
 instance: level, spell allocation, settings and overrides remain inputs to collect.
-A source call to low insertion does **not** establish an effective slot index:
-the insertion helper, original slots, area actor overrides, later patches and external controllers
-still need tracing. Allocation inputs must include the exact spell/defensive tables, kit, level,
+A source call to low insertion does **not** establish an effective slot index.
+The [shared-rule continuation](SCS-shared-rule-expansion.md) traces the conditional insertion call,
+slot shifts and possible merge invocation; actual merged output, original slots, area actor
+overrides, later patches and external controllers remain uncollected.
+Allocation inputs must include the exact spell/defensive tables, kit, level,
 mod libraries, INI/settings, per-creature overrides and any install-time random selections.
 
 **Counterevidence:** The Alacrity/Wish path compiles through an additional BAF rewrite, and the
@@ -49,8 +51,10 @@ For example, [the per-creature generator](https://github.com/Gibberlings3/SwordC
 **Applicable evidence:** evidence:E1 for the pinned source statements only. Offline documentation
 checks are not compiler, installer, semantic-oracle, or engine proof.
 
-**Residual uncertainty:** Macro expansion, effective slot/control closure, representative actor,
-generated resources and comparison remain open. Task 5's synthetic inventory cannot supply them.
+**Residual uncertainty:** Selected macro/compiler/helper source paths are now traced in the
+continuation, not fully executed. Actual macro expansion, effective slot/control closure,
+representative actor, generated resources and comparison remain open. Task 5's synthetic inventory
+cannot supply them.
 
 **Next decision:** Integration owner completes the source trace and reviews the effective-evidence
 packet below; no adapter activates, and no Task 3 authorization is inferred.

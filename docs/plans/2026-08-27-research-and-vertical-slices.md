@@ -404,6 +404,9 @@ match; it does not yet activate runtime ownership.
 records source identities, two ledgers and bounded observations. Effective generated-script
 comparison, remaining source/control tracing and derived-fixture admission are still required;
 this is not the Task 6 exit or a gate pass. Task 3 authorization remains separate.
+The [shared-rule continuation](../research/SCS-shared-rule-expansion.md) adds ordered-library,
+macro merge, compiler response and conditional CRE insertion source evidence. It does not supply
+the missing effective artifacts or a semantic oracle.
 
 **Files:**
 

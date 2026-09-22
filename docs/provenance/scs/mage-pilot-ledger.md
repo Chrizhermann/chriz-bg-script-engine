@@ -17,6 +17,8 @@ lich/skeleton/demilich overrides are excluded from this lane, not assumed absent
 Other generation inputs are still uncollected. Stable research ID
 `scs-mage-standard-source-pilot`; this is not an engine resource name or an activation selector.
 Digests/links: [source evidence](../../research/scs-source-pilot.evidence.json).
+Continuation: [shared-rule/compiler/helper evidence](../../research/scs-shared-rules.evidence.json)
+and [interpretation/review](../../research/SCS-shared-rule-expansion.md).
 
 **Effective artifacts:** not collected. No installed actor, generated BCS, effective CRE slots,
 resource payloads or complete control closure. `dw#mg...` names never identify this family alone.
@@ -29,9 +31,9 @@ Task 6 memos beginning with [the pipeline](../../research/SCS-01-generation-pipe
 
 | Record | Source evidence | Disposition / acceptance still needed |
 |---|---|---|
-| M01 inputs and identity | `mage-shared` 28-46, 313-367; `caster-shared` 1043-1065 | `preserve`: identify by full generator/effective provenance, not generated name; verify final slots and hashes. |
+| M01 inputs and identity | `mage-shared` 28-46, 313-367; `caster-shared` 1043-1065; shared-rule continuation | `preserve`: identify by full generator/effective provenance, not generated name; conditional insertion and possible slot shifts/merge are source-traced, but final slots and hashes remain unverified. |
 | M02 priority and continuation | `main-mage` 7-122; `standard-mage` 5-51 | `preserve`: do not flatten ordering; compare expanded BCS and later shadow traces. |
-| M03 target/protection legality | `first-dispel` 7-31; `caster-definitions` 18-33 | `opaque`: resolve macros/libraries and all prerequisites before policy translation. |
+| M03 target/protection legality | `first-dispel` 7-31; `caster-definitions` 18-33; shared-rule continuation | `opaque`: six macro bodies and merge/continuation construction source-traced; actual ordered libraries, all prerequisites and effective output still required before policy translation. |
 | M04 encounter handoff | `kruin` 5-71; `first-round` 25-77 | `opaque`: legacy-owned; prove control closure and separately review any future enrollment. |
 | M05 actions and settings | `mage-setup` 14-38; `difficulty` 140-287 | `needs-engine-proof`: preserve observed source distinctions in future tests; no source-to-runtime promotion. |
 
@@ -43,8 +45,10 @@ a separate rationale and counterexample tests. Original infrastructure remains i
 Most combat includes, martial/priest families, campaigns and wider components are not mapped yet;
 this is an explicit coverage gap, not a conclusion that they are irrelevant.
 
-**Opaque cases:** Target/protection bodies, library precedence, per-creature overrides, final
-weights/continuation, script stripping/insertion helpers, external controllers and effective stack.
+**Opaque cases:** Untraced target/protection bodies, actual installed-library composition,
+per-creature overrides, final weights/continuation, merged-script output, external controllers and
+effective stack. Selected library precedence and stripping/insertion source paths are characterized,
+but do not establish effective behavior or authorize our own prefix-based resource removal.
 
 **Ownership / fallback:** No adapter claim exists. Unknown content and all studied actors remain
 with original BCS/DLG ownership. No guessed dependency closure or permissive fingerprint.
@@ -52,6 +56,8 @@ with original BCS/DLG ownership. No guessed dependency closure or permissive fin
 **Tests:** Offline evidence/document checks only; see
 [checkpoint verification](../../research/2026-09-22-task6-source-checkpoint.md). No semantic oracle,
 compiler, install, shadow, or engine test; ordinary/edge/compatibility cells remain open.
+The shared-rule continuation adds source-chain and immutable-artifact documentation regressions,
+not behavior-preservation tests.
 
 **Attribution:** SCS by David Wallace (DavidW); follow file/component contributor credit before
 derived reuse. Spell Revisions (Demivrgvs/G3) informs optional compatibility branches, not a tested

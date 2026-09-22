@@ -1,6 +1,6 @@
 # SCS mage pilot: target and protection boundary
 
-**Outcome:** Conditional; source-only call-site map, not resolved target semantics.
+**Outcome:** Conditional; source-only call-site and bounded shared-rule map, not runtime semantics.
 
 **Question:** What must be expanded before a target/protection rule can become a policy oracle?
 
@@ -10,7 +10,9 @@
 [scs-source-pilot.evidence.json](scs-source-pilot.evidence.json).
 
 **Method:** Inspect one early-dispel call site and the ordinary Spell action definition using
-[the pinned-source recipe](SCS-01-generation-pipeline.md). No full library expansion performed.
+[the pinned-source recipe](SCS-01-generation-pipeline.md). The
+[shared-rule continuation](SCS-shared-rule-expansion.md) additionally traces six selected macro
+names across seven libraries and the Perl reader; no full library expansion was executed.
 
 **Observations:** `first-dispel`, 7-31, combines ordered player targeting, several named protection
 and dispel-safety macros, level/chapter gates, a time-stop condition, timers, combined alternatives
@@ -31,8 +33,10 @@ evidence of exact immunity semantics, target visibility or friendly-fire safety.
 
 **Applicable evidence:** evidence:E1 for call-site/definition observations only.
 
-**Residual uncertainty:** Follow target/trigger library bodies, SR/EE variants, generated spell
-resources and all substitutions before completing the oracle. No complete protection table exists.
+**Residual uncertainty:** Six selected library bodies and ordinary-versus-replacement merge rules
+are now source-traced; other libraries, generated spell resources and all effective substitutions
+remain open before completing the oracle. No complete protection table or engine predicate proof
+exists. A comment-only ordinary SR entry does not erase an earlier predicate.
 
-**Next decision:** Lead owns macro interpretation; a bounded worker may extract pinned definitions
-and cross-references. Unresolved forms remain `opaque`, never permissively generalized.
+**Next decision:** Lead reviews actual library/compiler inputs and effective output against the
+source trace. Unresolved forms remain `opaque`, never permissively generalized.

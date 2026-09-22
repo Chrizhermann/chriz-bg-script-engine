@@ -37,6 +37,8 @@ Flattening the files to an unordered spell list loses real source distinctions.
 
 **Residual uncertainty:** Exact expanded branch order, macro response weights and actual action
 selection are not established. No complete taxonomy coverage or behavior-preservation test exists.
+The [shared-rule continuation](SCS-shared-rule-expansion.md) now traces weight/continuation and
+conditional output construction in the Perl source; this is not generated-output or runtime proof.
 
 **Next decision:** Preserve source ordering distinctions in the effective comparison; approve no
 priority rewrite until exceptions and generated behavior are understood. Owner: integration lead.

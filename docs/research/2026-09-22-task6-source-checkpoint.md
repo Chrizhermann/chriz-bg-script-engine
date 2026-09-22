@@ -4,6 +4,10 @@
 
 **Date / owner:** 2026-09-22 / integration lead.
 
+**Continuation:** The [shared-rule/compiler/helper checkpoint](SCS-shared-rule-expansion.md)
+addresses the next bounded source packet. The counts and verification below describe this first
+checkpoint and are retained as historical evidence; neither packet completes Task 6.
+
 ## Scope and continuation
 
 Tasks 4 and 5 are complete. This checkpoint starts canonical Task 6 with the ordinary standard-mage
@@ -91,7 +95,8 @@ permission. Source truth still requires pinned inspection and human/agent review
 
 ## Open barriers and next packet
 
-1. Finish the selected source-library/target/protection and generation-helper trace. Keep exact
+1. Continue the selected source-library/target/protection and generation-helper trace (the next
+   bounded packet is now documented in the continuation above). Keep exact
    macro precedence, response expansion and input-sensitive cases explicit; do not infer them from
    names. The general-versus-prep difficulty-variable distinction is a source observation, not a
    bug diagnosis or a behavior-change decision.
