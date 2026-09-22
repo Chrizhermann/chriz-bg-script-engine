@@ -85,6 +85,9 @@ approved copy scope. It does not admit an engine lab or change PREP-01's runtime
 This is an internal scope clarification within the approved reference-copy request, not a new
 runtime design decision. It has not yet been implemented or used to copy files.
 
+Subsequent host checkpoint: [read-only source measurement](offline-reference-measurement.md).
+That helper is not a copier; its result never admits a write operation or engine launch.
+
 ## Isolation implementation packet
 
 The current Task 2 checker is intentionally post-provision: it requires a destination and marker,

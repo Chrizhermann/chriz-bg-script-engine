@@ -75,8 +75,10 @@ the engine profile and complete writable-root contract are admitted.
 
 The offline route still requires a reviewed fresh-destination bootstrap guard, no-follow child
 inventory, hard-link/native identity checks, process/capacity checks and complete copy verification.
-The current Task 2 checker cannot authorize that new-root operation. No new implementation or copy
-is claimed by this amendment. The engine route below still requires matching/admitted fingerprints,
+The current Task 2 checker cannot authorize that new-root operation. The subsequent
+[read-only measurement checkpoint](offline-reference-measurement.md) implements only ordinary-file
+inventory and capacity planning, not that complete operation. No copy is claimed by this amendment.
+The engine route below still requires matching/admitted fingerprints,
 multi-root isolation and all of Task 3's acceptance checks. The observed cloud/reparse Documents
 root is a real unresolved guard conflict; never waive it or change global Windows settings silently.
 

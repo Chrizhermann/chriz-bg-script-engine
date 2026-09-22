@@ -281,6 +281,9 @@ running the checker.
 mismatch and cloud/reparse Documents conflict. No game copy or mutation has occurred. A reviewed
 offline-reference acquisition scope does not admit an engine lab; implementation guards, runtime
 profile choice, independent writable roots, launch/save and reset-twice acceptance remain open.
+The [read-only measurement subcheckpoint](../research/offline-reference-measurement.md) adds
+test-first ordinary-file inventory and explicit capacity planning only; it does not replace the
+provision/reset `-WhatIf`, protected-root/process, copying or runtime acceptance steps below.
 
 **Files:**
 
