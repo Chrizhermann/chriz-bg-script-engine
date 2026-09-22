@@ -44,7 +44,7 @@ namespace Bgse.Lab
         private const uint BackupNoFollow = 0x02000000 | 0x00200000;
 
         [StructLayout(LayoutKind.Sequential)]
-        private struct Info
+        internal struct Info
         {
             public uint Attributes;
             public uint CreationLow, CreationHigh, AccessLow, AccessHigh, WriteLow, WriteHigh;
@@ -76,7 +76,7 @@ namespace Bgse.Lab
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, ExactSpelling = true, SetLastError = true)]
         private static extern bool GetDiskFreeSpaceExW(string root, out ulong available, out ulong total, out ulong free);
 
-        private sealed class Entry : IDisposable
+        internal sealed class Entry : IDisposable
         {
             public string Path, Relative, Id, Hash;
             public Info Metadata;
@@ -87,7 +87,7 @@ namespace Bgse.Lab
 
         private static void Refuse(string code) { throw new MeasurementRefusal(code); }
 
-        private static string LocalPath(string input)
+        internal static string LocalPath(string input)
         {
             if (String.IsNullOrEmpty(input) || !Regex.IsMatch(input, @"\A[A-Za-z]:[\\/]"))
                 Refuse("BGSE_E_PATH_SYNTAX");
@@ -114,7 +114,7 @@ namespace Bgse.Lab
                 path.StartsWith(parent.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase);
         }
 
-        private static string ReadIdentity(SafeFileHandle handle)
+        internal static string ReadIdentity(SafeFileHandle handle)
         {
             Identity identity;
             if (!GetIdentity(handle, 18, out identity, 24)) Refuse("BGSE_E_PATH_ACCESS");
@@ -128,7 +128,7 @@ namespace Bgse.Lab
             return info;
         }
 
-        private static Entry Open(string path, bool mayBeAbsent, bool readData = false)
+        internal static Entry Open(string path, bool mayBeAbsent, bool readData = false)
         {
             // FILE_READ_DATA / FILE_LIST_DIRECTORY makes sharing restrictions
             // effective; a desiredAccess=0 metadata handle does NOT lock rename.
@@ -143,6 +143,13 @@ namespace Bgse.Lab
                 if (mayBeAbsent && (error == 2 || error == 3)) return null;
                 Refuse("BGSE_E_PATH_ACCESS");
             }
+            return ValidateHandle(path, handle);
+        }
+
+        // Takes ownership, including closing a rejected handle. Shared with the
+        // separately loaded fresh-creation helper, not a path reopen.
+        internal static Entry ValidateHandle(string path, SafeFileHandle handle)
+        {
             try
             {
                 Info info = ReadInfo(handle);
@@ -158,7 +165,7 @@ namespace Bgse.Lab
             catch { handle.Dispose(); throw; }
         }
 
-        private static List<Entry> Ancestors(string path, bool destination)
+        internal static List<Entry> Ancestors(string path, bool destination)
         {
             var result = new List<Entry>();
             try
@@ -178,7 +185,7 @@ namespace Bgse.Lab
             catch { foreach (Entry entry in result) entry.Dispose(); throw; }
         }
 
-        private static void VerifyDestination(string destination, List<Entry> original)
+        internal static void VerifyDestination(string destination, List<Entry> original)
         {
             var current = Ancestors(destination, true);
             try
@@ -195,7 +202,7 @@ namespace Bgse.Lab
             if (destinationIds.Contains(sourceId)) Refuse("BGSE_E_OVERLAP");
         }
 
-        private static void CheckStreams(Entry entry)
+        internal static void CheckStreams(Entry entry)
         {
             // Query the already validated handle. Named streams (including MOTW)
             // are refused, not discarded or copied under an unstated policy.
@@ -330,7 +337,7 @@ namespace Bgse.Lab
             return result;
         }
 
-        private static void FixedNtfs(string root)
+        internal static void FixedNtfs(string root)
         {
             var drive = new DriveInfo(root);
             if (!drive.IsReady || drive.DriveType != DriveType.Fixed || drive.DriveFormat != "NTFS")

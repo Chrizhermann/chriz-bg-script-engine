@@ -284,6 +284,11 @@ profile choice, independent writable roots, launch/save and reset-twice acceptan
 The [read-only measurement subcheckpoint](../research/offline-reference-measurement.md) adds
 test-first ordinary-file inventory and explicit capacity planning only; it does not replace the
 provision/reset `-WhatIf`, protected-root/process, copying or runtime acceptance steps below.
+The [fresh-creation primitive](../research/offline-reference-creation.md) adds synthetic native
+ownership/redirect tests; it is not an operational copier and does not authorize game-path writes.
+The named-source measurement subsequently refused with exit 3 / `BGSE_E_PATH_ACCESS`; no accepted
+inventory exists. Preserve that result and do not repeat the job. Host-tested diagnostics and
+source-specific cause resolution are required before any copy admission.
 
 **Files:**
 

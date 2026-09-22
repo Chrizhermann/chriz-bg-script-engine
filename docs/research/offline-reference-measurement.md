@@ -139,13 +139,41 @@ background-result directory are ignored; the destination and its immediate paren
 Independent Astra review found no remaining blocker for the corrected read-only measurement job.
 No Task 3 completion, G1 pass, full copy or engine acceptance is inferred from these host checks.
 
-**Named-source execution:** The first run was superseded/stopped as recorded above, without an
-accepted result. The corrected fresh-process run was dispatched using the local completion helper;
-its durable ignored result directory is `.work/task3/work/measurement-v2/`. The helper saves exit
-status/stdout/stderr and attempts one continuation notification. Inspect `status.json` and the
-output after that notification before making any evidence claim; queue acceptance alone is not
-measurement success. Corrected-helper source observation is pending, not passing. Raw-byte tool hashes
-for the next fresh-process run (line endings are part of these identities):
+**Named-source execution — refused, not passing:** The first run was superseded/stopped as recorded
+above, without an accepted result. The corrected job `45295d4d-8830-4f14-986b-ff8f76763bb7` ran from
+`2026-09-22T14:08:47.310955Z` to `2026-09-22T14:14:58.612225Z` (371.30 seconds). After its completion
+notification, the lead inspected the durable ignored `.work/task3/work/measurement-v2/` record:
+
+- `status.json`: `state=failed`, **exit 3**; not a timeout or success.
+- `stdout.log`: one JSON refusal, `code=BGSE_E_PATH_ACCESS`, `status=refused`,
+  `writesAuthorized=false`, `runtimeReady=false`; process/writable-root checks remain unexecuted.
+- `stderr.log`: empty. No counts, content/identity digests or accepted inventory were returned.
+- The recorded command matches the approved local request, the two explicit allowances and
+  `-WhatIf`. The single completion submission was accepted; its delivery is not a successful scan.
+
+The refusal does **not** identify a file, native error, operation stage or underlying managed
+exception. It cannot distinguish a sharing conflict, access permissions, an entry changing during
+the observation, a metadata/path-query failure or another wrapped I/O error. None is established as
+the cause. No source write, copy, process termination or source retry was performed in response.
+The completion instruction expressly says not to rerun this job; preserve it as failed evidence.
+Future diagnostics must first improve host-tested failure observability without weakening guards
+or publishing personal paths. Do not represent another renamed full scan as a targeted diagnosis.
+
+**Reviewed diagnostic follow-up, not implemented:** Independent read-only review confirmed that
+`BGSE_E_PATH_ACCESS` combines native open/info/identity/final-path failures and the managed catch-all.
+Elapsed time does not identify the failing pass or root. Keep exit 3, one sanitized JSON record,
+false authorization/runtime flags and all guards. A future test-first diagnostic addition should
+report only validated scalar phase, pass, operation, failure kind and optional native error.
+Capture a native error immediately after the failed call, before disposal; do not invent one for
+a buffer-limit branch or reuse stale native state for a managed exception. Tests must distinguish
+missing/sharing/query/buffer/enumeration/read/unexpected failures and prove no path/message/stack
+leakage or filesystem mutation. Exact-path detail would need a separately admitted private channel;
+an unsalted path hash is not reliable anonymization. Do not silently turn this read-only command
+into a log writer. No source diagnosis, retry or relaxed safety rule is authorized by this design.
+
+Raw-byte tool hashes
+for that dispatched fresh-process run at `8442ef3` (line endings are part of these identities;
+later helper edits do not change code already compiled into the running job):
 
 | Artifact | SHA-256 |
 |---|---|
@@ -159,7 +187,8 @@ are publication artifacts.
 **Counterevidence / residual uncertainty:** Synthetic fixtures do not exercise the full installed
 stack or all possible host races. NTFS metadata/extra-attribute fidelity and complete process/lock
 discovery remain outside the measurement. A matching two-pass observation is not a persistent
-snapshot or a guarantee that later copying will succeed; no E3/E4/E5 evidence is claimed.
+snapshot or a guarantee that later copying will succeed; this named source has no such accepted
+observation at all. Its access refusal remains undiagnosed. No E3/E4/E5 evidence is claimed.
 
 ## Sources, limitations and next checkpoint
 
@@ -175,3 +204,6 @@ Next: independently review the guarded copier's fresh-creation, complete protect
 immutable private-manifest and copy-verification contract before any copy. The separate runtime
 profile decision and non-cloud writable-root solution in [the authorization memo](disposable-lab-provisioning.md)
 remain required before engine admission; reset/launch/save acceptance and G1 are still unexecuted.
+
+Subsequent host implementation: [exclusive fresh-creation primitive](offline-reference-creation.md).
+It does not complete the copier or change this measurement's read-only boundary.
