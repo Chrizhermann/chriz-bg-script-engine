@@ -12,9 +12,35 @@ using Microsoft.Win32.SafeHandles;
 
 namespace Bgse.Lab
 {
+    public sealed class MeasurementDiagnostic
+    {
+        public string phase { get; }
+        public int? pass { get; }
+        public string operation { get; }
+        public string failureKind { get; }
+        public int? nativeError { get; }
+        public MeasurementDiagnostic(string phase, int? pass, string operation, string failureKind, int? nativeError)
+        {
+            this.phase = phase; this.pass = pass; this.operation = operation;
+            this.failureKind = failureKind; this.nativeError = nativeError;
+        }
+    }
+
     public sealed class MeasurementRefusal : Exception
     {
-        public MeasurementRefusal(string code) : base(code) { }
+        public MeasurementDiagnostic Diagnostic { get; private set; }
+        public MeasurementRefusal(string code) : this(code, "guard", "guard", null) { }
+        public MeasurementRefusal(string code, string operation, string kind, int? error) : base(code)
+        {
+            // Deliberately no InnerException, path, message, stack or path hash.
+            Diagnostic = new MeasurementDiagnostic(null, null, operation, kind, error);
+        }
+        internal MeasurementRefusal WithContext(string phase, int? pass)
+        {
+            Diagnostic = new MeasurementDiagnostic(phase, pass, Diagnostic.operation,
+                Diagnostic.failureKind, Diagnostic.nativeError);
+            return this;
+        }
     }
 
     public sealed class Measurement
@@ -87,6 +113,25 @@ namespace Bgse.Lab
 
         private static void Refuse(string code) { throw new MeasurementRefusal(code); }
 
+        private static MeasurementRefusal NativeFailure(string operation, int error)
+        {
+            return new MeasurementRefusal("BGSE_E_PATH_ACCESS", operation, "native-error", error);
+        }
+
+        private static MeasurementRefusal ManagedFailure(string operation, Exception exception)
+        {
+            return new MeasurementRefusal("BGSE_E_PATH_ACCESS", operation,
+                exception is IOException || exception is UnauthorizedAccessException ? "managed-io" : "unexpected", null);
+        }
+
+        private static T Observe<T>(string operation, Func<T> action)
+        {
+            try { return action(); }
+            catch (MeasurementRefusal) { throw; }
+            catch (OverflowException) { throw; } // Preserve Measure's existing capacity classification.
+            catch (Exception exception) { throw ManagedFailure(operation, exception); }
+        }
+
         internal static string LocalPath(string input)
         {
             if (String.IsNullOrEmpty(input) || !Regex.IsMatch(input, @"\A[A-Za-z]:[\\/]"))
@@ -117,14 +162,16 @@ namespace Bgse.Lab
         internal static string ReadIdentity(SafeFileHandle handle)
         {
             Identity identity;
-            if (!GetIdentity(handle, 18, out identity, 24)) Refuse("BGSE_E_PATH_ACCESS");
+            if (!GetIdentity(handle, 18, out identity, 24))
+                throw NativeFailure("query-id", Marshal.GetLastWin32Error());
             return identity.ToString();
         }
 
         private static Info ReadInfo(SafeFileHandle handle)
         {
             Info info;
-            if (!GetFileInformationByHandle(handle, out info)) Refuse("BGSE_E_PATH_ACCESS");
+            if (!GetFileInformationByHandle(handle, out info))
+                throw NativeFailure("query-info", Marshal.GetLastWin32Error());
             return info;
         }
 
@@ -141,7 +188,7 @@ namespace Bgse.Lab
                 int error = Marshal.GetLastWin32Error();
                 handle.Dispose();
                 if (mayBeAbsent && (error == 2 || error == 3)) return null;
-                Refuse("BGSE_E_PATH_ACCESS");
+                throw NativeFailure(readData ? "open-content" : "open-metadata", error);
             }
             return ValidateHandle(path, handle);
         }
@@ -158,11 +205,18 @@ namespace Bgse.Lab
                 if ((info.Attributes & Directory) == 0 && info.Links != 1) Refuse("BGSE_E_HARDLINK");
                 var final = new StringBuilder(32768);
                 uint length = GetFinalPathNameByHandleW(handle, final, 32768, 0);
-                if (length == 0 || length >= 32768) Refuse("BGSE_E_PATH_ACCESS");
+                VerifyFinalPathLength(length, length == 0 ? Marshal.GetLastWin32Error() : 0);
                 if (!final.ToString().Equals(@"\\?\" + path, StringComparison.OrdinalIgnoreCase)) Refuse("BGSE_E_ALIAS");
                 return new Entry { Path = path, Metadata = info, Id = ReadIdentity(handle), Handle = handle };
             }
             catch { handle.Dispose(); throw; }
+        }
+
+        private static void VerifyFinalPathLength(uint length, int nativeError)
+        {
+            if (length == 0) throw NativeFailure("query-final-path", nativeError);
+            if (length >= 32768)
+                throw new MeasurementRefusal("BGSE_E_PATH_ACCESS", "query-final-path", "buffer-limit", null);
         }
 
         internal static List<Entry> Ancestors(string path, bool destination)
@@ -261,12 +315,12 @@ namespace Bgse.Lab
                     CheckStreams(metadata);
                     if (metadata.IsDirectory)
                     {
-                        string[] before = System.IO.Directory.GetFileSystemEntries(path);
+                        string[] before = Observe("enumerate", () => System.IO.Directory.GetFileSystemEntries(path));
                         Array.Sort(before, StringComparer.Ordinal);
                         foreach (string child in before)
                             Visit(child, relative == "." ? System.IO.Path.GetFileName(child) :
                                 relative + "/" + System.IO.Path.GetFileName(child));
-                        string[] after = System.IO.Directory.GetFileSystemEntries(path);
+                        string[] after = Observe("enumerate", () => System.IO.Directory.GetFileSystemEntries(path));
                         Array.Sort(after, StringComparer.Ordinal);
                         if (!before.SequenceEqual(after)) Refuse("BGSE_E_SOURCE_CHANGED");
                     }
@@ -279,12 +333,16 @@ namespace Bgse.Lab
                             CheckStreams(reader);
                             // FileStream owns/disposes this SAME validated no-follow
                             // handle. ReadInfo is performed before stream disposal.
-                            using (var stream = new FileStream(reader.Handle, FileAccess.Read))
+                            metadata.Hash = Observe("hash-read", () =>
                             {
-                                metadata.Hash = Convert.ToHexString(SHA256.HashData(stream));
-                                VerifyUnchanged(reader);
-                                CheckStreams(reader);
-                            }
+                                using (var stream = new FileStream(reader.Handle, FileAccess.Read))
+                                {
+                                    string hash = Convert.ToHexString(SHA256.HashData(stream));
+                                    VerifyUnchanged(reader);
+                                    CheckStreams(reader);
+                                    return hash;
+                                }
+                            });
                         }
                     }
                     VerifyUnchanged(metadata);
@@ -347,6 +405,8 @@ namespace Bgse.Lab
         public static Measurement Measure(string sourceInput, string destinationInput, string allowanceInput, string reserveInput)
         {
             var held = new List<Entry>();
+            string phase = "inputs";
+            int? pass = null;
             try
             {
                 ulong allowance = Allowance(allowanceInput), reserve = Allowance(reserveInput);
@@ -355,20 +415,28 @@ namespace Bgse.Lab
                 FixedNtfs(System.IO.Path.GetPathRoot(source));
                 string destinationDrive = System.IO.Path.GetPathRoot(destination);
                 FixedNtfs(destinationDrive);
+                phase = "source-ancestors";
                 var sourceAncestors = Ancestors(source, false);
                 held.AddRange(sourceAncestors);
+                phase = "destination-ancestors";
                 var destinationAncestors = Ancestors(destination, true);
                 held.AddRange(destinationAncestors);
                 VerifySeparateIdentities(sourceAncestors.Last().Id, destinationAncestors.Select(entry => entry.Id).ToArray());
+                phase = "inventory"; pass = 1;
                 var first = Inventory(source);
+                pass = 2;
                 var second = Inventory(source);
+                phase = "inventory-comparison"; pass = null;
                 string content = Digest(first, false), identity = Digest(first, true);
                 VerifyObservations(first, second);
                 // Check the whole chain, including components absent in the first
                 // observation; opening only the missing final leaf is insufficient.
+                phase = "destination-recheck";
                 VerifyDestination(destination, destinationAncestors);
+                phase = "final-identities";
                 foreach (Entry entry in held)
                     if (entry.Id != ReadIdentity(entry.Handle)) Refuse("BGSE_E_SOURCE_CHANGED");
+                phase = "capacity";
                 uint sectors, bytes, freeClusters, clusters;
                 ulong available = 0, total, free;
                 if (!GetDiskFreeSpaceW(destinationDrive, out sectors, out bytes, out freeClusters, out clusters) ||
@@ -394,9 +462,9 @@ namespace Bgse.Lab
                         contentDigest = content, identityDigest = identity, passes = 2 };
                 }
             }
-            catch (MeasurementRefusal) { throw; }
-            catch (OverflowException) { throw new MeasurementRefusal("BGSE_E_CAPACITY"); }
-            catch { throw new MeasurementRefusal("BGSE_E_PATH_ACCESS"); }
+            catch (MeasurementRefusal refusal) { throw refusal.WithContext(phase, pass); }
+            catch (OverflowException) { throw new MeasurementRefusal("BGSE_E_CAPACITY").WithContext(phase, pass); }
+            catch (Exception exception) { throw ManagedFailure("measurement", exception).WithContext(phase, pass); }
             finally { foreach (Entry entry in held) entry.Dispose(); }
         }
     }

@@ -289,6 +289,9 @@ ownership/redirect tests; it is not an operational copier and does not authorize
 The named-source measurement subsequently refused with exit 3 / `BGSE_E_PATH_ACCESS`; no accepted
 inventory exists. Preserve that result and do not repeat the job. Host-tested diagnostics and
 source-specific cause resolution are required before any copy admission.
+The [sanitized diagnostic follow-up](../research/offline-measurement-diagnostics.md) has 31 passing
+focused host tests, independent review and 594 passing full-suite tests. It performs no new scan;
+obtain explicit direction before another source diagnostic operation. Task 3 remains incomplete.
 
 **Files:**
 

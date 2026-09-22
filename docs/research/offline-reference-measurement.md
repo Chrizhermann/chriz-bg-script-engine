@@ -159,7 +159,7 @@ The completion instruction expressly says not to rerun this job; preserve it as 
 Future diagnostics must first improve host-tested failure observability without weakening guards
 or publishing personal paths. Do not represent another renamed full scan as a targeted diagnosis.
 
-**Reviewed diagnostic follow-up, not implemented:** Independent read-only review confirmed that
+**Reviewed diagnostic follow-up:** Independent read-only review confirmed that
 `BGSE_E_PATH_ACCESS` combines native open/info/identity/final-path failures and the managed catch-all.
 Elapsed time does not identify the failing pass or root. Keep exit 3, one sanitized JSON record,
 false authorization/runtime flags and all guards. A future test-first diagnostic addition should
@@ -170,6 +170,9 @@ missing/sharing/query/buffer/enumeration/read/unexpected failures and prove no p
 leakage or filesystem mutation. Exact-path detail would need a separately admitted private channel;
 an unsalted path hash is not reliable anonymization. Do not silently turn this read-only command
 into a log writer. No source diagnosis, retry or relaxed safety rule is authorized by this design.
+The subsequent [host-only diagnostic implementation](offline-measurement-diagnostics.md) has passed
+independent review, 31 focused tests and the 594-case full host suite. Its optional
+schema-1 fields do not change or retroactively explain the failed packet above.
 
 Raw-byte tool hashes
 for that dispatched fresh-process run at `8442ef3` (line endings are part of these identities;

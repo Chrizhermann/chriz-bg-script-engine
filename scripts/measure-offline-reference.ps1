@@ -62,6 +62,44 @@ catch {
     if ($exception.GetType().FullName -ceq 'Bgse.Lab.MeasurementRefusal' -and
         $allowedCodes -ccontains $exception.Message) {
         $result.code = $exception.Message
+        # Schema 1 additive, optional diagnostics. Reject the entire diagnostic
+        # if malformed; never alter the original refusal or expose raw details.
+        try {
+            $diagnostic = $exception.Diagnostic
+            $phases = @('inputs', 'source-ancestors', 'destination-ancestors', 'inventory',
+                'inventory-comparison', 'destination-recheck', 'final-identities', 'capacity')
+            $operations = @('guard', 'open-metadata', 'open-content', 'query-info', 'query-id',
+                'query-final-path', 'enumerate', 'hash-read', 'measurement')
+            $kinds = @('guard', 'native-error', 'buffer-limit', 'managed-io', 'unexpected')
+            # Read each potentially malformed property once. String coercion is
+            # not validation: an object may stringify to a permitted enum while
+            # carrying private properties that JSON would otherwise serialize.
+            $phaseValue = $diagnostic.phase
+            $passValue = $diagnostic.pass
+            $operationValue = $diagnostic.operation
+            $kindValue = $diagnostic.failureKind
+            $errorValue = $diagnostic.nativeError
+            $validText = $phaseValue -is [string] -and $operationValue -is [string] -and $kindValue -is [string]
+            $validPass = if ($validText -and $phaseValue -ceq 'inventory') {
+                $passValue -is [int] -and $passValue -in @(1, 2)
+            } else { $null -eq $passValue }
+            $validNative = if ($validText -and $kindValue -ceq 'native-error') {
+                $errorValue -is [int] -and $errorValue -ge 0
+            } else { $null -eq $errorValue }
+            if ($validText -and $phases -ccontains $phaseValue -and
+                $operations -ccontains $operationValue -and
+                $kinds -ccontains $kindValue -and $validPass -and $validNative) {
+                $result.diagnostic = [ordered]@{
+                    # Publish canonical enum constants, not caller-owned objects.
+                    phase = $phases[[Array]::IndexOf($phases, $phaseValue)]
+                    pass = if ($null -eq $passValue) { $null } elseif ($passValue -eq 1) { 1 } else { 2 }
+                    operation = $operations[[Array]::IndexOf($operations, $operationValue)]
+                    failureKind = $kinds[[Array]::IndexOf($kinds, $kindValue)]
+                    nativeError = if ($null -eq $errorValue) { $null } else { [int]($errorValue + 0) }
+                }
+            }
+        }
+        catch { } # A diagnostic is optional; the refusal is not.
     }
 }
 [Console]::Out.WriteLine(($result | ConvertTo-Json -Depth 4 -Compress))
