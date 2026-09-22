@@ -399,6 +399,12 @@ match; it does not yet activate runtime ownership.
 
 **Depends on:** Tasks 4 and 5
 
+**2026-09-22 checkpoint:** In progress. The reviewed
+[pinned-source mage/prebuff checkpoint](../research/2026-09-22-task6-source-checkpoint.md)
+records source identities, two ledgers and bounded observations. Effective generated-script
+comparison, remaining source/control tracing and derived-fixture admission are still required;
+this is not the Task 6 exit or a gate pass. Task 3 authorization remains separate.
+
 **Files:**
 
 - Create: `docs/research/SCS-01-generation-pipeline.md`
