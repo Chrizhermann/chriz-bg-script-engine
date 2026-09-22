@@ -14,10 +14,11 @@ encounter exceptions, and provenance; do not copy generated control flow blindly
 differences as improvements.
 
 Every rule or artifact is classified as original, game-derived, SCS-derived, SCS compatibility, or
-reference-only. Until Task 4 and LIC-01 complete their revision-pinned artifact-class review, all
+reference-only. Until LIC-01 completes the required revision-pinned artifact-class review, all
 candidate SCS-derived material remains **reference-only and shipping-blocked**. Any upstream reuse
-statement used for a class decision must first be revision-pinned as E1 static evidence. No such
-pinning or class decision is claimed here. The project's later interpretation is an E0 policy input,
+statement used for a class decision must first be revision-pinned as E1 static evidence. PREP-02
+now supplies that pin; Task 4's host governance does not settle the derived-artifact reuse holds.
+The project's interpretation is an E0 policy input,
 is not legal advice, and does not authorize redistribution by itself.
 
 Each migrated family requires a ledger naming upstream version/component, source and effective
@@ -69,15 +70,18 @@ artifacts.
 - E0 project policy: `AGENTS.md`, "SCS and upstream provenance."
 - E0 architecture: sections 2, 6.7, and 14.
 - E0 backlog questions and hold points: LIC-01 through LIC-04.
-- E1 pinning, artifact hashes, reuse statements, and class-by-class decisions are Task 4 work and are
-  not claimed here.
+- E1 follow-up, 2026-09-22: PREP-02 pins the SCS v35.21 reuse statement; its readme digest was
+  reproduced without game access. See `docs/provenance/upstream-register.md` for the exact identity.
+- E2 Task 4 fixture admission is limited to reviewed original JSON. Class-by-class permission for
+  SCS-derived material and complete bundled-content tracing remain LIC-01 work.
 
 ## Revisit when
 
-Review after Task 4/LIC-01 produces pinned artifact-class decisions, whenever the upstream version or
+Review when LIC-01 produces artifact-class decisions, whenever the upstream version or
 reuse statement changes, or before any SCS-derived artifact enters a fixture, package, release, or
 public repository.
 
 ## Review date
 
-2026-08-30; next mandatory review in Task 4 and at G8.
+2026-08-30; reviewed again 2026-09-22 for Task 4. Reuse holds remain; next review at an LIC-01
+class decision and G8.

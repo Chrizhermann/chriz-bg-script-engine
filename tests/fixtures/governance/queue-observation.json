@@ -1,0 +1,10 @@
+{
+  "fixtureId": "synthetic-queue-observation-v1",
+  "origin": "original",
+  "domain": "CombatIntent",
+  "observations": ["accepted"],
+  "independentCompletionObserved": false,
+  "expectedOutcome": "unknown",
+  "expectedOwnership": "legacy",
+  "limitation": "Abstract host fixture; no game action was queued or observed."
+}

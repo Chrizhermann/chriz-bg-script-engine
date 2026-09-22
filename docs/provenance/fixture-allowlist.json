@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "id": "artifact:synthetic-queue-observation-v1",
+      "path": "tests/fixtures/governance/queue-observation.json",
+      "sha256": "62446ff95f8ffa6d33d1815668247f76a5532731a116cbba467e4d35d3140f94",
+      "classification": "redistributable-synthetic-fixture",
+      "origin": "original",
+      "owner": "Chriz BG Script Engine",
+      "source": "Independently authored abstract queue observation; no upstream payload.",
+      "purpose": "Distinguish an acceptance observation from completion evidence.",
+      "requiredCredit": "Chriz BG Script Engine contributors",
+      "redistributionStatus": "redistributable",
+      "evidenceLayers": ["evidence:E2"],
+      "review": {
+        "decision": "approved-for-repository",
+        "reviewer": "integration-owner",
+        "date": "2026-09-22"
+      }
+    }
+  ]
+}

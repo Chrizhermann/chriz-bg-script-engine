@@ -34,6 +34,8 @@ Start with:
   spikes with methods, evidence requirements, dependencies, deliverables, and exit criteria.
 - [`docs/compatibility/acceptance-matrix.md`](docs/compatibility/acceptance-matrix.md) — normative
   C0–C4 ownership rules and 84 stable compatibility cases.
+- [`docs/provenance/artifact-policy.md`](docs/provenance/artifact-policy.md) — fixture admission,
+  upstream attribution and reuse holds, with an exact-byte host-side checker and reproduction steps.
 
 ## Relationship to SCS
 

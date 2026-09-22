@@ -1,0 +1,2 @@
+# Reviewed fixture digests are byte-exact on Windows and Unix checkouts.
+tests/fixtures/**/*.json text eol=lf

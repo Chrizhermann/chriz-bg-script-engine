@@ -54,8 +54,9 @@ These are provenance intake classes, not final permission decisions:
 | `upstream-source` | Third-party source or documentation inspected in place | `reference-only` until an artifact-class decision exists |
 | `forbidden-packaged-content` | Game resources, saves, TLK, installed binaries, personal-path logs, or held third-party payloads | `forbidden` |
 
-The later artifact policy, upstream register, and fixture allowlist remain Task 4 steps 7–9. This
-checkpoint does not create or pre-approve them.
+At the 2026-08-31 checkpoint, the artifact policy, upstream register, and fixture allowlist remained
+Task 4 steps 7–9. That checkpoint did not create or pre-approve them. The dated follow-up below
+records the later governance work without changing the two historical evidence traces.
 
 ## Trace 1 — Combat Intent queue acceptance is not completion
 
@@ -335,7 +336,7 @@ and returns ownership to legacy BCS/DLG.
 
 The upstream evidence is SCS `v35.21`, commit
 `5dc240e9ff85d3909b6436e54b56297d3b61e33b`, file
-[`stratagems/doc/readme-stratagems.html`](https://github.com/Gibberlings3/SwordCoastStratagems/blob/5dc240e9ff85d3909b6436e54b56297d3b61e33b/stratagems/doc/readme-stratagems.html#L1918-L1926).
+[`stratagems/doc/readme-stratagems.html`](https://github.com/Gibberlings3/SwordCoastStratagems/blob/5dc240e9ff85d3909b6436e54b56297d3b61e33b/stratagems/doc/readme-stratagems.html#L1988-L1995).
 The file identifies David Wallace as copyright holder. Its reuse statement says, in substance, that
 code may be borrowed or reused when DavidW receives full credit and that the mod or a modified
 version should not be mirrored.
@@ -394,6 +395,20 @@ integrity, preserves both fail-closed outcomes, and pins the SCS version/revisio
 Schema conformance remains unexecuted because no standards-compliant validator is selected at this
 checkpoint.
 
-PREP-02 releases Task 2's PREP-03 work after independent review. It does not finish Task 4. The
-artifact policy, upstream register, fixture allowlist, positive/negative fixture checks, publication
-scanner, E3 installer proof, E4 runtime proof, E5 soak, and legal conclusions remain later work.
+PREP-02 released Task 2's PREP-03 work after independent review. It did not finish Task 4 at that
+checkpoint. Publication scanning, E3 installer proof, E4 runtime proof, E5 soak, and unresolved reuse
+conclusions remain later work even after the host-only follow-up below.
+
+## 2026-09-22 follow-up — Task 4 fixture governance
+
+The [artifact policy](../provenance/artifact-policy.md), [upstream register](../provenance/upstream-register.md),
+and [fixture allowlist](../provenance/fixture-allowlist.md) now define the remaining classifications,
+owners, locations, review procedure, and default holds. One original abstract JSON fixture and
+temporary negative cases exercise the exact-byte E2 admission contract. The evidence and review
+trail is in [the Task 4 memo](2026-09-22-task4-fixture-governance.md).
+
+The pinned SCS readme was re-fetched read-only in memory with the same size and SHA-256. Its
+copyright section is at lines 1988–1995; the former link targeted unrelated encounter text and was
+corrected. Neither the pin nor the new fixture checker approves SCS-derived payloads or establishes
+runtime behavior. The historical trace records, their limitations, and their exact blobs remain
+unchanged. Task completion is recorded only after review in the canonical task-state JSON.
