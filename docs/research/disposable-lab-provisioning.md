@@ -58,11 +58,21 @@ identities. The log's finalizer entry does not prove no later mod changed releva
   location without needing to guess its target or type.
 
 [PREP-01](PREP-01-support-baseline.md) retains the separate `2.6.6.0` / EEex `0.11.0-alpha` /
-SR `4.19` candidate. The observed source does not match that candidate. The
-[pinned EEex v1.2 README](https://github.com/Bubb13/EEex/blob/204040502ac920161d60046d90b766b8d2d08152/README.md#compatibility)
-lists 2.6.6.0, not this 2.7.3.0 executable. That documentation gap is not proof of a crash or of
-compatibility; neither was tested. No downgrade, upgrade or baseline replacement is authorized by
-this record.
+SR `4.19` candidate. The observed source does not match that candidate, but **2.7.3.0 is not
+generally unsupported by EEex v1.2**. PREP-01 already records the
+[v1.1.0 support addition](https://github.com/Bubb13/EEex/releases/tag/v1.1.0) and the pinned
+[v1.1.5 GOG recognition fix](https://github.com/Bubb13/EEex/commit/8b48b06605fcd7bd6cb44f17e37f8640d4e79bf7).
+The [v1.2 installer](https://github.com/Bubb13/EEex/blob/204040502ac920161d60046d90b766b8d2d08152/EEex/EEex.tp2#L111-L129)
+selects its version-specific branch using `data/PATCH27.BIF` and maps EET to BG2. This is stronger
+static evidence than the README's stale compatibility list. The earlier emphasis on that omission
+was incomplete; an independent primary-source review and lead verification corrected it.
+
+The actual uncertainty is the exact installed executable/loader/pattern-database/configuration
+combination. A later verified offline copy must correlate those hashes with the pinned upstream
+package; the log's version label alone does not establish coherent installed bytes. The same pinned
+installer labels LuaJIT experimental, which is a caution to test, not proof of a crash. Neither
+runtime behavior nor a new project capability profile is established by this source inspection.
+No forced downgrade is justified by this evidence; no upgrade or baseline replacement is performed.
 
 ## Reviewed offline-reference boundary
 
@@ -169,6 +179,12 @@ collection blob identities. No game resources, logs, saves, config payloads or d
 **Applicable evidence:** E1 bounded static/metadata observations; E0 upstream documentation input.
 No provisioning, compiler, installer, reset or engine proof. Host validations recorded below do not
 promote these observations to runtime acceptance.
+
+The subsequent version-support correction used an independent read-only Astra research packet and
+lead verification of the release announcement and pinned v1.2 installer. No game file was accessed
+for that correction, no package executed and no upstream author contacted. Reproduce by reading
+the linked commits and comparing PREP-01's existing 2.7/EEex-v1 profile rationale; do not equate
+general upstream version support with this installation's or this project's runtime acceptance.
 
 **Residual uncertainty:** Full source/native identity manifest, store provenance, actual EEex
 binary identity, exact mod-source revisions, complete writable roots, non-cloud runtime save
