@@ -43,10 +43,11 @@ The following decisions are part of the approved design:
 2. The combat module is named **Combat Intent**.
 3. The persistent world-scripting module is named **WorldFlow**.
 4. Both modules share a small runtime kernel but keep separate policy and state semantics.
-5. SCS is a major source of tactical knowledge and selected reusable code, not something to
-   dismiss or rewrite blindly.
+5. SCS is the primary starting corpus for combat behavior, affected enemies/NPCs/groups,
+   encounter changes, and tactical knowledge, with selected reusable code and visible attribution.
 6. SCS integration is evolutionary: observe, supervise, migrate behavior families, then
-   optionally replace the generic combat layer.
+   replace the generic combat layer for the explicitly supported corpus. Eventual independence
+   from SCS runtime AI is the intended destination; coverage expands through the existing gates.
 7. Unknown content is legacy-owned by default.
 8. Any uncertainty about ownership or compatibility causes an immediate yield to legacy
    BCS/DLG, even when that means an enhancement stays inactive.
@@ -464,6 +465,14 @@ Combat Intent progresses through four modes:
 The initial order is expected to be mage offense, mage defense/emergency behavior, prebuffing,
 fighter/fighter-mage, priest/support, thief, mixed squads, specialized monsters, and then
 individually reviewed encounters. The order is provisional and subject to migration-cost data.
+
+**User clarification, 2026-09-22:** SCS is the main migration basis, not merely an optional
+compatibility target. Account for its wider component and content changes as well as its AI:
+each reviewed component records what is preserved, reimplemented, changed, deferred, or omitted,
+and why. The aim is to carry its useful coverage and accumulated knowledge into our engine.
+This direction does not declare every SCS component implemented or supported, change the
+provenance rules, or permit enrollment by generated resource names. A small no-SCS installation
+is a diagnostic control; an exact SCS comparison profile is central to corpus and migration work.
 
 ## 10. WorldFlow design
 

@@ -20,6 +20,44 @@ The current `scripts/check-dev-environment.ps1` is a read-only post-provision pr
 creates a marker nor authorizes a write. A safe result is valid only for the paths checked at that
 moment; the future Task 3 scripts must repeat the checks immediately before each mutation.
 
+## Accepted lab direction — 2026-09-22
+
+The user accepted a small EET lab and clarified these choices:
+
+- Retain a minimal EET plus EEex/LuaJIT reset baseline for diagnosis. Include Bubb's Spell Menu
+  in the normal testing setup as a quality-of-life preference, recording its version/component.
+  Its inclusion is not a claim of zero possible UI or runtime interaction.
+- Establish an exact SCS comparison profile early for corpus research and behavior migration.
+  SCS is the primary source and intended long-term runtime replacement target for the supported
+  corpus; its absence from the diagnostic baseline does not reduce that role.
+- If the existing heavily modded Chriz Easy BG installation is used, work on a separate copy.
+  The existing installation remains a reference, with no lab writes or test saves directed there.
+- Reuse the build recipe and save-identity approach already implemented in `chriz-bg-collection`.
+  DLCMerger and separate save/configuration identities are established implementation references,
+  not new open-ended research questions. Keep the exact source/version and lab-specific checks.
+
+Read-only reference inspection used `chriz-bg-collection` branch `codex/installer-v0-real-alpha`,
+commit `32ab76df7ed52054c3e3534a7fee5c3bbff2daa1`:
+
+- `manifest/mods/dlcmerger.toml` and `manifest/artifacts/dlcmerger-2.1.toml` specify DLCMerger
+  2.1, component 1, and artifact SHA-256
+  `ea7584fd7285330cfaa52cfc217677ef4f8cf8151fdec666ea8af199e479db0e`.
+- `manifest/reference/bg1-premerge-approved.toml` places it in the copied BG1 preparation phase.
+  Reusing that step does not select all other components in the collection's recipe.
+- `engine/src/stage.rs` derives/reserves a distinct Documents identity using `engine_name`,
+  isolates the staged BG1 source, and reapplies/verifies the BG2 identity after EET finalization.
+- `engine/tests/stage.rs` contains the identity/collision and post-EET reapplication regression
+  cases. This inspection did not execute those tests or launch a game.
+
+These are E1 static implementation references, not completed isolation evidence for this lab.
+The collection checkout also contains ongoing edits; only the committed behavior above is used
+as the pinned reference. Its broader mod preset and game/EEex version choices are not silently
+adopted. PREP-01's fresh-build source profile still needs to be recorded, using these existing
+references, before construction. Lab-specific writable-root guards and reset proof remain Task 3.
+
+No new lab destination or provisioning authorization was given in this clarification. Task 3
+remains pending; this section records the agreed approach without performing provisioning.
+
 ## Stop conditions
 
 Stop before any write unless all of the following are true:
