@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/chriz-bg-script-engine/resource-claim.schema.json",
+  "$comment": "Provisional Task 5 host-only shape contract, not an SDK or runtime registration schema. The stdlib tests validate only the keywords used here, not a full JSON Schema conformance implementation. Root/closure coverage, unique hash identities, adapter/domain agreement, digest authenticity, refusal reasons, and eligibility consistency are checked by the prototype, not this schema. Runtime activation is always forbidden.",
+  "title": "Synthetic exact-resource claim prototype",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "profile", "adapterId", "domain", "roots", "inventoryDigest", "hashes", "eligibleForAnalysis", "reasons", "runtimeActivation", "fallback"],
+  "properties": {
+    "schemaVersion": {"type": "integer", "const": 1},
+    "profile": {"type": "string", "const": "synthetic-exact-claim-v1"},
+    "adapterId": {"type": "string", "maxLength": 64, "pattern": "^B-/(combat|worldflow)/[a-z0-9]+(?:-[a-z0-9]+)*$(?![\\s\\S])"},
+    "domain": {"type": "string", "enum": ["CombatIntent", "WorldFlow"]},
+    "roots": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^[A-Z0-9_#-]{1,8}\\.(CRE|BCS|DLG|ARE|SPL|ITM|PRO|IDS|2DA)$(?![\\s\\S])"}
+    },
+    "inventoryDigest": {"type": "string", "pattern": "^[a-f0-9]{64}$(?![\\s\\S])"},
+    "hashes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "sha256"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[A-Z0-9_#-]{1,8}\\.(CRE|BCS|DLG|ARE|SPL|ITM|PRO|IDS|2DA)$(?![\\s\\S])"},
+          "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$(?![\\s\\S])"}
+        }
+      }
+    },
+    "eligibleForAnalysis": {"type": "boolean"},
+    "reasons": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+    "runtimeActivation": {"type": "boolean", "const": false},
+    "fallback": {"type": "string", "const": "legacy"}
+  }
+}
