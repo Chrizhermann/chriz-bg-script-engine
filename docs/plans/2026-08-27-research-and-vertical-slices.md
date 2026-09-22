@@ -290,8 +290,16 @@ The named-source measurement subsequently refused with exit 3 / `BGSE_E_PATH_ACC
 inventory exists. Preserve that result and do not repeat the job. Host-tested diagnostics and
 source-specific cause resolution are required before any copy admission.
 The [sanitized diagnostic follow-up](../research/offline-measurement-diagnostics.md) has 31 passing
-focused host tests, independent review and 594 passing full-suite tests. It performs no new scan;
-obtain explicit direction before another source diagnostic operation. Task 3 remains incomplete.
+focused host tests, independent review and 594 passing full-suite tests. That host checkpoint
+performed no source scan. On 2026-09-23, the user separately approved one new read-only diagnostic
+scan using the instrumented tool. Job `68fae1fa-f426-40e8-9f90-609cf4856e86` was verified failed,
+exit 3 after 450.28 seconds: first inventory pass, native content-open sharing violation (error 32).
+No accepted inventory or exact file/owner was returned. Independent review found no ordinary
+scanner self-conflict; four synthetic regression/positive-control cases passed. Preserve both
+failed jobs; the one-shot approval is consumed. The user subsequently reported concurrent testing
+by another agent with a running game, consistent with this result but not an independently verified
+file/holder diagnosis. Coordinate a quiet source window and obtain direction before another read-only
+check; do not stop the other agent/game or retry automatically. Task 3 remains incomplete.
 
 **Files:**
 

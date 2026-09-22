@@ -1,17 +1,19 @@
 # Task 3: sanitized measurement failure diagnostics
 
-**Outcome:** Host-only diagnostic improvement; not a source diagnosis, another source scan, copy
-admission or runtime evidence. Full host regression verification passed.
+**Outcome:** Host-only diagnostic improvement passed full regression verification. A separately
+authorized source observation on 2026-09-23 then identified a content-open sharing violation, but
+not the exact file or conflicting owner. No accepted inventory, copy admission or runtime evidence.
 
-**Date / owner:** 2026-09-22 / integration lead.
+**Date / owner:** 2026-09-22; source-result follow-up 2026-09-23 / integration lead.
 
 **Question:** Can future read-only failures distinguish their operation and error category without
 changing refusal behavior, publishing personal data or adding any filesystem writes?
 
 **Environment / versions:** Windows 11 x64 build 26200, fixed local NTFS, PowerShell Core 7.6.6 /
 .NET 10.0.12, CPython 3.11.9 / pytest 8.4.2. Base: `3252ef8`, the independently reviewed fresh-creation
-checkpoint with 563 full host tests passing. Every new execution uses synthetic temporary fixtures
-or in-memory test doubles. The named source was not accessed for this change.
+checkpoint with 563 full host tests passing. Implementation-checkpoint executions used synthetic
+temporary fixtures or in-memory test doubles. The named source was not accessed for that change;
+the separately authorized observation is recorded at the end of this memo.
 
 ## Motivation and unchanged boundaries
 
@@ -132,3 +134,104 @@ it. A new source diagnostic operation needs explicit direction before execution;
 change is not that approval. Source-specific investigation and the complete copier contract are
 still required before any real copy. No weakened sharing, skipped entries, automatic retry, launch
 or active-profile change follows from this checkpoint. Task 3 remains in progress; no G1 pass.
+
+## Separately authorized source diagnostic — 2026-09-23
+
+The user explicitly approved **one new read-only diagnostic scan** after the host-only checkpoint
+above. This supersedes only the need for permission for that one operation; the original failed
+measurement and its no-rerun record are preserved. Copying, installation, game/loader execution,
+source mutation and runtime admission remain excluded. A refusal permits no automatic retry,
+weakened check or skipped entry.
+
+The integration lead launched the instrumented code at `aa75fd6` once in a fresh PowerShell process,
+with `-WhatIf`, the previously approved source/destination from the private request, output allowance
+`1073741824` bytes and safety reserve `21474836480` bytes. Both raw tool hashes matched the table
+above immediately before submission. The 1,800-second safety timeout does not authorize a retry.
+Private approval details are in `.work/task3/source-diagnostic-authorization.json`; the new job is
+`68fae1fa-f426-40e8-9f90-609cf4856e86`, with durable results under
+`.work/task3/work/source-diagnostic-v1/`. These private files remain ignored.
+
+A bounded Terra reviewer independently inspected the wrapper/helper and confirmed the read-only
+boundary, fresh-process requirement and diagnostic limitations. The reviewer did not access the
+game, request, job or results, and ran no commands against them. The lead retains result verification
+and diagnosis. No code changed and the previous 594-test checkpoint remains historical test evidence.
+
+### Verified result and bounded interpretation
+
+After the completion notification, the lead read `status.json`, `stdout.log`, `stderr.log` and
+`job.json` once. The recorded command matched the approved operation and allowances:
+
+- Started `2026-09-22T15:06:10.042194Z`; finished `2026-09-22T15:13:40.321807Z`:
+  **450.28 seconds**, `state=failed`, **exit 3**, not a timeout.
+- Standard error was empty. Standard output was exactly one schema-1 refusal:
+  `BGSE_E_PATH_ACCESS`, `writesAuthorized=false`, `runtimeReady=false`, with process and
+  writable-root admission still `unexecuted`.
+- Its diagnostic was `phase=inventory`, `pass=1`, `operation=open-content`,
+  `failureKind=native-error`, `nativeError=32`.
+- No accepted inventory, file count, capacity result or content/identity digest was returned.
+  No repeat invocation, watcher polling, copying, installation or game execution followed.
+
+Microsoft identifies native error 32 as
+[`ERROR_SHARING_VIOLATION`](https://learn.microsoft.com/en-us/windows/win32/debug/system-error-codes--0-499-).
+The failure therefore occurred at the first inventory pass's native content-open, before hashing
+that entry. It is not evidence of an ACL/permissions failure, absent file, corrupt game or
+byte-range lock (the latter has a different error code). It does not retroactively establish the
+cause of the older, uninstrumented failed job.
+
+The [CreateFileW sharing contract](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew)
+checks compatibility with existing access/sharing and writable mappings, regardless of process
+context. Our content-open requests `GENERIC_READ`, sharing reads only, so an existing writable
+handle or mapping is one possible cause. The packet does not identify the file, owner, exact
+conflicting access or duration. It cannot distinguish a persistent conflict from a transient one.
+
+Lead inspection and an independent Astra review found **no ordinary self-conflict path**: the
+scanner's same-file metadata handle requests access `1` with sharing `3`, compatible with its
+content handle's `GENERIC_READ` and sharing `1`; it creates no writable file handle or mapping.
+The exact diagnostic is already reproduced by the synthetic held-writer regression. This source
+review is not proof excluding every filesystem/filter interaction or identifying another process.
+The reviewer accessed repository code/tests only, not the real source or job output.
+
+A separate, one-time **read-only OS process snapshot** at `2026-09-23T00:14:48.0626090+09:00`
+queried only `Baldur.exe` and `InfinityLoader.exe`, then matched their executable directories to
+the approved source root. It found zero matches and zero unreadable image paths. This was not a
+source-tree rescan, open-handle inventory or copy-admission process check; no process was changed.
+It does not establish what was running at failure time or exclude other holders/mappings.
+
+**User-supplied coordination context:** After this result, the user reported that another agent
+had been testing with a running game and attributed the conflict to that activity. This is
+consistent with the observed sharing violation, but the report did not bind a particular file,
+executable path or process to the failed open. Record it as the likely operational explanation,
+not an independently verified lock-owner diagnosis. The later zero-match snapshot does not refute
+the report. No other agent, game or process was interrupted.
+
+### Verification, evidence and next decision
+
+No implementation changed. The following synthetic-only command passed **4 tests in 5.66 seconds**:
+
+```powershell
+python -X utf8 -m pytest -q tests/tooling/test_measurement_diagnostics_faults.py tests/tooling/test_offline_reference_measurement.py::test_measurement_is_read_only_and_not_write_or_runtime_admission
+```
+
+This checks the reproduced sharing conflict, missing-source distinction and ordinary successful
+measurement with and without `-WhatIf`, including unchanged synthetic trees. Both G0 validators
+and the LF/CRLF regression also passed. The 594-case full suite above was **not** rerun; its result
+belongs to the unchanged implementation checkpoint. Documentation/task-state validation is recorded
+with this evidence commit: JSON state validation, ten relative Markdown links and `git diff --check`
+passed. A bounded Terra read-only review confirmed consistency/privacy before the user's concurrent
+testing explanation; the lead then updated the next decision to prioritize coordination over a
+new file/holder investigation. No code changed.
+
+**Evidence:** E1 captured point-in-time host refusal from pinned authored tooling, E2 synthetic
+reproduction/positive controls, and E0 Microsoft API documentation. This is not an effective-game
+inventory, E3/E4/E5 evidence or a gate pass. Task 3 remains in progress.
+
+**Next decision / barrier:** The one authorized diagnostic operation has been consumed. Given the
+user's explanation, first coordinate a quiet source window: confirm the other agent has finished
+and relevant game/loader activity has ended, then obtain direction for another read-only check.
+The report alone is not confirmation of shutdown or permission to stop someone else's work. Do not
+repeat the scan automatically or require a new private-path diagnostic before trying the agreed
+quiet window. If the conflict recurs, a separately scoped private file/holder investigation may
+be appropriate; any exact paths stay outside version control. No application termination, forced
+handle closure, source change, skipped entry or relaxed sharing is authorized. Complete copier
+guards, runtime-profile admission and independent writable-root isolation remain separate
+requirements even after the sharing conflict is resolved.

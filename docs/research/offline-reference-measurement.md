@@ -173,6 +173,9 @@ into a log writer. No source diagnosis, retry or relaxed safety rule is authoriz
 The subsequent [host-only diagnostic implementation](offline-measurement-diagnostics.md) has passed
 independent review, 31 focused tests and the 594-case full host suite. Its optional
 schema-1 fields do not change or retroactively explain the failed packet above.
+The user's separately authorized one-shot diagnostic on 2026-09-23 subsequently returned a first-pass
+content-open sharing violation (native error 32); its exact file/owner remain unknown. See the
+follow-up memo for that distinct job's verified result. It does not explain this older packet.
 
 Raw-byte tool hashes
 for that dispatched fresh-process run at `8442ef3` (line endings are part of these identities;
