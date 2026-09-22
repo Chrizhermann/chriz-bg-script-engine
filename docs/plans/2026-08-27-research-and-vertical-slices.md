@@ -276,6 +276,12 @@ running the checker.
 
 **Depends on:** Task 2 plus explicit user authorization naming the disposable destination
 
+**2026-09-22 checkpoint:** Destination approved; Task 3 is in progress. The
+[source preflight](../research/disposable-lab-provisioning.md) records the approval, observed profile
+mismatch and cloud/reparse Documents conflict. No game copy or mutation has occurred. A reviewed
+offline-reference acquisition scope does not admit an engine lab; implementation guards, runtime
+profile choice, independent writable roots, launch/save and reset-twice acceptance remain open.
+
 **Files:**
 
 - Create: `docs/research/disposable-lab-provisioning.md`

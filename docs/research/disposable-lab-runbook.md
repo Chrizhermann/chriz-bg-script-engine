@@ -1,6 +1,6 @@
 # Disposable engine laboratory runbook
 
-**Status:** Design-only; no laboratory has been provisioned
+**Status:** Task 3 authorized and in preflight; no laboratory has been provisioned
 
 **Date:** 2026-08-31
 
@@ -8,6 +8,11 @@
 
 **Authorization boundary:** Task 3 requires a separate user approval that names the destination.
 This document is not that approval.
+
+**Current checkpoint — 2026-09-22:** The user approved the exact proposed SCS-reference destination.
+[The authorization/source-preflight memo](disposable-lab-provisioning.md) records the scope and local
+request location. No copy or game mutation has occurred. The older historical checkpoint statements
+below describe the earlier run, not the current authorization state.
 
 ## Purpose
 
@@ -57,6 +62,23 @@ references, before construction. Lab-specific writable-root guards and reset pro
 
 No new lab destination or provisioning authorization was given in this clarification. Task 3
 remains pending; this section records the agreed approach without performing provisioning.
+
+## Offline-reference acquisition amendment — 2026-09-22
+
+The subsequently approved source differs from PREP-01's runtime candidate. The independently
+reviewed distinction in [the preflight memo](disposable-lab-provisioning.md) permits preparing a
+guarded unchanged **offline-only** reference copy without changing that runtime candidate.
+It is not an engine lab, remains unprovisioned today, and must not receive the normal
+`.bgse-disposable-lab.json` readiness marker. Copied user-directory configuration is not isolated
+merely by copying; launch, loader/native execution, installs and save use remain prohibited until
+the engine profile and complete writable-root contract are admitted.
+
+The offline route still requires a reviewed fresh-destination bootstrap guard, no-follow child
+inventory, hard-link/native identity checks, process/capacity checks and complete copy verification.
+The current Task 2 checker cannot authorize that new-root operation. No new implementation or copy
+is claimed by this amendment. The engine route below still requires matching/admitted fingerprints,
+multi-root isolation and all of Task 3's acceptance checks. The observed cloud/reparse Documents
+root is a real unresolved guard conflict; never waive it or change global Windows settings silently.
 
 ## Stop conditions
 

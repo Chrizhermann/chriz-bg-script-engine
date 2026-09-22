@@ -39,6 +39,12 @@ evidence. The active game was not accessed for this checkpoint. Newer releases a
 platform combination are separate, explicitly deferred profiles rather than presumed-compatible
 upgrades.
 
+**Later observation, not a baseline replacement:** The user-approved Task 3 source inspected on
+2026-09-22 has a different executable and dependency labels. See
+[the source preflight](disposable-lab-provisioning.md). Its reviewed offline-reference acquisition
+scope grants no runtime profile, launch permission or support claim; the candidate above remains
+unchanged until a separate profile decision and evidence review.
+
 The candidate describes an already-finalized effective EET stack. It does not define or authorize a
 fresh EET construction from store downloads. The BG:EE plus SoD source build, store provenance, and
 conditional DLCMerger input needed for such a construction are classified separately below and
