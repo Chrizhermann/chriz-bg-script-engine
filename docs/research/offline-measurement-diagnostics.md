@@ -328,3 +328,31 @@ was `python -X utf8 -m pytest -q`; its wall interval was `2026-09-23T22:06:12.79
 was added, so no new RED/GREEN implementation cycle is claimed. At approximately 07:10 local,
 the randomizer task was still active and the bounded process snapshot empty; source access
 remained deferred. The heartbeat remains responsible for the next coordination check.
+
+### One-shot quiet-window dispatch — 2026-09-24
+
+At approximately 07:33 local time, both related BG tasks were idle and no other active relevant
+task was returned in the pinned/recent-task listing. A compact follow-up confirmed the randomizer
+turn completed without a reported error. The bounded named game/loader/installer process snapshot
+had no matches or unreadable image paths. These are point-in-time coordination observations, not
+an exclusive lock, exhaustive handle inventory or guarantee that the source remains quiet.
+
+The wrapper, measurement helper, PowerShell executable and completion-runner hashes matched the
+previously recorded identities; PowerShell was 7.6.6 and Python 3.11.9. The one renewed measurement
+was dispatched in a fresh PowerShell process with `-WhatIf`, the exact approved source/destination,
+output allowance 1,073,741,824 bytes and safety reserve 21,474,836,480 bytes. The runner timeout is
+1,800 seconds and its cleanup authority is restricted to its own command tree. Job
+`68b549af-51b4-43fb-aea8-ad4225d6bafc` has a new private result directory; no prior job was repeated
+or overwritten. The launcher exited 0 and the heartbeat was immediately paused after dispatch.
+
+This records dispatch only: **the measurement result is pending**, not successful or accepted.
+Wait for the command's completion notification, then verify status, output and tool identities once.
+Do not poll, retry a refusal, create a copy or advance a gate from this launch receipt. The private
+approval record and cleanup ledger record the consumed one-shot approval and exact artifacts.
+No game launch, app control, game/save/configuration write or copier implementation is authorized
+by the dispatch. Task 3 remains incomplete.
+
+Documentation verification: independent Sol 6 read-only review found no blocking issue. The lead
+checked task/private JSON, ignored evidence placement, public-path redaction, paused heartbeat,
+both G0 validators, LF/CRLF regression and `git diff --check`. No implementation changed; the
+613-test result above is the latest full-suite evidence, not a new run or a measurement result.
