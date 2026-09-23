@@ -1,10 +1,11 @@
 # Task 3: sanitized measurement failure diagnostics
 
-**Outcome:** Host-only diagnostic improvement passed full regression verification. A separately
-authorized source observation on 2026-09-23 then identified a content-open sharing violation, but
-not the exact file or conflicting owner. No accepted inventory, copy admission or runtime evidence.
+**Outcome:** Host-only diagnostic improvement passed full regression verification. Separately
+authorized source observations on 2026-09-23 and 2026-09-24 identified content-open sharing
+violations, but not the exact files or conflicting owners. The latter followed quiet-window
+coordination and still refused; no accepted inventory, copy admission or runtime evidence.
 
-**Date / owner:** 2026-09-22; source-result follow-up 2026-09-23 / integration lead.
+**Date / owner:** 2026-09-22; source-result follow-ups through 2026-09-24 / integration lead.
 
 **Question:** Can future read-only failures distinguish their operation and error category without
 changing refusal behavior, publishing personal data or adding any filesystem writes?
@@ -356,3 +357,53 @@ Documentation verification: independent Sol 6 read-only review found no blocking
 checked task/private JSON, ignored evidence placement, public-path redaction, paused heartbeat,
 both G0 validators, LF/CRLF regression and `git diff --check`. No implementation changed; the
 613-test result above is the latest full-suite evidence, not a new run or a measurement result.
+
+### Verified quiet-window refusal — 2026-09-24
+
+The completion notification for job `68b549af-51b4-43fb-aea8-ad4225d6bafc` arrived normally.
+The lead verified the saved status, command, standard output/error and single accepted notification
+submission. The command and allowances exactly matched the approved dispatch. Wrapper, C# helper,
+PowerShell executable and completion-runner hashes were rechecked against the private pre-dispatch
+record and were unchanged. Authored measurement code remains at checkpoint `7959996`.
+
+- Started `2026-09-23T22:37:56.338036Z`; finished `2026-09-23T22:44:20.789676Z`:
+  **384.45 seconds**, `state=failed`, **exit 3**. This was not a timeout.
+- Empty standard error; standard output contained one schema-1 refusal, `BGSE_E_PATH_ACCESS`,
+  with `writesAuthorized=false`, `runtimeReady=false`, and process/writable-root admission
+  `unexecuted`.
+- Diagnostic: `phase=inventory`, `pass=1`, `operation=open-content`,
+  `failureKind=native-error`, `nativeError=32`.
+- No accepted inventory, counts, capacity result or content/identity digest. No game was launched,
+  source/save/configuration written, copy created or timeout cleanup invoked by this operation.
+
+Native error 32 is Windows
+[`ERROR_SHARING_VIOLATION`](https://learn.microsoft.com/en-us/windows/win32/debug/system-error-codes--0-499-),
+reconfirmed from Microsoft's documentation. The earlier sharing-contract interpretation remains
+applicable, but **this result does not identify a file, owner or the same entry as the prior refusal**.
+The earlier report of a running game does not establish this attempt's cause. Idle tasks and an
+empty bounded process snapshot before dispatch did not prevent a later sharing refusal; they were
+never an exhaustive handle check or continuous exclusion of other activity.
+
+The eight private result files total 1,821 bytes. They and the exact authorization/tool-identity
+record are retained in the ignored Task 3 workspace; `.work/task3/CLEANUP.md` records them. No
+game copy or partial game destination was created by this task, so there is no game-folder cleanup
+to perform. The heartbeat remains **PAUSED**, the one-shot authorization is consumed, and no new
+source access, process/handle query, retry, skipped entry or sharing relaxation followed the refusal.
+
+**Evidence:** E1 captured host refusal from pinned authored tooling, not an accepted source
+inventory or E3/E4/E5 proof. The prior 613-test E2 result remains unchanged; no implementation or
+support claim changed and no new full-suite run is claimed.
+
+**Next decision / barrier:** Stop the source-acquisition path here as required by the one-shot
+instruction. Another broad measurement would repeat an unexplained failure. The proposed next
+source-specific operation is a separately scoped, private exact-file diagnostic and, where safely
+available, read-only holder attribution. It needs direction before source access; no force-closing
+handles or processes, log publication, automatic copy or gate advancement. The reviewed host-only
+copier packets remain future work, not evidence that acquisition succeeded. Task 3 remains incomplete.
+
+**Verification:** An independent Sol 6 read-only evidence review matched the saved command,
+allowances, duration, refusal and notification records against the authorization snapshot, with
+no contradiction found. The lead checked task/private JSON, ignored evidence placement,
+public-path redaction, paused heartbeat, both G0 validators, LF/CRLF regression and
+`git diff --check`. This is a documentation/result checkpoint, not a new implementation or test
+suite. No source recheck was performed during verification.
