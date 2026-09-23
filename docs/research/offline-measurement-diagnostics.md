@@ -289,3 +289,42 @@ Verification: independent read-only review found no blocking documentation issue
 wording refinement was applied. Task-state/private-record JSON, paused automation state,
 ignored private-record placement, absence of private absolute user paths in these documentation
 files, and `git diff --check` passed.
+
+### Overnight continuation approval — 2026-09-24
+
+The user explicitly approved timeout cleanup for processes started by this scan, never a game or
+another task's processes. This resolves the runner-authorization pause above; do not ask for that
+same exception again. The user then authorized overnight continuation within the original plan,
+reserved creative/gameplay decisions, and requested cleanup or an exact list of created copies.
+No new source, destination, runtime profile, active-game mutation or gate bypass is inferred.
+
+At approximately 07:01 local time, the installer task remained idle but the randomizer task was
+active again. Its latest turn exposed no scope details. A fresh bounded named-process snapshot
+was empty; it does not discharge the task-overlap uncertainty. No source file was opened and no
+scan was dispatched. The existing 30-minute heartbeat was reactivated with the approved runner-only
+timeout exception and unchanged one-dispatch limit. It must pause after dispatch or a substantive
+failure/decision barrier; the completion notification, not a polling watcher, handles job results.
+
+A bounded Sol 6 read-only cleanup inventory found 43 files totaling 14,697 bytes in the ignored
+Task 3 workspace before adding the new approval/cleanup records. The lead independently matched
+the three root records and five result-directory totals. The failed source observations and exact
+approval records are retained; historical synthetic-test logs are optional later cleanup, with
+negligible storage benefit. No files were deleted and this task has created no game copy. External
+destinations were not inspected for this inventory, so this is not a claim about other tasks' files.
+The private `.work/task3/CLEANUP.md` lists exact paths, retention decisions and future copy/partial
+output bookkeeping; `.work/task3/overnight-authorization-20260924.json` records approval and checks.
+
+The authored scanner hashes remain those of `7959996`; no implementation or support claim changed.
+This is coordination and cleanup documentation only. Task 3, copy admission and runtime gates
+remain incomplete; the user's overnight instruction does not waive their required verification.
+
+Verification: the independent cleanup/documentation review found no blocking issue; the
+lead verified JSON state, ignored private-record placement, active heartbeat with the narrow timeout
+exception, both G0 validators, LF/CRLF regression and `git diff --check`. The plan-required full
+synthetic host suite, job `fcaffe01-d198-476e-8a3f-a5d7122380d0`, was verified after its completion
+notification: **613 passed in 227.66 seconds**, exit 0, empty standard error. The saved command
+was `python -X utf8 -m pytest -q`; its wall interval was `2026-09-23T22:06:12.794554Z` through
+`22:10:01.426244Z`. Scanner/helper hashes were rechecked unchanged. No new production behavior
+was added, so no new RED/GREEN implementation cycle is claimed. At approximately 07:10 local,
+the randomizer task was still active and the bounded process snapshot empty; source access
+remained deferred. The heartbeat remains responsible for the next coordination check.
