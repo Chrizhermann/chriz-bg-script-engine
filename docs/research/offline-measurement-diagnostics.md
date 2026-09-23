@@ -259,3 +259,33 @@ scan refusal or a substantive decision blocker is preserved and reported rather 
 
 This is coordination state only. The verified tooling remains `7959996` with 613 host tests; no
 new inventory, source diagnosis, copy admission or gate evidence is claimed.
+
+### Dispatch safety clarification — 2026-09-24
+
+At approximately 06:26 local time, both related tasks reported idle with completed latest turns;
+no other active relevant task was returned in the pinned/recent-task listing. Latest handoff text
+was unavailable, so absence of detached work was not established. The bounded named-process
+snapshot again found no source-path matches, unreadable image paths or other matching images.
+These observations are not an exhaustive handle inventory or lasting quiet-window clearance.
+
+No scan was dispatched. Inspection of the required `codex-completion-wakeup` runner found a
+conflict with the follow-up's literal **no-process-termination** restriction: the runner requires
+a finite positive timeout and forcibly terminates its own command's process tree on expiry.
+There is no supported no-termination mode. A separate Sol 6 read-only review confirmed the
+control flow; the lead inspected the same code. No helper was modified or invoked, no game file,
+save or configuration was changed, and no existing app/process was controlled or terminated.
+This is an authorization conflict, not a
+scanner defect or new source refusal.
+
+The heartbeat was paused at approximately 06:29 local time. The single renewed measurement
+authorization remains unconsumed. Ask whether timeout cleanup may stop only processes started
+by this operation, never a game or another task's processes. Re-establish current task/process
+coordination before any eventual dispatch; do not reuse this point-in-time check as clearance.
+Private observations, exact paths and tool hashes are in the ignored Task 3 workspace. Wrapper
+and measurement-helper hashes still match the verified `7959996` checkpoint; the 613-test suite
+was not rerun. No implementation changed and Task 3 remains incomplete.
+
+Verification: independent read-only review found no blocking documentation issues; its process
+wording refinement was applied. Task-state/private-record JSON, paused automation state,
+ignored private-record placement, absence of private absolute user paths in these documentation
+files, and `git diff --check` passed.
