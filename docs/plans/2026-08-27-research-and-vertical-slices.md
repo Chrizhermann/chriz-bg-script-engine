@@ -308,6 +308,15 @@ tests and independent review pass; full host regression job
 `1097ef63-76f1-4a7e-be53-3f18e447b1cc` was verified exit 0 with 613 tests passing in 242.71 seconds.
 No source acquisition or gate pass; real source access remains deferred.
 
+**2026-09-24 host-only acceptance packet:** The
+[offline acquisition acceptance contract](../research/offline-acquisition-acceptance.md) has passed
+independent review. It separates complete output/protected-root/process admission, frozen private
+manifests, same-handle transfer, whole-tree verification and receipt publication. Review corrected
+unknown bootstrap ownership and post-commit failure semantics. None of these operation-level
+steps is implemented or admitted for game-path use yet; next is packet A's test-first admission
+and `-WhatIf` contract. The unchanged host suite again passed 613 tests; source coordination,
+runtime-profile admission, independent writable roots and all Task 3 exit checks remain separate.
+
 **Files:**
 
 - Create: `docs/research/disposable-lab-provisioning.md`
