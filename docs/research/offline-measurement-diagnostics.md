@@ -235,3 +235,27 @@ be appropriate; any exact paths stay outside version control. No application ter
 handle closure, source change, skipped entry or relaxed sharing is authorized. Complete copier
 guards, runtime-profile admission and independent writable-root isolation remain separate
 requirements even after the sharing conflict is resolved.
+
+## Quiet-window coordination — 2026-09-24
+
+The user confirmed the game was no longer running and authorized waiting and running later when
+other tasks might overlap. This permits one new read-only check once a quiet source window is
+established; the no-launch, no-app-control and no-game/save/configuration-write boundaries remain.
+
+At approximately 05:24 local time, two related BG tasks were active. Recent history in the installer
+task included work on the same installation/profile; current overlapping activity could not be
+excluded. A bounded OS snapshot for named game/loader/setup/WeiDU/NearInfinity executables found
+zero images under the source and zero unreadable image paths. This is not an exhaustive tool/handle
+inventory or a quiet-window guarantee. A single 60-second task event wait timed out without either
+task completing. No source file was opened and no new measurement was dispatched.
+
+A thread follow-up named `Resume BGSE scan when the source is quiet` was created, ID
+`resume-bgse-scan-when-the-source-is-quiet`, at a 30-minute interval. It rechecks task/process
+coordination, remains quiet on unchanged waiting state, and can dispatch one new read-only scan
+with the recorded source/destination and allowances. It must pause immediately after dispatch,
+leaving result verification to the command's own completion notification; it is not a job watcher
+or permission for repeated failed scans. No other task or process is interrupted. Failed launch,
+scan refusal or a substantive decision blocker is preserved and reported rather than retried.
+
+This is coordination state only. The verified tooling remains `7959996` with 613 host tests; no
+new inventory, source diagnosis, copy admission or gate evidence is claimed.
