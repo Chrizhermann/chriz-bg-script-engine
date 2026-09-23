@@ -301,6 +301,13 @@ by another agent with a running game, consistent with this result but not an ind
 file/holder diagnosis. Coordinate a quiet source window and obtain direction before another read-only
 check; do not stop the other agent/game or retry automatically. Task 3 remains incomplete.
 
+**2026-09-23 host-only continuation:** While the user streams/plays, defer source scans/copies and
+all game/app control. The [source-readiness marker guard](../research/offline-source-marker-guard.md)
+implements the existing no-inherited-marker requirement using synthetic fixtures only: 19 focused
+tests and independent review pass; full host regression job
+`1097ef63-76f1-4a7e-be53-3f18e447b1cc` was verified exit 0 with 613 tests passing in 242.71 seconds.
+No source acquisition or gate pass; real source access remains deferred.
+
 **Files:**
 
 - Create: `docs/research/disposable-lab-provisioning.md`

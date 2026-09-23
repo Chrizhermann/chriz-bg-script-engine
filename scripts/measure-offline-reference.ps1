@@ -57,7 +57,7 @@ catch {
         'BGSE_E_PATH_SYNTAX', 'BGSE_E_OVERLAP', 'BGSE_E_DESTINATION_EXISTS',
         'BGSE_E_PATH_ACCESS', 'BGSE_E_REPARSE_POINT', 'BGSE_E_ALIAS',
         'BGSE_E_HARDLINK', 'BGSE_E_STREAMS', 'BGSE_E_ENTRY_TYPE',
-        'BGSE_E_SOURCE_CHANGED', 'BGSE_E_DESTINATION_CHANGED', 'BGSE_E_CAPACITY', 'BGSE_E_VOLUME'
+        'BGSE_E_SOURCE_CHANGED', 'BGSE_E_SOURCE_MARKER', 'BGSE_E_DESTINATION_CHANGED', 'BGSE_E_CAPACITY', 'BGSE_E_VOLUME'
     )
     if ($exception.GetType().FullName -ceq 'Bgse.Lab.MeasurementRefusal' -and
         $allowedCodes -ccontains $exception.Message) {

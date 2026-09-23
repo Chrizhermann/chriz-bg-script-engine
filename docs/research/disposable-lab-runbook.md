@@ -82,6 +82,18 @@ The engine route below still requires matching/admitted fingerprints,
 multi-root isolation and all of Task 3's acceptance checks. The observed cloud/reparse Documents
 root is a real unresolved guard conflict; never waive it or change global Windows settings silently.
 
+The [readiness-marker guard](offline-source-marker-guard.md) refuses the exact occupied basename
+`.bgse-disposable-lab.json` case-insensitively anywhere visited in an offline source, regardless of
+type/payload. It never strips or adopts a marker. This measurement guard is not a mutation-time
+guarantee: the future copier must enforce the same exclusion on its actual source/copy names and
+verification, including entries that appear after measurement.
+
+**Streaming/active-use constraint — 2026-09-23:** The user permits background host preparation but
+prohibits game launching, computer/app control or interference with current use. Because even a
+read-only inventory holds sharing-constrained file handles, defer source scans as well as copying
+until a coordinated quiet window. Synthetic temporary-folder tests can continue. Do not stop
+another agent, game or application to create that window.
+
 ## Stop conditions
 
 Stop before any write unless all of the following are true:

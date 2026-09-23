@@ -301,6 +301,15 @@ namespace Bgse.Lab
                 Refuse("BGSE_E_SOURCE_CHANGED");
         }
 
+        private static void RefuseReadinessMarker(string path)
+        {
+            // Offline acquisition cannot inherit readiness from a source tree.
+            // Reserve the exact occupied name, regardless of type or payload;
+            // do not read, parse, strip or silently skip a foreign lab marker.
+            if (System.IO.Path.GetFileName(path).Equals(".bgse-disposable-lab.json",
+                StringComparison.OrdinalIgnoreCase)) Refuse("BGSE_E_SOURCE_MARKER");
+        }
+
         private static List<Entry> Inventory(string root)
         {
             var entries = new List<Entry>();
@@ -308,6 +317,7 @@ namespace Bgse.Lab
             void Visit(string path, string relative)
             {
                 LocalPath(path);
+                RefuseReadinessMarker(path);
                 using (Entry metadata = Open(path, false))
                 {
                     metadata.Relative = relative;

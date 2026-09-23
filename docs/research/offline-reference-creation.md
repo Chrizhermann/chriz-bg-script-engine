@@ -129,5 +129,9 @@ can change. Metadata/security backup fidelity is not promised.
 including private intent/source/copy manifests and completion publication. A successful
 [measurement](offline-reference-measurement.md) is only an input, never copy authority. Runtime
 profile and non-cloud writable-root decisions remain separate barriers before engine use.
-The named-source scan has now refused with an undiagnosed access error; this primitive's synthetic
-success must not override that refusal. Improve diagnostic evidence before source acquisition.
+The separately authorized [source diagnostic](offline-measurement-diagnostics.md) subsequently
+identified a content-open sharing conflict; its exact file/holder remain unknown. The user reported
+concurrent game testing. This primitive's synthetic success must not override the refusal.
+While the user streams/plays, real source access is deferred; the
+[readiness-marker guard](offline-source-marker-guard.md) is further host-only preparation, not
+source or copy admission.
