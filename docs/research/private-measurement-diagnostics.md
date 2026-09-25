@@ -256,7 +256,7 @@ and released only that coordination file; the peer was notified. No unrelated pr
 was stopped, no game file was changed, and no copy/baseline/destination was created. The tiny
 failed records are retained and no game-folder cleanup is needed.
 
-**Current stop:** the unknown holder remains unresolved. Under the user's explicit unknown-blocker
+**Stop at the first result (superseded by the user clarification below):** the unknown holder remained unresolved. Under the user's explicit unknown-blocker
 rule, notify the user and stop without retrying, skipping this entry or weakening sharing.
 Attempt count remains 1 of at most 3; remaining allowance is not permission to retry an unexplained
 failure. The heartbeat remains paused, deadline/counters unchanged, Task 3 incomplete.
@@ -269,3 +269,38 @@ This adds E1 saved-output/provenance evidence for a failed open by the pinned ho
 verified content identity or runtime proof; the implementation checks above remain E2. Task JSON,
 private-record parsing, tracked-path privacy and diff checks passed; no code changed after the
 637-test checkpoint, so no new full-suite execution is claimed for this documentation update.
+
+## User-identified overlay and conditional stop permission
+
+The user identified the private log as belonging to the BG Radar overlay and reported stopping
+that overlay. They clarified that the instruction concerned Radar, **not stopping this project**.
+The assistant's interrupted misunderstanding performed read-only checks only; no automation was
+cancelled or process terminated. The user also permits stopping this specific overlay in future
+when they are neither playing nor streaming. This is not blanket permission to stop game,
+streaming, peer-task or unidentified processes. Positively identify Radar and establish both
+conditions before exercising that narrow exception; no stop operation is needed for this report.
+
+This is user-supplied cause/closure evidence, not an independently verified handle-owner mapping.
+It permits preparing another bounded attempt after fresh coordination, without discarding the
+first refusal or skipping the log. A fresh bounded process snapshot found no BG/Radar/source-root
+candidate, missing script identity or new unknown helper, and the shared lock was absent.
+The randomiser task was active without a visible current scope, so the lead asked it directly
+whether the window was still free. Source access and reservation acquisition wait for that
+clarification; no further user approval is needed merely for the already authorized scan.
+Attempt count remains 1 of at most 3 and the original deadline is unchanged.
+
+The peer then confirmed its current turn is offline-only review/documentation with no game,
+installation/source scan, profile, console or installer access planned and no shared reservation.
+A fresh process observation again found no overlapping BG/Radar/root candidate, missing script
+identity or new unknown helper. All seven scanner/coordination/runner/executable hashes matched
+and enough time remained within the original deadline. The lead acquired a new exclusive
+reservation and notified the peer of ownership; the first released token was not reused.
+
+**Second dispatch:** renewed source attempt **2 of at most 3**, job
+`c42025a1-c954-45fa-8e92-5ede12cf66b2`, was launched once into a fresh private result directory.
+The unchanged command retains both `-WhatIf -IncludePrivateFailurePath`, exact approved roots,
+1 GiB allowance, 20 GiB reserve and 1,800-second timeout. Launcher exit 0 establishes only dispatch;
+the source result is pending its own completion notification. Heartbeat remains paused and no
+job files are polled. Keep the second reservation until termination is verified, then release
+only its matching token and notify the peer. No overlay was stopped by this task, source entry
+excluded, guard weakened, game launched or copy created. The earlier failed job remains evidence.
