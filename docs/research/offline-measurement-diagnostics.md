@@ -407,3 +407,10 @@ no contradiction found. The lead checked task/private JSON, ignored evidence pla
 public-path redaction, paused heartbeat, both G0 validators, LF/CRLF regression and
 `git diff --check`. This is a documentation/result checkpoint, not a new implementation or test
 suite. No source recheck was performed during verification.
+
+### Later authorization — 2026-09-26
+
+The user subsequently approved the targeted private diagnostic and bounded overnight waiting/
+retries for known competing work. See [the new diagnostic checkpoint](private-measurement-diagnostics.md).
+That later scope does not alter any failed result above, repeat an old job, identify its holder,
+or permit unexplained retries, source writes, game launches or an automatic copy.

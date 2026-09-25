@@ -43,6 +43,15 @@ namespace Bgse.Lab
         }
     }
 
+    // Explicitly private caller-owned observation, never attached to a refusal
+    // or public measurement. Use a separate instance per concurrent invocation.
+    public sealed class PrivateMeasurementDiagnostic
+    {
+        public string AttemptedPath { get; private set; }
+        internal void Reset() { AttemptedPath = null; }
+        internal void Record(string path) { AttemptedPath = path; }
+    }
+
     public sealed class Measurement
     {
         public int files { get; set; }
@@ -310,7 +319,24 @@ namespace Bgse.Lab
                 StringComparison.OrdinalIgnoreCase)) Refuse("BGSE_E_SOURCE_MARKER");
         }
 
-        private static List<Entry> Inventory(string root)
+        private static Entry OpenInventoryContent(string path, PrivateMeasurementDiagnostic privateDiagnostic)
+        {
+            try { return Open(path, false, true); }
+            catch (MeasurementRefusal refusal)
+            {
+                // Record only the attempted name at the failed native open, not
+                // a successfully opened identity or an inferred lock owner.
+                if (privateDiagnostic != null && refusal.Message == "BGSE_E_PATH_ACCESS" &&
+                    refusal.Diagnostic.operation == "open-content" &&
+                    refusal.Diagnostic.failureKind == "native-error" && refusal.Diagnostic.nativeError == 32)
+                    privateDiagnostic.Record(path);
+                throw;
+            }
+        }
+
+        private static List<Entry> Inventory(string root) { return InventoryCore(root, null); }
+
+        private static List<Entry> InventoryCore(string root, PrivateMeasurementDiagnostic privateDiagnostic)
         {
             var entries = new List<Entry>();
             var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -336,7 +362,7 @@ namespace Bgse.Lab
                     }
                     else
                     {
-                        using (Entry reader = Open(path, false, true))
+                        using (Entry reader = OpenInventoryContent(path, privateDiagnostic))
                         {
                             if (metadata.Id != reader.Id || !SameMetadata(metadata.Metadata, reader.Metadata))
                                 Refuse("BGSE_E_SOURCE_CHANGED");
@@ -414,6 +440,20 @@ namespace Bgse.Lab
 
         public static Measurement Measure(string sourceInput, string destinationInput, string allowanceInput, string reserveInput)
         {
+            return MeasureCore(sourceInput, destinationInput, allowanceInput, reserveInput, null);
+        }
+
+        public static Measurement MeasureWithPrivateDiagnostics(string sourceInput, string destinationInput,
+            string allowanceInput, string reserveInput, PrivateMeasurementDiagnostic privateDiagnostic)
+        {
+            if (privateDiagnostic == null) throw new ArgumentNullException(nameof(privateDiagnostic));
+            privateDiagnostic.Reset(); // A later success/refusal must not retain a previous attempted name.
+            return MeasureCore(sourceInput, destinationInput, allowanceInput, reserveInput, privateDiagnostic);
+        }
+
+        private static Measurement MeasureCore(string sourceInput, string destinationInput, string allowanceInput,
+            string reserveInput, PrivateMeasurementDiagnostic privateDiagnostic)
+        {
             var held = new List<Entry>();
             string phase = "inputs";
             int? pass = null;
@@ -433,9 +473,9 @@ namespace Bgse.Lab
                 held.AddRange(destinationAncestors);
                 VerifySeparateIdentities(sourceAncestors.Last().Id, destinationAncestors.Select(entry => entry.Id).ToArray());
                 phase = "inventory"; pass = 1;
-                var first = Inventory(source);
+                var first = InventoryCore(source, privateDiagnostic);
                 pass = 2;
-                var second = Inventory(source);
+                var second = InventoryCore(source, privateDiagnostic);
                 phase = "inventory-comparison"; pass = null;
                 string content = Digest(first, false), identity = Digest(first, true);
                 VerifyObservations(first, second);

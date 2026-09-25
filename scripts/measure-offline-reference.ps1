@@ -3,7 +3,10 @@ param(
     [string]$SourceRoot = '',
     [string]$DestinationRoot = '',
     [string]$OutputAllowanceBytes = '',
-    [string]$SafetyReserveBytes = ''
+    [string]$SafetyReserveBytes = '',
+    # Explicit local-only diagnostic mode: stdout may contain a personal path.
+    # Capture privately outside the source/destination and never publish that log.
+    [switch]$IncludePrivateFailurePath
 )
 
 # Deliberately read-only, with or without -WhatIf. No ShouldProcess output or
@@ -20,6 +23,7 @@ $result = [ordered]@{
     writableRootAdmission = 'unexecuted'
 }
 $exitCode = 3
+$privateObservation = $null
 try {
     if (
         $PSVersionTable.PSEdition -cne 'Core' -or
@@ -35,9 +39,17 @@ try {
         if ($null -eq ('Bgse.Lab.SourceMeasurement' -as [type])) {
             Add-Type -Path (Join-Path $PSScriptRoot 'lib/SourceMeasurement.cs')
         }
-        $measurement = [Bgse.Lab.SourceMeasurement]::Measure(
-            $SourceRoot, $DestinationRoot, $OutputAllowanceBytes, $SafetyReserveBytes
-        )
+        if ($IncludePrivateFailurePath) {
+            $privateObservation = [Bgse.Lab.PrivateMeasurementDiagnostic]::new()
+            $measurement = [Bgse.Lab.SourceMeasurement]::MeasureWithPrivateDiagnostics(
+                $SourceRoot, $DestinationRoot, $OutputAllowanceBytes, $SafetyReserveBytes, $privateObservation
+            )
+        }
+        else {
+            $measurement = [Bgse.Lab.SourceMeasurement]::Measure(
+                $SourceRoot, $DestinationRoot, $OutputAllowanceBytes, $SafetyReserveBytes
+            )
+        }
         $result.status = 'observed-read-only'
         $result.code = 'BGSE_MEASUREMENT_ONLY'
         foreach ($property in $measurement.PSObject.Properties) {
@@ -97,10 +109,26 @@ catch {
                     failureKind = $kinds[[Array]::IndexOf($kinds, $kindValue)]
                     nativeError = if ($null -eq $errorValue) { $null } else { [int]($errorValue + 0) }
                 }
+                if ($IncludePrivateFailurePath -and $null -ne $privateObservation -and
+                    $result.code -ceq 'BGSE_E_PATH_ACCESS' -and $phaseValue -ceq 'inventory' -and
+                    $passValue -in @(1, 2) -and $operationValue -ceq 'open-content' -and
+                    $kindValue -ceq 'native-error' -and $errorValue -eq 32) {
+                    $attemptedPath = $privateObservation.AttemptedPath
+                    if ($attemptedPath -is [string] -and -not [string]::IsNullOrEmpty($attemptedPath)) {
+                        $result.privateDiagnostic = [ordered]@{
+                            classification = 'private-local-only'
+                            attemptedPath = $attemptedPath
+                            pathIdentity = 'unverified-at-failed-open'
+                            holderAttribution = 'unexecuted'
+                        }
+                    }
+                }
             }
         }
         catch { } # A diagnostic is optional; the refusal is not.
     }
 }
-[Console]::Out.WriteLine(($result | ConvertTo-Json -Depth 4 -Compress))
+# Hidden Windows jobs may inherit a legacy console writer. JSON Unicode escapes
+# preserve exact private names without changing any console/app encoding state.
+[Console]::Out.WriteLine(($result | ConvertTo-Json -Depth 4 -Compress -EscapeHandling EscapeNonAscii))
 exit $exitCode
