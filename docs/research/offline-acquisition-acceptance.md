@@ -179,6 +179,12 @@ measurement at this checkpoint. Real acquisition waits for all packets, reviewed
 fresh coordination and exact-root authorization. Runtime profile and non-cloud writable-root
 admission, launch/save and two resets remain separate Task 3 requirements afterward.
 
+**2026-09-26 update:** the [second guarded source observation](private-measurement-diagnostics.md#verified-successful-measurement-after-radar-closure)
+completed with matching serial inventories and capacity planning after the user closed the
+identified overlay. This supersedes only the historical no-complete-measurement statement above.
+It does not implement or admit packet A, copying, writable-root/process admission or any runtime
+gate. The same host-only implementation sequence and reviewed contract remain next.
+
 Reproduce this gap assessment by reading the linked memos and the two C# helpers, then inspecting
 the named tests. A Sol 6 worker independently extracted existing coverage without running tests or
 accessing game paths; the lead checked consequential call sites and the unchanged suite result.

@@ -2,8 +2,8 @@
 
 **Status:** Host-only diagnostic checkpoint verified: 637 full-suite tests passed after reproducing
 and correcting a hidden-process encoding defect; independent implementation/correction review passed.
-The subsequent authorized source attempt refused with an exact private attempted filename;
-holder attribution remains unexecuted. No accepted source inventory or copy admission.
+The first renewed source attempt refused with an exact private attempted filename; the second
+completed its read-only measurement after the user stopped Radar. No copy or runtime admission.
 
 **Date / owner:** 2026-09-26 / integration lead.
 
@@ -304,3 +304,38 @@ the source result is pending its own completion notification. Heartbeat remains 
 job files are polled. Keep the second reservation until termination is verified, then release
 only its matching token and notify the peer. No overlay was stopped by this task, source entry
 excluded, guard weakened, game launched or copy created. The earlier failed job remains evidence.
+
+## Verified successful measurement after Radar closure
+
+Job `c42025a1-c954-45fa-8e92-5ede12cf66b2` completed **successfully, exit 0**, in **517.025634
+seconds**, with empty stderr and no timeout. Start/end were 21:01:46.714656 / 21:10:23.740290 UTC
+on 25 September (26 September locally). Its exact saved command and all seven tool/executable
+identities matched dispatch; no implementation changed after the 637-test checkpoint. The one
+completion notification was accepted. Eight private result files totaling 2,240 bytes are retained.
+
+Both serial inventories matched across **164,630 files and 3,531 directories**, totaling
+**12,147,568,397 logical bytes**. The allocation unit was 4,096 bytes and the per-entry planning
+allowance 65,536 bytes. One independent-copy budget was 23,570,141,184 bytes; two such budgets,
+the 1,073,741,824-byte output allowance and 21,474,836,480-byte reserve required 69,688,860,672
+free bytes. The observed free space was 135,898,021,888 bytes. These are point-in-time planning
+numbers, not promises about later free space or actual copy allocation. Private content/identity
+digests are retained with the job, not published as resource fixtures or a transferable manifest.
+
+The result explicitly says `observed-read-only`, `passes=2`, `atomicSnapshot=false`,
+`capacityPlanningOnly=true`, `writesAuthorized=false`, `runtimeReady=false`; process and
+writable-root admission remain `unexecuted`. There is no private failure object. A successful
+scan after reported overlay closure supports that the reported obstruction cleared, but it does
+not retrospectively identify holders/files for earlier refusals or prove the tree cannot change.
+
+An independent Sol 6 saved-result audit confirmed command fields, outcome, duration, absence of
+stderr, bounds and the capacity arithmetic. The lead additionally matched exact approved root
+strings and all raw tool hashes. After terminal status, the recorded scanner/runner and scanner
+children were absent from a bounded process query. The reviewed helper token-released only the
+second owned reservation and the peer was notified. No overlay/process was stopped by this task.
+
+**Evidence / next work:** this adds E1 pinned-tool/saved-output source measurement evidence;
+the earlier synthetic implementation proofs remain E2. No E3/E4/E5 or G0-G8 advancement follows.
+Stop source retries and keep the heartbeat paused. The next work is host-only packet A of the
+[offline-acquisition acceptance contract](offline-acquisition-acceptance.md): operation admission
+and no-write `-WhatIf` checks. No copier exists/admitted yet; source success does not bypass
+packets A-E, exact write-footprint approval, runtime profile, writable-root isolation or reset proof.
