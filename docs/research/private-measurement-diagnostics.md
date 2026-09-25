@@ -192,3 +192,20 @@ No E3/E4/E5, accepted source inventory, copy admission or gate pass is claimed.
 acquire the reviewed cooperative reservation and record its ownership before source use. If the diagnostic encounters an
 unexplained blocker, retain its private evidence and notify the user without retry. Real copying
 still requires every reviewed offline-acquisition packet; Task 3 remains in progress.
+
+## Post-checkpoint coordination: no dispatch
+
+After host checkpoint `66a2282`, compact task status showed both named BG tasks idle and no other
+active BG task in the returned recent inventory. A bounded read-only OS snapshot found no named
+game/loader/installer candidate or exact-root command match other than the observing filter itself.
+Follow-up classification identified six background shell sessions owned by the other assistant
+app; their command lines expose no task or script scope. A bounded parent/child check found no
+children, but that cannot prove an in-process script is idle or unrelated to the game roots.
+
+These sessions are **not proven to hold or block a game file**. Their unresolved task scope is a
+coordination uncertainty, not a new scanner failure or an accepted quiet window. Under the user's
+unknown-owner/scope rule, no source measurement or reservation acquisition was dispatched. Source
+attempt count remains zero under the renewed authorization. The heartbeat remains paused pending
+user direction; there is no repeated polling, game/app control, process termination or new copy.
+Exact observations, process identities and tool hashes are private. The original deadline/counters
+are not reset; any later cleared attempt still needs fresh checks and the exclusive reservation.
