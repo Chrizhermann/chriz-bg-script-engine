@@ -317,6 +317,18 @@ steps is implemented or admitted for game-path use yet; next is packet A's test-
 and `-WhatIf` contract. The unchanged host suite again passed 613 tests; source coordination,
 runtime-profile admission, independent writable roots and all Task 3 exit checks remain separate.
 
+**2026-09-26 source and host-path checkpoint:** The
+[second renewed source measurement](../research/private-measurement-diagnostics.md#verified-successful-measurement-after-radar-closure)
+completed successfully with matching serial inventories after the user stopped Radar. Earlier
+refusals remain historical evidence; there is now a complete read-only observation, not copy or
+runtime admission. Both owned reservations were released; source retries stopped. Packet A1's
+[read-only output-footprint interface](../research/acquisition-footprint-contract.md) and
+implementation passed independent static review, focused tests and the verified full regression:
+721 tests passed, exit 0, no timeout. Independent saved-result/hash audit passed; A1 is accepted
+only as a host-only pre-first-write path observation, not complete packet A.
+Process/coordination providers, capacity, complete operational `-WhatIf` and copier packets B-E
+remain open. No game copy, launch or gate advancement occurred.
+
 **Files:**
 
 - Create: `docs/research/disposable-lab-provisioning.md`

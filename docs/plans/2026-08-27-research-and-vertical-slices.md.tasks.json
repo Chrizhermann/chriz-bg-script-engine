@@ -7,7 +7,15 @@
   "tasks": [
     {"id": 1, "subject": "Task 1: Freeze the architectural decisions as ADRs", "status": "completed"},
     {"id": 2, "subject": "Task 2: Establish the development and disposable-lab contract", "status": "completed", "blockedBy": [1], "completionBlockedByArtifacts": ["docs/research/PREP-02-evidence-and-provenance-index.md"]},
-    {"id":3,"subject":"Task 3: Obtain authorization and provision the disposable engine laboratory","status":"in_progress","blockedBy":[2],"requiresUserAuthorization":true,"authorizationRecorded":"2026-09-22","checkpoint":"Verified host checkpoint66a2282:637 repository tests and18 private reservation tests, independent reviews, G0/LF-CRLF checks passed. Renewed source attempt1 failed content-open sharing with private filename; all failed evidence preserved. User identified/stopped Radar and conditionally permits stopping only that overlay when neither playing nor streaming. Fresh peer/process/tool checks and distinct reservation preceded attempt2 jobc42025a1-c954-45fa-8e92-5ede12cf66b2. Verified SUCCESS exit0 in517.025634s,empty stderr,no timeout,two matching inventories:164630 files,3531 directories,12147568397 logical bytes. Capacity required69688860672 versus observed135898021888 bytes; exact command/all7 tool identities match. Independent saved-result/arithmetic review passed. Non-atomic read-only capacity observation only: writes/runtime false, process/writable-root admission unexecuted. Both own reservations token-released after exact command/runner/child absence, peer notified. Stop source retries; heartbeat PAUSED,count2/max3/deadline unchanged. No game copy, source/save write, launch, UI control, process termination, skipped file or gate advancement. Next is host-only reviewed acceptance packet A admission/WhatIf; copier packets A-E and runtime isolation/launch/reset remain unimplemented or open. Task3 incomplete."},
+    {
+      "id": 3,
+      "subject": "Task 3: Obtain authorization and provision the disposable engine laboratory",
+      "status": "in_progress",
+      "blockedBy": [2],
+      "requiresUserAuthorization": true,
+      "authorizationRecorded": "2026-09-22",
+      "checkpoint": "Source success verified in e306943: job c42025a1-c954-45fa-8e92-5ede12cf66b2 exit0,two matching inventories,164630 files/3531 directories; exact tools/arguments and independent audit passed. Prior refusals retained; both own reservations released, peer notified, retries stopped and heartbeat PAUSED. Host-only A1 footprint interface/implementation reviewed; genuine RED then GREEN, review-driven test corrections retained. Full job c35c18ef-4ee0-47f6-9fbf-c7d7ce0c26bc verified succeeded exit0:721 tests passed345.96s,empty stderr,no warnings/timeout. All7saved code/test/tool hashes match; independent saved-result/count/3newhash audit passed. G0 validators/LF-CRLF, JSON/link/privacy/diff checks passed. A1 accepted only as pre-first-write path observation, not full admission. Next remaining packetA: process/coordination providers, per-volume capacity, complete operational WhatIf; then copier B-E and runtime profile/isolation/launch/reset. No polling/rerun, source/game access for A1, copy, launch, source/save mutation, UI control, process termination or gate advancement. Task3 incomplete; overnight bounds unchanged."
+    },
     {"id": 4, "subject": "Task 4: Define evidence, fixture, corpus, and redistribution governance", "status": "completed", "blockedBy": [1], "startBlockedByArtifacts": ["docs/research/PREP-01-support-baseline.md"]},
     {"id": 5, "subject": "Task 5: Build the effective-install inventory and exact ownership-manifest prototype", "status": "completed", "blockedBy": [2, 4]},
     {"id": 6, "subject": "Task 6: Characterize the SCS combat corpus and create migration ledgers", "status": "in_progress", "blockedBy": [4, 5], "checkpoint": "Pinned mage/prebuff source and shared library/compiler/conditional slot-transform trace; actual compiler/profile inputs, effective BCS comparison and derived-fixture admission remain outstanding"},
@@ -47,5 +55,5 @@
     {"id": 40, "subject": "Task 40: Execute the supported compatibility, soak, and performance matrix", "status": "pending", "blockedBy": [26, 30, 35, 37, 38, 39]},
     {"id": 41, "subject": "Task 41: Complete provenance, security, documentation, and G8 review", "status": "pending", "blockedBy": [36, 37, 38, 39, 40]}
   ],
-  "lastUpdated": "2026-09-26T06:14:00+09:00"
+  "lastUpdated": "2026-09-26T06:40:00+09:00"
 }
