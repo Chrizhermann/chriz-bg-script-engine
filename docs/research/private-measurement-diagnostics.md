@@ -2,7 +2,8 @@
 
 **Status:** Host-only diagnostic checkpoint verified: 637 full-suite tests passed after reproducing
 and correcting a hidden-process encoding defect; independent implementation/correction review passed.
-No new real-source observation at this checkpoint.
+The subsequent authorized source attempt refused with an exact private attempted filename;
+holder attribution remains unexecuted. No accepted source inventory or copy admission.
 
 **Date / owner:** 2026-09-26 / integration lead.
 
@@ -232,3 +233,39 @@ of status-file polling. The reservation stays owned across the command and may b
 only after its termination is verified; the peer must then receive a release notice. Exact command,
 ownership and cleanup records are private. Deadline/counters were not reset. No copying, game
 launch, writable-root/runtime admission or G0-G8 advancement follows from this dispatch.
+
+## Verified private-path refusal and release
+
+The completion message for job `4b2333af-c585-4df8-8b8f-7ae5b356ff9e` arrived and its saved
+result was verified: **failed, exit 3, 354.063768 seconds**, empty stderr, no timeout. It ran
+from 20:46:14.964411 to 20:52:09.028179 UTC on 25 September (26 September locally). Saved
+command/executable arguments and all recorded tool hashes matched. The single notification
+attempt was accepted. Eight private result files totaling 2,116 bytes are retained.
+
+The exact refusal remains `BGSE_E_PATH_ACCESS`, inventory pass 1, `open-content`, native error 32.
+This time the opt-in diagnostic identifies the **attempted filename** in the private result;
+the raw source path is deliberately not reproduced here. Its physical identity is unverified
+at the failed open and `holderAttribution` remains `unexecuted`. This does not prove the holding
+process, whether it is a game, or whether the three earlier failures involved the same file.
+No accepted complete inventory, file count, byte total, digest or capacity result was returned.
+The real-source refusal is a bounded source observation, not E4/E5 engine evidence or a gate pass.
+
+After terminal status was verified, a bounded check found the recorded scanner, runner and
+scanner-child processes absent. The reviewed helper matched this task's reservation token/thread
+and released only that coordination file; the peer was notified. No unrelated process or handle
+was stopped, no game file was changed, and no copy/baseline/destination was created. The tiny
+failed records are retained and no game-folder cleanup is needed.
+
+**Current stop:** the unknown holder remains unresolved. Under the user's explicit unknown-blocker
+rule, notify the user and stop without retrying, skipping this entry or weakening sharing.
+Attempt count remains 1 of at most 3; remaining allowance is not permission to retry an unexplained
+failure. The heartbeat remains paused, deadline/counters unchanged, Task 3 incomplete.
+
+**Verification / evidence:** an independent Sol 6 saved-result audit confirmed terminal status,
+duration, exact command/limits, single notification, refusal/private-field semantics and absence
+of an accepted inventory. It inspected only the completed job's records, not game files or
+processes. The lead separately verified unchanged raw tool identities and token-checked release.
+This adds E1 saved-output/provenance evidence for a failed open by the pinned host tool, not a
+verified content identity or runtime proof; the implementation checks above remain E2. Task JSON,
+private-record parsing, tracked-path privacy and diff checks passed; no code changed after the
+637-test checkpoint, so no new full-suite execution is claimed for this documentation update.
