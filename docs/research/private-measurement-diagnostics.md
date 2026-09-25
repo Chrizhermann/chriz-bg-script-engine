@@ -188,7 +188,7 @@ and process snapshots are bounded coordination observations, not continuous excl
 existing source-sharing failures remain unresolved until a separately recorded real observation.
 No E3/E4/E5, accepted source inventory, copy admission or gate pass is claimed.
 
-**Next decision:** The host checks and independent review passed. Recheck task/process coordination,
+**Host-checkpoint next decision (historical; later dispatch recorded below):** The host checks and independent review passed. Recheck task/process coordination,
 acquire the reviewed cooperative reservation and record its ownership before source use. If the diagnostic encounters an
 unexplained blocker, retain its private evidence and notify the user without retry. Real copying
 still requires every reviewed offline-acquisition packet; Task 3 remains in progress.
@@ -209,3 +209,26 @@ attempt count remains zero under the renewed authorization. The heartbeat remain
 user direction; there is no repeated polling, game/app control, process termination or new copy.
 Exact observations, process identities and tool hashes are private. The original deadline/counters
 are not reset; any later cleared attempt still needs fresh checks and the exclusive reservation.
+
+## User clarification and first renewed dispatch
+
+The user confirmed that the six other-assistant shell sessions are unrelated. This clears that
+specific uncertainty, not arbitrary future processes. Fresh compact task status again showed the
+two named BG tasks idle and no other active BG task in the recent inventory. A fresh bounded OS
+snapshot found no source-related game/loader/installer/editor candidate, missing script-process
+identity or newly unclassified helper; the six cleared sessions retained their observed identities.
+Scanner, reservation-helper, completion-runner and executable hashes still matched the records.
+
+The reviewed helper exclusively acquired this task's reservation, and the peer was notified of
+the window ownership. No peer lock was removed, overwritten or adopted. First renewed source
+attempt **1 of at most 3** was then dispatched once as job
+`4b2333af-c585-4df8-8b8f-7ae5b356ff9e`, with the existing exact source/destination,
+`-WhatIf -IncludePrivateFailurePath`, 1 GiB output allowance, 20 GiB safety reserve and a
+1,800-second timeout. A fresh private result directory captures the command; launcher exit 0
+proves dispatch only, not measurement success. No source result is claimed yet.
+
+The heartbeat remains paused; the command's own completion message resumes verification instead
+of status-file polling. The reservation stays owned across the command and may be token-released
+only after its termination is verified; the peer must then receive a release notice. Exact command,
+ownership and cleanup records are private. Deadline/counters were not reset. No copying, game
+launch, writable-root/runtime admission or G0-G8 advancement follows from this dispatch.
