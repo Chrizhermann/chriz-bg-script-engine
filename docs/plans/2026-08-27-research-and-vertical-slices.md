@@ -294,12 +294,12 @@ as a prerequisite; do not finish them before useful mod work.
 **Depends on:** Task 2 plus explicit user authorization naming the disposable destination
 
 **Current checkpoint:** The previously approved SCS-reference copy is verified: 164,610 files,
-reported 11.164 GiB, zero failed files/mismatches. The lab has its own engine profile identity and
-empty profile directory; a lab-only configuration backup/restore check passed. Source identity
-is unchanged and no active saves were copied. Backend-only startup/save verification is now
-authorized, explicitly without computer control. Startup waits for the item-randomizer lab's
-shared reservation to be released; no permitted backend-only save route has been established.
-Continue static SCS research on the copy. Task 3 is not complete.
+reported 11.164 GiB, zero failed files/mismatches. The lab has its own engine profile identity;
+a lab-only configuration backup/restore check passed. One authorized backend-only startup and
+fresh Remote Console ping passed after peer coordination, with new configuration in the dedicated
+lab profile. Owned processes and temporary probe files are cleaned up; no computer control or
+active saves used. Save routing is still unverified: no permitted backend-only save route has
+been established. Continue static SCS research on the copy. Task 3 is not complete.
 
 **Procedure:** [Practical lab runbook](../research/disposable-lab-runbook.md).
 Exact paths, commands, results and cleanup candidates stay private under `.work/task3`.

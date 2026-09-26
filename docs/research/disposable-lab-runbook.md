@@ -1,9 +1,10 @@
 # Practical disposable game lab
 
 **Status — 2026-09-27:** The approved SCS-reference copy is verified, its separate profile is
-configured, and a lab-file backup/restore check passed. Backend-only launch is now authorized,
-but has not run: the item-randomizer lab holds the shared game-testing reservation. Task 3
-remains in progress until actual startup/save routing is verified; no runtime gate has passed.
+configured, and a lab-file backup/restore check passed. One backend-only startup and fresh
+Remote Console ping now passed, with configuration created in the dedicated lab profile.
+The lab is closed and temporary probe files removed. Task 3 remains in progress until actual
+save routing is verified; no runtime gate has passed.
 
 The user reconfirmed the original architecture and features, but rejected the expanded
 acquisition framework. This procedure replaces the previous runbook. Historical scanner,
@@ -59,8 +60,8 @@ The intended profile name is `BGSE Lab - SCS Reference`.
    active-profile paths or external auto-run scripts. Initialize only required lab settings;
    do not copy the active `Baldur.lua` wholesale. Installed profile-dependent options may need
    explicit initialization in the new profile.
-7. With the recorded backend-only launch permission, use the lab loader with its game directory
-   as working directory. The bounded startup check below can proceed when the peer is finished.
+7. Use the lab loader with its game directory as working directory. The authorized one-shot
+   backend startup check below is complete; do not automatically repeat it.
    Save verification remains separate: create one clearly named test save through a permitted
    method and confirm it appears only in the lab profile. Do not substitute menu clicks for
    backend access. Until then, report configuration/static checks separately from runtime proof.
@@ -76,8 +77,8 @@ the launch/save check above.
 Reuse the item-randomizer's non-input-desktop launcher and the existing EEex Remote Console;
 do not build another launcher framework. Exact source paths, tool identities and the four-line
 launcher adaptation are private under `.work/task3/backend-startup-20260927/`. Preparation
-passed syntax checking and independent review against the existing tools; the BGSE launch
-remains unexecuted. No new test suite or launcher framework was added.
+passed syntax checking and independent review against the existing tools; execution and
+cleanup are recorded below. No new test suite or launcher framework was added.
 
 Wait while the peer owns `bg-game-install.lock`; its review time is not expiry. When it is free,
 check for a conflicting game/installer, acquire our own exclusive reservation, and verify the
@@ -140,3 +141,25 @@ suite for setup/documentation changes. G0–G8 and user-owned gameplay decisions
   This demonstrates a small experiment's file rollback, not full save/runtime reset.
 - Only one full game copy exists from this task. Exact retained paths and cleanup candidates
   are in `.work/task3/CLEANUP.md`. No source files, existing saves or unrelated processes changed.
+
+## Verified startup checkpoint
+
+- After the peer finished, acquired our own reservation and verified the launcher's child and
+  grandchild stayed on the non-input desktop. Exactly one lab launch; no clicks or keys.
+- Remote Console v0.2.0/protocol1.1 returned a fresh `pong`, `eeexActive=true`, `luajit=true`
+  and `io=true`; client exit0. Its ready timestamp preceded that request. This is bounded E4
+  startup/IPC evidence, not BGSE capabilities, gameplay, save/load or G1 acceptance.
+- The previously empty dedicated profile gained a 1,058-byte `Baldur.lua`. This proves observed
+  configuration output there, **not** the destination of a gameplay save. No save was created.
+- After about 59 seconds, signaled the helper to close only its own process tree; helper exit0
+  and the recorded processes verified absent. This was not a graceful menu-quit test. Removed
+  the two staged console files and its ready marker after checking identities. Lab `engine.lua`
+  and `WeiDU.log` hashes stayed unchanged; our reservation was released and the heartbeat paused.
+- Exact commands, identities, ready/ping outputs and cleanup evidence are private in
+  `backend-startup-20260927/runtime-result.json` and adjacent records. Keep the new lab settings;
+  there is no leftover game process, second game copy or temporary console installation.
+- Independent review matched the saved outputs, current lab hashes and absence of temporary
+  files; it kept process-exit/release observations attributed to the lead and save proof open.
+
+Next: verify one named save through an allowed backend method or a later manual lab save.
+The menu-click restriction still applies; Task 3 remains in progress and Task 8 remains pending.
