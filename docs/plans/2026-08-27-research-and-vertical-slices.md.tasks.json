@@ -14,7 +14,7 @@
       "blockedBy": [2],
       "requiresUserAuthorization": true,
       "authorizationRecorded": "2026-09-22",
-      "checkpoint": "2026-09-27: User reconfirmed original architecture/features and pragmatic lab workflow. Standard copy dispatched once to exact approved SCS-reference destination; completion not yet verified. Independent script/profile-plan review found no issues. Next verify saved result, set separate engine_name/profile and continue static mage/prebuff mapping. No game launch/UI control, active saves copied or gameplay decisions. Task 3 remains incomplete until authorized launch/save and practical restore checks.",
+      "checkpoint": "2026-09-27: Standard copy verified: runner exit 0, robocopy 1, 164610 files, zero failed/mismatched. Separate lab engine_name and empty profile created; relevant loader/hooks inspected; lab engine.lua backup/edit/restore passed byte-identically. Independent static review accepted the practical checkpoint. No game launch/UI control, active saves copied or gameplay decisions. Task 3 remains incomplete until separately authorized launch/save verifies actual profile routing. See disposable-lab-runbook.md and private practical-lab-20260927.json/CLEANUP.md.",
       "historicalCheckpoint": "Superseded acquisition-framework route, not instructions to continue: committed through b12871f. Uncommitted A4d host-only checkpoint verified 1146 tests passing; preserved separately, not expanded or represented as lab/gameplay evidence. Detailed history remains in research memos, Git and private job records."
     },
     {"id": 4, "subject": "Task 4: Define evidence, fixture, corpus, and redistribution governance", "status": "completed", "blockedBy": [1], "startBlockedByArtifacts": ["docs/research/PREP-01-support-baseline.md"]},
@@ -56,5 +56,5 @@
     {"id": 40, "subject": "Task 40: Execute the supported compatibility, soak, and performance matrix", "status": "pending", "blockedBy": [26, 30, 35, 37, 38, 39]},
     {"id": 41, "subject": "Task 41: Complete provenance, security, documentation, and G8 review", "status": "pending", "blockedBy": [36, 37, 38, 39, 40]}
   ],
-  "lastUpdated": "2026-09-27T03:28:36+09:00"
+  "lastUpdated": "2026-09-27"
 }

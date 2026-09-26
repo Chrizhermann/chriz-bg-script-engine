@@ -1,7 +1,8 @@
 # Practical disposable game lab
 
-**Status — 2026-09-27:** The approved SCS-reference copy is running. It has not yet been
-verified or launched. Task 3 remains in progress; no runtime gate has passed.
+**Status — 2026-09-27:** The approved SCS-reference copy is verified, its separate profile is
+configured, and a lab-file backup/restore check passed. It has not been launched. Task 3 remains
+in progress until the separately authorized launch/save check; no runtime gate has passed.
 
 The user reconfirmed the original architecture and features, but rejected the expanded
 acquisition framework. This procedure replaces the previous runbook. Historical scanner,
@@ -11,7 +12,7 @@ prerequisites for making or using a disposable lab. No further framework work is
 ## What this lab is for
 
 A separate game installation for examining installed SCS behavior, installing our changes,
-trying representative scenarios, and fixing what actually breaks. The copy is intended to retain
+trying representative scenarios, and fixing what actually breaks. The copy retains
 the approved source's existing EET, SCS, EEex, Spell Revisions and quality-of-life stack.
 It is a comparison profile, not the separately proposed minimal EET diagnostic profile.
 Do not silently rebuild the stack, remove SCS, or change gameplay options.
@@ -93,3 +94,22 @@ Task 3 completes after the separate copy/profile works, one authorized launch/sa
 isolation, and a practical reset/restore has been exercised. There is no requirement to build
 a general copy transaction system, rehearse every hypothetical failure, or run the entire host
 suite for setup/documentation changes. G0–G8 and user-owned gameplay decisions remain intact.
+
+## Verified setup checkpoint
+
+- Copy job: runner exit 0, robocopy exit 1; 164,610 files / reported 11.164 GiB copied in 88.2s,
+  zero failed files or mismatches, empty stderr. Logs are private under
+  `.work/task3/work/practical-lab-copy-v1`; no retry was needed.
+- Copied stack labels: BG2:EE 2.7.3.0, EET 14.0, EEex 1.2.0 plus LuaJIT, SCS 35.21,
+  Spell Revisions 4.21-chriz.5 and Bubb's Spell Menu 5.2. This is an observed comparison
+  stack, not release support or a silent replacement of PREP-01's older candidate.
+- Created lab-only `engine.lua` and the empty dedicated profile directory. No active
+  `Baldur.lua` or saves were copied. Source `engine.lua` hash stayed unchanged.
+- Required game files exist. Game/override/EEex script roots are ordinary directories;
+  loader executable/script/library paths are relative. The bounded Lua/config check found
+  no source absolute path, remote-console request or external auto-run file. The copied
+  hotkey table contains only commented examples. This is static inspection, not an engine proof.
+- Backed up lab `engine.lua`, added a temporary comment, then restored it byte-for-byte.
+  This demonstrates a small experiment's file rollback, not full save/runtime reset.
+- Only one full game copy exists from this task. Exact retained paths and cleanup candidates
+  are in `.work/task3/CLEANUP.md`. No source files, existing saves or unrelated processes changed.

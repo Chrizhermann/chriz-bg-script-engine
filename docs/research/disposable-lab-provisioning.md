@@ -1,7 +1,14 @@
 # Task 3: authorization and source preflight
 
-**Outcome:** Conditional; Task 3 in progress. Destination approved, but no copy, marker,
-installation, launch, save, reset or game mutation has occurred.
+**Current outcome — 2026-09-27:** The approved separate copy now exists; its dedicated profile is
+configured and a small lab-file restore check passed. No game was launched and no active saves
+were copied. See the [current practical procedure and verified result](disposable-lab-runbook.md).
+Task 3 remains open for the separately authorized launch/save check.
+
+**Historical preflight below — 2026-09-22:** This records the earlier no-copy observation and
+discarded acquisition-process constraints, not instructions to resume that framework. The user's
+2026-09-27 priority reset supersedes those setup requirements, without changing the architecture,
+active-game protection or honesty about untested runtime behavior.
 
 **Date / owner:** 2026-09-22 / integration lead.
 

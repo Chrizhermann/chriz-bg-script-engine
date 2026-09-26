@@ -293,11 +293,11 @@ as a prerequisite; do not finish them before useful mod work.
 
 **Depends on:** Task 2 plus explicit user authorization naming the disposable destination
 
-**Current checkpoint:** The previously approved SCS-reference copy is running with standard
-robocopy and a completion notification. The source remains read-only; the new lab does not copy
-the source profile identity or active saves. No game has been launched. Verify the saved result,
-then configure the separate profile and proceed with static SCS research. Runtime acceptance
-waits for separate launch permission; Task 3 is not complete.
+**Current checkpoint:** The previously approved SCS-reference copy is verified: 164,610 files,
+reported 11.164 GiB, zero failed files/mismatches. The lab has its own engine profile identity and
+empty profile directory; a lab-only configuration backup/restore check passed. Source identity
+is unchanged and no active saves were copied. Continue static SCS research on the copy. Runtime
+acceptance waits for separate launch/save permission; Task 3 is not complete.
 
 **Procedure:** [Practical lab runbook](../research/disposable-lab-runbook.md).
 Exact paths, commands, results and cleanup candidates stay private under `.work/task3`.
