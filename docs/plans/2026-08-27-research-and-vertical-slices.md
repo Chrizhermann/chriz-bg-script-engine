@@ -417,6 +417,11 @@ match; it does not yet activate runtime ownership.
 
 **Depends on:** Tasks 4 and 5
 
+**2026-09-27 continuation:** The [first installed mage/prebuff comparison](../research/2026-09-27-scs-effective-mage-pilot.md)
+now records MAGE6B's effective slots, selected prebuff branches and byte-identical WeiDU
+decompile/recompile. This supersedes the missing-effective-sample portion of the historical
+checkpoint below, not its remaining semantic/control-closure and reuse limits. Task 6 stays open.
+
 **2026-09-22 checkpoint:** In progress. The reviewed
 [pinned-source mage/prebuff checkpoint](../research/2026-09-22-task6-source-checkpoint.md)
 records source identities, two ledgers and bounded observations. Effective generated-script
@@ -464,6 +469,12 @@ copied or activated.
 **Research linkage (not automatic closure):** EEEX-01, EEEX-02
 
 **Depends on:** Task 2
+
+**2026-09-27 checkpoint:** Completed as a pure host contract; see the
+[capability catalog](../research/EEEX-01-capability-catalog.md) and
+[static lifecycle map](../research/EEEX-02-lifecycle-and-hook-map.md). Seven focused behavior cases
+pass on both Lua 5.1 and LuaJIT; independent review accepted the packet. No EEex function was called,
+no bootstrap installed and no runtime safety claimed. Task 8 still waits for Task 3 completion.
 
 **Files:**
 
