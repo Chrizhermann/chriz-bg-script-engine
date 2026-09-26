@@ -1,8 +1,9 @@
 # Practical disposable game lab
 
 **Status — 2026-09-27:** The approved SCS-reference copy is verified, its separate profile is
-configured, and a lab-file backup/restore check passed. It has not been launched. Task 3 remains
-in progress until the separately authorized launch/save check; no runtime gate has passed.
+configured, and a lab-file backup/restore check passed. Backend-only launch is now authorized,
+but has not run: the item-randomizer lab holds the shared game-testing reservation. Task 3
+remains in progress until actual startup/save routing is verified; no runtime gate has passed.
 
 The user reconfirmed the original architecture and features, but rejected the expanded
 acquisition framework. This procedure replaces the previous runbook. Historical scanner,
@@ -25,7 +26,9 @@ The destination is the already approved `BGSE-Lab/scs-reference/game`, not a new
 The intended profile name is `BGSE Lab - SCS Reference`.
 
 - Source installation and existing saves/configuration stay read-only.
-- No game launch, UI/app control or unrelated process termination is currently authorized.
+- On 2026-09-27 the user authorized this lab's startup/save check through backend commands,
+  explicitly excluding computer control. No mouse/keyboard or desktop/app UI automation;
+  no unrelated process termination. Coordinate with the item-randomizer lab before launching.
 - Background copying, static inspection and host-side tests may proceed.
 - Do not use links back into the original installation for writable game files.
 - Keep copied game files, decompiles, saves and private logs out of Git.
@@ -56,15 +59,39 @@ The intended profile name is `BGSE Lab - SCS Reference`.
    active-profile paths or external auto-run scripts. Initialize only required lab settings;
    do not copy the active `Baldur.lua` wholesale. Installed profile-dependent options may need
    explicit initialization in the new profile.
-7. After separate permission to launch, use the lab loader with its game directory as working
-   directory. Create one clearly named test save and confirm it appears only in the lab profile.
-   Until then, report configuration/static checks separately from runtime proof.
+7. With the recorded backend-only launch permission, use the lab loader with its game directory
+   as working directory. The bounded startup check below can proceed when the peer is finished.
+   Save verification remains separate: create one clearly named test save through a permitted
+   method and confirm it appears only in the lab profile. Do not substitute menu clicks for
+   backend access. Until then, report configuration/static checks separately from runtime proof.
 
 The save-identity pattern is taken from `chriz-bg-collection` and the item-randomizer lab:
 change `engine_name`, not global Windows Documents or OneDrive settings. A separate Documents
 subfolder is sufficient for this practical profile; the old blanket reparse-root prohibition
 does not require changing the user's Windows setup. Actual engine save routing still needs
 the launch/save check above.
+
+### Backend-only startup check
+
+Reuse the item-randomizer's non-input-desktop launcher and the existing EEex Remote Console;
+do not build another launcher framework. Exact source paths, tool identities and the four-line
+launcher adaptation are private under `.work/task3/backend-startup-20260927/`. Preparation
+passed syntax checking and independent review against the existing tools; the BGSE launch
+remains unexecuted. No new test suite or launcher framework was added.
+
+Wait while the peer owns `bg-game-install.lock`; its review time is not expiry. When it is free,
+check for a conflicting game/installer, acquire our own exclusive reservation, and verify the
+launcher's non-input-desktop probe. Temporarily stage only the console's two published files
+in this lab. Launch with a three-minute owned-process lifetime, check the ready file, then
+require a fresh `pong` reply. A ready file alone is not liveness. Preserve the result, close only
+our launched process tree, remove only our temporary additions, and release our matching token.
+Never switch input desktops, click a menu, send keys, or stop another task's processes.
+
+The existing randomizer load/save/quit driver uses `Infinity_ClickItem` (SDL mouse events), so
+it is not reused under the present restriction. Its earlier direct save call from a render
+callback crashed natively; do not retry that shortcut. A backend-only save route has not been
+established. Startup/console success or a newly created configuration file would **not** prove
+save routing. Leave that check open for a permitted backend method or a later manual lab save.
 
 ## Reset and rebuild
 
