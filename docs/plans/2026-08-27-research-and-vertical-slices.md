@@ -329,6 +329,15 @@ only as a host-only pre-first-write path observation, not complete packet A.
 Process/coordination providers, capacity, complete operational `-WhatIf` and copier packets B-E
 remain open. No game copy, launch or gate advancement occurred.
 
+**2026-09-26 resumed host-only continuation:** The user renewed continuation after a token
+interruption. A1 is committed as `788c3c4`. The
+[A2 capacity calculator](../research/acquisition-capacity-contract.md) follows the reviewed
+per-volume contract with synthetic inputs only. RED/GREEN, 66 focused tests, independent
+implementation/test review and the full host regression passed: 787 tests, exit 0, empty stderr,
+no timeout; independent result/hash audit passed. A2 does not observe disks or admit copying.
+Source retries remain stopped,
+and the prior source-window deadline was not reset. No game/user-profile decision was made.
+
 **Files:**
 
 - Create: `docs/research/disposable-lab-provisioning.md`

@@ -14,7 +14,7 @@
       "blockedBy": [2],
       "requiresUserAuthorization": true,
       "authorizationRecorded": "2026-09-22",
-      "checkpoint": "Source success verified in e306943: job c42025a1-c954-45fa-8e92-5ede12cf66b2 exit0,two matching inventories,164630 files/3531 directories; exact tools/arguments and independent audit passed. Prior refusals retained; both own reservations released, peer notified, retries stopped and heartbeat PAUSED. Host-only A1 footprint interface/implementation reviewed; genuine RED then GREEN, review-driven test corrections retained. Full job c35c18ef-4ee0-47f6-9fbf-c7d7ce0c26bc verified succeeded exit0:721 tests passed345.96s,empty stderr,no warnings/timeout. All7saved code/test/tool hashes match; independent saved-result/count/3newhash audit passed. G0 validators/LF-CRLF, JSON/link/privacy/diff checks passed. A1 accepted only as pre-first-write path observation, not full admission. Next remaining packetA: process/coordination providers, per-volume capacity, complete operational WhatIf; then copier B-E and runtime profile/isolation/launch/reset. No polling/rerun, source/game access for A1, copy, launch, source/save mutation, UI control, process termination or gate advancement. Task3 incomplete; overnight bounds unchanged."
+      "checkpoint": "A1 committed788c3c4 with721 host tests; source measurement success retained in e306943. Both reservations released, retries stopped, heartbeat PAUSED. User resumed aftertokenlimit26September; old source-window deadline notreset. A2 purecapacity calculator verified: genuineRED/GREEN,66newcases, independent code/testreview, full job80234060-7171-4213-ae26-10a61e2b13d1 succeeded exit0,787passed459.14s,empty stderr,no warnings/timeout. All7saved code/test/tool hashes match, independent command/count/time/3hash audit passed. G0both/LFCRLF, JSON/link/privacy/diff checks passed. Accepted only supplied-value arithmetic, notnativecapacity or copyadmission. Next review/implement fresh native capacity provider, then process/coordination and complete bound WhatIf within packetA; copierB-E and runtime profile/isolation/launch/reset remain open. No polling/rerun, game/source access forA2,copy,launch,profilechanges,UIcontrol,processtermination or gateadvancement. Task3 incomplete."
     },
     {"id": 4, "subject": "Task 4: Define evidence, fixture, corpus, and redistribution governance", "status": "completed", "blockedBy": [1], "startBlockedByArtifacts": ["docs/research/PREP-01-support-baseline.md"]},
     {"id": 5, "subject": "Task 5: Build the effective-install inventory and exact ownership-manifest prototype", "status": "completed", "blockedBy": [2, 4]},
@@ -55,5 +55,5 @@
     {"id": 40, "subject": "Task 40: Execute the supported compatibility, soak, and performance matrix", "status": "pending", "blockedBy": [26, 30, 35, 37, 38, 39]},
     {"id": 41, "subject": "Task 41: Complete provenance, security, documentation, and G8 review", "status": "pending", "blockedBy": [36, 37, 38, 39, 40]}
   ],
-  "lastUpdated": "2026-09-26T06:40:00+09:00"
+  "lastUpdated": "2026-09-26T23:28:00+09:00"
 }
