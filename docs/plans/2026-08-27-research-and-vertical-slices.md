@@ -26,6 +26,16 @@ support remains gated by PREP/EEEX research.
 
 **Status:** In execution; canonical per-task state is recorded in the task-state file below
 
+**2026-09-27 user priority reset:** Keep the full feature ambition and good code quality. Use a
+practical "good enough" standard for lab setup, tooling and process. First get a separate,
+resettable test game, then migrate and test useful behavior. Reuse or take inspiration from the
+item-randomizer lab. The later custom offline-acquisition packets A-E are not lab prerequisites
+and must not be expanded further. Representative feature/script-family tests replace any
+assumption that every encounter or hypothetical setup failure must be covered. Keep active
+game/save isolation, user-owned gameplay decisions and honest evidence boundaries. This update
+supersedes conflicting process requirements below; historical results remain evidence, not a
+reason to continue an unnecessary subsystem.
+
 **Date:** 2026-08-27
 
 **Plan path:** `docs/plans/2026-08-27-research-and-vertical-slices.md`
@@ -50,7 +60,9 @@ The following rules apply to every task:
 6. Do not commit upstream binaries, generated SCS BCS, saves, TLK content, or full decompiles.
 7. Stop immediately on a native crash, ownership ambiguity, failed fingerprint, or unclassified
    irreversible side effect; capture evidence and quarantine only the affected adapter.
-8. Run focused tests, then the current full suite, then `git diff --check` before each commit.
+8. Run checks relevant to the changed behavior and affected dependencies, then `git diff --check`.
+   Run wider regression when integration risk warrants it, not for every documentation edit.
+   Do not increase test scope merely to justify unused setup machinery.
 9. Keep one research question or one coherent behavior slice per commit.
 10. Update the task JSON and the associated gate/decision record after review.
 
@@ -272,102 +284,46 @@ running the checker.
 
 ### Task 3: Obtain authorization and provision the disposable engine laboratory
 
+**Current direction — 2026-09-27:** Keep the approved architecture and full feature plan.
+Use a practical lab: separate game copy, separate saves/configuration, simple reset/rebuild,
+then representative migration tests. Custom acquisition/process/copy packets A–E are abandoned
+as a prerequisite; do not finish them before useful mod work.
+
 **Research linkage (not automatic closure):** TEST-05, TEST-06, LIC-03
 
 **Depends on:** Task 2 plus explicit user authorization naming the disposable destination
 
-**2026-09-22 checkpoint:** Destination approved; Task 3 is in progress. The
-[source preflight](../research/disposable-lab-provisioning.md) records the approval, observed profile
-mismatch and cloud/reparse Documents conflict. No game copy or mutation has occurred. A reviewed
-offline-reference acquisition scope does not admit an engine lab; implementation guards, runtime
-profile choice, independent writable roots, launch/save and reset-twice acceptance remain open.
-The [read-only measurement subcheckpoint](../research/offline-reference-measurement.md) adds
-test-first ordinary-file inventory and explicit capacity planning only; it does not replace the
-provision/reset `-WhatIf`, protected-root/process, copying or runtime acceptance steps below.
-The [fresh-creation primitive](../research/offline-reference-creation.md) adds synthetic native
-ownership/redirect tests; it is not an operational copier and does not authorize game-path writes.
-The named-source measurement subsequently refused with exit 3 / `BGSE_E_PATH_ACCESS`; no accepted
-inventory exists. Preserve that result and do not repeat the job. Host-tested diagnostics and
-source-specific cause resolution are required before any copy admission.
-The [sanitized diagnostic follow-up](../research/offline-measurement-diagnostics.md) has 31 passing
-focused host tests, independent review and 594 passing full-suite tests. That host checkpoint
-performed no source scan. On 2026-09-23, the user separately approved one new read-only diagnostic
-scan using the instrumented tool. Job `68fae1fa-f426-40e8-9f90-609cf4856e86` was verified failed,
-exit 3 after 450.28 seconds: first inventory pass, native content-open sharing violation (error 32).
-No accepted inventory or exact file/owner was returned. Independent review found no ordinary
-scanner self-conflict; four synthetic regression/positive-control cases passed. Preserve both
-failed jobs; the one-shot approval is consumed. The user subsequently reported concurrent testing
-by another agent with a running game, consistent with this result but not an independently verified
-file/holder diagnosis. Coordinate a quiet source window and obtain direction before another read-only
-check; do not stop the other agent/game or retry automatically. Task 3 remains incomplete.
+**Current checkpoint:** The previously approved SCS-reference copy is running with standard
+robocopy and a completion notification. The source remains read-only; the new lab does not copy
+the source profile identity or active saves. No game has been launched. Verify the saved result,
+then configure the separate profile and proceed with static SCS research. Runtime acceptance
+waits for separate launch permission; Task 3 is not complete.
 
-**2026-09-23 host-only continuation:** While the user streams/plays, defer source scans/copies and
-all game/app control. The [source-readiness marker guard](../research/offline-source-marker-guard.md)
-implements the existing no-inherited-marker requirement using synthetic fixtures only: 19 focused
-tests and independent review pass; full host regression job
-`1097ef63-76f1-4a7e-be53-3f18e447b1cc` was verified exit 0 with 613 tests passing in 242.71 seconds.
-No source acquisition or gate pass; real source access remains deferred.
-
-**2026-09-24 host-only acceptance packet:** The
-[offline acquisition acceptance contract](../research/offline-acquisition-acceptance.md) has passed
-independent review. It separates complete output/protected-root/process admission, frozen private
-manifests, same-handle transfer, whole-tree verification and receipt publication. Review corrected
-unknown bootstrap ownership and post-commit failure semantics. None of these operation-level
-steps is implemented or admitted for game-path use yet; next is packet A's test-first admission
-and `-WhatIf` contract. The unchanged host suite again passed 613 tests; source coordination,
-runtime-profile admission, independent writable roots and all Task 3 exit checks remain separate.
-
-**2026-09-26 source and host-path checkpoint:** The
-[second renewed source measurement](../research/private-measurement-diagnostics.md#verified-successful-measurement-after-radar-closure)
-completed successfully with matching serial inventories after the user stopped Radar. Earlier
-refusals remain historical evidence; there is now a complete read-only observation, not copy or
-runtime admission. Both owned reservations were released; source retries stopped. Packet A1's
-[read-only output-footprint interface](../research/acquisition-footprint-contract.md) and
-implementation passed independent static review, focused tests and the verified full regression:
-721 tests passed, exit 0, no timeout. Independent saved-result/hash audit passed; A1 is accepted
-only as a host-only pre-first-write path observation, not complete packet A.
-Process/coordination providers, capacity, complete operational `-WhatIf` and copier packets B-E
-remain open. No game copy, launch or gate advancement occurred.
-
-**2026-09-26 resumed host-only continuation:** The user renewed continuation after a token
-interruption. A1 is committed as `788c3c4`. The
-[A2 capacity calculator](../research/acquisition-capacity-contract.md) follows the reviewed
-per-volume contract with synthetic inputs only. RED/GREEN, 66 focused tests, independent
-implementation/test review and the full host regression passed: 787 tests, exit 0, empty stderr,
-no timeout; independent result/hash audit passed. A2 does not observe disks or admit copying.
-Source retries remain stopped,
-and the prior source-window deadline was not reset. No game/user-profile decision was made.
-
-**Files:**
-
-- Create: `docs/research/disposable-lab-provisioning.md`
-- Create: `scripts/provision-disposable-lab.ps1`
-- Create: `scripts/reset-disposable-lab.ps1`
-- Test: `tests/tooling/test_disposable_path_guard.py`
-- Test: `tests/tooling/test_disposable_reset_contract.py`
+**Procedure:** [Practical lab runbook](../research/disposable-lab-runbook.md).
+Exact paths, commands, results and cleanup candidates stay private under `.work/task3`.
 
 **Steps:**
 
-1. Stop unless the user has explicitly approved creating/mutating a disposable game at a named
-   destination. General approval of this plan is not approval of that filesystem operation.
-2. Write failing temporary-directory tests for exact active root, every descendant, case/short-name
-   alias where available, relative traversal, symlink, junction/reparse point, output path escape,
-   missing marker, and marker placed above/below the intended root.
-3. Implement `-WhatIf` provisioning and reset first. Resolve canonical targets and ancestors before
-   copying, writing, moving, or restoring anything.
-4. Run the focused guard tests; expected: every active/escaping/aliased path fails closed and an
-   isolated marked temporary fixture passes.
-5. After explicit authorization, provision the disposable copy, create a unique marker inside its
-   root, and record source version/hash metadata without committing installed resources or personal
-   paths.
-6. Verify the copy does not share override, saves, user directory, loader state, logs, or writable
-   junction targets with the active installation. Launch and save only after this isolation check.
-7. Capture a reset baseline, exercise reset twice, and compare required files/state to the baseline.
-8. Record exact reset, crash cleanup, process shutdown, evidence export, and re-provision procedure.
-9. Commit only scripts/tests/redacted documentation: `test: provision isolated disposable lab`.
+1. Use the exact user-approved source and fresh destination. Check available disk space and
+   avoid interfering with an actual source install or game session.
+2. Make the ordinary file copy using existing tools. Preserve and diagnose an actual failure;
+   a disposable lab may be rebuilt without a custom transactional copier.
+3. Set a unique lab `engine_name`; do not copy the active profile or change global Documents
+   settings. Check expected game files and loader/output paths, and record the copied stack.
+4. Check copied console/automation hooks before launch. After separate launch permission,
+   create a test save and confirm the engine uses only the dedicated lab profile.
+5. Exercise a practical restore of the files changed by one experiment. Document full rebuild
+   as the fallback; do not require a second full game baseline or exhaustive failure simulation.
+6. Record results honestly, keep game resources/private logs out of Git, and make a narrow
+   documentation/setup commit. Preserve G0–G8 and user-owned creative/gameplay decisions.
 
-**Exit:** a named, resettable, isolated lab exists with explicit authorization; no runtime task may
-substitute the active installation if this task is pending or fails.
+**History:** The earlier source measurements and synthetic acquisition helpers are recorded in
+their research memos and Git history. The last full host checkpoint had 1,146 passing tests;
+that was not a usable lab or gameplay evidence. It does not justify continuing that subsystem.
+
+**Exit:** A named, resettable, separate lab works, including one authorized launch/save check.
+No runtime task may substitute the active installation while this exit remains open. Safe static
+Task 6 research may proceed on the copy in parallel.
 
 ### Task 4: Define evidence, fixture, corpus, and redistribution governance
 

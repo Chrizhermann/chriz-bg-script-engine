@@ -14,7 +14,8 @@
       "blockedBy": [2],
       "requiresUserAuthorization": true,
       "authorizationRecorded": "2026-09-22",
-      "checkpoint": "A1 788c3c4; source observation e306943; A2 fb58e24; A3 d1b01b6; A4a9ef63b0; A4b4c0409d. A4c bounded numeric-PID enumeration verified under docs/research/acquisition-process-enumeration-contract.md: RED/GREEN,21focusedpassed32.88s,full1097passed843.55s,exit0,empty stderr/runnerlog,no warnings/skips/timeout. Independent schema/production/fault review and saved-result audit accepted. All seven code/test/dependency/tool hashes,both nativeDLLs and SDK header matched; bothG0/LFCRLF,JSON/link/privacy/whitespace passed. Review strengthened masked bytebound/constructorcopy/diagnostic assertions without productionfix or weakened safety. Native smoke enumerates numericIDs only, opens no process and prints no IDs; platformorder/nativeerror propagation static evidence only. Source reservations released,retries stopped,heartbeatPAUSED; expired source window notreset. Opaque-row accounting,bound commandline provenance,current-observer identity,fresh coordination and complete WhatIf admission remain open. Copier B-E and runtime profile/isolation/launch/reset remain open. No new source/game access,copy,launch,profile change,UI control,termination or gate advancement. Task3 incomplete."
+      "checkpoint": "2026-09-27: User reconfirmed original architecture/features and pragmatic lab workflow. Standard copy dispatched once to exact approved SCS-reference destination; completion not yet verified. Independent script/profile-plan review found no issues. Next verify saved result, set separate engine_name/profile and continue static mage/prebuff mapping. No game launch/UI control, active saves copied or gameplay decisions. Task 3 remains incomplete until authorized launch/save and practical restore checks.",
+      "historicalCheckpoint": "Superseded acquisition-framework route, not instructions to continue: committed through b12871f. Uncommitted A4d host-only checkpoint verified 1146 tests passing; preserved separately, not expanded or represented as lab/gameplay evidence. Detailed history remains in research memos, Git and private job records."
     },
     {"id": 4, "subject": "Task 4: Define evidence, fixture, corpus, and redistribution governance", "status": "completed", "blockedBy": [1], "startBlockedByArtifacts": ["docs/research/PREP-01-support-baseline.md"]},
     {"id": 5, "subject": "Task 5: Build the effective-install inventory and exact ownership-manifest prototype", "status": "completed", "blockedBy": [2, 4]},
@@ -55,5 +56,5 @@
     {"id": 40, "subject": "Task 40: Execute the supported compatibility, soak, and performance matrix", "status": "pending", "blockedBy": [26, 30, 35, 37, 38, 39]},
     {"id": 41, "subject": "Task 41: Complete provenance, security, documentation, and G8 review", "status": "pending", "blockedBy": [36, 37, 38, 39, 40]}
   ],
-  "lastUpdated": "2026-09-27T01:55:58+09:00"
+  "lastUpdated": "2026-09-27T03:28:36+09:00"
 }

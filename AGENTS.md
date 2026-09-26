@@ -1,5 +1,30 @@
 # Chriz BG Script Engine — Working Agreements
 
+## User priority reset — 2026-09-27
+
+This is a hobby game-mod project. Preserve the full intended feature scope and good code
+quality; apply a pragmatic "good enough" standard to supporting tooling, process and setup.
+Do not silently cut features, but deliver them in useful, reviewable increments.
+The user reconfirmed the original architecture and feature plan after this reset. Simplify
+supporting process, not Combat Intent, WorldFlow, compatibility behavior or SCS migration scope.
+
+- Prioritize a usable disposable lab and actual script/AI migration over infrastructure.
+- Use or take inspiration from the item-randomizer lab. Prefer existing tools and simple
+  setup/reset instructions to custom copying, process-inspection or safety frameworks.
+- A failed or inconsistent disposable lab can be rebuilt. Keep the active game and its saves
+  untouched; do not turn lab reliability into a general-purpose backup/transaction system.
+- Test real feature behavior and relevant regressions. Use representative script families and
+  gameplay examples; do not require every encounter or hypothetical setup failure to be tested.
+- Add tooling only for a concrete development/testing need. Keep documentation sufficient to
+  reproduce useful work, without creating a parallel paperwork project.
+- The expanded offline-acquisition packets A-E are no longer prerequisites for making the lab.
+  Do not resume their process-provider/copy-framework development from historical checkpoints.
+- Preserve creative/gameplay choices for the user and existing no-game-launch/UI-control limits
+  until changed explicitly. Report what has actually been tested; do not inflate support claims.
+
+This direction supersedes conflicting setup/process requirements in the older plan and research
+memos. It does not authorize writes to the active game, shared saves, or unrelated projects.
+
 ## Project charter
 
 This repository develops a compatibility-first EEex scripting platform with two policy domains:
