@@ -1,8 +1,8 @@
 # Mage pilot migration ledger
 
-**Status:** Source-only research checkpoint; held for effective comparison and reuse review.
+**Status:** Partial source-to-effective research checkpoint; no runtime or reuse admission.
 
-**Date / owner:** 2026-09-22 / integration lead.
+**Date / owner:** Updated 2026-09-27 / integration lead.
 
 **Origin:** SCS-derived behavior study; authored factual metadata, not copied policy or source.
 
@@ -20,8 +20,11 @@ Digests/links: [source evidence](../../research/scs-source-pilot.evidence.json).
 Continuation: [shared-rule/compiler/helper evidence](../../research/scs-shared-rules.evidence.json)
 and [interpretation/review](../../research/SCS-shared-rule-expansion.md).
 
-**Effective artifacts:** not collected. No installed actor, generated BCS, effective CRE slots,
-resource payloads or complete control closure. `dw#mg...` names never identify this family alone.
+**Effective artifacts:** One installed MAGE6B CRE and its assigned SCS6030 script now inspected;
+all five resource slots recorded and the BCS decompiled/recompiled byte-identically with WeiDU249.
+See [the installed comparison](../../research/2026-09-27-scs-effective-mage-pilot.md) for exact
+identity, later CRE owners, source equivalence and bounded findings. Full control closure and
+runtime evidence are not collected. `dw#mg...` names never identify this family alone.
 
 **Behavior summary:** Generator inputs choose spells and template branches; setup, defensive,
 movement and core combat stages are ordered and may contain named exceptions. Read the six
@@ -31,7 +34,7 @@ Task 6 memos beginning with [the pipeline](../../research/SCS-01-generation-pipe
 
 | Record | Source evidence | Disposition / acceptance still needed |
 |---|---|---|
-| M01 inputs and identity | `mage-shared` 28-46, 313-367; `caster-shared` 1043-1065; shared-rule continuation | `preserve`: identify by full generator/effective provenance, not generated name; conditional insertion and possible slot shifts/merge are source-traced, but final slots and hashes remain unverified. |
+| M01 inputs and identity | `mage-shared` 28-46, 313-367; `caster-shared` 1043-1065; installed comparison | `preserve`: identify by generator/effective provenance, not generated name. One CRE's final slots and hashes are verified; area/controller overrides and full generator inputs remain open. |
 | M02 priority and continuation | `main-mage` 7-122; `standard-mage` 5-51 | `preserve`: do not flatten ordering; compare expanded BCS and later shadow traces. |
 | M03 target/protection legality | `first-dispel` 7-31; `caster-definitions` 18-33; shared-rule continuation | `opaque`: six macro bodies and merge/continuation construction source-traced; actual ordered libraries, all prerequisites and effective output still required before policy translation. |
 | M04 encounter handoff | `kruin` 5-71; `first-round` 25-77 | `opaque`: legacy-owned; prove control closure and separately review any future enrollment. |
@@ -47,15 +50,16 @@ this is an explicit coverage gap, not a conclusion that they are irrelevant.
 
 **Opaque cases:** Untraced target/protection bodies, actual installed-library composition,
 per-creature overrides, final weights/continuation, merged-script output, external controllers and
-effective stack. Selected library precedence and stripping/insertion source paths are characterized,
+historical generation inputs. Selected library precedence and stripping/insertion source paths are characterized,
 but do not establish effective behavior or authorize our own prefix-based resource removal.
 
 **Ownership / fallback:** No adapter claim exists. Unknown content and all studied actors remain
 with original BCS/DLG ownership. No guessed dependency closure or permissive fingerprint.
 
-**Tests:** Offline evidence/document checks only; see
-[checkpoint verification](../../research/2026-09-22-task6-source-checkpoint.md). No semantic oracle,
-compiler, install, shadow, or engine test; ordinary/edge/compatibility cells remain open.
+**Tests:** The installed comparison additionally proves one byte-identical BCS roundtrip, not
+engine behavior. Historical offline evidence/document checks: see
+[checkpoint verification](../../research/2026-09-22-task6-source-checkpoint.md). No complete semantic
+oracle, install, shadow or engine test; ordinary/edge/compatibility cells remain open.
 The shared-rule continuation adds source-chain and immutable-artifact documentation regressions,
 not behavior-preservation tests.
 

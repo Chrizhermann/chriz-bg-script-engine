@@ -1,8 +1,8 @@
 # Prebuff pilot migration ledger
 
-**Status:** Source-only research checkpoint; accounting variants not engine-proved.
+**Status:** Generic short/long pair compared with installed output; accounting not engine-proved.
 
-**Date / owner:** 2026-09-22 / integration lead.
+**Date / owner:** Updated 2026-09-27 / integration lead.
 
 **Origin / upstream:** SCS-derived behavior study, v35.21 commit
 `5dc240e9ff85d3909b6436e54b56297d3b61e33b`, mage component 6030/shared caster definitions.
@@ -13,8 +13,11 @@ Special paths are explicitly separate exceptions, not automatically enrolled var
 [source identities](../../research/scs-source-pilot.evidence.json) and
 [accounting memo](../../research/SCS-03-prebuff-accounting.md).
 
-**Effective artifacts:** not collected. No generated prebuff SPL, effective BCS/decompile, memorized
-spell state or engine postconditions. Actual stack/actor/settings remain unselected.
+**Effective artifacts:** MAGE6B's installed script, original spell IDs, mapped prebuff helper
+resources and file-level spell allocation now inspected; see
+[the installed comparison](../../research/2026-09-27-scs-effective-mage-pilot.md). Mirror Image
+and Shield preserve the short/long gating and explicit-removal distinctions. Helper effect
+semantics, live spell state and engine postconditions are not collected.
 
 **Behavior summary:** Short and long preparation differ in perception/proximity gates. Generic
 source actions explicitly remove spells; resource/innate/PRECAST paths can differ. The instant-prep
@@ -41,7 +44,8 @@ allocation, timer/continuation outcomes, interruption, rest and save/load behavi
 
 **Ownership / fallback:** Entirely legacy-owned; no adapter, runtime claim or support enrollment.
 
-**Tests:** Evidence integrity/document contract only. Planned later cases separately vary sight,
+**Tests:** One actual BCS decompile/recompile roundtrip is byte-identical; no execution or spending
+test. Historical evidence integrity/document checks remain separate. Later cases vary sight,
 proximity, hostility, opt-out, death, availability, prep state, difficulty and special accounting.
 They are test requirements, not copied fixtures or passing behavior tests. No SCS-derived fixture
 is approved; `tests/fixtures/manifests/scs-pilot.synthetic.json` intentionally does not exist yet.
