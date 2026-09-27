@@ -1,10 +1,11 @@
 # Practical disposable game lab
 
-**Status — 2026-09-27:** The approved SCS-reference copy is verified, its separate profile is
-configured, and a lab-file backup/restore check passed. One backend-only startup and fresh
-Remote Console ping now passed, with configuration created in the dedicated lab profile.
-The lab is closed and temporary probe files removed. Task 3 remains in progress until actual
-save routing is verified; no runtime gate has passed.
+**Status — 2026-09-28:** The separate copy starts, creates a new test character, saves into its
+named profile and reloads the saved state. Temporary files are removed and the lab is closed.
+Task 3 remains in progress because game cloud-save activity crosses the intended isolation
+boundary; the lab-only cloud-off setting did not resolve it. No runtime gate has passed.
+On 2026-09-28 the user clarified that hidden-game menu automation is allowed. The earlier
+blanket menu-click prohibition below is historical, not the current permission boundary.
 
 The user reconfirmed the original architecture and features, but rejected the expanded
 acquisition framework. This procedure replaces the previous runbook. Historical scanner,
@@ -27,9 +28,10 @@ The destination is the already approved `BGSE-Lab/scs-reference/game`, not a new
 The intended profile name is `BGSE Lab - SCS Reference`.
 
 - Source installation and existing saves/configuration stay read-only.
-- On 2026-09-27 the user authorized this lab's startup/save check through backend commands,
-  explicitly excluding computer control. No mouse/keyboard or desktop/app UI automation;
-  no unrelated process termination. Coordinate with the item-randomizer lab before launching.
+- The user authorizes hidden-lab startup and scripted internal game-menu/save/load actions
+  (clarified 2026-09-28). No visible-desktop takeover, OS input injection, desktop switching,
+  unrelated app control or unrelated process termination. Coordinate with the item-randomizer
+  lab before launching. Reuse its existing queued-button method; no direct render-time save calls.
 - Background copying, static inspection and host-side tests may proceed.
 - Do not use links back into the original installation for writable game files.
 - Keep copied game files, decompiles, saves and private logs out of Git.
@@ -60,19 +62,20 @@ The intended profile name is `BGSE Lab - SCS Reference`.
    active-profile paths or external auto-run scripts. Initialize only required lab settings;
    do not copy the active `Baldur.lua` wholesale. Installed profile-dependent options may need
    explicit initialization in the new profile.
-7. Use the lab loader with its game directory as working directory. The authorized one-shot
+7. Resolve the cloud-save blocker below before another stateful launch. Use the lab loader
+   with its game directory as working directory. The authorized one-shot
    backend startup check below is complete; do not automatically repeat it.
    Save verification remains separate: create one clearly named test save through a permitted
-   method and confirm it appears only in the lab profile. Do not substitute menu clicks for
-   backend access. Until then, report configuration/static checks separately from runtime proof.
+   method and confirm its local destination and cloud behavior separately. Hidden-game internal
+   button events are permitted; local save routing alone does not prove cloud isolation.
 
 The save-identity pattern is taken from `chriz-bg-collection` and the item-randomizer lab:
 change `engine_name`, not global Windows Documents or OneDrive settings. A separate Documents
-subfolder is sufficient for this practical profile; the old blanket reparse-root prohibition
-does not require changing the user's Windows setup. Actual engine save routing still needs
-the launch/save check above.
+subfolder establishes a distinct local path, not a separate game-cloud namespace. The old
+blanket reparse-root prohibition does not require changing the user's Windows setup. Our
+OneDrive cloud-directory attributes are not evidence of a junction to the active profile.
 
-### Backend-only startup check
+### Historical backend-only startup check — completed 2026-09-27
 
 Reuse the item-randomizer's non-input-desktop launcher and the existing EEex Remote Console;
 do not build another launcher framework. Exact source paths, tool identities and the four-line
@@ -161,5 +164,35 @@ suite for setup/documentation changes. G0–G8 and user-owned gameplay decisions
 - Independent review matched the saved outputs, current lab hashes and absence of temporary
   files; it kept process-exit/release observations attributed to the lead and save proof open.
 
-Next: verify one named save through an allowed backend method or a later manual lab save.
-The menu-click restriction still applies; Task 3 remains in progress and Task 8 remains pending.
+### Save/load verified; cloud isolation unresolved — 2026-09-28
+
+Under the clarified permission, reused the sibling hidden launcher, queued-button save/load
+runner and bundled pregenerated character. No desktop input, personal-save load, new full copy,
+production runtime or new test framework. Independent review checked the private responses,
+save hashes and restored files. Existing 24 documentation/evidence checks passed.
+
+- First launch: new test character and named save; changed a synthetic GLOBAL from928 to929
+  without saving, then queued load restored928 and the expected character. Initial startup
+  was in a movie; after a command timed out while pending, its late successful response was
+  preserved and only the remaining steps ran. The request was not resent.
+- Cleanup exposed previously absent save folders with existing-playthrough names in this new
+  profile. None was loaded. Their precise source/transfer route is unproven. The initial test
+  save also had cloud artifacts; remote account state was not inspected.
+- One diagnosed correction: set `Cloud Saves Enabled=0` only in the lab's `Baldur.lua`.
+  The key exists in the observed executable and is also described in this
+  [community troubleshooting report](https://forums.beamdog.com/discussion/81280/trying-to-get-a-clean-install-cant-get-rid-of-old-save-games).
+  In the second fresh process, both the INI value and live `cloudEnabled` were0.
+  A fresh named save/load restored930 after an unsaved931 change, but still produced a new
+  `.cloud`/`.cloud.meta` pair and refreshed existing local cloud-file metadata. The setting
+  alone therefore does **not** establish isolation on this copied stack.
+- Both runs returned to the main menu, then closed only their own tracked job trees. Owned
+  processes were verified absent; temporary console/QA files removed, UI restored exactly,
+  and matching reservations released. This was not graceful executable exit; helper exit
+  codes were not captured. The lab-only cloud-off precaution remains, not a claimed solution.
+
+This is E4 evidence for the specified new-game/save/reload path, not cloud isolation, listener
+lifecycle or G1. Task3 stays incomplete and Task8 pending. Next: read-only diagnosis of the
+store/cloud integration and a justified lab-only solution before another launch. Do not change
+global Steam settings, delete remote saves, or require the user to do the save test manually.
+Private recipes/results: `.work/task3/hidden-save-20260928/`, `cloud-off-20260928/`, and
+`CLEANUP.md`. Test saves and additional lab-local copies are retained and listed there.

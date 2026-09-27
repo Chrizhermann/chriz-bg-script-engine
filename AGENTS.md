@@ -25,6 +25,15 @@ supporting process, not Combat Intent, WorldFlow, compatibility behavior or SCS 
 This direction supersedes conflicting setup/process requirements in the older plan and research
 memos. It does not authorize writes to the active game, shared saves, or unrelated projects.
 
+## Hidden-lab automation clarification — 2026-09-28
+
+The user explicitly permits the item-randomizer approach: scripted game-menu actions, including
+save/load, inside the separate hidden BGSE lab. "No computer control" means no takeover of the
+visible desktop, OS mouse/keyboard injection, desktop switching, or unrelated apps. It does not
+forbid the game's internal queued button events. Reuse the existing method; a manual user save
+is not a prerequisite. Coordinate with other game-testing tasks, preserve the original game and
+all personal saves, clean up our temporary additions, and retain G0–G8 and user-owned design choices.
+
 ## Project charter
 
 This repository develops a compatibility-first EEex scripting platform with two policy domains:

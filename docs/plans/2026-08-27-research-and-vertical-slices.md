@@ -293,13 +293,16 @@ as a prerequisite; do not finish them before useful mod work.
 
 **Depends on:** Task 2 plus explicit user authorization naming the disposable destination
 
-**Current checkpoint:** The previously approved SCS-reference copy is verified: 164,610 files,
-reported 11.164 GiB, zero failed files/mismatches. The lab has its own engine profile identity;
-a lab-only configuration backup/restore check passed. One authorized backend-only startup and
-fresh Remote Console ping passed after peer coordination, with new configuration in the dedicated
-lab profile. Owned processes and temporary probe files are cleaned up; no computer control or
-active saves used. Save routing is still unverified: no permitted backend-only save route has
-been established. Continue static SCS research on the copy. Task 3 is not complete.
+**Current checkpoint — 2026-09-28:** Approved copy/profile and practical restore passed. The
+user clarified that scripted buttons/save/load in the hidden lab are allowed; no visible-desktop
+or OS-input takeover. Reusing the sibling recipe, new-game and named save/reload passed, including
+independent restoration of a saved marker after an unsaved change. However existing-playthrough
+save copies appeared in the lab profile alongside cloud artifacts; their exact source is unproven.
+A second process with lab-only cloud setting0
+still created new cloud artifacts despite reporting0 at runtime. Both runs are closed, temporary
+files restored/removed and reservations released. Task3 remains incomplete on cloud isolation;
+Task8 pending, G1 open. Diagnose the lab-only cloud path before another launch. No manual save
+or gameplay design choice is needed from the user; do not change global Steam/account settings.
 
 **Procedure:** [Practical lab runbook](../research/disposable-lab-runbook.md).
 Exact paths, commands, results and cleanup candidates stay private under `.work/task3`.
