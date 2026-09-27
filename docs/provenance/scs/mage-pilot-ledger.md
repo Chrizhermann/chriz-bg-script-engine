@@ -42,6 +42,7 @@ Task 6 memos beginning with [the pipeline](../../research/SCS-01-generation-pipe
 | M03 target/protection legality | `first-dispel` 7-31; `caster-definitions` 18-33, 798-813, 1212-1265; higher-level comparison | `preserve` selected emitted gates, action ordering and weighted skip timer. Six macro bodies now compared with one effective branch; historical inputs, selector side effects and action outcomes remain `opaque` / `needs-engine-proof`. |
 | M04 encounter handoff | `kruin` 5-71; `first-round` 25-77 | `opaque`: legacy-owned; prove control closure and separately review any future enrollment. |
 | M05 actions and settings | `mage-setup` 14-38; `difficulty` 140-287 | `needs-engine-proof`: preserve observed source distinctions in future tests; no source-to-runtime promotion. |
+| M06 trigger payload and accounting | `caster-shared` 859-924; higher-level comparison's DW#TG15/DW#MGSEE and immediate children | `preserve`: child order, instant bundle, self-removal/delayed return and ordinary-branch visibility helper are distinct from BCS timers/rest. Bytes inspected; delivery, expenditure and restoration interaction `needs-engine-proof`. |
 
 **Intentional changes:** None approved. Replacing SCS's runtime is the long-term goal, not permission
 to discard its encounter/content changes or copy policies now. Any future generalization/change gets

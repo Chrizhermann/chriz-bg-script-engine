@@ -428,6 +428,9 @@ checkpoint below, not its remaining semantic/control-closure and reuse limits. T
 adds MAGE18B's actual target selectors, action alternatives and weighted skip/timer behavior.
 Its BCS roundtrip is byte-identical. This is offline mapping, not runtime acceptance; no new
 lab tooling or gameplay/design decision is introduced.
+The same report now traces its selected trigger's immediate payload and remove/return accounting,
+separately from the ordinary-spell helper and rest/timer logic; transitive effects and runtime
+outcomes remain unproved.
 
 **2026-09-22 checkpoint:** In progress. The reviewed
 [pinned-source mage/prebuff checkpoint](../research/2026-09-22-task6-source-checkpoint.md)

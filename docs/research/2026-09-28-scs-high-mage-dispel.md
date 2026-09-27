@@ -32,7 +32,8 @@ Installed SPELL.IDS lines340–341 give **both** WIZARD_DISPEL_MAGIC and WIZARD_
 the number2302. Thus the decompile's REMOVE_MAGIC label does not itself mean the source spell
 changed. Installed `trigger_list.2da` line80 maps DEATH_SPELL_DISPEL_MAGIC_GREATER_MALISON
 to `dw#tg15`; the same table maps 3X_DISPEL_MAGIC to `dw#sq34` at line59. Those are local
-mapping identities, never stable enrollment keys. The helper's full effect payload is not traced here.
+mapping identities, never stable enrollment keys. The continuation below inspects this trigger
+and its immediate spell children, not their complete transitive effect/projectile closure.
 
 Eight selected source files match the existing v35.21 pin
 `5dc240e9ff85d3909b6436e54b56297d3b61e33b`: library, mage-shared and ssl-compiler raw;
@@ -71,6 +72,67 @@ spell name changes spelling through an IDS alias; an ordinary SR comment-only de
 not remove the base immunity predicate; the non-casting response still writes the firstdispel
 timer. Each would be lost by treating the source as a plain ordered spell list.
 
+## Trigger payload and reuse accounting
+
+**Continuation question:** What does the selected trigger contain, and what stops or restores
+its use? Read five exact override SPLs directly; no installer, compiler or game execution.
+The private reader uses the SPL header's separate casting-effect and ability-effect slices,
+including nonzero starting indices, rather than assuming all effects are delivered to the target.
+
+DW#TG15 is a 394-byte innate level1 spell with one ability (minimum level0, target1,
+casting time0, stored projectile1), zero casting effects and these five ability effects:
+
+| File order | Raw operation / resource | Migration significance |
+|---|---|---|
+| 0, 1, 2 | opcode146, target2, parameter2=1: SPWI302, SPWI412, SPWI605 | Preserve the actual bundle order; the table name lists DEATH_SPELL first but the file does not. This is not three ordinary scripted casts. |
+| 3 | opcode172, target1, resource dw#tg15 | Self-removal is part of this helper, separate from the BCS action's availability check and timer writes. |
+| 4 | opcode171, target1, resource dw#tg15, timing4, duration1440 | Delayed return is encoded separately from the removal. Do not equate1440 with the actor's rest timer or assume a successful observed recharge. |
+
+All five effects have probability bounds100/0, resistance0 and save fields0. The
+[IESDP opcode descriptions](https://gibberlings3.github.io/iesdp/opcodes/bgee.htm#op146)
+describe146/type1 as instant casting at caster level,172 as spellbook removal and171 as giving
+an ability. [SPL timing4](https://gibberlings3.github.io/iesdp/file_formats/ie_formats/spl_v1.htm)
+is delayed/permanent. These are E0 documentation interpretations of E1 bytes, not observations
+of delivery, expenditure, elapsed engine time or persistence.
+
+The copied `caster_shared.tph` matches the existing source pin after CRLF normalization
+(SHA-256 `4868EDF4D61CC68E6DBC4EE53CAF56FDC2CD406DB42E723F0DF9548A14871929`). Its
+[make_spell_trigger](https://github.com/Gibberlings3/SwordCoastStratagems/blob/5dc240e9ff85d3909b6436e54b56297d3b61e33b/stratagems/caster_shared/caster_shared.tph#L859-L924)
+builds the child casts and remove/return effects. The pinned
+[trigger.2da row21](https://github.com/Gibberlings3/SwordCoastStratagems/blob/5dc240e9ff85d3909b6436e54b56297d3b61e33b/stratagems/caster_shared/triggers/trigger.2da#L21)
+supplies DISPEL_MAGIC, GREATER_MALISON, DEATH_SPELL in that order. The builder's name routine
+(caster_shared lines1311–1364) sorts the labels, not the row's payload arguments.
+Category dsp also asks the builder for a separate B-suffixed remover clone; this selected
+ForceSpellRES branch calls the original, not that clone. Installed SPELL.IDS also
+aliases2605 to both DEATH_SPELL and BANISHMENT; a source label is not a vanilla payload guarantee.
+
+The immediate children are distinct delivery resources: SPWI302 has eight ability effects;
+SPWI412 has two casting effects and one ability effect referring to SPWI412D; SPWI605 has two
+casting effects and two ability effects referring to DVBANISH. Their stored projectiles are
+177,170,172 respectively. The latter two casting slices refer to DW#BLHDA/DW#HDANI. These
+dependencies are recorded, not recursively interpreted or admitted as a complete oracle.
+Their casting times3/4/6 must not be substituted for the trigger's instant child-cast mode.
+File order is not proof of the order in which separate projectiles reach their targets.
+
+The ordinary SpellArea branch has its own helper: DW#MGSEE contains one self-targeted opcode193,
+parameter1=6, parameter2=16, timing0, duration6. IESDP describes193 as script invisibility
+detection via SEEINVISIBLE. It does not remove invisibility from the target. Preserve this
+pre-action effect separately from the already emitted !INVISIBLE/!sanctuary guards; no live
+target-legality result is claimed.
+
+The same actor's BAF lines132–171, matching
+[rest.ssl](https://github.com/Gibberlings3/SwordCoastStratagems/blob/5dc240e9ff85d3909b6436e54b56297d3b61e33b/stratagems/mage/ssl/generalblocks/rest.ssl#L5-L49),
+separately move rest_state0→1 on detecting an enemy,
+1→2 and start rest_timer when detection ends, and 2→1 on renewed detection. Expiry in state2
+resets rest_state/instantprep/contingency flags, sets redefend, requests healing and Rest().
+Installed GTIMES.IDS defines EIGHT_HOURS=2400, not1440. This bounded block does not explicitly
+re-grant DW#TG15 or reset firstdispel/DMWW_dispel. Do not merge helper restoration, rest recovery,
+normal spell slots and short combat timers into one guessed cooldown rule.
+
+**Disposition:** Preserve these separate source/file mechanisms; their interaction with actual
+ForceSpellRES execution, interruption, child delivery, spellbook state and save/load remains
+`needs-engine-proof`. No change to SCS fairness, spell allocation or recharge behavior is proposed.
+
 ## Reproduction, artifacts and review
 
 Private directory: `.work/task6/high-mage-20260928`. Reuse the already recorded WeiDU24900
@@ -106,6 +168,23 @@ The active installation and all profiles/saves were untouched.
 | Private decompile | `99491588A4F702BFAF665E0C9670CE32EA7C6FE58B928827FD80D8DB034917C1` |
 | Installed SPELL.IDS | `1FD84A38609DAB514BFE94A527943F103C9E860B32DE77B03DDD601F934EEFD1` |
 | Installed trigger_list.2da | `A2F413D709B47EE12E5ED858AA8A97181901B45A07838255A3CBFBA4AE9D2952` |
+| Installed DW#TG15.SPL | `1F35014443AA24633A90AA6F8C41D8B3B9DB9D7D077DA8022B824FCF416CA77A` |
+| Installed DW#MGSEE.SPL | `4888B610A65E4DCA704DD2C88B40791C84D42D9D7AF596BEB5B3C4990B7B8B54` |
+| Installed SPWI302.SPL | `509CB56033CDA4233131F8F75499732B2B33CF842362B007EDA1BCC8613CD988` |
+| Installed SPWI412.SPL | `6409689A93F302E5DBDBEBBF96B92DC6D066B883F158CED3DFD9181F1458F498` |
+| Installed SPWI605.SPL | `ECAAF5B4847592AE6D73306D2D8BC1AB602A66F4AF20F21AF1C508E3BF7DA2C8` |
+| Pinned trigger.2da (13,950 raw bytes) | `58562F4F06AAC3AB991F50D644875E4976FAF5A42676203D30CCD2652333756C` |
+| Pinned rest.ssl (1,191 raw bytes) | `DA7AE0C659192B9E7EC5BB0972140BB5CCE06778F41C4CCF8E39730005ACC625` |
+
+The continuation reuses the prior private SPL-reader pattern as `inspect-trigger.ps1` in the
+same high-mage directory. Reproduce with `& ./inspect-trigger.ps1` for DW#TG15/DW#MGSEE and
+`& ./inspect-trigger.ps1 -Resources SPWI302,SPWI412,SPWI605` for the children, passing the
+approved copied lab as `-LabRoot`. Retained outputs: `trigger-and-vision.private.json` and
+`trigger-children.private.json`; executed with PowerShell7.6.6, exit0. Reader SHA-256:
+`1B371B4F7E29DDFCEA49A078B085589B49740E0EB083842D9B25B2630A28A45E`.
+Nothing in the game or profiles is written by these reads. `trigger-source-pins.private.json` records direct raw-byte
+HTTPS hashes at the same SCS revision: both additional copied sources match after CRLF-to-LF
+normalization. The installed SPL hashes describe this stack, not an upstream vanilla baseline.
 
 **Artifacts:** Private decompile/recompile, command logs, actor field summary and source-match
 record; existing pinned source manifests and earlier tool/stack digests. No upstream payload,
@@ -124,8 +203,14 @@ Existing checks passed:24 in0.15s using
 `python -X utf8 -m pytest -q tests/schemas/test_scs_source_checkpoint.py tests/schemas/test_research_evidence_schema.py`.
 These validate evidence records, not game behavior. No new test suite/cases; `git diff --check` passed.
 
+**Continuation review:** Sol independently traced the trigger builder/allocation/rest source,
+rehashed all five copied SPLs and checked the field summaries against the report. No blocking
+error or overclaim was found. The lead verified source arguments/name sorting, binary effect
+slices and the additional upstream pins (local CRLF bytes differ; normalized content matches).
+The same24 existing checks passed in0.08s; no new cases. All findings remain read-only research.
+
 **Residual uncertainty:** Historical actor-specific flags/libraries, external controllers,
-helper payloads, LastSeenBy/False selector semantics, absent party-slot evaluation, timer/casting
+transitive child/helper payloads, LastSeenBy/False selector semantics, absent party-slot evaluation, timer/casting
 outcomes and save/load. Full regeneration and wider spell/encounter support are not proved.
 
 **Next decision:** No user design choice is needed to retain this mapping. Keep legacy ownership;
