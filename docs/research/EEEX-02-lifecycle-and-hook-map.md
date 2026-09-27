@@ -48,5 +48,6 @@ line anchors. No callbacks registered, tracing installed, native code loaded or 
 **Applicable evidence:** E1 source bodies/comments, not measured E4 lifecycle safety.
 **Residual uncertainty:** Cadence, thread context, ordering, mutable-field lifetime, reload cleanup,
 save/area coverage and actual bootstrap order.
-**Next decision:** Keep Task 8 pending behind Task 3 and Task 7. First gain permission for the
-lab launch/save check, then run the bounded observer experiment before any action injection.
+**Later checkpoint:** Task3 is complete and the [Task8 observer probe](EEEX-03-observer-probe.md)
+records bounded E4 startup/reload/session evidence. Consult its limits before action research;
+this original E1 map does not itself prove additional hooks or a general scheduler.
