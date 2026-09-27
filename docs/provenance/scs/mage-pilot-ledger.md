@@ -2,7 +2,7 @@
 
 **Status:** Partial source-to-effective research checkpoint; no runtime or reuse admission.
 
-**Date / owner:** Updated 2026-09-27 / integration lead.
+**Date / owner:** Updated 2026-09-28 / integration lead.
 
 **Origin:** SCS-derived behavior study; authored factual metadata, not copied policy or source.
 
@@ -25,6 +25,9 @@ all five resource slots recorded and the BCS decompiled/recompiled byte-identica
 See [the installed comparison](../../research/2026-09-27-scs-effective-mage-pilot.md) for exact
 identity, later CRE owners, source equivalence and bounded findings. Full control closure and
 runtime evidence are not collected. `dw#mg...` names never identify this family alone.
+The [higher-level MAGE18B comparator](../../research/2026-09-28-scs-high-mage-dispel.md)
+adds the opportunistic dispel output absent from MAGE6B. It is a bounded comparison, not a
+claim that its exact archetype/generation inputs or all higher-level mages are supported.
 
 **Behavior summary:** Generator inputs choose spells and template branches; setup, defensive,
 movement and core combat stages are ordered and may contain named exceptions. Read the six
@@ -36,7 +39,7 @@ Task 6 memos beginning with [the pipeline](../../research/SCS-01-generation-pipe
 |---|---|---|
 | M01 inputs and identity | `mage-shared` 28-46, 313-367; `caster-shared` 1043-1065; installed comparison | `preserve`: identify by generator/effective provenance, not generated name. One CRE's final slots and hashes are verified; area/controller overrides and full generator inputs remain open. |
 | M02 priority and continuation | `main-mage` 7-122; `standard-mage` 5-51 | `preserve`: do not flatten ordering; compare expanded BCS and later shadow traces. |
-| M03 target/protection legality | `first-dispel` 7-31; `caster-definitions` 18-33; shared-rule continuation | `opaque`: six macro bodies and merge/continuation construction source-traced; actual ordered libraries, all prerequisites and effective output still required before policy translation. |
+| M03 target/protection legality | `first-dispel` 7-31; `caster-definitions` 18-33, 798-813, 1212-1265; higher-level comparison | `preserve` selected emitted gates, action ordering and weighted skip timer. Six macro bodies now compared with one effective branch; historical inputs, selector side effects and action outcomes remain `opaque` / `needs-engine-proof`. |
 | M04 encounter handoff | `kruin` 5-71; `first-round` 25-77 | `opaque`: legacy-owned; prove control closure and separately review any future enrollment. |
 | M05 actions and settings | `mage-setup` 14-38; `difficulty` 140-287 | `needs-engine-proof`: preserve observed source distinctions in future tests; no source-to-runtime promotion. |
 
@@ -49,7 +52,8 @@ Most combat includes, martial/priest families, campaigns and wider components ar
 this is an explicit coverage gap, not a conclusion that they are irrelevant.
 
 **Opaque cases:** Untraced target/protection bodies, actual installed-library composition,
-per-creature overrides, final weights/continuation, merged-script output, external controllers and
+per-creature overrides, weights/continuation outside the selected first-dispel branch, merged-script
+output, external controllers and
 historical generation inputs. Selected library precedence and stripping/insertion source paths are characterized,
 but do not establish effective behavior or authorize our own prefix-based resource removal.
 
@@ -62,6 +66,8 @@ engine behavior. Historical offline evidence/document checks: see
 oracle, install, shadow or engine test; ordinary/edge/compatibility cells remain open.
 The shared-rule continuation adds source-chain and immutable-artifact documentation regressions,
 not behavior-preservation tests.
+The higher-level comparator adds a second byte-identical BCS roundtrip, not a new test framework
+or live support claim.
 
 **Attribution:** SCS by David Wallace (DavidW); follow file/component contributor credit before
 derived reuse. Spell Revisions (Demivrgvs/G3) informs optional compatibility branches, not a tested

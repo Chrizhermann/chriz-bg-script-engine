@@ -1,10 +1,12 @@
 # SCS mage pilot: target and protection boundary
 
-**Outcome:** Conditional; source-only call-site and bounded shared-rule map, not runtime semantics.
+**Outcome:** Conditional; original source-only call-site/shared-rule checkpoint, extended below
+by one E1 installed-output comparison. Not runtime semantics.
 
 **Question:** What must be expanded before a target/protection rule can become a policy oracle?
 
-**Environment:** env:host; game-state access none.
+**Environment:** Original source checkpoint: env:host, game-state access none. The linked
+installed continuation inspects only the approved copied lab offline; no engine/save access.
 
 **Versions and fingerprints:** SCS v35.21 pin/digests in
 [scs-source-pilot.evidence.json](scs-source-pilot.evidence.json).
@@ -31,11 +33,18 @@ evidence of exact immunity semantics, target visibility or friendly-fire safety.
 [manifest](scs-source-pilot.evidence.json).
 [Dispel call site](https://github.com/Gibberlings3/SwordCoastStratagems/blob/5dc240e9ff85d3909b6436e54b56297d3b61e33b/stratagems/mage/ssl/combatblocks/first_dispel.ssl#L7-L31).
 
-**Applicable evidence:** evidence:E1 for call-site/definition observations only.
+**Applicable evidence:** evidence:E1 for source and the linked installed-file observations only.
+
+**Installed continuation:** The [higher-level mage comparison](2026-09-28-scs-high-mage-dispel.md)
+now checks this branch in MAGE18B's generated script. Three reversed selector blocks precede a
+sequencer and an ordinary area-spell candidate; the non-casting weighted response also writes
+the firstdispel timer. Library predicates and the installed spell alias are compared explicitly.
+This extends the source-only account with E1 output, not observed target selection or casting.
 
 **Residual uncertainty:** Six selected library bodies and ordinary-versus-replacement merge rules
-are now source-traced; other libraries, generated spell resources and all effective substitutions
-remain open before completing the oracle. No complete protection table or engine predicate proof
+are now source-traced, and selected effective substitutions are characterized in one actor;
+other libraries, generated spell resources and historical generation inputs remain open before
+completing the oracle. No complete protection table or engine predicate proof
 exists. A comment-only ordinary SR entry does not erase an earlier predicate.
 
 **Next decision:** Lead reviews actual library/compiler inputs and effective output against the

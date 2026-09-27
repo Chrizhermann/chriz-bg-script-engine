@@ -424,6 +424,11 @@ now records MAGE6B's effective slots, selected prebuff branches and byte-identic
 decompile/recompile. This supersedes the missing-effective-sample portion of the historical
 checkpoint below, not its remaining semantic/control-closure and reuse limits. Task 6 stays open.
 
+**2026-09-28 continuation:** The [higher-level dispel comparison](../research/2026-09-28-scs-high-mage-dispel.md)
+adds MAGE18B's actual target selectors, action alternatives and weighted skip/timer behavior.
+Its BCS roundtrip is byte-identical. This is offline mapping, not runtime acceptance; no new
+lab tooling or gameplay/design decision is introduced.
+
 **2026-09-22 checkpoint:** In progress. The reviewed
 [pinned-source mage/prebuff checkpoint](../research/2026-09-22-task6-source-checkpoint.md)
 records source identities, two ledgers and bounded observations. Effective generated-script
