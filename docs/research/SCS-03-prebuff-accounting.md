@@ -42,8 +42,15 @@ explicit branches for that setting (204-213, 260-268). Do not silently change th
 **Applicable evidence:** evidence:E1. No spell removal, buff application, fair casting or engine
 postcondition was observed. The project does not adopt force-spell shortcuts for ordinary combat.
 
-**Residual uncertainty:** Generated prebuff SPL payloads, complete setting/reset closure, special
-allocation, actual durations, aura, interruption and save/load behavior remain unresolved.
+**Continuation:** The [installed mage comparison](2026-09-27-scs-effective-mage-pilot.md)
+now characterizes Shield/Mirror Image helper payloads and every reference to `instantprep`
+and the four ancillary prep/contingency locals selected in that report, within one generated
+script. This is not a map of every combat timer/state variable. Seven filtered effect slices match the originals exactly; both
+helpers have 300-second timed effects. This extends the source-only account with E1 installed
+bytes, not engine behavior.
+
+**Residual uncertainty:** Other prebuff SPL payloads, external setting/reset closure, special
+allocation, observed lifespans, aura, interruption and save/load behavior remain unresolved.
 
 **Next decision:** Integration lead cross-checks each accounting variant separately against
 effective artifacts, then designs independently reviewed engine probes after the appropriate gates.
