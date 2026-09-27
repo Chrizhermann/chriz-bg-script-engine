@@ -2,8 +2,8 @@
 
 **Status — 2026-09-28:** The separate copy starts, creates a new test character, saves into its
 named profile and reloads the saved state. Temporary files are removed and the lab is closed.
-Task 3 remains in progress because game cloud-save activity crosses the intended isolation
-boundary; the lab-only cloud-off setting did not resolve it. No runtime gate has passed.
+Task3 is complete: the lab-only optional Steam-DLL rename resolved the observed cloud activity
+in one verified save/reload run. Keep this copy Steam-disconnected. No runtime gate has passed.
 On 2026-09-28 the user clarified that hidden-game menu automation is allowed. The earlier
 blanket menu-click prohibition below is historical, not the current permission boundary.
 
@@ -62,10 +62,11 @@ The intended profile name is `BGSE Lab - SCS Reference`.
    active-profile paths or external auto-run scripts. Initialize only required lab settings;
    do not copy the active `Baldur.lua` wholesale. Installed profile-dependent options may need
    explicit initialization in the new profile.
-7. Resolve the cloud-save blocker below before another stateful launch. Use the lab loader
+7. Keep the lab's optional Steam DLL disabled as described in the verified checkpoint below;
+   check it has not been restored by a rebuild/update before a stateful launch. Use the lab loader
    with its game directory as working directory. The authorized one-shot
    backend startup check below is complete; do not automatically repeat it.
-   Save verification remains separate: create one clearly named test save through a permitted
+   For a rebuilt baseline, create one clearly named test save through a permitted
    method and confirm its local destination and cloud behavior separately. Hidden-game internal
    button events are permitted; local save routing alone does not prove cloud isolation.
 
@@ -164,7 +165,7 @@ suite for setup/documentation changes. G0–G8 and user-owned gameplay decisions
 - Independent review matched the saved outputs, current lab hashes and absence of temporary
   files; it kept process-exit/release observations attributed to the lead and save proof open.
 
-### Save/load verified; cloud isolation unresolved — 2026-09-28
+### Save/load verified; initial cloud-setting failure — 2026-09-28
 
 Under the clarified permission, reused the sibling hidden launcher, queued-button save/load
 runner and bundled pregenerated character. No desktop input, personal-save load, new full copy,
@@ -190,9 +191,47 @@ save hashes and restored files. Existing 24 documentation/evidence checks passed
   and matching reservations released. This was not graceful executable exit; helper exit
   codes were not captured. The lab-only cloud-off precaution remains, not a claimed solution.
 
-This is E4 evidence for the specified new-game/save/reload path, not cloud isolation, listener
-lifecycle or G1. Task3 stays incomplete and Task8 pending. Next: read-only diagnosis of the
-store/cloud integration and a justified lab-only solution before another launch. Do not change
-global Steam settings, delete remote saves, or require the user to do the save test manually.
+This was E4 evidence for the specified new-game/save/reload path, not cloud isolation, listener
+lifecycle or G1. It held Task3 open until the following lab-only workaround was verified.
+Do not change global Steam settings, delete remote saves, or require a manual user save test.
 Private recipes/results: `.work/task3/hidden-save-20260928/`, `cloud-off-20260928/`, and
 `CLEANUP.md`. Test saves and additional lab-local copies are retained and listed there.
+
+### Practical Steam-disconnected lab verified — 2026-09-28
+
+The user requested a quick solution and deferral of unnecessary cloud investigation. Static
+inspection of this exact executable showed no Steam import/delay-import dependency, a dynamic
+`steam_api64` lookup and a `Steam not found` path. Steamworks requires successful initialization
+before its interfaces can be used ([Valve API overview](https://partner.steamgames.com/doc/sdk/api)).
+That supported one bounded experiment, not an assumed startup guarantee.
+
+**Keep this lab-only change:** with the lab closed, rename its `steam_api64.dll` to
+`steam_api64.dll.bgse-disabled`. Preserve that file; do not replace or patch it. Leave the
+appid file, Steam client/account settings and every other installation unchanged. Recorded DLL
+SHA256: `e3fe06e2d802c2f753aeb46869e2af898f34715ce85f08001456fd8a80ecd21e`.
+Reversing that exact rename restores integration, so do not do it during ordinary lab testing.
+Reapply the change after any rebuild that restores the DLL. Keep the separate `engine_name`
+and lab profile; leave `Cloud Saves Enabled=0` as a secondary precaution, not the solution.
+
+One fresh hidden run reused the existing launcher, queued-menu runner and temporary menu:
+
+- Fresh console pong; no Steam/client/overlay module loaded before or after the save test.
+- The existing UI's no-argument `Infinity_CanCloudSave()` returned **false**, before and after.
+- Loaded only our earlier test character, set marker932, saved a distinct named slot, changed
+  unsaved933, then reloaded and independently observed932 and the expected character.
+- The new save, under the dedicated profile, had **no cloud metadata**. All36 existing local
+  cloud files retained identical names, lengths, hashes and modification times. No new cloud file.
+- Returned to the main menu, stopped only the owned job, verified all owned processes absent,
+  restored menu/settings, removed temporary payloads and released the matching reservation.
+  Helper exit code was unavailable; this is not an exit0/graceful executable-quit claim.
+
+The first host comparison mixed JSON-parsed dates and strings, falsely reporting changes;
+comparing both saved snapshots identically resolved it without another launch or weaker check.
+Private exact recipe/results: `.work/task3/steam-disconnected-20260928/`; cleanup ledger lists
+the retained disabled DLL, new test save and prior files. No additional full copy or test suite.
+
+This E1+E4 result completes practical Task3 lab setup after independent review. Task8 can now
+begin; listener/lifecycle, Combat Intent, WorldFlow and G1 remain unproved. It does not audit
+historical remote transfers or arbitrary external sync (including OneDrive), nor retroactively
+establish that earlier runs uploaded nothing. Defer that investigation; do not delete remote
+saves. Future tests use this Steam-disconnected copy and only explicitly named lab fixtures.

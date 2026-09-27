@@ -10,12 +10,12 @@
     {
       "id": 3,
       "subject": "Task 3: Obtain authorization and provision the disposable engine laboratory",
-      "status": "in_progress",
+      "status": "completed",
       "blockedBy": [2],
       "requiresUserAuthorization": true,
       "authorizationRecorded": "2026-09-22",
       "runtimeAuthorizationRecorded": "2026-09-28: User explicitly approved the sibling lab's hidden-game automation, including internal queued menu/button actions. No visible desktop takeover, input injection, active-game writes or personal-save use. This clarifies the earlier backend-only approval.",
-      "checkpoint": "2026-09-28: Authorized hidden new-game/save/reload passed using sibling queued-menu recipe and bundled test character; marker928 restored after unsaved929. Existing-playthrough save copies appeared in the lab profile alongside cloud artifacts; exact source unproven. A diagnosed lab-only Cloud Saves Enabled=0 correction was live-observed as0 in a second process; save/reload restored930 after931 but still produced new cloud artifacts. Both own process trees closed, temporary files cleaned/restored and tokens released. Retained lab-only cloud-off precaution is NOT a proven solution. Task3 incomplete on cloud isolation; Task8 pending, G1 open. Next read-only cloud/store diagnosis before another launch; no global Steam/account changes or remote deletion. See disposable-lab-runbook.md and private hidden-save-20260928, cloud-off-20260928 and CLEANUP.md.",
+      "checkpoint": "2026-09-28: Practical lab complete after independent review. Prior hidden new-game/save/load and restore retained. Cloud setting0 alone failed; lab-only optional Steam DLL rename passed one fresh hidden test: no Steam modules, Infinity_CanCloudSave=false, exact own save restored marker932 after unsaved933, no new-save cloud metadata, all36 old cloud files unchanged in bytes/timestamps. Own processes stopped, temporary files restored/removed and token released. Keep renamed DLL and separate profile; no global Steam/account changes, personal-save load or remote deletion. Historical remote transfers/external sync not audited. Task8 next, G1 open. See disposable-lab-runbook.md and private steam-disconnected-20260928/CLEANUP.md. No new tests/framework/full copy.",
       "historicalCheckpoint": "Superseded acquisition-framework route, not instructions to continue: committed through b12871f. Uncommitted A4d host-only checkpoint verified 1146 tests passing; preserved separately, not expanded or represented as lab/gameplay evidence. Detailed history remains in research memos, Git and private job records."
     },
     {"id": 4, "subject": "Task 4: Define evidence, fixture, corpus, and redistribution governance", "status": "completed", "blockedBy": [1], "startBlockedByArtifacts": ["docs/research/PREP-01-support-baseline.md"]},

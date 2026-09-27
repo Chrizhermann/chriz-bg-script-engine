@@ -293,16 +293,16 @@ as a prerequisite; do not finish them before useful mod work.
 
 **Depends on:** Task 2 plus explicit user authorization naming the disposable destination
 
-**Current checkpoint — 2026-09-28:** Approved copy/profile and practical restore passed. The
-user clarified that scripted buttons/save/load in the hidden lab are allowed; no visible-desktop
-or OS-input takeover. Reusing the sibling recipe, new-game and named save/reload passed, including
-independent restoration of a saved marker after an unsaved change. However existing-playthrough
-save copies appeared in the lab profile alongside cloud artifacts; their exact source is unproven.
-A second process with lab-only cloud setting0
-still created new cloud artifacts despite reporting0 at runtime. Both runs are closed, temporary
-files restored/removed and reservations released. Task3 remains incomplete on cloud isolation;
-Task8 pending, G1 open. Diagnose the lab-only cloud path before another launch. No manual save
-or gameplay design choice is needed from the user; do not change global Steam/account settings.
+**Current checkpoint — 2026-09-28:** Approved copy/profile, hidden new-game/save/reload and
+practical restore passed. The cloud-setting-only attempt was insufficient. A bounded lab-only
+fix renames the optional Steam DLL without changing global/client settings. One fresh hidden run
+loaded no Steam modules, reported cloud saving unavailable, and saved/reloaded a distinct marker
+correctly. The new save had no cloud metadata; all36 pre-existing cloud files stayed byte- and
+timestamp-identical. Own processes stopped, temporary files restored/removed and token released.
+Task3 is complete after independent evidence review; Task8 is next, G1 remains open. Keep this
+lab Steam-disconnected. Historical remote transfers and arbitrary external sync are not claimed
+audited; no personal save was loaded or remote state changed deliberately. No manual save or
+gameplay design choice is needed from the user. See the runbook for exact workaround and limits.
 
 **Procedure:** [Practical lab runbook](../research/disposable-lab-runbook.md).
 Exact paths, commands, results and cleanup candidates stay private under `.work/task3`.
@@ -487,7 +487,8 @@ copied or activated.
 [capability catalog](../research/EEEX-01-capability-catalog.md) and
 [static lifecycle map](../research/EEEX-02-lifecycle-and-hook-map.md). Seven focused behavior cases
 pass on both Lua 5.1 and LuaJIT; independent review accepted the packet. No EEex function was called,
-no bootstrap installed and no runtime safety claimed. Task 8 still waits for Task 3 completion.
+no bootstrap installed and no runtime safety claimed. Task 3's later verified lab checkpoint
+now releases Task 8; this does not promote the Task 7 static evidence to runtime proof.
 
 **Files:**
 
