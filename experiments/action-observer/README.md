@@ -33,3 +33,7 @@ First run: the exact queue entry was verified, but the later console sample time
 remained unconsumed. No start/completion result was recovered. This is a partial research
 checkpoint, not a passing action observer. See ACT-01 for evidence and the next diagnostic;
 do not repeat the failed run directory or claim that a timeout cancelled the queued action.
+
+The separate diagnostic observed action23 start, then WORLD_ACTIONBAR closing and dialogue
+menus opening. This removed the console's host. The old room contains a dialogue-initiating
+NPC; ordinary casting therefore needs a quiet private fixture, not a console rewrite.

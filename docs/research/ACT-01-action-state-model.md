@@ -107,7 +107,7 @@ entry did not give us the independent postcondition. No claim of an applied star
 movement completion, general action ownership or Task9 acceptance is supported by this run.
 Independent review confirmed this boundary from the actual request/result and cleanup files.
 
-**Diagnostic limit:** static review found no source-proven cause. The existing console is
+**Original diagnostic limit:** static review then found no source-proven cause. The existing console is
 render/menu-polled (its default hosts are WORLD_ACTIONBAR and START); an unconsumed request
 alone cannot distinguish a screen/transport problem from an action/callback problem. Do not
 label it a native crash or a confirmed menu bug. Next is a small diagnostic separating
@@ -125,3 +125,50 @@ Original installed resources, personal paths, saves and private logs are not com
 observation, with E4 start/completion unresolved. Task9 stays in progress, G1 stays open and
 production active control remains forbidden. No creative/gameplay decision is needed for the
 next diagnostic; do not reinterpret this checkpoint as approval to migrate live content.
+
+## Follow-up: dialogue removed the console host — 2026-09-28
+
+One separately prepared hidden diagnostic reproduced the same movement request. A private
+bounded file observer wrapped existing menu open/close callbacks, preserving their original
+functions and return values, and recorded the fixture's action-start callback. Independent
+source review checked the EEex registry-wrapper API and callback lifetime before launch.
+This observer writes copied scalars only and remains independent of console menu polling.
+
+Observed sequence (UI elapsed milliseconds, **not simulation timing evidence**):
+
+- 40571: requested the one ordinary movement; same-chunk response again accepted exactly
+  one queued ID23 at(232,186), starts0, position(200,186).
+- 40592: fixture action-start callback ID23 at position(200,186).
+- 43229: WORLD_ACTIONBAR closed; WORLD_DIALOG and WORLD_DIALOG_CONFIRM opened.
+
+The console's pinned default hosts are WORLD_ACTIONBAR and START. Its close callback removes
+EEEX_REMOTE. This directly establishes a dialogue/transport interruption in the diagnostic,
+not a movement crash. The original run had no menu log, so its exact historical sequence
+cannot be reconstructed. Neither run proves the final movement position. No redundant command
+was sent into the now-absent console host, no dialogue choice was made, and no save was created.
+
+Static explanation: effective BG2602 contains SHANK_, whose override INITDLG initiates dialogue
+when it sees a PC and has not talked. WeiDU24900 decompiled the actual effective INITDLG.BCS.
+The diagnostic did not identify the conversation speaker; Shank is the source-backed cause
+candidate, while the menu transition itself is observed E4 evidence.
+
+| Effective source | SHA256 |
+|---|---|
+| BG2602.ARE | `b5dd336565c6f2d334b6f75857d8cb74f867b7403110329b3f846fd01c7f968b` |
+| SHANK_.CRE | `39d891ecc82042389897bb5080b548df924bb960014bb5137850e768a4547f86` |
+| INITDLG.BCS | `27ca95c7fcc2711c222267fcf76d4219ec7793a2e386cf1bea87f8f9af96fc44` |
+| M_EEexRC.lua | `17928ec474d5316d7cc87c20489fb2d93529971cb3ceea5cf64856f47fed3e3d` |
+
+Artifacts: `.work/task9/transport-diagnostic-v1/` contains the exact private observer, decompile,
+source pins, menu/action TSV, queue/preflight responses, and cleanup receipts. Same Task8 stack,
+executable and separate Steam-disconnected profile. Cooperative reservation was absent and the
+bounded game/installer process snapshot empty before acquiring our exclusive token; the peer
+was preparing its next test, not running a game in that snapshot. Our helper/loader/game were
+closed and verified absent; eight temporary additions and IPC removed, original menu/config
+restored, matching reservation released. No full copy or new save.
+
+Next: a small private quiet-area/caster fixture for ordinary casting. The existing sole
+protagonist has no known or memorized spells, so it is not a valid ordinary-cast fixture.
+Use real memorized spell expenditure plus an independent effect postcondition, not forced
+casting. Task9 and G1 remain open. This fix is experiment isolation, not gameplay design or
+a general Remote Console repair.
