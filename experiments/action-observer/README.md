@@ -53,3 +53,9 @@ Completion requires correlated start plus exactly one spent memorized copy and a
 source-SPWI212 opcode159 effect. Counts/timers/effects are independently sampled after engine
 progress. An empty queue alone cannot complete. This proves only this synthetic actor/stack,
 not fairness under contention, every spell, or Project Image ownership.
+
+The first quiet-session cast passed: one matching start, both available counts2->1 with
+total2 unchanged, and new source-SPWI212 op159/206 effects. The unchanged movement probe
+also reached(232,186) from(200,186) after its matching start. See ACT-02 for the setup correction
+(use the console area helper, not MoveBetweenAreas for the party), exact evidence and remaining
+negative cases. All temporary lab resources were removed/restored; no new save was made.

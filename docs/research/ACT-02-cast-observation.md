@@ -1,7 +1,7 @@
 # Task9 ordinary cast observation
 
 **Question:** Can we distinguish an ordinary self-cast request, its start, and its actual result?
-**Status:** Prepared and reviewed; engine result pending. Task9/G1 remain open.
+**Status:** One ordinary self-cast proved on the stated fixture/stack. Task9/G1 remain open.
 
 Same isolated comparison stack as [Task8](EEEX-03-observer-probe.md): BG2:EE2.7.3.0,
 EET14.0, EEex1.2.0/LuaJIT, SCS35.21, SR4.21-chriz.5 and Bubb Spell Menu5.2. Exact
@@ -74,9 +74,9 @@ exact commands and clearly labelled transcript-derived output summaries, not inv
 
 ## Evidence boundary and remaining questions
 
-These are E1 static/private build facts and limited E2 expression checks, **not E4 cast proof**.
+The preparation above establishes E1 static/private build facts and limited E2 expression checks.
 This `--nogame` fixture build is not an E3 fake-game install/uninstall/restoration test. The
-pending runtime specifically checks whether this nonparty ally actually debits the spell;
+runtime below specifically checks whether this nonparty ally actually debits the spell;
 do not assume player and nonparty behavior match. Empty queue, next action, start or an aura
 change alone is insufficient completion evidence.
 
@@ -88,3 +88,51 @@ owner-lock exclusion remain required Task9 research; this one success cannot sil
 Private artifacts: `.work/task9/cast-fixture-build-v1/` and `.work/task9/cast-v1/`. Preserve failed
 evidence. Restore temporary ARE/menu/config, remove exact temporary additions after identity
 checks, stop our own job and release only our matching reservation. No new full game copy.
+
+## Runtime result — E4 ordinary self-cast, 2026-09-28
+
+One hidden launch after the randomizer task finished its test, released the shared reservation,
+and a bounded OS snapshot showed no game/loader/installer. Our exclusive token preceded staging.
+The inherited desktop-isolation probe passed, a fresh Remote Console pong arrived, and cloud
+capability was false. No visible desktop control, shared profile or original-game change.
+
+**Setup correction:** after submitting `MoveBetweenAreas("BG2602",[200.186],0)`, the next
+setup command hit a Lua nil-area error before
+creating a caster. A read-only observation still showed the named party character, action0,
+empty queue, world menu and no transition, but no `m_pArea`. This is a failed setup path, not
+a cast failure or native crash; the exact transition mechanics/destination were not observed.
+Reset the exact own save973 using the existing queued-menu
+runner; then `C:MoveToArea("BG2602")` worked. The subsequent room inspection found only the
+protagonist before creating the single fixture caster. Use this latter recipe when reproducing;
+do not rerun the failed setup action. Both commands' evidence is retained privately.
+The [documented console helper](https://gibberlings3.github.io/iesdp/appendices/clua/bgee.htm)
+is a fixture-setup shortcut only, not movement or casting acceptance evidence.
+
+| Observation | Recorded result |
+|---|---|
+| Settled caster preflight | Unique DV/resource/EA match; position(304,192), current0, empty queue, state0, aura-1, count2/ready2/total2, no source-SPWI212 timed effects. Observed position differed from requested creation point(350,186); no pathfinding conclusion. |
+| Submission at simulation tick32692 | Exactly one queued ID31/SPWI212; `accepted`, starts0. Counts unchanged and no effects. |
+| Start callback at32693 | ID31/SPWI212 matched, reducer `started` applied exactly once. |
+| Independent sample at32888 | Count1/ready1/total2; new timed source-SPWI212 op159 and206 (native timing4096), current0, empty queue. Reducer `completed`. |
+| Cleanup | Own helper/loader/game gone; nine temporary additions plus IPC removed; ARE/menu/config restored byte-exactly; matching token released. No save created. |
+
+This proves one normally queued Mirror Image cast consumed one of this nonparty ally's real
+memorized copies and produced its substantive effect. It does not establish the precise cast
+duration or aura progression: those were only sampled before and later, not continuously.
+Do not generalize to every nonparty actor, player, spell, install stack or contested queue.
+
+The same quiet session also ran the existing movement probe once: accepted ID23 at(232,186),
+one matching start, and later independent position(232,186), from(200,186). This now supplies
+the missing movement postcondition without dialogue. Neither completed probe repairs the
+unobserved historical result in the original movement-v1 run.
+
+Evidence combination: E1 source/fixture + E2 host reducer + these E4 ordinary-cast/movement
+observations. Task9 remains in progress because its adverse-condition/ownership matrix is
+unproved. No production runtime or adapter activation is authorized. The prepared450-tick
+cutoff was not exercised by this successful cast. Exact authored payload hashes are in the
+private staging ledger; the undeployed movement source was sent through the console as a Lua
+chunk. All private generated resources/logs stay out of Git.
+
+Independent Sol review checked the actual request/result JSON and cleanup receipts; lead
+accepted its correction to keep the first area-transition mechanism unknown. Existing focused
+host validation remains12passed; Lua5.1/LuaJIT syntax and the reviewed Boolean fix also passed.

@@ -172,3 +172,14 @@ protagonist has no known or memorized spells, so it is not a valid ordinary-cast
 Use real memorized spell expenditure plus an independent effect postcondition, not forced
 casting. Task9 and G1 remain open. This fix is experiment isolation, not gameplay design or
 a general Remote Console repair.
+
+### Quiet-room follow-through
+
+The later [ordinary-cast session](ACT-02-cast-observation.md)
+also ran this unchanged movement probe against the quiet room. It observed one accepted ID23
+at(232,186), one matching start with the reducer transition applied, then a fresh position
+(232,186) and current action0 from the original(200,186). This is a completed single movement
+attempt with an independent postcondition. No dialogue transition occurred during the test.
+Original movement-v1 remains historically unknown; the new result does not fill in its missing
+record. Task9 still needs adverse conditions/contention, and G1 remains open. See private
+`.work/task9/cast-v1/movement-*.json`; cleanup is shared with the cast session.
