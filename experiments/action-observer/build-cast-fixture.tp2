@@ -1,0 +1,18 @@
+BACKUP ~backup~
+AUTHOR ~BGSE local research fixture~
+
+BEGIN ~Build one disposable cast fixture~ DESIGNATED 0
+
+COPY ~%argv[0]%/BG2602.ARE~ ~%argv[1]%/BG2602.ARE~
+  WRITE_SHORT 0x58 0      // No placed actors (SHANK_)
+  WRITE_SHORT 0x5a 0      // No travel region
+  WRITE_LONG  0x64 0      // No spawn points
+  WRITE_ASCII 0x94 ~~ (8) // No area script
+
+COPY ~%argv[0]%/MAGE6B.CRE~ ~%argv[1]%/B-XMAGE0.CRE~
+  REMOVE_CRE_EFFECTS
+  WRITE_ASCII 0x248 ~~ (0x28)       // All five AI scripts
+  WRITE_ASCII 0x2cc ~~ (8)          // No dialogue
+  WRITE_ASCII 0x280 ~B-XCAST0~ (32) // Unique fixture death variable
+  WRITE_BYTE  0x270 4              // ALLY, not party-controlled
+  ADD_MEMORIZED_SPELL ~SPWI212~ #1 ~wizard~ (1)

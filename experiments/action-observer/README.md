@@ -9,9 +9,11 @@ Steam-disconnected lab and its named `BGSE Lab Test` character. Never stage in t
 |---|---|---|
 | `synthetic.action-state` | `B-XACT00.lua` | `action_state.lua` |
 | `synthetic.action-probe` | `B-XACT01.lua` | `B-XACT01.lua` |
+| `synthetic.cast-probe` | `B-XACT02.lua` | `B-XACT02.lua` |
+| `synthetic.cast-fixture` | `B-XMAGE0.CRE` | Private output of `build-cast-fixture.tp2` |
 
 These synthetic-only stems are explicit unique allocations, not hashes/truncation of adapter IDs.
-No cross-extension reuse. Both filenames must be absent before staging; no release publication.
+No cross-extension reuse. All allocated filenames must be absent before staging; no release publication.
 The probe uses existing `_G["B-"]` established by the Task8 experiment; repeated initialization
 refuses to register twice. There is no extra autoload bootstrap.
 
@@ -37,3 +39,17 @@ do not repeat the failed run directory or claim that a timeout cancelled the que
 The separate diagnostic observed action23 start, then WORLD_ACTIONBAR closing and dialogue
 menus opening. This removed the console's host. The old room contains a dialogue-initiating
 NPC; ordinary casting therefore needs a quiet private fixture, not a console rewrite.
+
+The caster uses the synthetic local death variable `B-XCAST0`. Build privately with WeiDU
+`--nogame`; original installed ARE/CRE inputs remain unchanged. Temporarily stage the patched
+BG2602.ARE only in the disposable lab, preserving/restoring its exact original bytes. Load our
+earlier own save973, which has never visited BG2602, not the baked room in save974. No new area
+art is copied. Generated ARE/CRE bytes remain private and are never published.
+
+`B-XACT02.lua` is explicitly loaded after the unique nonparty ally is created and settled in
+the quiet room. It submits one ordinary self-targeted effective SPWI212 (Mirror Image on this
+stack). It never grants spells, forces casting, resets aura, changes effects, or clears queues.
+Completion requires correlated start plus exactly one spent memorized copy and a new timed
+source-SPWI212 opcode159 effect. Counts/timers/effects are independently sampled after engine
+progress. An empty queue alone cannot complete. This proves only this synthetic actor/stack,
+not fairness under contention, every spell, or Project Image ownership.
