@@ -211,3 +211,41 @@ trees were verified absent before cleanup; each session removed ten additions pl
 restored the three original ARE/menu/config files, then released its matching token. This is
 verified process absence/owned-job cleanup, not a claimed graceful executable exit code0.
 No new full copy, save, broad test suite, public payload or production runtime was introduced.
+
+## Ordinary targeted cast baseline — E4, 2026-09-30
+
+Same pinned stack and own baseline973; `build-target-fixture.tp2` privately clones the
+stripped caster into B-XMAGE1 (DV B-XCAST1) and B-XTARG0. Both remain scriptless allies.
+The effective stack maps `2214 WIZARD_STRENGTH` to SPWI214, SHA256
+`532b48e551c6cc2e60e98a9cb63b82b0e83259c1e6561ffd8b6222eb81b1f9bb`:
+level-six ability target1/range10/cast2/projectile47, target opcode44 setting Strength18.
+This is an effective-resource observation, not a vanilla mapping or redistribution grant.
+Exact fixture fields, private WeiDU24900 build and byte checks are in the experiment README.
+
+One hidden session ran baseline, target movement, then target death, loading only own973
+and recreating the quiet room/pair between cases. Host-send `target-probe.lua` once;
+call `targetProbe.begin(kind)` once per case. Source SHA256
+`62dac9dad50f3eaed8b6981034bc2167837649d43ac12f22cbc0a89eb712418d`.
+No forced cast, queue clear, new save or retried trial. Each trace has450 consecutive ticks;
+`observed-window` is only the observation cutoff. The target spawned at(224,216), not
+requested(232,216); preflight deliberately records actual positions.
+
+Baseline accepted exact ID31/SPWI214 at32769, matched its sole start32770, and observed
+ready2->1 at32774 with total2 unchanged. Target effects stayed empty through32795;
+source-SPWI214 opcode44 first appeared32796, after expenditure, and persisted through33219.
+This establishes substantive delivery for this single targeted baseline. Movement/death
+results and their limits are in [ACT-04](ACT-04-queue-contention.md) and
+[ACT-03](ACT-03-interruption-and-invalidation.md), not a universal cast-completion contract.
+
+Private `.work/task9/target-runtime-v1/` retains exact commands, deployed identities,
+three complete traces, launcher/staging/cleanup receipts and independent review. An initial
+read-only health request called nonexistent `EEexRemote.Ping()`; its Lua error was preserved.
+After reading the existing console `tools/scripts/ping.lua`, sending that file returned fresh
+pong. No spell trial had started; no native crash or trial retry. Cloud capability was false.
+Sol independently verified all three full traces; lead checked cleanup and documentation.
+Existing12 focused host checks passed; a handled LuaJIT-error diagnostic was separately
+reproduced with exit0, not suppressed or called a game crash. No new tests/framework.
+Own helper/loader/game were verified absent; eight additions and IPC removed, three originals
+(ARE/menu/settings) restored byte-exactly, matching token released. Steam DLL stays disabled.
+No original game, unrelated installation or personal save was changed. E1 fixture/source plus
+bounded E4 results only; Task9/G1 remain open for ownership, transitions and Project Image.

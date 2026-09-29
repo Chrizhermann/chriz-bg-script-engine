@@ -96,7 +96,7 @@ after restoring the earlier world. ACT-03 records the passing observer invalidat
 limits; it is not proof of saving/restoring an in-flight cast. ACT-04 records the blocked old
 movement goal and the separate caster movement toward a clear goal. No new save is needed.
 
-## Target movement/death preparation — host-checked, runtime pending
+## Target movement/death — host preparation and bounded runtime results
 
 `build-target-fixture.tp2` reuses the stripped private B-XMAGE0 donor: the new caster's
 death variable is `B-XCAST1`, and its one known/two prepared SPWI212 entries become SPWI214,
@@ -129,3 +129,12 @@ verified a fix for submission failure leaving the intervention armed. Both Lua c
 the existing12 focused host checks passed. These are **not runtime results**. No game launch,
 installation or profile/save change occurred. Exact recipes/logs/generated assets remain in
 private `target-fixture-build-v1/v2`; Task9 and G1 remain open.
+
+The subsequent single hidden session is now recorded in ACT-02/03/04 and private
+`target-runtime-v1`. Baseline proved matched start, one-copy debit and later target opcode44.
+Movement preceded delivery, but the target had stopped before the effect appeared. Death was
+observed with HP0/state2048 before the target disappeared from lookup; later delivery is unknown,
+not disproved. Each trial has450 consecutive samples and no retry. One probe registration per
+callback, reset only own973 between trials, no new save. Eight additions/IPC removed, ARE/menu/
+settings restored and owned processes/reservation released. Independent trace review accepted
+these bounded conclusions, not a general action-ownership contract.

@@ -55,3 +55,21 @@ read-only diagnosis was checked by the lead against the effective bytes and runt
 
 **Next:** real player/legacy replacement and ownership loss remain unproved. No queue-clearing/
 retry policy or production lease is authorized. G1 open.
+
+## Target displacement during casting — bounded E4, 2026-09-30
+
+Same targeted Strength fixture, pinned source and session as [ACT-02](ACT-02-cast-observation.md).
+Fresh own973/room/pair, one ordinary cast: accepted32805, matching ID31/SPWI214 start32806.
+At32810, caster current31/ready1/total2 and target idle/effect-free at(224,216): append one
+target `MoveToPoint([232.264])`, observing exact queued ID23/destination. Its start32811 and
+actual position(225,222) that tick prove displacement before delivery, not merely a queued move.
+
+The target reached(232,270), current0/empty queue, by32818 and stayed there. First target
+source-SPWI214 opcode44 appeared32833; the target had already stopped15ticks earlier.
+All450 samples32806–33255 are consecutive, total memorized records remain2, one copy spent.
+This proves delivery after displacement during casting in this fixture, **not** delivery while
+still moving, exact arrival at requested(232,264), or range/line-of-sight boundary behavior.
+
+Private `target-runtime-v1/movement-final.json` retains the full trace. Independent review
+confirmed event/position/effect ordering and the stationary-at-delivery limit. See ACT-02 for
+exact reproduction/cleanup; no policy change, new save, retry or G1 closure.

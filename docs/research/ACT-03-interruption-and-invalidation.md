@@ -72,7 +72,28 @@ Existing 12 focused host checks passed; the chunk compiled under both Lua 5.1 an
 One hidden session, no new save/copy; own processes stopped, nine additions removed,
 ARE/menu/settings restored byte-exactly and reservation released.
 
-**Residual uncertainty/next:** target death/movement, active-action area transition,
-saved-in-flight-action persistence, Project Image owner exclusion and real player/legacy
-replacement remain unproved. Task9 remains in progress, G1 open; no production ownership/
+**Residual uncertainty/next:** active-action area transition, saved-in-flight-action persistence,
+Project Image owner exclusion and real player/legacy replacement remain unproved. Later bounded
+target cases are below/in ACT-04. Task9 remains in progress, G1 open; no production ownership/
 fallback schema is changed here.
+
+## Target death during ordinary targeted casting — partial E4, 2026-09-30
+
+Use the [targeted baseline's](ACT-02-cast-observation.md#ordinary-targeted-cast-baseline--e4-2026-09-30)
+exact stack/probe and fresh own973/room/pair. Ordinary SpellRES accepted at32682 and matched
+one ID31/SPWI214 start that tick. At32686, current31, ready1/total2, target alive and effect-free:
+queue `Kill(Myself)` once on the synthetic target. Queue ID131 is submission evidence only.
+Its matching target start was32687. At32688 the target was independently observed with HP0,
+base/active state2048 and dead=true; caster current became0 with one spell copy still spent.
+
+The450 consecutive samples cover32683–33132. Target lookup succeeds only32683–32688:
+no source-SPWI214 effect appears in those six samples. From32689 onward the target is absent,
+even with corpse-inclusive lookup. Death was proved before disappearance; disappearance itself
+is **not** death proof or evidence of no subsequent delivery. Later corpse/object effects are
+unknown. Early caster action exit is consistent with target invalidation, not a native reason
+code or proof that all dead targets reject spells. No refund was observed in the caster trace.
+
+Private `target-runtime-v1/death-final.json` preserves metadata and all450 samples. Independent
+review confirmed the six-sample visibility limit. No blind retry or extra corpse experiment;
+session cleanup is recorded in ACT-02. Remaining ownership/transition/Project Image work and
+G1 stay open; this result must not become a universal cancellation or corpse-immunity rule.
