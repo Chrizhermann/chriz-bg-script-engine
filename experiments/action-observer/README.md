@@ -12,6 +12,8 @@ Steam-disconnected lab and its named `BGSE Lab Test` character. Never stage in t
 | `synthetic.cast-probe` | `B-XACT02.lua` | `B-XACT02.lua` |
 | `synthetic.adverse-cast-probe` | `B-XACT03.lua` | `B-XACT03.lua` |
 | `synthetic.cast-fixture` | `B-XMAGE0.CRE` | Private output of `build-cast-fixture.tp2` |
+| `synthetic.target-caster` | `B-XMAGE1.CRE` | Private output of `build-target-fixture.tp2` |
+| `synthetic.spell-target` | `B-XTARG0.CRE` | Private output of `build-target-fixture.tp2` |
 
 These synthetic-only stems are explicit unique allocations, not hashes/truncation of adapter IDs.
 No cross-extension reuse. All allocated filenames must be absent before staging; no release publication.
@@ -93,3 +95,37 @@ failed. It keeps scalar state only, avoids sprite access while loading, and obse
 after restoring the earlier world. ACT-03 records the passing observer invalidation and its
 limits; it is not proof of saving/restoring an in-flight cast. ACT-04 records the blocked old
 movement goal and the separate caster movement toward a clear goal. No new save is needed.
+
+## Target movement/death preparation — host-checked, runtime pending
+
+`build-target-fixture.tp2` reuses the stripped private B-XMAGE0 donor: the new caster's
+death variable is `B-XCAST1`, and its one known/two prepared SPWI212 entries become SPWI214,
+without changing slot counts or offsets. The target is a separate clone with DV `B-XTARG0`.
+Both remain scriptless allies. No installed creature or spell is modified.
+
+The effective stack's `2214 WIZARD_STRENGTH` resolves to SPWI214, SHA256
+`532b48e551c6cc2e60e98a9cb63b82b0e83259c1e6561ffd8b6222eb81b1f9bb`.
+Its level-six ability is creature-targeted, range10/cast2/projectile47, with timed target
+opcode44 (set Strength18, duration360, no save) and additional effects. This is a test
+selection, not a new gameplay rule. No stock-resref assumption is used for other stacks.
+
+Host-send `target-probe.lua` once after the pair settles in the existing quiet room.
+Run `targetProbe.begin('baseline')`, then fresh own-save/room/pair resets before separate
+`movement` and `death` trials. Each submits ordinary `SpellRES("SPWI214","B-XTARG0")` once.
+Only a validated submission followed by observed casting and one spent copy may trigger
+the target's queued move to(232,264) or `Kill(Myself)`. Existing effective search-map evidence
+identifies that move goal as walkable. No forced cast, queue clear, save, or automatic retry.
+Corpse-inclusive lookup records raw base/active death bits; a missing target is not called dead.
+
+Retrieve `targetProbe.trials[kind]` after `observed-window` or failure. Evaluate actual target
+movement/death **before** source-SPWI214 opcode44 delivery; a queued intervention or window
+cutoff is not a passing outcome. A late intervention is a missed condition, not a negative
+spell result. Do not assume a corpse cannot receive an effect. Unknowns stay explicit.
+
+WeiDU24900 parse and private `--nogame` build passed; outputs were byte-checked against the
+exact donor with only the declared changes. First build failed because padded resrefs needed
+null-terminated reads; its rollback/output evidence is preserved. Sol review also caught and
+verified a fix for submission failure leaving the intervention armed. Both Lua compilers and
+the existing12 focused host checks passed. These are **not runtime results**. No game launch,
+installation or profile/save change occurred. Exact recipes/logs/generated assets remain in
+private `target-fixture-build-v1/v2`; Task9 and G1 remain open.

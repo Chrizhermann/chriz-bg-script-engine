@@ -1,0 +1,43 @@
+BACKUP ~backup~
+AUTHOR ~BGSE local research fixture~
+
+BEGIN ~Build disposable targeted-cast pair~ DESIGNATED 0
+
+// Reuse the already stripped private fixture; preserve slot counts and all offsets.
+COPY ~%argv[0]%/B-XMAGE0.CRE~ ~%argv[1]%/B-XMAGE1.CRE~
+  READ_ASCII 0 signature (8)
+  PATCH_IF NOT (~%signature%~ STRING_EQUAL ~CRE V1.0~) BEGIN PATCH_FAIL ~Wrong donor format~ END
+  WRITE_ASCII 0x280 ~B-XCAST1~ (32)
+  READ_LONG 0x2a0 known_offset
+  READ_LONG 0x2a4 known_count
+  READ_LONG 0x2b0 memorized_offset
+  READ_LONG 0x2b4 memorized_count
+  SET changed_known = 0
+  SET changed_memorized = 0
+  FOR (i=0; i<known_count; ++i) BEGIN
+    SET p = known_offset + i*12
+    READ_ASCII p spell (8) NULL
+    PATCH_IF (~%spell%~ STRING_EQUAL_CASE ~SPWI212~) BEGIN
+      READ_SHORT (p+8) level
+      READ_SHORT (p+10) type
+      PATCH_IF (level != 1 OR type != 1) BEGIN PATCH_FAIL ~Wrong donor spell row~ END
+      WRITE_ASCII p ~SPWI214~ (8)
+      SET changed_known += 1
+    END
+  END
+  FOR (i=0; i<memorized_count; ++i) BEGIN
+    SET p = memorized_offset + i*12
+    READ_ASCII p spell (8) NULL
+    PATCH_IF (~%spell%~ STRING_EQUAL_CASE ~SPWI212~) BEGIN
+      READ_LONG (p+8) available
+      PATCH_IF (available != 1) BEGIN PATCH_FAIL ~Donor spell not ready~ END
+      WRITE_ASCII p ~SPWI214~ (8)
+      SET changed_memorized += 1
+    END
+  END
+  PATCH_IF (changed_known != 1 OR changed_memorized != 2) BEGIN
+    PATCH_FAIL ~Expected one known and two prepared donor spells~
+  END
+
+COPY ~%argv[0]%/B-XMAGE0.CRE~ ~%argv[1]%/B-XTARG0.CRE~
+  WRITE_ASCII 0x280 ~B-XTARG0~ (32)
