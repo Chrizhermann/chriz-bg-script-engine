@@ -85,3 +85,11 @@ use the documented CLUA room setup and recreate the caster. Then call `begin(kin
 without reloading the Lua modules. Do not overlap trials or auto-retry an error/missed window.
 The current code includes the evidence-driven one-copy-spent windup correction. Exact private
 launch/stage/reset/cleanup recipes and the two original deployed versions remain with the runs.
+
+`load-boundary.lua` is a host-sent research chunk, not a new engine resource. After a fresh
+baseline/room/caster setup and one B-XACT02 initialization, it submits one cast and requests
+loading baseline973 after observed windup. Retrieve `_G['B-'].loadBoundary` once complete/
+failed. It keeps scalar state only, avoids sprite access while loading, and observes 100 ticks
+after restoring the earlier world. ACT-03 records the passing observer invalidation and its
+limits; it is not proof of saving/restoring an in-flight cast. ACT-04 records the blocked old
+movement goal and the separate caster movement toward a clear goal. No new save is needed.
