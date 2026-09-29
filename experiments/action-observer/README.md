@@ -10,6 +10,7 @@ Steam-disconnected lab and its named `BGSE Lab Test` character. Never stage in t
 | `synthetic.action-state` | `B-XACT00.lua` | `action_state.lua` |
 | `synthetic.action-probe` | `B-XACT01.lua` | `B-XACT01.lua` |
 | `synthetic.cast-probe` | `B-XACT02.lua` | `B-XACT02.lua` |
+| `synthetic.adverse-cast-probe` | `B-XACT03.lua` | `B-XACT03.lua` |
 | `synthetic.cast-fixture` | `B-XMAGE0.CRE` | Private output of `build-cast-fixture.tp2` |
 
 These synthetic-only stems are explicit unique allocations, not hashes/truncation of adapter IDs.
@@ -59,3 +60,28 @@ total2 unchanged, and new source-SPWI212 op159/206 effects. The unchanged moveme
 also reached(232,186) from(200,186) after its matching start. See ACT-02 for the setup correction
 (use the console area helper, not MoveBetweenAreas for the party), exact evidence and remaining
 negative cases. All temporary lab resources were removed/restored; no new save was made.
+
+`B-XACT03.lua` is a bounded follow-up, explicitly loaded once after B-XACT02. It observes
+four separate fresh-fixture trials: natural busy aura, temporary silence, appended ordinary
+movement and one small damage condition during windup. It reuses the console poll, not a new
+scheduler. `observed-window` is an observation cutoff, never success or cancellation. The
+started listener and per-tick snapshots copy scalars only. Silence/damage injection is fixture
+setup for negative cases, not a shortcut to spell success. Reset our own baseline between cases.
+See ACT-02/03/04 for the actual findings, one corrected pre-intervention assumption, unknown
+movement result, private evidence and remaining Task9 work. This remains research, not AI.
+
+After the documented private setup, load both probes once per process:
+
+```lua
+assert(loadfile('override/B-XACT02.lua'))()
+assert(loadfile('override/B-XACT03.lua'))()
+return _G['B-'].adverseProbe.begin('aura')
+```
+
+Retrieve `_G['B-'].adverseProbe.trials.aura` after its status becomes `observed-window`;
+the raw samples/events, not that status, determine the outcome. For each remaining kind
+(`silence`, `contention`, `damage`), reload the exact own save973 using the existing QA helper,
+use the documented CLUA room setup and recreate the caster. Then call `begin(kind)` once,
+without reloading the Lua modules. Do not overlap trials or auto-retry an error/missed window.
+The current code includes the evidence-driven one-copy-spent windup correction. Exact private
+launch/stage/reset/cleanup recipes and the two original deployed versions remain with the runs.
