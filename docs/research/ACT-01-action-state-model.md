@@ -183,3 +183,14 @@ attempt with an independent postcondition. No dialogue transition occurred durin
 Original movement-v1 remains historically unknown; the new result does not fill in its missing
 record. Task9 still needs adverse conditions/contention, and G1 remains open. See private
 `.work/task9/cast-v1/movement-*.json`; cleanup is shared with the cast session.
+
+### Current checkpoint — 2026-09-30
+
+ACT-02/03/04 now include representative adverse/target cases and one integrated legacy,
+area/save/load and Project Image batch. They supersede the earlier pending-case lists, not
+their bounded historical findings. Ordinary cast delivery and PI-owner exclusion are observed;
+actual replacement/ownership loss and exact saved-in-flight behavior remain unresolved. Keep
+the conservative rule: unknown, timeout or lost observation scope relinquishes enhancement,
+never clears another producer's queue or schedules a blind retry. Research window cutoffs are
+not a production timeout contract or evidence that the engine cancelled an action. Task9 is
+still in progress and G1 open; no production control is admitted by these results.

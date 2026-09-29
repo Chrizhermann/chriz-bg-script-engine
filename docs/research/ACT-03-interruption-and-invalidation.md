@@ -97,3 +97,33 @@ Private `target-runtime-v1/death-final.json` preserves metadata and all450 sampl
 review confirmed the six-sample visibility limit. No blind retry or extra corpse experiment;
 session cleanup is recorded in ACT-02. Remaining ownership/transition/Project Image work and
 G1 stay open; this result must not become a universal cancellation or corpse-immunity rule.
+
+## Area change and a save/load action sequence — bounded E4, 2026-09-30
+
+Same [integrated session](ACT-02-cast-observation.md#integrated-session-project-image-exclusion-and-resumed-casting--e4-2026-09-30),
+fresh own973/room/pair. Ordinary targeted Strength accepted32705, matching start32706;
+current31 and ready2->1 at32710 precede moving the **protagonist** to BG2600. The caster remains
+in BG2602. It is still casting in the last current-area sample32719; at32720 the protagonist is
+in BG2600 and the old action observation scope is invalidated. Return requested32765; fresh
+resolution32775 finds caster idle/empty queue with one copy spent, target without source-SPWI214
+effects. No relevant effect was seen in any observed target row. The unobserved away interval
+prevents a universal cancellation/no-delivery claim; this did not transport the casting actor.
+
+Next, ordinary `Wait(20)` then `MoveToPoint([232.264])`: current63 plus queued23 is observed32777
+before entering the save menu, and in the post-menu snapshot (reported tick32774). Existing QA
+creates one new uniquely named own save, verifies GAM/SAV/BMP, and loads that exact folder.
+Before loading, the live chain does run: Move23 starts33072, displacement33074–33087 reaches
+(232,270). The game is not restarted between these steps.
+
+Loading destroys the old session (epoch1->2) and restores world tick32760. Freshly resolved
+caster is at original(304,192), current0/empty queue/ready1 of2; all361 consecutive post-load
+samples32760–33120 retain those values. No move or automatic resubmission occurs. This proves
+**no continuation in this loaded observation window**, not that a serialized queue was cleared:
+the loaded tick predates the sampled Wait setup, and the exact serialized action state was not
+inspected. Save timing/snapshot semantics and saved-in-flight spell persistence remain unknown.
+Do not promote pre-menu or post-menu snapshots into proof of the bytes inside a save.
+
+Private `integrated-runtime-v1/events.tsv`, `batch-final.json`, `own-save-verified.json` and
+existing QA receipts preserve the complete evidence. Own save975 remains a tiny cleanup
+candidate; no personal save was loaded or overwritten. Source/stack/cleanup pins and independent
+review are in ACT-02. Task9/G1 remain open; do not add a retry, refund or queue-clear policy.

@@ -14,6 +14,8 @@ Steam-disconnected lab and its named `BGSE Lab Test` character. Never stage in t
 | `synthetic.cast-fixture` | `B-XMAGE0.CRE` | Private output of `build-cast-fixture.tp2` |
 | `synthetic.target-caster` | `B-XMAGE1.CRE` | Private output of `build-target-fixture.tp2` |
 | `synthetic.spell-target` | `B-XTARG0.CRE` | Private output of `build-target-fixture.tp2` |
+| `synthetic.batch-caster` | `B-XMAGE2.CRE` | Private output of `build-batch-fixture.tp2` |
+| `synthetic.legacy-competitor` | `B-XLEG00.BCS` | Authored `B-XLEG00.baf`, private compiled output |
 
 These synthetic-only stems are explicit unique allocations, not hashes/truncation of adapter IDs.
 No cross-extension reuse. All allocated filenames must be absent before staging; no release publication.
@@ -138,3 +140,50 @@ not disproved. Each trial has450 consecutive samples and no retry. One probe reg
 callback, reset only own973 between trials, no new save. Eight additions/IPC removed, ARE/menu/
 settings restored and owned processes/reservation released. Independent trace review accepted
 these bounded conclusions, not a general action-ownership contract.
+
+## Integrated session batch — method and bounded results
+
+User direction2026-09-30: reuse one hidden session for substantial logged sequences, analyse
+the batch together and isolate only actual failures/gaps. No production AI or gate bypass.
+`build-batch-fixture.tp2` changes only the prior stripped caster's DV and override script;
+`B-XLEG00.baf` is a one-shot ordinary legacy movement producer armed by its own local variable.
+`session-batch.lua` is host-sent once, uses existing void-listener containment and the existing
+QA runner, and writes private scalar TSV events/samples. It does not keep sprite/action handles
+or object IDs. Temporary resource allocation is listed above. Generated game assets stay private.
+
+After each own973 load, enter the existing quiet BG2602 and create B-XMAGE2 at(304,192) and
+B-XTARG0 at(232,216). Check actual identities/idle state, then `sessionBatch.begin(kind)`:
+
+- `legacy`: ordinary targeted Strength, arm the caster's BCS movement during observed windup,
+  then observe script markers, action starts/queues, expenditure, effects and actual movement.
+  Script execution may defer rather than replace the cast; do not call either result beforehand.
+- `lifecycle`: ordinary cast, move the test protagonist out/back through the proven console
+  area helper, re-resolve actors; then request a save while a normal Wait20/Move chain is observed
+  in memory. Host verifies the new named BGSE-only slot, calls `loadSaved(exactFolder)`, and
+  observes the reloaded actor. This is a save/load ordinary-action probe, not proof of what
+  action state was serialized or a saved in-flight spell.
+- `image`: force Project Image solely as fixture setup, observe a live parent-matched type2
+  clone, log refusal without submitting work on its owner, queue removal of only that clone,
+  and try an ordinary Strength cast once the owner is visibly free. No deliberately queued
+  locked-owner action or claim that a forced PI setup proved normal PI expenditure.
+
+Reset only our own baseline between sequences, not the process. The lifecycle case may create
+one uniquely named own save; never overwrite. Per-case150-second/12,000-row session limits
+contain logging, not prove engine cancellation. TSV includes phase/epoch/tick, actor/resource,
+position/current/queued actions, available/total spell copies, aura/HP/state, relevant effect
+sources, legacy marker and clone relationship flags. Gaps/out-of-area/absent observations are
+not negative evidence. Exact commands/pins/build/review/cleanup belong in the private run.
+
+The 2026-09-30 run completed all three sequences in **one** hidden process, with 3800 scalar
+rows and no probe error. Legacy BCS waited until after independently observed cast delivery,
+then moved. Area exit during casting invalidated observation scope. Own save975 reloaded with
+no Wait/Move continuation, but the exact serialized action state is not proved. A parent-matched
+Project Image clone and ownerType2 caused no ordinary submission; after clone death/owner release,
+ordinary Strength spent one copy and delivered target opcode44. Full bounded findings/pins are
+in ACT-02/03/04. Phase-only timestamps use the last sample; use actor snapshots/epochs across
+save resets. Source review and independent full-trace review were accepted, not a general lease.
+
+Owned processes stopped; nine additions/IPC removed and three originals restored. One tiny own
+save is retained privately, no game copy. Existing 12 checks passed; no new broad tests. Task9/G1
+remain open for actual replacement/ownership loss and saved-in-flight uncertainty. Continue with
+representative logged sequences, not a launch or exhaustive scenario suite per spell.

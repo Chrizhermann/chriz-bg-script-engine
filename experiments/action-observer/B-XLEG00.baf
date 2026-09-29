@@ -1,0 +1,9 @@
+// Synthetic competing legacy producer, armed only in the isolated lab.
+IF
+  Global("B-XLEGACY","LOCALS",1)
+THEN
+  RESPONSE #100
+    SetGlobal("B-XLEGACY","LOCALS",2)
+    MoveToPoint([232.264])
+    SetGlobal("B-XLEGACY","LOCALS",3)
+END

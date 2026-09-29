@@ -73,3 +73,26 @@ still moving, exact arrival at requested(232,264), or range/line-of-sight bounda
 Private `target-runtime-v1/movement-final.json` retains the full trace. Independent review
 confirmed event/position/effect ordering and the stationary-at-delivery limit. See ACT-02 for
 exact reproduction/cleanup; no policy change, new save, retry or G1 closure.
+
+## A running legacy script alongside the cast — bounded E4, 2026-09-30
+
+The [integrated session](ACT-02-cast-observation.md#integrated-session-project-image-exclusion-and-resumed-casting--e4-2026-09-30)
+adds one authored BCS response to the stripped caster. During observed ordinary Strength windup,
+arm local B-XLEGACY=1. The script sets2, performs ordinary MoveToPoint([232.264]), then sets3.
+This is an actual legacy script producer, not another host append or a player replacement.
+
+Cast queued and matching ID31/SPWI214 start32736; current31 at32737, ready2->1 at32740.
+The local is armed32740 and sampled as1 at32741, while current31 lasts through32759.
+Caster idle32760; target source-SPWI214 effects including opcode44 first appear32762.
+Only afterward, SetGlobal30 and Move23 start32763. Marker2/current23/queued final SetGlobal
+appear32764; displacement begins32765. Final SetGlobal starts32777, and32778 has marker3,
+idle/empty queue and position(232,270). All301 unique sampled ticks32736–33036 are present.
+Total Strength records remain2 and one ready copy remains through the end.
+
+The script ran and movement occurred, but it **did not preempt** the already-started cast in
+this fixture. Target effects independently prove that cast's delivery. This does not prove
+player-command replacement, universal legacy priority or production ownership arbitration.
+Exact requested Y264 was not attained; observed Y270 is reported without inventing a tolerance.
+Private closed TSV and deployed source provide reproduction and independent review. No queue
+clearing, retry, gameplay rule or general compatibility claim. Remaining actual replacement/
+ownership-loss handling stays open rather than requiring every script or encounter variant.

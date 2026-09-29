@@ -34,6 +34,15 @@ forbid the game's internal queued button events. Reuse the existing method; a ma
 is not a prerequisite. Coordinate with other game-testing tasks, preserve the original game and
 all personal saves, clean up our temporary additions, and retain G0–G8 and user-owned design choices.
 
+## Representative batch testing — 2026-09-30
+
+The user wants substantial logged gameplay/action sequences, not a new launch or report per
+spell. Keep one hidden lab session across a useful batch and reload our fixture between cases.
+Collect relevant actions, state changes and postconditions for analysis after the batch;
+missing observations remain unknown. Use isolated probes to diagnose actual failures or gaps,
+not to enumerate every spell/encounter. Restart only for required disk changes, failure or end
+of batch. Preserve feature scope, active-game isolation, user-owned design choices and G0-G8.
+
 ## Project charter
 
 This repository develops a compatibility-first EEex scripting platform with two policy domains:

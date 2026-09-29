@@ -249,3 +249,51 @@ Own helper/loader/game were verified absent; eight additions and IPC removed, th
 (ARE/menu/settings) restored byte-exactly, matching token released. Steam DLL stays disabled.
 No original game, unrelated installation or personal save was changed. E1 fixture/source plus
 bounded E4 results only; Task9/G1 remain open for ownership, transitions and Project Image.
+
+## Integrated session: Project Image exclusion and resumed casting — E4, 2026-09-30
+
+One hidden process ran legacy contention, area/save/load and Project Image sequences, resetting
+only our own baseline between cases. The same stack/Strength pin applies. The synthetic caster
+B-XMAGE2 adds only DV B-XCAST2 and the authored B-XLEG00 script to the prior stripped fixture.
+The effective SPWI703 used for **forced condition setup**, not fair PI casting, has SHA256
+`aacce5c6506461cf7770c4add11e75a37bd4e8da97eab9669682182519ff12d9`.
+Origin/last-writer attribution is not established by that hash; no spell payload is published.
+Installed STATS.IDS SHA256 `11b7f188c11b69a751361cf2a3bfe757155f7e979984fe90d010c764f664dcc0`
+names 139 PUPPETMASTERTYPE and 140 PUPPETTYPE (141 is PUPPETID). Verify these, not stale examples.
+
+- Forced setup ID181 starts32564. A live type2 COPY with matching parent is visible32565;
+  at32566 the caster has ownerType2, state48, empty queue and two ready Strength copies.
+  The probe records refusal and submits **no ordinary action** on that owner.
+- All 32 owner samples32566–32597 retain an empty queue with no current31. Clone Kill131
+  starts32596; HP0/state2048 at32597 proves death, not merely acceptance of Kill.
+- At32598 the clone is absent, ownerType0/current0/queue empty/aura-1. Only now is ordinary
+  targeted Strength submitted and its matching ID31 start recorded. Ready2->1 at32602;
+  target source-SPWI214 opcode44 first appears32624. All186 owner ticks32563–32748 are present.
+
+This proves the fixture's exclusion decision and later ordinary debit/delivery. It does not
+test deliberately queued work on a locked owner, universal clone recognition, Simulacrum,
+player ownership, normal PI expenditure or a production ownership policy. The residual
+state48 at32598 becomes16 at32599; ownerType, not a claim that all effects vanished, is the
+observed release condition. The static transient-clone ambiguity guard was not exercised here.
+
+**Reproduction/evidence:** `experiments/action-observer/session-batch.lua`, deployed SHA256
+`be414ac9f7fd83e29378c2d004120049bf45c830b37fedb701d32e7712f60faf`;
+private `batch-fixture-build-v1` and `integrated-runtime-v1` retain WeiDU24900 commands,
+byte checks, exact stage/QA/launcher recipes, host-sent commands and full closed TSV/JSON.
+The experiment README gives the case sequence. Lua5.1/LuaJIT compilation and the existing 12
+host checks passed; no new synthetic tests/framework. A subagent reviewed source and all completed
+traces; lead independently checked transitions and cleanup. E1 build/source plus bounded E4,
+not an E5 soak or broad mocked-probe proof.
+
+The combined trace contains 3800 rows (418528 bytes), SHA256
+`bdd497cbed5a844bada8987d9bd43373ff30deea193fa490be641a07d3e7b678`.
+It records selected state/effects, not every engine event. Control/phase rows without an actor
+carry the last sampled tick, which can be stale across resets; use fresh actor snapshots,
+start events and epochs for timing. Out-of-area/menu intervals are explicit observation gaps.
+No callback handle/engine object ID is persisted. All three cases ended without probe errors.
+
+One new own save975 (526164bytes) is retained as private lifecycle evidence. Owned processes
+were verified absent; nine additions/IPC removed, ARE/menu/settings restored byte-exactly,
+reservation released, Steam DLL still disabled. No new game copy, original-game or personal-save
+change. See ACT-03/04 for the other results. Task9/G1 stay open for the remaining ownership/
+replacement contract and exact saved-in-flight uncertainty; no production action activation.

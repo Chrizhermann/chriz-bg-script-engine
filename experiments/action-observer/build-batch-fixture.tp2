@@ -1,0 +1,16 @@
+BACKUP ~backup~
+AUTHOR ~BGSE local research fixture~
+BEGIN ~Build disposable scripted caster~ DESIGNATED 0
+
+// Exact existing stripped Strength caster, plus a synthetic legacy script and DV.
+COPY ~%argv[0]%/B-XMAGE1.CRE~ ~%argv[1]%/B-XMAGE2.CRE~
+  READ_ASCII 0 signature (8)
+  READ_ASCII 0x280 dv (32) NULL
+  READ_ASCII 0x248 override_script (8) NULL
+  PATCH_IF NOT (~%signature%~ STRING_EQUAL ~CRE V1.0~ AND
+                ~%dv%~ STRING_EQUAL_CASE ~B-XCAST1~ AND
+                ~%override_script%~ STRING_EQUAL ~~) BEGIN
+    PATCH_FAIL ~Unexpected stripped donor~
+  END
+  WRITE_ASCII 0x280 ~B-XCAST2~ (32)
+  WRITE_ASCII 0x248 ~B-XLEG00~ (8)
