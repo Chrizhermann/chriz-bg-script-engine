@@ -183,6 +183,62 @@ also matching after normalization. Private pins are in
 `.work/task6/mage-family-index-20261004/breach-pins.private.json`. No upstream payload or derived
 behavior fixture is added to Git. Credit and reference-only restrictions below still apply.
 
+## Manual sequencer continuation — 2026-10-04
+
+**Question:** Does a representative composite spell follow the same accounting and action path
+as an ordinary cast? The existing MAGE18B decompile answers the structural part without another
+game launch. It does not answer whether every child actually executes or lands.
+
+Pinned [sequencer.ssl:75–84](https://github.com/Gibberlings3/SwordCoastStratagems/blob/5dc240e9ff85d3909b6436e54b56297d3b61e33b/stratagems/mage/ssl/combatblocks/sequencer.ssl#L75-L84)
+requests a two-Minor-Lightning-Bolt `MinorSequencerManualRES` with weights150/50 and Combine.
+The installed trigger table line24 maps that symbolic bundle to `dw#ms22`; SPELL.IDS line336
+maps WIZARD_MINOR_LIGHTNING_BOLT to2229. These exact local mappings, not a generated-name rule,
+connect the call to BAF11083–11124. The definition is
+[caster_definitions.ssl:1313–1333](https://github.com/Gibberlings3/SwordCoastStratagems/blob/5dc240e9ff85d3909b6436e54b56297d3b61e33b/stratagems/caster_shared/caster_definitions.ssl#L1313-L1333).
+
+The emitted action block requires the bundle, cast timer, enabled/living caster, no improved
+alacrity or running time stop, and targetability/DNT, resistance/protection, allegiance,
+difficulty and sight predicates. Its150-weight response sets the cast timer, forces the
+B-suffix resource, forces SPWI229, waits1, then forces SPWI229 again. Its50-weight response
+only Continues. The selected target is LastSeenBy, not a fresh independently chosen target
+for each child. No ordinary child memorization check or BCS RemoveSpell appears in this response.
+
+**Accounting counterexample:** Absence of BCS RemoveSpell is not absence of accounting.
+The existing private SPL reader shows DW#MS22 contains two opcode146 child effects followed by
+self-target172 and delayed171 referencing the bundle itself. DW#MS22B contains no146: it retains
+172/171, adds three one-second opcode101 entries for38/60/80 and one-second189 with parameter1=10.
+The [builder:913–924](https://github.com/Gibberlings3/SwordCoastStratagems/blob/5dc240e9ff85d3909b6436e54b56297d3b61e33b/stratagems/caster_shared/caster_shared.tph#L913-L924)
+explicitly constructs this remover clone by deleting146 from the base. Its retained171 has
+timing4/duration1440, as in the earlier trigger family. IESDP describes
+[172 as spell removal](https://gibberlings3.github.io/iesdp/opcodes/bgee.htm#op172) and
+[171 as ability granting](https://gibberlings3.github.io/iesdp/opcodes/bgee.htm#op171) (E0 reference);
+the bytes and builder are E1. Actual removal, delayed return and interrupted-child behavior
+still need engine observation. Do not replace this with two normal memorized casts by analogy.
+
+**Selector counterexample:** BAF10569–10605 ends with See, False and Continue. The worker initially
+called this pruning; lead review corrected it: Combine deliberately emits selector blocks
+([compiler:973–977](https://github.com/Gibberlings3/SwordCoastStratagems/blob/5dc240e9ff85d3909b6436e54b56297d3b61e33b/stratagems/ssl/ssl.pl#L973-L977)).
+The later surviving action block is the relevant comparison. Neither the selector's False nor
+the source's preferred weak-target conditions alone prove runtime target-memory behavior.
+The initially sought undead-paranoia manual dispel response was not found in this BAF; do not
+promote its lich/vampire-guarded source call to observed MAGE18B output.
+
+**Reproduction:** Reuse the existing hashed BAF/IDS/trigger table and inspect the ranges above.
+The47-file private index pins sequencer.ssl (normalized SHA256
+`0d2050773637ac8019f456545b8d09b12d551275c336b419e58fbb67e4c13dcd`).
+Run the unchanged `inspect-trigger.ps1 -Resources DW#MS22,DW#MS22B,SPWI229` against the approved
+copied lab; retained `manual-sequencer.private.json` records fields and raw effect bytes.
+Installed SPL SHA256 identities are DW#MS22
+`07031c8967eb6d73c04c3a850a9211ab29d784f0b6856322207f504f554610d7`, DW#MS22B
+`b5fdb083f71e6bd6e8d975f24c744851ac4008a1ca5ff8bdd547387276ef031c`, SPWI229
+`240f6f32011ac8020a64cbb3152688d13df3309a4adad05a3e6dab8a9b679a8a`.
+Child projectile/transitive helper closure and complete final patch ownership remain open.
+No new parser, tests, fixture publication or actor admission. SCS/Spell Revisions credits below apply.
+Independent review checked the source-to-output mapping, directly rehashed the three installed
+SPLs and accepted these bounded conclusions. The lead retained the selector correction above.
+The combined existing action/persistence/evidence checks passed42 in0.17s; no new test case
+was added for this research. Those checks validate code/evidence contracts, not SCS behavior.
+
 ## Reproduction, artifacts and review
 
 Private directory: `.work/task6/high-mage-20260928`. Reuse the already recorded WeiDU24900

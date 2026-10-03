@@ -445,6 +445,9 @@ True Sight self-cast family; [encounter exceptions](../research/SCS-05-encounter
 now compares Kruin's named branches and separate general-script handoff to installed output.
 Two further private BCS roundtrips match. Conditional difficulty access is traced in SCS-06;
 complete control closure and runtime semantics remain open.
+All33 indexed action labels resolve to shared definitions; the same higher-level report now
+maps one manual sequencer's forced children, selector blocks and effect-layer accounting.
+This supports reusable family work, not one runtime test per call site.
 
 **2026-09-22 checkpoint:** In progress. The reviewed
 [pinned-source mage/prebuff checkpoint](../research/2026-09-22-task6-source-checkpoint.md)
@@ -602,6 +605,13 @@ outcomes; otherwise active control remains forbidden.
 **Research linkage (not automatic closure):** EEEX-02, EEEX-04, WF-02, PERF-01, PERF-05
 
 **Depends on:** Tasks 3, 5, and 8
+
+**2026-10-04 checkpoint:** [Persistence/lifecycle evidence](../research/EEEX-06-persistence-lifecycle.md)
+and the [first observer-cost batch](../research/PERF-01-observer-baseline.md) are independently
+reviewed. Host foundations remain research modules under `experiments/persistence`, not production
+kernel code. Current/old/future/corrupt records and named save/load, area, menu, death and new-game
+paths have bounded observations; the cost batch retains its disclosed contaminated window.
+True quickload remains unproved, so Task10 stays in progress and Task11/G1 stay pending.
 
 **Files:**
 

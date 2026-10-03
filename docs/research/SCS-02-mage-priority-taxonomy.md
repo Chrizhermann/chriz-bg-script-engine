@@ -106,3 +106,35 @@ Breach family. Corrected private index SHA-256:
 ordinary Breach family to actual output. Most of this inventory is not yet semantically mapped;
 no full oracle, adapter activation, Task6 completion or G1 approval follows. SCS by DavidW;
 reference-only source, no bulk policy/source/fixture distribution.
+
+## Shared action boundary checklist — 2026-10-04
+
+All 33 first-argument labels in that private inventory resolve to named definitions in the pinned
+`caster_shared/caster_definitions.ssl`; none is unresolved. This is name-resolution coverage,
+not complete semantic coverage. Copied-source raw SHA256 is
+`825f0d0000101acc375c5c3d4d43ee5cf7656bbac80d825d4932231ee5255440`; CRLF-to-LF bytes match
+the existing pinned artifact digest `7040c135bc0233f149cc56f7433bd05bca1109b5f44318a9ad479572827a3373`
+in [the source manifest](scs-source-pilot.evidence.json). The lead independently repeated the
+label lookup and hash checks after worker extraction, and read these consequential bodies.
+
+The following small checklist identifies distinctions to preserve when grouping reusable code.
+It is not a reconstructed policy table or permission to activate any family. All anchors refer to
+the [same pinned definitions](https://github.com/Gibberlings3/SwordCoastStratagems/blob/5dc240e9ff85d3909b6436e54b56297d3b61e33b/stratagems/caster_shared/caster_definitions.ssl).
+
+| Boundary | Concrete distinction / source lines |
+|---|---|
+| Target versus recipient | Ordinary target, self and area variants have different guards; area adds a helper effect before normal casting. 18–33, 177–188, 798–813. |
+| Resource accounting | NoDec definitions omit their own HaveSpell check; callers can add accounting. Replace-self checks/removes a different spell from its payload. 379–407, 443–464, 1124–1137. |
+| Similar RES variants | Boolean variants add a generation gate. SpellAreaRESBoolean uses failure threshold50, ordinary area60; do not normalize this unexplained difference. 286–340, 798–813, 1028–1043. |
+| Side-effect order | Marker effects precede the cast. SpellL9 increments its counter before Spell; SpellL9Area increments after. Counters are not proof of success. 52–68, 124–139, 845–862, 975–992. |
+| Composite actions | Sequencer uses ForceSpellRES; manual variants prepend a B-suffix RES action to two/three forced children separated by waits and add guards. Neither is one ordinary spell. 1212–1226, 1243–1347. |
+| Separate item/special paths | Wand uses HasItem/UseItem and an interrupt toggle; vsPMscroll selects Spell Strike explicitly. 1189–1204, 1448–1461. |
+
+**Method and limit:** Resolve literal labels against `Name(...)` declarations, then inspect full
+definition bodies, not suffixes. The private index recipe remains corpus-specific. Compiler
+pruning, response construction, ordered library overrides and call-site conditions still determine
+effective output; use the [generation trace](SCS-shared-rule-expansion.md) and the selected
+[Breach comparison](2026-09-28-scs-high-mage-dispel.md). No new parser, policy module, test suite
+or runtime claim. Independent review narrowed the counter-order comparison to its two exact labels
+and removed an unproved semantic role for the B-suffix action. E1 only; future representative batches should distinguish these action families,
+not enumerate every call site. Attribution and reference-only restrictions above remain unchanged.
