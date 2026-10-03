@@ -440,6 +440,11 @@ identity-checks all47 direct includes without treating its423 Action call sites 
 The higher-level report now also maps the six repeated ordinary Breach blocks and their distinct
 weighted skip/timer behavior. Both are reviewed E1 research; most semantics remain unmapped,
 Task6 remains in progress and no adapter activates.
+The [target/protection memo](../research/SCS-04-target-and-protection-rules.md) adds a normal
+True Sight self-cast family; [encounter exceptions](../research/SCS-05-encounter-exceptions.md)
+now compares Kruin's named branches and separate general-script handoff to installed output.
+Two further private BCS roundtrips match. Conditional difficulty access is traced in SCS-06;
+complete control closure and runtime semantics remain open.
 
 **2026-09-22 checkpoint:** In progress. The reviewed
 [pinned-source mage/prebuff checkpoint](../research/2026-09-22-task6-source-checkpoint.md)

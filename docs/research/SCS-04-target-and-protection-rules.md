@@ -53,3 +53,58 @@ exists. A comment-only ordinary SR entry does not erase an earlier predicate.
 
 **Next decision:** Lead reviews actual library/compiler inputs and effective output against the
 source trace. Unresolved forms remain `opaque`, never permissively generalized.
+
+## True Sight comparison — 2026-10-04
+
+**Question:** Can a self-cast detection rule be mapped as a family without confusing its observed
+enemy with the spell's recipient? Same MAGE18B/copied stack and hashed BAF as the higher-level
+report; no new decompile, engine run or mutation.
+
+Pinned [truesight.ssl7–15](https://github.com/Gibberlings3/SwordCoastStratagems/blob/5dc240e9ff85d3909b6436e54b56297d3b61e33b/stratagems/mage/ssl/combatblocks/truesight.ssl#L7-L15)
+matches effective BAF8110–8246: six complete candidate blocks, nearest through sixth-nearest
+enemy. Each checks See(candidate), castspell not unexpired, HaveSpell(WIZARD_TRUE_SIGHT) and caster
+spell-failure<60; requires enemy caster and non-ENEMY candidate; and requires a disjunction of
+candidate mirror-image state, ILLUSIONARY gender, improved invisibility or invisibility.
+
+The repeated coverage guard checks the TRUE_SIGHT **stat** on four ENEMY-allegiance object
+selectors (fourth-nearest, third, second, `[ENEMY]`) plus Myself. Preserve those expressions;
+they are not a scan of all allies, a whole-party coverage guarantee or a shared reservation.
+The [library bodies470–481](https://github.com/Gibberlings3/SwordCoastStratagems/blob/5dc240e9ff85d3909b6436e54b56297d3b61e33b/stratagems/ssl/library.slb#L470-L481)
+match these distinct coverage and target-illusion scopes. Absent-object behavior and See against
+the invisibility states are not proved by the BAF; do not infer omniscient detection.
+
+Each single weight100 response sets castspell=ONE_ROUND then requests normal
+Spell(**Myself**,WIZARD_TRUE_SIGHT). The candidate determines why the action is useful, not its
+recipient. There is no second weighted Continue response or explicit spell-removal action in
+this region. This matches [SpellMyself177–188](https://github.com/Gibberlings3/SwordCoastStratagems/blob/5dc240e9ff85d3909b6436e54b56297d3b61e33b/stratagems/caster_shared/caster_definitions.ssl#L177-L188),
+not the ordinary enemy-targeted Spell action definition.
+
+Indiscriminate/IsLich and the definition's SSLBoolean are generation filters, not emitted runtime
+conditions. Source SIDivination is absent in this output, consistent with SR's explicit
+[blank replacement11–12](https://github.com/Gibberlings3/SwordCoastStratagems/blob/5dc240e9ff85d3909b6436e54b56297d3b61e33b/stratagems/ssl/library_sr.slb#L11-L12).
+This is a real distinction from SIAbjuration's append-only declaration, not permission to discard
+immunity tests globally.
+
+**Counterevidence / scope:** The source also has SR Detect Invisibility and lich Oracle/True Sight
+forms. Those forms were not identified in this actor's output. An earlier Oracle cast and other
+True Sight occurrences do not have this branch structure and are not evidence of those alternate
+forms surviving. Do not infer why an absent alternative was pruned. Installed numeric namespaces
+also differ: spell WIZARD_TRUE_SIGHT=2609, stat TRUE_SIGHT=118, state DETECT_INVISIBILITY=143;
+spell WIZARD_DETECT_INVISIBILITY=2203 and WIZARD_ORACLE=2515. A shared display label is not an
+interchangeable ID.
+
+**Disposition and evidence:** `preserve` candidate-versus-recipient, coverage scopes, normal
+action/timer order and installed library substitutions; `needs-engine-proof` for actual selection,
+delivery, spell expenditure and removal of illusions. E1 only, not a complete detection/perception
+policy, ownership claim or observed cast. No tactical change is proposed.
+
+**Artifacts and reproduction:** Existing source/BAF identities plus the direct-include index in
+SCS-02. truesight.ssl pinned raw SHA-256
+`A1699E60CA053818C3080B5D8C7742F5C47FF7C9C10369548B06025057AA94B7`, copied-lab raw
+`17F56CFD2FAAA82F25B05FECDD4CAC84901E0B2062C81D36BA78B694E3F8E1BE`; normalized content matches.
+Inspect the six complete BAF blocks, not only spell-name matches. SCS by DavidW, SR by
+Demivrgvs/G3; authored metadata only, no source or behavior fixture admitted to Git.
+
+**Review:** Independent source/output extraction and lead full-block inspection agree. A final
+wording review corrected abbreviated spell names to their exact WIZARD_ aliases so the paragraph
+itself does not blur spell and stat namespaces. No runtime claim or new test case was added.

@@ -40,10 +40,11 @@ Task 6 memos beginning with [the pipeline](../../research/SCS-01-generation-pipe
 | M01 inputs and identity | `mage-shared` 28-46, 313-367; `caster-shared` 1043-1065; installed comparison | `preserve`: identify by generator/effective provenance, not generated name. One CRE's final slots and hashes are verified; area/controller overrides and full generator inputs remain open. |
 | M02 priority and continuation | `main-mage` 7-122; `standard-mage` 5-51 | `preserve`: do not flatten ordering; compare expanded BCS and later shadow traces. |
 | M03 target/protection legality | `first-dispel` 7-31; `caster-definitions` 18-33, 798-813, 1212-1265; higher-level comparison | `preserve` selected emitted gates, action ordering and weighted skip timer. Six macro bodies now compared with one effective branch; historical inputs, selector side effects and action outcomes remain `opaque` / `needs-engine-proof`. |
-| M04 encounter handoff | `kruin` 5-71; `first-round` 25-77 | `opaque`: legacy-owned; prove control closure and separately review any future enrollment. |
-| M05 actions and settings | `mage-setup` 14-38; `difficulty` 140-287 | `needs-engine-proof`: preserve observed source distinctions in future tests; no source-to-runtime promotion. |
+| M04 encounter handoff | `kruin` 5-72; installed Kruin BAF6587–7172 and separate general script; SCS-05 | `preserve` mapped Symbol Stun/Wilting/SR-fiend branches, explicit Nahal accounting after payload action, and separate approach/dialogue controller. Complete control closure remains `opaque`; actor stays legacy-owned and needs separate enrollment review. |
+| M05 actions and settings | `mage-setup` 14-38; `difficulty` 140-287; `lib_script` 113-118 and effective Kruin predicates | `preserve` distinct source settings and conditional Global-to-INI conversion; `needs-engine-proof` for effective setting/response behavior, no source-to-runtime promotion. |
 | M06 trigger payload and accounting | `caster-shared` 859-924; higher-level comparison's DW#TG15/DW#MGSEE and immediate children | `preserve`: child order, instant bundle, self-removal/delayed return and ordinary-branch visibility helper are distinct from BCS timers/rest. Bytes inspected; delivery, expenditure and restoration interaction `needs-engine-proof`. |
 | M07 ordinary targeted Breach | `attacks_on_pc_defences` 34-48; higher-level comparison BAF6547–6737; DS source73–87 | `preserve`: six ordered target blocks, emitted legality/protection predicates, normal Spell then timer writes, and a Continue-only150-weight skip distinct from early dispel. Actual marker effects, target evaluation and delivery `needs-engine-proof`; missing variants' pruning reasons remain `opaque`. |
+| M08 detection self-cast | `truesight` 7-15; SCS-04 comparison BAF8110–8246 | `preserve` enemy candidate versus self recipient, scoped coverage predicates, normal spell/timer and actual SR library replacement. Unmatched source alternatives remain `opaque`; visibility, delivery and detection effect `needs-engine-proof`. |
 
 **Intentional changes:** None approved. Replacing SCS's runtime is the long-term goal, not permission
 to discard its encounter/content changes or copy policies now. Any future generalization/change gets
@@ -72,6 +73,9 @@ The shared-rule continuation adds source-chain and immutable-artifact documentat
 not behavior-preservation tests.
 The higher-level comparator adds a second byte-identical BCS roundtrip, not a new test framework
 or live support claim.
+The named Kruin continuation adds two more private byte-identical roundtrips (generated combat
+and archived general script), plus True Sight uses the already retained higher-level decompile.
+These are compiler/structure checks, not extra engine launches or behavior-preservation tests.
 
 **Attribution:** SCS by David Wallace (DavidW); follow file/component contributor credit before
 derived reuse. Spell Revisions (Demivrgvs/G3) informs optional compatibility branches, not a tested
