@@ -133,6 +133,56 @@ normal spell slots and short combat timers into one guessed cooldown rule.
 ForceSpellRES execution, interruption, child delivery, spellbook state and save/load remains
 `needs-engine-proof`. No change to SCS fairness, spell allocation or recharge behavior is proposed.
 
+## Ordinary Breach continuation — 2026-10-04
+
+**Question:** Which shared rules survive in a repeated, ordinary targeted-spell family, rather
+than the earlier combined dispel selector? Same actor, installed stack and private decompile;
+read-only E1 inspection, not a new cast or generation run.
+
+The [ordinary Breach block](https://github.com/Gibberlings3/SwordCoastStratagems/blob/5dc240e9ff85d3909b6436e54b56297d3b61e33b/stratagems/mage/ssl/combatblocks/attacks_on_pc_defences.ssl#L34-L48)
+matches six consecutive effective blocks at BAF lines6547–6737. The source is the ninth standard
+combat include, not the next include after early dispel. Other source families intervene; this
+actor's two emitted defensive-renewal blocks immediately precede the six Breach blocks.
+
+| Rule group | Effective observation / migration disposition |
+|---|---|
+| Target expansion | Six ordered candidates: `[PC]`, then second through sixth nearest PC. `preserve` the emitted order, not portrait slots; runtime evaluation with fewer targets remains unproved. Unlike the combined early-dispel branch, these are full repeated conditions/actions, not `See/False` selector stubs. |
+| Ordinary-action checks | Each has castspell-timer availability, HaveSpell(BREACH), not-not-targetable, no sanctuary, caster spell-failure<60, no DO_NOT_TARGET_SPELLS and See(target). `preserve` these distinct checks; no claim that they are a complete legality model for all spells. |
+| Shared protection checks | Each rejects positive Spell Turning, Spell Trap, Spell Deflection and Shield of the Archons stats, and spell-immunity-stat value1. The base SIAbjuration test remains present despite SR's comment-only declaration. `preserve`; do not replace the emitted predicates with a guessed generic immunity flag. |
+| Relationship and state | Caster must have ENEMY allegiance, selected target must not; target is not immobile/feebleminded/held. Target must have PRIORITY_BREACH, caster must not have TIME_STOP, and DMWW_breach must not be unexpired. `preserve` the scopes and negations. |
+| Casting response | Weight100 sets castspell=ONE_ROUND, requests normal Spell(target,BREACH), then sets DMWW_dispel, DMWW_antimagic and DMWW_breach to THREE_ROUNDS, in that order. Installed GTIMES resolves these to6 and18. `preserve` order; action completion and timer execution remain `needs-engine-proof`. |
+| Skip response | Weight150 contains only Continue(). It does not write those timers, unlike the earlier dispel skip that writes firstdispel. The conditional weight ratio is100:150, not observed cast frequency or a post-success callback. `preserve` this difference. |
+
+Source expansion anchors are [Spell definition18–33](https://github.com/Gibberlings3/SwordCoastStratagems/blob/5dc240e9ff85d3909b6436e54b56297d3b61e33b/stratagems/caster_shared/caster_definitions.ssl#L18-L33)
+and base library [protection41–45](https://github.com/Gibberlings3/SwordCoastStratagems/blob/5dc240e9ff85d3909b6436e54b56297d3b61e33b/stratagems/ssl/library.slb#L41-L45),
+[relationship/state63–69](https://github.com/Gibberlings3/SwordCoastStratagems/blob/5dc240e9ff85d3909b6436e54b56297d3b61e33b/stratagems/ssl/library.slb#L63-L69),
+[target order244–250](https://github.com/Gibberlings3/SwordCoastStratagems/blob/5dc240e9ff85d3909b6436e54b56297d3b61e33b/stratagems/ssl/library.slb#L244-L250),
+[priority marker366–367](https://github.com/Gibberlings3/SwordCoastStratagems/blob/5dc240e9ff85d3909b6436e54b56297d3b61e33b/stratagems/ssl/library.slb#L366-L367)
+and [immunity845–846](https://github.com/Gibberlings3/SwordCoastStratagems/blob/5dc240e9ff85d3909b6436e54b56297d3b61e33b/stratagems/ssl/library.slb#L845-L846).
+Installed SPELL.IDS resolves WIZARD_BREACH to2513; SPLSTATE.IDS resolves PRIORITY_BREACH to183.
+The [DS source table73–87](https://github.com/Gibberlings3/SwordCoastStratagems/blob/5dc240e9ff85d3909b6436e54b56297d3b61e33b/stratagems/ds/ds_scs.tpa#L73-L87)
+is another input to that marker, not a literal condition expanded at the call site. Its list
+differs from the older call-site comment (for example, Stoneskin and Death Ward are not entries
+in this selected table). Therefore preserve the observed marker check; do not derive a replacement
+protection list from the comment. Complete DS patching/final effect provenance remains open.
+
+**Counterevidence and boundary:** Source `IgnoreBlock(Indiscriminate)` is a generation filter,
+not an emitted runtime condition. The wand18 alternative and special ADHW/priority_breach variant
+are absent from the retained effective region; this does not establish why generation pruned them.
+No separately identifiable predicate is attributed to the `slowspell` comment marker. No Breach
+payload, removal outcome or complete resource/control closure is claimed. Six structurally repeated
+blocks are one useful migration family, not six independent spell designs or six required launches.
+
+**Artifacts and reproduction:** Reuse the hashed BAF below and inspect lines6547–6737; source
+comparison uses the exact pin and SCS-01 raw-byte recipe. The source file's upstream SHA-256 is
+`F6BEF77A69E1297FA1862585B7EF57D95CE01420A1EA6EE34888281CA5DB5BE8` (7,528 bytes), copied-lab raw
+`C60D8DABA1959B005653CCC52FA7068D38C11BA6754674AB3F7BA95F53EA607C`; CRLF-to-LF content matches.
+DS source upstream SHA-256 is `95F77F73D30871CD70C8A3D49B148EDAAF4CCD46C41A32C3984243A861247A77`
+(6,244 bytes), copied-lab raw `F635DC131108C657907D7FC4B5834ACA30578343B33AACF4CB2C302F56F51207`,
+also matching after normalization. Private pins are in
+`.work/task6/mage-family-index-20261004/breach-pins.private.json`. No upstream payload or derived
+behavior fixture is added to Git. Credit and reference-only restrictions below still apply.
+
 ## Reproduction, artifacts and review
 
 Private directory: `.work/task6/high-mage-20260928`. Reuse the already recorded WeiDU24900
@@ -213,6 +263,15 @@ The same24 existing checks passed in0.08s; no new cases. All findings remain rea
 transitive child/helper payloads, LastSeenBy/False selector semantics, absent party-slot evaluation, timer/casting
 outcomes and save/load. Full regeneration and wider spell/encounter support are not proved.
 
+**2026-10-04 review:** Independent Sol source-to-output review accepted the ordinary Breach
+continuation without a material correction. The lead checked all six emitted blocks, macro
+bodies, installed numeric aliases, raw/normalized source identities and the DS comment mismatch.
+Existing24 evidence/schema checks passed in0.06s; no new tests, framework or game run. These checks
+validate the retained evidence records, not the truth of the new source interpretation by themselves.
+`git diff --check` passed. The separate inventory review corrected an API metadata label, documented
+in SCS-02; per-file matches and behavior observations were unaffected.
+
 **Next decision:** No user design choice is needed to retain this mapping. Keep legacy ownership;
 do not activate a translation or close Task6/G1. Later representative game checks must observe
-target selection, actual delivery and expenditure separately. Task3 save routing remains open.
+target selection, actual delivery and expenditure separately. Task3 subsequently completed; this
+read-only mapping neither changes its approved lab boundary nor closes G1.

@@ -1,10 +1,13 @@
 # SCS mage pilot: priority taxonomy
 
-**Outcome:** Conditional; source-only map, not a complete priority oracle.
+**Outcome:** Conditional; source-only map with a 2026-10-04 complete direct-include identity
+inventory, not a complete priority oracle.
 
 **Question:** Is the standard combat include list the entire mage decision order?
 
 **Environment:** env:host; game-state access none.
+The 2026-10-04 continuation also reads source files in the approved copied lab, without launching
+the engine, inspecting saves, running the installer or changing the game.
 
 **Versions and fingerprints:** SCS v35.21 pin and hashes in
 [scs-source-pilot.evidence.json](scs-source-pilot.evidence.json).
@@ -42,3 +45,64 @@ conditional output construction in the Perl source; this is not generated-output
 
 **Next decision:** Preserve source ordering distinctions in the effective comparison; approve no
 priority rewrite until exceptions and generated behavior are understood. Owner: integration lead.
+
+## Direct-include coverage — 2026-10-04
+
+All **47 distinct direct includes** in standard_mage.ssl:5–51 are now identity-checked against the
+same v35.21 pin. The copied-lab files match their pinned Git blobs after CRLF-to-LF normalization;
+none is missing or duplicated. These files contain 4,542 physical source lines and 423 visible
+`Action(...)` call sites using 33 distinct first-argument labels. These are source counts, not
+423 different behaviors, tests, supported spells or runtime decisions. The main template's
+non-core stages, other magetypes and nested dependencies are outside this inventory.
+
+This gives us a usable breadth checklist while mapping shared rules. For example:
+
+| Literal action label | Call sites | Direct-include files containing it |
+|---|---:|---:|
+| SpellArea | 75 | 19 |
+| Spell | 74 | 20 |
+| SpellMyself | 43 | 9 |
+| SequencerManual | 42 | 6 |
+| SpellAreaIgnoreDNT | 38 | 4 |
+| MinorSequencerManual | 14 | 3 |
+| Sequencer | 14 | 6 |
+| Wand | 8 | 5 |
+
+The remaining 25 labels remain in the private inventory; none is omitted from intended migration
+scope. Labels identify definition lookups, not interchangeable semantics. Common definitions can
+be researched and eventually implemented once, with representative source/effective/runtime
+comparisons and relevant regression cases. Spell-specific conditions, target scopes, weighted
+responses, accounting and named exceptions still need their own mapping. A low call count is not
+evidence that a feature is unimportant. Do not build one test or one launch per source call.
+
+**Counterexamples:** wish.ssl has zero Action macro calls but has direct BCS actions, so a macro
+index cannot measure all behavior. Two authored include paths differ from their pinned path only
+by case (`kill_summons_if_no_PC`, `attacks_on_PC_defences`); exact pinned spellings are retained.
+The indexed argument labels strip terminal numeric response weights and are not a lossless call
+representation. No selected block comment contains an Action/IgnoreBlock call; the simple extractor
+is checked for this corpus only, not offered as a general SSL parser.
+
+**Reproduction and artifacts:** Follow the pinned
+[include list](https://github.com/Gibberlings3/SwordCoastStratagems/blob/5dc240e9ff85d3909b6436e54b56297d3b61e33b/stratagems/mage/ssl/magetypes/standard_mage.ssl#L5-L51)
+and [recursive tree](https://api.github.com/repos/Gibberlings3/SwordCoastStratagems/git/trees/5dc240e9ff85d3909b6436e54b56297d3b61e33b?recursive=1).
+For each local source, compare its normalized bytes using Git's blob framing
+(`blob <byte-length>` plus NUL, then contents) against the path's pinned blob SHA-1. Do not assume
+normalization always matches upstream: elsewhere in this same revision some files are already
+CRLF, so first compare raw bytes or normalize both sides explicitly. Line counts exclude a terminal
+empty split element. The private one-off `index.ps1`, `index.private.json` and README under
+`.work/task6/mage-family-index-20261004` retain exact paths, hashes, line-pinned labels and the run
+command. Nothing there is admitted as a redistributable SCS-derived data table.
+
+**Review:** Independent review checked counts, representative source matches, comment handling,
+case-only paths and the zero-macro counterexample. It corrected one metadata name: the tree API's
+returned commit SHA must not be called the root-tree SHA. The actual root-tree identity is
+`e880705c1006b6669df1eef7d957f97485a484b7`; per-file blob comparisons were unaffected. The lead
+independently rehashed all 47 raw/normalized copied sources and checked the selected effective
+Breach family. Corrected private index SHA-256:
+`808D06F4200BA73596F2C85851EE864F632C6EBF4B2AA19648DF172BA79E5226`.
+
+**Evidence and remaining work:** E1 identity/text coverage only. The
+[higher-level comparison](2026-09-28-scs-high-mage-dispel.md) separately maps early dispel and one
+ordinary Breach family to actual output. Most of this inventory is not yet semantically mapped;
+no full oracle, adapter activation, Task6 completion or G1 approval follows. SCS by DavidW;
+reference-only source, no bulk policy/source/fixture distribution.

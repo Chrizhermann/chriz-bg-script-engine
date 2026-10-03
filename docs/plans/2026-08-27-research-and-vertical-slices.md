@@ -435,6 +435,12 @@ The same report now traces its selected trigger's immediate payload and remove/r
 separately from the ordinary-spell helper and rest/timer logic; transitive effects and runtime
 outcomes remain unproved.
 
+**2026-10-04 continuation:** [Standard-mage breadth inventory](../research/SCS-02-mage-priority-taxonomy.md)
+identity-checks all47 direct includes without treating its423 Action call sites as separate tests.
+The higher-level report now also maps the six repeated ordinary Breach blocks and their distinct
+weighted skip/timer behavior. Both are reviewed E1 research; most semantics remain unmapped,
+Task6 remains in progress and no adapter activates.
+
 **2026-09-22 checkpoint:** In progress. The reviewed
 [pinned-source mage/prebuff checkpoint](../research/2026-09-22-task6-source-checkpoint.md)
 records source identities, two ledgers and bounded observations. Effective generated-script

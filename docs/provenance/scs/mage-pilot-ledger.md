@@ -2,7 +2,7 @@
 
 **Status:** Partial source-to-effective research checkpoint; no runtime or reuse admission.
 
-**Date / owner:** Updated 2026-09-28 / integration lead.
+**Date / owner:** Updated 2026-10-04 / integration lead.
 
 **Origin:** SCS-derived behavior study; authored factual metadata, not copied policy or source.
 
@@ -43,12 +43,15 @@ Task 6 memos beginning with [the pipeline](../../research/SCS-01-generation-pipe
 | M04 encounter handoff | `kruin` 5-71; `first-round` 25-77 | `opaque`: legacy-owned; prove control closure and separately review any future enrollment. |
 | M05 actions and settings | `mage-setup` 14-38; `difficulty` 140-287 | `needs-engine-proof`: preserve observed source distinctions in future tests; no source-to-runtime promotion. |
 | M06 trigger payload and accounting | `caster-shared` 859-924; higher-level comparison's DW#TG15/DW#MGSEE and immediate children | `preserve`: child order, instant bundle, self-removal/delayed return and ordinary-branch visibility helper are distinct from BCS timers/rest. Bytes inspected; delivery, expenditure and restoration interaction `needs-engine-proof`. |
+| M07 ordinary targeted Breach | `attacks_on_pc_defences` 34-48; higher-level comparison BAF6547–6737; DS source73–87 | `preserve`: six ordered target blocks, emitted legality/protection predicates, normal Spell then timer writes, and a Continue-only150-weight skip distinct from early dispel. Actual marker effects, target evaluation and delivery `needs-engine-proof`; missing variants' pruning reasons remain `opaque`. |
 
 **Intentional changes:** None approved. Replacing SCS's runtime is the long-term goal, not permission
 to discard its encounter/content changes or copy policies now. Any future generalization/change gets
 a separate rationale and counterexample tests. Original infrastructure remains independent of SCS.
 
 **Omissions:** No tactical rule deliberately omitted from the future design in this checkpoint.
+All 47 standard-mage direct includes now have a pinned identity/literal-label inventory in
+[the priority taxonomy](../../research/SCS-02-mage-priority-taxonomy.md), not a semantic map.
 Most combat includes, martial/priest families, campaigns and wider components are not mapped yet;
 this is an explicit coverage gap, not a conclusion that they are irrelevant.
 

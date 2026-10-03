@@ -40,6 +40,10 @@ now checks this branch in MAGE18B's generated script. Three reversed selector bl
 sequencer and an ordinary area-spell candidate; the non-casting weighted response also writes
 the firstdispel timer. Library predicates and the installed spell alias are compared explicitly.
 This extends the source-only account with E1 output, not observed target selection or casting.
+The 2026-10-04 continuation in that report also maps ordinary Breach to six repeated full target
+blocks, preserving the separate castspell/three combat timers and its Continue-only weighted skip.
+PRIORITY_BREACH is an emitted marker check with a separate DS source input, not a protection list
+that can safely be reconstructed from the call-site comment. No Breach cast or removal is proved.
 
 **Residual uncertainty:** Six selected library bodies and ordinary-versus-replacement merge rules
 are now source-traced, and selected effective substitutions are characterized in one actor;
