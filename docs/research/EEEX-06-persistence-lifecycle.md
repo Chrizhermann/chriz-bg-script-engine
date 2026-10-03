@@ -3,7 +3,8 @@
 **Question:** Can durable test facts survive save/load and upgrades while unsafe session state
 is discarded and corrupt data affects only its own record?
 
-**Status:** Host contract accepted at E2; engine marshal/lifecycle and baseline-cost work pending.
+**Status:** Host contract accepted at E2; bounded engine marshal/lifecycle batch observed at E4.
+Quickload/new-game coverage and baseline-cost work remain pending.
 Task10/G1 are not complete. Modules are under `experiments/persistence`, not registered production
 kernel code. The plan's eventual `kernel/` placement is deferred until the research gate, as for
 the capabilities/action-observer experiments. No real quest phases or gameplay policy selected.
@@ -81,7 +82,7 @@ but the agreed cross-version numeric0/1 flag contract is retained.
 Focused RED runs independently reached the fractional-number and embedded-NUL acceptance
 defects; minimal boundary checks made both backends GREEN. The existing eight scenarios remain
 eight, with targeted assertions rather than a broad new suite. Logs: `state-wire-red.log`,
-`state-nul-red.log`, `state-wire-green.log`. Native unsigned value round trips remain E4 work.
+`state-nul-red.log`, `state-wire-green.log`. Native unsigned round trips are recorded below.
 
 Prior Task8 proved a Lua root survives own save/load, a destroyed listener advances the session
 epoch and fresh observation resolves actors again. Task9 proved independent saved markers and
@@ -91,12 +92,64 @@ relevant boundaries, **not** EEex marshal-handler proof for this new contract.
 Current pinned `EEex_Sprite.lua` SHA256
 `ecd341bae5295d3db5a52279f84c55a4ff173150665a94b450ef3dfcf6cb3b4e` statically shows keyed
 marshal registration, exporter table/nil handling, protected exporter/importer calls and a
-fallback store for missing handlers. This is E1 source evidence only; it does not guarantee
-runtime safety, absence-of-handler retention or save compatibility. Source belongs to EEex/Bubb
+fallback store for missing handlers. This source alone does not guarantee runtime safety,
+absence-of-handler retention or save compatibility. Source belongs to EEex/Bubb
 and stays private. Same BG2:EE2.7.3.0/EEex1.2.0 comparison stack as ACT-01.
 
-Next: one representative hidden persistence batch using synthetic facts, real saved-byte/load
-postconditions, forward migration, corrupt/future state, scoped disable/absence and ephemeral
-invalidation. Measure observer-only cost separately against an uninstrumented window. Preserve
-unknown lifecycle/quickload/new-game/performance cases until actually observed. No production
-WorldFlow activation, quest migration or G1 approval follows from the host result.
+## Integrated persistence batch — E4, 2026-10-04 local
+
+One hidden session used the existing quiet disposable arena, authored
+`experiments/persistence/session-probe.lua`, four synthetic records on our fixture caster and
+only our marshal key `B-`. The importer performs validation and own-UDAux writes, not native
+sprite/name/area reads during unmarshalling. World inspection re-resolves the fixture; only
+scalars/tables cross the persistence boundary. No real quest or production lease was enrolled.
+
+Same BG2:EE2.7.3.0, EEex1.2.0/LuaJIT, EET14, SCS35.21, SR4.21-chriz.5 and Bubb Spell Menu5.2
+comparison stack as ACT-01. Probe SHA256
+`0773cca777211df3e5c849aea8544e4a46aecd45320f8f90183325792f3add7d`;
+state module `ad868e68c6b75ee4695399bc18d3a1fba4226c5876aba45fa782022d7364c851`;
+diagnostics `21aaf716850119f71bbed4b3542520200112f1de384f17dc69d2332842d5ccf9`.
+
+| Case | Independent observed result |
+| --- | --- |
+| Save/load current facts | Saved marker10031 replaced unsaved20031 on reload; current v3 ready. Unsigned255/256/65535/65536/4294967295 returned exactly. |
+| Old version | v1 imported through two migrations to v3. Later upgraded save reloaded as v3 with zero repeated migrations. |
+| Future/corrupt sibling | Future99 quarantined `future-schema`; wire-valid but semantically invalid epoch999 quarantined `number-range`. Good/old records still loaded. |
+| Area away/back | Ephemeral attempt cleared; durable facts were exported/imported on leaving/returning to the arena. |
+| Stack mismatch | Changing only the probe's synthetic expected tag quarantined good/old with `stack-epoch`; restoring tag and reloading restored acceptance. Not an installed-stack mutation. |
+| Missing handler | Removing only our registered handler and loading showed native fallback storage, no own import. A new save made in this state later restored all four records after handler return. |
+| Main menu | Destroyed listener advanced epoch7 to8 and cleared ephemeral state; loading the original own save restored durable facts. |
+| Death | After queued normal Kill, later fresh observation showed HP0/state2048 and cleared the synthetic ephemeral attempt. Queued Kill alone was not counted as proof. |
+
+Before restoring the handler, load the no-state own baseline. Registered exporters and fallback
+storage are both visited by the pinned serializer; installing an exporter on an already loaded
+fallback carrier is **not** proved safe by this experiment. Only the exact own registry entry was
+removed. This is handler-absence retention with EEex still present, not an installer-uninstall,
+EEex-absence or production legacy-fallback guarantee.
+
+Three unique own save folders were created (initial, absent-handler, upgraded). Each had four
+files, verified by size and SHA256 before loading. Initial/absent/upgraded SAV hashes respectively:
+`41e4763ba0490bdaaef2a4d11834bd7acdef6b73c869132e9bebf45799d54427`,
+`6cc7fcf5a0c360ead26da9a76d9e3ed3f74ce90fd031bafa05a19c8cf68f1867`,
+`e8eeb1a0ca1e5dd4f34ac3846bef463c1329e1042e24f211fbb1376fe60701b4`.
+These file identities plus native import and changed-unsaved-marker postconditions prove these
+round trips; no claim is made to have independently decoded the native marshal byte stream.
+
+Private `.work/task10/persistence-runtime-v1` contains the exact recipe, deployment copy,
+serial command/result receipts, save-file ledgers and closed91-event trace (4800bytes), SHA256
+`89ba55745d71df3fbeaa1ba3260b7ccdd3eb7186d7d549681dabcd0111b6e810`.
+Final counters: seven imports, seven own-loaded callbacks, three own exports, epoch8, one
+registration per destroyed/loaded listener, no probe failure or diagnostic error. Future/corrupt
+quarantines are expected outcomes, not discarded failures. The game was deliberately closed via
+its own held job; graceful game exit0 is not claimed. Nine additions and owned IPC removed,
+three original lab files restored byte-exactly, own reservation released. Small own saves are
+listed in private CLEANUP; active game and personal saves untouched.
+
+Independent Sol full-trace/source/receipt review accepted these bounded conclusions; lead
+verified marker reversal, migration counts, final state and cleanup. It specifically retained
+the missing raw-byte decode and broader lifecycle/production limitations above.
+
+Remaining: new-game/quickload observation, measured observer-only cost, and later production
+disable/reconciliation behavior. Corruption here means semantic payload corruption, not arbitrary
+malformed native save bytes. No native crash was induced or retried. This narrow result is not
+WorldFlow activation, a general save-compatibility promise or G1 approval.
