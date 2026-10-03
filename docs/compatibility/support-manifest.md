@@ -81,3 +81,22 @@ blanket compatibility claim. Fresh reactivation is not implemented.
 Reproduce focused E2 checks with `pwsh -File scripts/test.ps1 -Suite unit -Filter eligibility`.
 The fixture is authored dummy data, not an installed-game fingerprint. No C2–C4 action can run
 without later runtime ownership and the applicable active-behavior gate.
+
+## Ephemeral ownership contract
+
+`kernel/identity.lua` accepts only semantic adapter/key/resource records and re-resolves an exact
+unique match from each scalar candidate snapshot. `kernel/ownership.lua` implements the approved
+authority order; missing facts deny combat. `kernel/lease.lua` requires that resolution again
+at acquisition and dispatch, unchanged stack/session/area/allegiance/adapter version, current
+eligibility/capability/aura/action state and target legality. Typed spell/attack/move requests are
+passed once to an injected dispatcher; arbitrary BAF and queue-clearing requests are unavailable.
+
+Acceptance creates an observation token, not queue ownership or completion. The promoted
+`kernel/action_attempt.lua` retains the tested research reducer's proof requirements. Start
+releases the duplicate-prevention lock while ordinary busy/aura checks still apply. A submission
+error is unknown, not accepted, and retains a bounded duplicate-prevention lock. `tick()` reports
+expired attempts; the boundary calls it before new acquisition. `invalidate()` drops leases and
+tokens without altering engine actions. Neither manager state nor raw object IDs is persisted.
+This E2 implementation is not permission to dispatch in a game before the active-behavior gate.
+
+Reproduce: `pwsh -File scripts/test.ps1 -Suite unit -Filter 'ownership or identity_attempt'`.
