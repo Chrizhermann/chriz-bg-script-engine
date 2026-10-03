@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/chriz-bg-script-engine/combat-snapshot.schema.json",
+  "$comment": "Normalized exported Combat Intent view, shape only. Lua perception/snapshot enforce time relationships, semantic-key details, source provenance, ally eligibility, visibility, privacy and fairness; this schema does not confer runtime authority.",
+  "title": "Combat Intent normalized scalar snapshot v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "tick", "observerKey", "eligibleAllies", "actors"],
+  "properties": {
+    "schemaVersion": {"type": "integer", "const": 1},
+    "tick": {"$ref": "#/$defs/tick"},
+    "observerKey": {"$ref": "#/$defs/key"},
+    "eligibleAllies": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/key"}},
+    "actors": {"type": "array", "items": {"$ref": "#/$defs/actor"}}
+  },
+  "$defs": {
+    "key": {"type": "string", "minLength": 1, "maxLength": 128,
+      "pattern": "^(?![0-9]+$)[^\\x00-\\x1F\\x7F]{1,128}$(?![\\s\\S])"},
+    "text": {"type": "string", "minLength": 1, "maxLength": 128,
+      "pattern": "^[^\\x00-\\x1F\\x7F]{1,128}$(?![\\s\\S])"},
+    "resref": {"type": "string", "minLength": 1, "maxLength": 8,
+      "pattern": "^[A-Z0-9_#-]{1,8}$(?![\\s\\S])"},
+    "tick": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+    "fraction": {"type": "number", "minimum": 0, "maximum": 1},
+    "position": {"type": "object", "additionalProperties": false,
+      "required": ["x", "y"],
+      "properties": {"x": {"type": "number"}, "y": {"type": "number"}}},
+    "resistances": {"type": "object", "additionalProperties": false,
+      "properties": {
+        "fire": {"type": "number"}, "cold": {"type": "number"},
+        "electricity": {"type": "number"}, "acid": {"type": "number"},
+        "poison": {"type": "number"}, "magic": {"type": "number"},
+        "slashing": {"type": "number"}, "piercing": {"type": "number"},
+        "crushing": {"type": "number"}, "missile": {"type": "number"}
+      }},
+    "unknownFact": {"type": "object", "additionalProperties": false,
+      "required": ["kind", "reason"],
+      "properties": {
+        "kind": {"type": "string", "enum": ["unknown", "expired"]},
+        "reason": {"$ref": "#/$defs/text"}
+      }},
+    "knownFact": {"type": "object", "additionalProperties": false,
+      "required": ["kind", "source", "value", "observedAt", "expiresAt", "confidence"],
+      "properties": {
+        "kind": {"type": "string", "enum": ["observed", "remembered", "shared", "inferred"]},
+        "source": {"$ref": "#/$defs/text"},
+        "value": {},
+        "observedAt": {"$ref": "#/$defs/tick"},
+        "expiresAt": {"$ref": "#/$defs/tick"},
+        "confidence": {"$ref": "#/$defs/fraction"},
+        "origin": {"$ref": "#/$defs/key"},
+        "basis": {"$ref": "#/$defs/text"},
+        "evidenceSource": {"$ref": "#/$defs/text"}
+      }},
+    "booleanFact": {"oneOf": [
+      {"$ref": "#/$defs/unknownFact"},
+      {"$ref": "#/$defs/knownFact", "properties": {"value": {"type": "boolean"}}}
+    ]},
+    "positionFact": {"oneOf": [
+      {"$ref": "#/$defs/unknownFact"},
+      {"$ref": "#/$defs/knownFact", "properties": {"value": {"$ref": "#/$defs/position"}}}
+    ]},
+    "fractionFact": {"oneOf": [
+      {"$ref": "#/$defs/unknownFact"},
+      {"$ref": "#/$defs/knownFact", "properties": {"value": {"$ref": "#/$defs/fraction"}}}
+    ]},
+    "rangeFact": {"oneOf": [
+      {"$ref": "#/$defs/unknownFact"},
+      {"$ref": "#/$defs/knownFact", "properties": {"value": {"type": "number", "minimum": 0}}}
+    ]},
+    "spellbookFact": {"oneOf": [
+      {"$ref": "#/$defs/unknownFact"},
+      {"$ref": "#/$defs/knownFact", "properties": {"value": {
+        "type": "array", "items": {"$ref": "#/$defs/resref"}}}}
+    ]},
+    "protectionsFact": {"oneOf": [
+      {"$ref": "#/$defs/unknownFact"},
+      {"$ref": "#/$defs/knownFact", "properties": {"value": {
+        "type": "array", "items": {"$ref": "#/$defs/text"}}}}
+    ]},
+    "resistancesFact": {"oneOf": [
+      {"$ref": "#/$defs/unknownFact"},
+      {"$ref": "#/$defs/knownFact", "properties": {"value": {"$ref": "#/$defs/resistances"}}}
+    ]},
+    "lastCastFact": {"oneOf": [
+      {"$ref": "#/$defs/unknownFact"},
+      {"$ref": "#/$defs/knownFact", "properties": {"value": {"$ref": "#/$defs/resref"}}}
+    ]},
+    "relationFact": {"oneOf": [
+      {"$ref": "#/$defs/unknownFact"},
+      {"$ref": "#/$defs/knownFact", "properties": {"value": {
+        "type": "string", "enum": ["self", "ally", "enemy", "neutral", "unknown"]}}}
+    ]},
+    "facts": {"type": "object", "additionalProperties": false,
+      "properties": {
+        "alive": {"$ref": "#/$defs/booleanFact"},
+        "auraReady": {"$ref": "#/$defs/booleanFact"},
+        "idle": {"$ref": "#/$defs/booleanFact"},
+        "silenced": {"$ref": "#/$defs/booleanFact"},
+        "canAct": {"$ref": "#/$defs/booleanFact"},
+        "lineOfSight": {"$ref": "#/$defs/booleanFact"},
+        "invisible": {"$ref": "#/$defs/booleanFact"},
+        "detected": {"$ref": "#/$defs/booleanFact"},
+        "position": {"$ref": "#/$defs/positionFact"},
+        "hpFraction": {"$ref": "#/$defs/fractionFact"},
+        "castingFailure": {"$ref": "#/$defs/fractionFact"},
+        "spellbook": {"$ref": "#/$defs/spellbookFact"},
+        "protections": {"$ref": "#/$defs/protectionsFact"},
+        "resistances": {"$ref": "#/$defs/resistancesFact"},
+        "lastCast": {"$ref": "#/$defs/lastCastFact"},
+        "relation": {"$ref": "#/$defs/relationFact"},
+        "range": {"$ref": "#/$defs/rangeFact"}
+      }},
+    "actor": {"type": "object", "additionalProperties": false,
+      "required": ["key", "visible", "detected", "facts"],
+      "properties": {
+        "key": {"$ref": "#/$defs/key"},
+        "visible": {"type": "boolean"},
+        "detected": {"type": "boolean"},
+        "facts": {"$ref": "#/$defs/facts"}
+      }}
+  }
+}
