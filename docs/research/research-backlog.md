@@ -43,6 +43,18 @@ Native crashes bypass Lua error handling. A successful pcall around a dangerous 
 
 ## Priority and blocker labels
 
+### Current-stack development before broad runtime compatibility
+
+Christopher's2026-10-04 direction adopts the tested lab and puts broader compatibility after
+useful implementation. COMP-X01/X03/X04/X09 and cold-package COMP-X08 remain unexecuted or partial,
+owned by the integration owner in Task40 before G8 or any earlier claim for those configurations.
+The explicit development observer does not support missing/mixed/removed EEex. Keep the full
+matrix; do not conduct removal/version permutations merely to unlock fixed-stack lab behavior.
+Likewise, COMP-I07 categories for bootstrap publication/exclusive variable claims become mandatory
+when an installable component actually publishes those claims. Exact existing output collisions
+and duplicate adapter IDs are checked now. No generic claim registry is required for absent
+features. G2/G3 must name this development-only envelope and retain unknown-content pass-through.
+
 ### Approved deferral: COMP-P13 — true QuickLoad
 
 **Status:** Deferred, unexecuted — not waived or passed. Christopher approved moving this

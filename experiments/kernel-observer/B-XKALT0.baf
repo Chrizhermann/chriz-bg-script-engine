@@ -1,0 +1,62 @@
+// Synthetic changed-actor fixture: one extra local marker before the exact
+// B-XKLEG0 ordinary cast/movement sequence. Not production AI.
+IF
+  Global("B-XKALT0","LOCALS",0)
+THEN
+  RESPONSE #100
+    SetGlobal("B-XKALT0","LOCALS",1)
+END
+
+// Synthetic legacy behavior for the isolated observer fixture only.
+// After the marker, unarmed B-XKPHASE=0 has no legacy action block.
+IF
+  Global("B-XKPHASE","LOCALS",1)
+THEN
+  RESPONSE #100
+    SpellRES("SPWI214",Myself)
+    SetGlobal("B-XKPHASE","LOCALS",2)
+END
+
+IF
+  Global("B-XKPHASE","LOCALS",2)
+  Global("B-XKCASE","LOCALS",0)
+THEN
+  RESPONSE #100
+    MoveToPoint([304.240])
+    SetGlobal("B-XKPHASE","LOCALS",3)
+END
+
+IF
+  Global("B-XKPHASE","LOCALS",2)
+  Global("B-XKCASE","LOCALS",1)
+THEN
+  RESPONSE #100
+    MoveToPoint([352.240])
+    SetGlobal("B-XKPHASE","LOCALS",3)
+END
+
+IF
+  Global("B-XKPHASE","LOCALS",2)
+  Global("B-XKCASE","LOCALS",2)
+THEN
+  RESPONSE #100
+    MoveToPoint([400.240])
+    SetGlobal("B-XKPHASE","LOCALS",3)
+END
+
+IF
+  Global("B-XKPHASE","LOCALS",2)
+  Global("B-XKCASE","LOCALS",3)
+THEN
+  RESPONSE #100
+    MoveToPoint([448.240])
+    SetGlobal("B-XKPHASE","LOCALS",3)
+END
+
+IF
+  Global("B-XKPHASE","LOCALS",3)
+THEN
+  RESPONSE #100
+    SetGlobal("B-XKDONE","LOCALS",1)
+    SetGlobal("B-XKPHASE","LOCALS",4)
+END

@@ -1,0 +1,31 @@
+BACKUP ~backup~
+AUTHOR ~BGSE local research fixture~
+BEGIN ~Build changed actor and unknown controller~ DESIGNATED 0
+
+// Caller supplies the exact Task16 B-XKMAG1 and B-XKMAG3 CRE files, then a
+// private output directory. Preserve every byte except the declared fields.
+OUTER_SPRINT ~BGSE_ACTOR~ ~%argv[0]%~
+OUTER_SPRINT ~BGSE_CONTROLLER_DONOR~ ~%argv[1]%~
+
+COPY ~%BGSE_ACTOR%~ ~%argv[2]%/B-XKMAG1.CRE~
+  READ_ASCII 0 signature (8)
+  READ_ASCII 0x280 dv (32) NULL
+  READ_ASCII 0x248 override_script (8) NULL
+  PATCH_IF NOT (~%signature%~ STRING_EQUAL ~CRE V1.0~ AND
+                ~%dv%~ STRING_EQUAL_CASE ~B-XKMAG1~ AND
+                ~%override_script%~ STRING_EQUAL_CASE ~B-XKLEG0~) BEGIN
+    PATCH_FAIL ~Unexpected Task16 actor donor~
+  END
+  WRITE_ASCII 0x248 ~B-XKALT0~ (8)
+
+COPY ~%BGSE_CONTROLLER_DONOR%~ ~%argv[2]%/B-XKCTR0.CRE~
+  READ_ASCII 0 signature (8)
+  READ_ASCII 0x280 dv (32) NULL
+  READ_ASCII 0x248 override_script (8) NULL
+  PATCH_IF NOT (~%signature%~ STRING_EQUAL ~CRE V1.0~ AND
+                ~%dv%~ STRING_EQUAL_CASE ~B-XKMAG3~ AND
+                ~%override_script%~ STRING_EQUAL_CASE ~B-XKLEG0~) BEGIN
+    PATCH_FAIL ~Unexpected Task16 controller donor~
+  END
+  WRITE_ASCII 0x248 ~B-XKCTL0~ (8)
+  WRITE_ASCII 0x280 ~B-XKCTR0~ (32)

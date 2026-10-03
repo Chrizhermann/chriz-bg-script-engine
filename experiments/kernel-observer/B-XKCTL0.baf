@@ -1,0 +1,9 @@
+// Synthetic unknown quest-style controller. Arm only its own local marker in
+// the disposable lab; this script is never enrolled as a BGSE adapter.
+IF
+  Global("B-XKGO00","LOCALS",1)
+THEN
+  RESPONSE #100
+    IncrementGlobal("B-XQST00","GLOBAL",1)
+    Wait(1)
+END

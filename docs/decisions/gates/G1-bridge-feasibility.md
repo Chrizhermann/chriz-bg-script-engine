@@ -88,8 +88,12 @@ support remains unclaimed. This placement is part of the approved development-fi
 
 - COMP-X05/X07: Task16, before accepting the actual observer kernel or enabling a new native
   callback; test the implemented boundary, not hypothetical callbacks that do not yet exist.
-- COMP-X03/X04/X08/X09: Task17, before G2/G3 admission of the installable kernel/bridge. Missing
-  dependencies and removal order must be rejected/restored explicitly, not assumed safe.
+- COMP-X03/X04/X09: the latest current-stack priority places missing/mixed/removed-runtime
+  packaging combinations in Task40 before G8 or earlier distribution/support claims. They do
+  not block an EEex-present, explicitly loaded development observer. These configurations are
+  unavailable; no safe removal behavior is asserted. Task17/G2/G3 may admit only the exact lab.
+- COMP-X08: retain the measured missing-root/module legacy branches. Cold all-bridge packaging
+  coverage belongs before a corresponding package claim in Task40; it is not silently passed.
 - COMP-X01 and version/toolchain parity: Task40 before claiming the older profile supported.
   Retain the old target as unaccepted; do not silently remove intended compatibility.
 - Area/dialogue continuation: unavailable in the initial capability envelope; carry invalidation
@@ -102,3 +106,9 @@ No new fresh-smoke result is asserted by the scope adjustment. Task11's bounded 
 is accepted with automatic area continuation unavailable; production recovery remains later work.
 Task13–17 may proceed under this exact envelope, with G2/G3 technical review before active decision
 work. A failure still stops its dependent capability; no acceptance assertion is weakened.
+
+Task16 now supplies the actual observer integration in KERNEL-01: four legacy casters, matching
+and declined observers, contained callback error, capability decline, disable and named-load
+invalidation. This remains representative implemented-boundary evidence, not proof of every
+possible callback or production domain. The current-stack sequencing above supersedes the
+earlier placement of the full removal/layout matrix in Task17.

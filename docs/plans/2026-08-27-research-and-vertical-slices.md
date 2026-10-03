@@ -51,6 +51,17 @@ Tasks13–17 proceed as one useful implementation batch; dependent technical gat
 recorded before continuing. Stop for failed safety criteria or substantive user-owned choices.
 Do not use old profile requirements to block current-stack implementation or silently erase them.
 
+**Current-stack sequencing clarification (same instruction):** G2/G3 development admission is
+for the exact tested lab, not a public installer/support matrix. Keep unknown-content ownership,
+error containment and measured read-only behavior as immediate requirements. Move old/mixed EEex
+layout and missing/removed-runtime combinations (COMP-X01/X03/X04/X09), and unimplemented installer
+claim categories, to their actual packaging/support checkpoint in Task40 before G8 or earlier
+distribution. Do not test absent EEex to unlock an EEex-present lab prototype. Those combinations
+remain unavailable, not passed. COMP-X08 retains the existing bounded missing-root/module evidence;
+cold all-bridge packaging coverage remains later. Each gate must state this limit and cannot
+authorize a general install/uninstall claim. This is compatibility scheduling under Christopher's
+development-first direction, not removal of the compatibility invariant or feature scope.
+
 **2026-10-04 delivery update:** The next product milestone is a representative multi-behavior
 mage pilot. Tasks are work packages inside integrated delivery batches, not one-launch or
 one-report units. Prepare independent bridge, persistence and installer pieces concurrently,
