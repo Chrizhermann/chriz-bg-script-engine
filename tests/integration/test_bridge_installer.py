@@ -72,14 +72,18 @@ def _snapshot(root: Path) -> dict[str, bytes]:
             }
 
 
-def _run(root: Path, *selection: str) -> str:
+def _invoke(root: Path, *selection: str) -> subprocess.CompletedProcess[str]:
     cmd = [str(_weidu()), "experiments/bridge/setup-bgse-bridge.tp2",
            *selection, "--language", "0", "--use-lang", "en_US",
            "--no-exit-pause", "--quick-log"]
-    result = subprocess.run(cmd, cwd=root, text=True, encoding="utf-8",
-                            errors="replace", stdin=subprocess.DEVNULL,
-                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            timeout=45, check=False)
+    return subprocess.run(cmd, cwd=root, text=True, encoding="utf-8",
+                          errors="replace", stdin=subprocess.DEVNULL,
+                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                          timeout=45, check=False)
+
+
+def _run(root: Path, *selection: str) -> str:
+    result = _invoke(root, *selection)
     assert result.returncode == 0, result.stdout
     return result.stdout
 
@@ -139,3 +143,54 @@ def test_missing_eeex_symbol_prevents_publication(tmp_path: Path, missing_symbol
     output = _run(tmp_path, "--force-install-list", "0")
     assert "SKIPPING" in output, output
     assert _snapshot(tmp_path) == before
+
+
+@pytest.mark.parametrize("collision", sorted(ALLOW))
+def test_bridge_publication_collision_fails_before_game_mutation(tmp_path: Path,
+                                                                 collision: str) -> None:
+    _fake_game(tmp_path)
+    shutil.copytree(PACKAGE, tmp_path / "experiments/bridge")
+    original = b"BGSE unrelated owner\x00\xff"
+    (tmp_path / "override" / collision.upper()).write_bytes(original)
+    before = _snapshot(tmp_path)
+
+    result = _invoke(tmp_path, "--force-install-list", "0")
+
+    assert result.returncode != 0, result.stdout
+    assert "BGSE bridge publication collision" in result.stdout, result.stdout
+    assert collision.upper() in result.stdout, result.stdout
+    assert "NOT INSTALLED DUE TO ERRORS" in result.stdout, result.stdout
+    assert _snapshot(tmp_path) == before
+
+
+def test_unknown_override_bytes_survive_install_reinstall_uninstall(tmp_path: Path) -> None:
+    _fake_game(tmp_path)
+    shutil.copytree(PACKAGE, tmp_path / "experiments/bridge")
+    unknown = {
+        "ZUNK0001.BCS": b"unknown script\x00\xff",
+        "ZUNK0002.DLG": b"unknown dialogue\x01\xfe",
+        "ZUNK0003.CRE": b"unknown creature\x02\xfd",
+    }
+    for name, payload in unknown.items():
+        (tmp_path / "override" / name).write_bytes(payload)
+    before = _snapshot(tmp_path)
+
+    _run(tmp_path, "--force-install-list", "0")
+    installed = _snapshot(tmp_path)
+    assert set(installed) - set(before) == {f"override/{name}" for name in ALLOW}
+    for path, payload in before.items():
+        if path != "lang/en_us/dialog.tlk":
+            assert installed[path] == payload, path
+    assert installed["lang/en_us/dialog.tlk"] != before["lang/en_us/dialog.tlk"]
+
+    _run(tmp_path, "--force-uninstall-list", "0", "--force-install-list", "0")
+    assert _snapshot(tmp_path) == installed
+
+    _run(tmp_path, "--force-uninstall-list", "0")
+    uninstalled = _snapshot(tmp_path)
+    assert set(uninstalled) == set(before)
+    for path, payload in before.items():
+        if path != "lang/en_us/dialog.tlk":
+            assert uninstalled[path] == payload, path
+    # WeiDU retains allocated strings, but no unknown resource byte may change.
+    assert uninstalled["lang/en_us/dialog.tlk"] == installed["lang/en_us/dialog.tlk"]

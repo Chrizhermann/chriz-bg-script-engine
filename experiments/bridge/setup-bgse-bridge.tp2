@@ -8,6 +8,21 @@ REQUIRE_PREDICATE (IDS_OF_SYMBOL (~TRIGGER~ ~EEex_LuaTrigger~) = 0x410E)
 REQUIRE_PREDICATE (IDS_OF_SYMBOL (~ACTION~ ~EEex_LuaAction~) = 472)
   ~The installed ACTION.IDS lacks EEex_LuaAction 472.~
 
+// Run after WeiDU has unwound this component for a reinstall. A prerequisite
+// predicate would also see our own currently installed resources and block it.
+ACTION_IF (FILE_EXISTS_IN_GAME ~B-XBRSC0.BCS~) BEGIN
+  FAIL ~BGSE bridge publication collision: B-XBRSC0.BCS~
+END
+ACTION_IF (FILE_EXISTS_IN_GAME ~B-XBRHI0.BCS~) BEGIN
+  FAIL ~BGSE bridge publication collision: B-XBRHI0.BCS~
+END
+ACTION_IF (FILE_EXISTS_IN_GAME ~B-XBRDL0.DLG~) BEGIN
+  FAIL ~BGSE bridge publication collision: B-XBRDL0.DLG~
+END
+ACTION_IF (FILE_EXISTS_IN_GAME ~B-XBRDG0.LUA~) BEGIN
+  FAIL ~BGSE bridge publication collision: B-XBRDG0.LUA~
+END
+
 COMPILE ~experiments/bridge/B-XBRSC0.baf~
 COMPILE ~experiments/bridge/B-XBRHI0.baf~
 COMPILE ~experiments/bridge/B-XBRDL0.d~
