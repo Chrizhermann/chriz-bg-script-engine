@@ -43,6 +43,26 @@ Native crashes bypass Lua error handling. A successful pcall around a dangerous 
 
 ## Priority and blocker labels
 
+### Approved deferral: COMP-P13 — true QuickLoad
+
+**Status:** Deferred, unexecuted — not waived or passed. Christopher approved moving this
+specific Task10/G1 check to later compatibility testing on2026-10-04. Ordinary named loading
+is separate evidence; it cannot close this item. The area-transition non-continuation finding
+also goes into G1 review, not into a passing continuation claim.
+
+**Owner / due checkpoint:** Integration owner; Task40 supported compatibility batch, before G8
+and before any true-QuickLoad support claim. Revisit earlier if an allowed invocation route is
+established or implementation changes the load/lifecycle boundary. Keep this ID in Task40's
+persisted checkpoint and the acceptance matrix so completing Task10 cannot hide it.
+
+**Closure:** Record the exact engine/profile and an authorized, verified invocation of the actual
+QuickLoad path. On an own disposable save, observe save identity/durable facts, clearing of
+ephemeral attempts, fresh actor resolution, no duplicate callback registration or unintended
+action replay, and post-load legacy behavior. Preserve command/event/postcondition evidence
+and have the integration owner review it. A named load of the quicksave slot is not a substitute.
+No new OS-input permission follows from the deferral. If still unavailable, record it as blocked
+at Task40; G8 must resolve the support restriction explicitly, never silently drop the case.
+
 Every issue created from this document should carry:
 
 - **Type:** research-spike or preparation

@@ -152,12 +152,13 @@ ordinary DLG ownership did not depend on its policy module.
 ## Remaining work and decision boundary
 
 Task11 remains in progress: its bridge, installer and representative dialogue evidence are
-assembled, but transition acceptance remains open, alongside Task10 and G1. Area transition is measured
+assembled, but transition acceptance remains open for G1 review. Area transition is measured
 negative evidence, not a passing automatic-continuation capability. Interruption here is
 cancellation before entry, not closing an already-open conversation. Full module-absence
 load retention is now observed (EEEX-06); absent-session resave/re-enable remains outside that
-specific result. True QuickLoad is still unproved. Named loading of a quicksave is not true
-QuickLoad; no allowed source-backed callable was found, so do not guess one or waive it.
+specific result. True QuickLoad is still unproved; the user approved deferring it to Task40/G8
+as COMP-P13 on2026-10-04. Named loading is not true QuickLoad. The user also approved including
+this area-transition limitation in G1 review, not relabeling it as a passing continuation.
 
 G1 stays open. No real actor enrollment, production AI, support-matrix expansion, SCS-derived
 redistribution, new gameplay choice or automatic downstream approval follows from this batch.

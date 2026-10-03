@@ -375,6 +375,7 @@ must not change the resolved ownership graph.
 | COMP-P10 | Inspect every persistent engine payload across representative saves. | No userdata, pointer, raw object ID, action-queue owner, cyclic table, or unsupported scalar type is present. | E1+E4 | G7 |
 | COMP-P11 | Exercise load, area change, actor replacement, summon/clone lifecycle, charm, death, resurrection, and despawn. | Ephemeral identity and reservations expire; stable identities re-resolve without attaching stale state to a new object. | E4 | G5 |
 | COMP-P12 | Disable and re-enable each domain independently across save/load. | Public variables remain valid, disabled domain performs no mutation, and re-enable requires fresh eligibility/ownership checks. | E4 | G8 |
+| COMP-P13 | Invoke actual QuickLoad on an own disposable save using a verified, authorized route; record the exact profile and saved identity. | Durable facts restore; transient attempts clear; actors re-resolve; no duplicate callbacks or unintended action replay; legacy behavior remains available. Named loading of a quicksave slot does not satisfy this case. User-approved deferral from Task10/G1 on2026-10-04; integration owner, Task40, still unexecuted. | E4 | G8 |
 
 ### 10.9 Mod-author extension API
 
@@ -464,7 +465,7 @@ decision record explicitly removes the corresponding feature from the supported 
 - `COMP-SCS01` through `COMP-SCS06`
 - `COMP-SR01` through `COMP-SR04`
 - `COMP-X01` through `COMP-X10`
-- `COMP-P01` through `COMP-P12`
+- `COMP-P01` through `COMP-P13`
 - `COMP-API01` through `COMP-API10`
 
 A removed feature changes the support profile and documentation; it does not turn a failed or

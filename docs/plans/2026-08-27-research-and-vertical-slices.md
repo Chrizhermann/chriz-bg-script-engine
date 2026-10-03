@@ -53,6 +53,14 @@ small reproductions. The first batch finishes the G1 engine-connection prerequis
 not activate production AI or bypass G1–G5. Later mage decisions remain SCS-derived under the
 existing ledger, with gameplay changes reserved for the user.
 
+**2026-10-04 approved adjustment:** Christopher deferred only true QuickLoad from Task10/G1
+to the later compatibility batch. It remains unexecuted as `COMP-P13`, owned by the integration
+owner in Task40 and required before G8/support claims; see the research backlog for closure
+criteria. Named loading does not substitute for it. Include the measured dialogue area-exit/
+return non-continuation in G1 review without calling it a pass. This authorization permits
+assembling that review before Task11's limitation disposition is final; it does not approve
+G1, a changed engine baseline, or production AI.
+
 This is a dependency-ordered program plan, not blanket authorization to run every task. Each gate
 must be recorded as a decision before downstream tasks begin. A negative research result is a valid
 outcome: narrow the adapter, change the bridge, or stop the affected branch.
@@ -623,8 +631,9 @@ paths have bounded observations; the cost batch retains its disclosed contaminat
 Named-load scalar-attempt clearing is proved. A later cold start without any BGSE modules
 retained own records in EEex fallback storage; absent-session resave/re-enable was not tested
 in that run, and production disable handback is not claimed. True quickload remains unproved
-and lacks an established allowed callable. Task10 and Task11 remain in progress, G1 pending;
-production lease/handle cleanup belongs to later tasks.
+and lacks an established allowed callable. The approved COMP-P13 deferral completes Task10's
+bounded research scope; Task11 and G1 remain under review. Production lease/handle cleanup
+belongs to later tasks.
 
 **Files:**
 
@@ -641,9 +650,9 @@ production lease/handle cleanup belongs to later tasks.
    oversized traces, and unbounded per-adapter errors.
 2. Implement scalar/table validation, schema tags, migration dispatch, bounded ring diagnostics,
    and redaction.
-3. In the disposable environment, verify new game, save, load, quickload, area transition, death,
+3. In the disposable environment, verify new game, save, load, area transition, death,
    main-menu return, old save without state, future schema, corrupted adapter state, mod disable,
-   and upgrade.
+   and upgrade. True QuickLoad is explicitly carried to Task40 as COMP-P13, not passed here.
 4. Prove ephemeral leases/actions/handles clear on load while durable WorldFlow-shaped test state
    migrates or quarantines per schema.
 5. Benchmark observer-only cost across idle, ordinary combat, summons, and a crowded area. Record
@@ -710,6 +719,11 @@ failure visibly restore the legacy path.
 ### Task 12: Review and record G1
 
 **Depends on:** Tasks 7 through 11
+
+**2026-10-04 review checkpoint:** User authorized reviewing the existing evidence with QuickLoad
+deferred and the failed area-continuation expectation included. No new engine run is required
+merely to assemble the review. Final G1 admission still requires an explicit supported envelope
+and disposition of the unexecuted normative cases; a draft/review is not a gate pass.
 
 **Files:**
 
@@ -1602,6 +1616,9 @@ content.
    `unexecuted`; never infer a permutation.
 3. Soak idle/combat/summons/area transitions/save-load/rest/disable/upgrade with representative actor
    counts and bounded logs.
+   Explicitly execute deferred `COMP-P13` (true QuickLoad), integration owner; do not replace it
+   with named LoadGame or omit it if the route is still unavailable. Record blocked evidence for
+   an explicit G8 decision. Revisit earlier if the invocation route or load boundary changes.
 4. Measure p50/p95/worst decision and observer cost, memory growth, trace volume, circuit trips,
    action unknowns, lease age, and WorldFlow recovery latency.
 5. Investigate every failure and distinguish product defect, unsupported environment, fixture defect,

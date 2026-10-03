@@ -6,7 +6,8 @@ is discarded and corrupt data affects only its own record?
 **Status:** Host contract accepted at E2; bounded engine marshal/lifecycle batch observed at E4.
 New-game follow-up is accepted below; true quickload remains unproved. The first measured cost batch is in
 [PERF-01](PERF-01-observer-baseline.md).
-Task10/G1 are not complete. Modules are under `experiments/persistence`, not registered production
+Task10's bounded research scope is complete after the approved QuickLoad deferral below;
+G1 is not approved. Modules are under `experiments/persistence`, not registered production
 kernel code. The plan's eventual `kernel/` placement is deferred until the research gate, as for
 the capabilities/action-observer experiments. No real quest phases or gameplay policy selected.
 
@@ -250,7 +251,10 @@ stopped, original lab bytes restored, and the matching reservation released.
 True quickload remains unproved: the verified helper uses an explicitly selected named save.
 The installed UI exposes quicksave and named LoadGame but no source-backed callable QuickLoad
 was found in a bounded Lua/bindings search. Do not claim the two paths equivalent or send OS
-input to fill the gap. Keep Task10 open rather than silently waive its listed lifecycle case.
+input to fill the gap. On2026-10-04 Christopher explicitly approved deferring this one check,
+not forgetting it. [COMP-P13](../compatibility/acceptance-matrix.md#108-save-upgrade-downgrade-disable-and-uninstall)
+and the [owned follow-up](research-backlog.md#approved-deferral-comp-p13--true-quickload) carry it
+into Task40 before G8. Task10 can close at its bounded research scope; QuickLoad is not passed.
 
 The bounded follow-up also inspected the published InfinityLoader bindings at commit
 `f14a00527286f819b8034411bc92ca719cfe3c86` and installed LuaBindings (SHA-256
@@ -260,8 +264,8 @@ entry point was established. Do not invent a native call or represent named load
 
 Task10 now includes cold module-absence retention as well as handler-absence resave/re-enable.
 Those are explicitly bounded research disable cases, not a full production uninstall or
-legacy handback. The remaining true-QuickLoad requirement needs an approved test route or
-an explicit scope decision before Task10 completion. Production handback/reconciliation and
+legacy handback. The approved deferral changes the timing of the true-QuickLoad requirement,
+not its evidence standard or the supported profile. Production handback/reconciliation and
 real lease/handle cleanup belong to their later implementation tasks; no such runtime exists
 in this research probe.
 Corruption here means semantic payload corruption, not arbitrary
