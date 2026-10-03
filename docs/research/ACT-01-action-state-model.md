@@ -1,7 +1,7 @@
 # Task9 action observation — working contract
 
 **Question:** How do we keep a queued request distinct from a proved gameplay result?
-**Status:** In progress. Task8 narrow lifecycle passed; G1 and action activation remain open.
+**Status:** Task9 narrow research exit met (2026-10-03). G1 and production action activation remain open.
 This is research code under `experiments/action-observer`, not a production ownership layer.
 
 ## Frozen host contract for this bounded implementation
@@ -192,5 +192,46 @@ their bounded historical findings. Ordinary cast delivery and PI-owner exclusion
 actual replacement/ownership loss and exact saved-in-flight behavior remain unresolved. Keep
 the conservative rule: unknown, timeout or lost observation scope relinquishes enhancement,
 never clears another producer's queue or schedules a blind retry. Research window cutoffs are
-not a production timeout contract or evidence that the engine cancelled an action. Task9 is
-still in progress and G1 open; no production control is admitted by these results.
+not a production timeout contract or evidence that the engine cancelled an action. At this v1
+checkpoint Task9 remained in progress and G1 open; no production control was admitted.
+
+### Task9 research exit — 2026-10-03
+
+One further integrated hidden session ran competing-action replacement and two paused
+save/load sequences. The existing lab/launcher/menu helper and fixtures were reused, not
+expanded into new infrastructure. Independent static review accepted the probe after
+allowing the saved CRE identity form before the post-save snapshot. Lead and independent
+full-trace review then checked all three results. [ACT-03](ACT-03-interruption-and-invalidation.md)
+records the saved-state evidence; [ACT-04](ACT-04-queue-contention.md) records replacement.
+
+This meets the plan's **one ordinary action family with explicit unknown outcomes** exit:
+the targeted Strength fixture has correlated queue/start, spell expenditure and independent
+target effect evidence, plus representative adverse/lifecycle/competing-producer observations.
+The pure reducer remains unchanged and its focused checks pass. This is not completion of
+every action family, actual UI player-command semantics, general queue ownership or Task15's
+production lease. Those limits are recorded, not silently converted into support claims.
+
+The conservative observation contract is scoped to the research fixture: ordinary casting
+and competing actions are sampled for at most300/450 simulation ticks within one observation
+epoch, with a150-second host deadline. A newly loaded Wait60 sequence is observed960ticks;
+the separate host saved-byte check has60seconds. Missing the required postcondition by the
+window end is `unknown`/`timed-out`, **not** success, cancellation, refund, or retry authority.
+Load/session destruction or lost actor scope invalidates the old attempt immediately. A new
+competing action ends our claim to the old action; continue read-only reconciliation without
+clearing queues, reasserting control or resubmitting. Production-specific lease deadlines,
+arbitration and adaptation remain Task15, not a reason to enumerate every encounter here.
+
+Same exact stack/pins as prior ACT memos; current identities were reverified before launch.
+Fresh remote pong and cloud-save=false preceded testing. One callback registration per hook,
+three cases,5233 closed scalar rows,515402bytes, no probe error. Deployed authored source SHA256
+`38c10489274318b113301f66d84f46f99290c7a671b5428de8044a1bc57b06a0`;
+trace SHA256`694c9164dfe4d3fce70835d9c56ace969409d0cea7e41a2e58c4c0cd404e3dbc`.
+Both Lua5.1/LuaJIT compilers and the existing12 focused observer/schema checks passed.
+Evidence is E1+E2+bounded E4, not E5 or G1 admission.
+
+Private reproduction: `.work/task9/integrated-runtime-v2/` contains exact staged/deployed
+source, source hashes, commands/results, complete TSV, save extractor, independent review
+and cleanup receipts. Only two new synthetic saves (976/977, roughly0.5MB each) remain as
+listed cleanup candidates. Owned processes stopped, nine additions/IPC removed, three original
+lab files restored byte-exact and our matching reservation released. No additional game copy,
+active-game/personal-save write or visible computer control. Task10 may continue; G1 stays open.

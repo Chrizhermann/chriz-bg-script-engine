@@ -18,16 +18,16 @@ local function tick() return EngineGlobals.g_pBaldurChitin.m_pObjectGame.m_world
 local function clean(v) return tostring(v==nil and '' or v):gsub('[\r\n\t]',' ') end
 local columns={'event','case','phase','epoch','tick','actor','resref','area','x','y',
     'current','queue','ready','total','aura','hp','state','effects','legacy',
-    'cloneType','ownerType','parentMatch','detail'}
+    'cloneType','ownerType','parentMatch','capture','detail'}
 assert(file:write(table.concat(columns,'\t')..'\n'));file:flush()
 local function row(event,s,detail)
     if batch.closed then return end
     assert(batch.rows<12000,'trace bound')
     local t=batch.active or {}
     local values={event,t.kind or '',t.phase or '',batch.epoch,(s and s.tick) or batch.lastTick or ''}
-    for i=6,22 do values[i]=s and s[columns[i]] or '' end
-    values[23]=detail or ''
-    for i=1,23 do values[i]=clean(values[i]) end
+    for i=6,#columns-1 do values[i]=s and s[columns[i]] or '' end
+    values[#columns]=detail or ''
+    for i=1,#columns do values[i]=clean(values[i]) end
     assert(file:write(table.concat(values,'\t')..'\n'));assert(file:flush())
     batch.rows=batch.rows+1
 end
@@ -71,7 +71,7 @@ local function actor(s,area,relation)
         x=s.m_pos.x,y=s.m_pos.y,current=s.m_curAction.m_actionID,hp=s.m_baseStats.m_hitPoints,
         state=EEex_Sprite_GetState(s),ready=0,total=0,aura=EEex_Sprite_GetCastTimer(s),
         legacy=getLocal(s,'B-XLEGACY'),cloneType=getStat(s,139),ownerType=getStat(s,140),
-        parentMatch=relation and 1 or 0}
+        parentMatch=relation and 1 or 0,capture=getLocal(s,'B-XCAPTURE')}
     local actions,effects={},{}
     EEex_Utility_IterateCPtrList(s.m_queuedActions,function(a)
         actions[#actions+1]=table.concat({a.m_actionID,a.m_string1.m_pchData:get(),a.m_dest.x,a.m_dest.y},':')
@@ -93,6 +93,7 @@ end
 local function snapshot()
     local owner,area,caster,target,clones,pending=scan()
     local result={tick=tick(),area=area,clones={}}
+    batch.lastTick=result.tick
     row('sample',actor(owner,area))
     if pending then
         result.pending=true;row('identity-pending',nil,'unsettled duplicate during PI setup');return result
@@ -149,6 +150,17 @@ local function windup(t,s)
     return t.castStarts==1 and s.caster.current==31 and s.caster.ready==1 and
         s.caster.total==2 and s.target.effects==''
 end
+local function paused() return worldScreen:CheckIfPaused() end
+local function captureSave(t)
+    local _,_,caster=scan()
+    setLocal(caster,'B-XCAPTURE',t.captureMarker)
+    if not paused() then worldScreen:TogglePauseGame(true) end
+    assert(paused(),'save capture was not paused')
+    t.beforeSave=snapshot()
+    row('save-capture',t.beforeSave.caster,'paused; marker '..t.captureMarker..'; request is not disk proof')
+    t.allowSavedIdentity=true
+    phase('saving');qa.QA:start_save(t.saveName,qa.revision)
+end
 local function poll()
     local t=batch.active;if not t then return end
     assert(not batch.disabled,'listener disabled')
@@ -167,7 +179,14 @@ local function poll()
             t.afterSave=snapshot();return
         else
             t.restored=true;t.allowSavedIdentity=true;phase('post-load');t.postLoad=tick();t.lastTick=nil
-            t.afterLoad=snapshot();return
+            t.afterLoad=snapshot()
+            if t.captureMarker then
+                assert(t.afterLoad.caster.capture==t.captureMarker,'saved capture marker not restored')
+                if paused() then worldScreen:TogglePauseGame(true) end
+                assert(not paused(),'post-load observation still paused')
+                row('restored-marker',t.afterLoad.caster,'saved marker restored; unsaved marker discarded')
+            end
+            return
         end
     end
     if not world() then return end
@@ -175,7 +194,25 @@ local function poll()
     t.lastTick=now;batch.lastTick=now
     local s=snapshot()
     if s.pending then return end
-    if t.kind=='legacy' then
+    if t.kind=='replacement' then
+        if t.phase=='casting' and windup(t,s) then
+            local owner,area=scan()
+            assert(owner.m_curAction.m_actionID==0 and owner.m_queuedActions.m_nCount==0)
+            t.intervention=s;phase('replacement-observing')
+            queue('ActionOverride("B-XCAST2",MoveToPoint([232.264]))',owner)
+            row('override-submitted',actor(owner,area),'normal queued action from separate actor; replacement not assumed')
+        end
+        if now-t.before.tick>=300 then
+            t.final=s;complete('compare starts, debit, movement and delivery; do not infer ownership from submission')
+        end
+    elseif t.kind=='save-chain' or t.kind=='save-cast' then
+        if (t.phase=='waiting-to-save' and s.caster.current==63 and s.caster.queue=='23::232:264') or
+            (t.phase=='casting' and windup(t,s)) then
+            captureSave(t)
+        elseif t.phase=='post-load' and now-t.postLoad>=(t.kind=='save-chain' and 960 or 450) then
+            t.final=s;complete('compare capture marker, restored state and continuation; no automatic resubmission')
+        end
+    elseif t.kind=='legacy' then
         if t.phase=='casting' and windup(t,s) then
             local _,_,caster=scan();setLocal(caster,'B-XLEGACY',1)
             t.armed=now;phase('legacy-observing')
@@ -242,12 +279,14 @@ EEexRemote.Poll=function(...)
     return oldPoll(...)
 end
 function batch.begin(kind)
-    assert(kind=='legacy' or kind=='lifecycle' or kind=='image')
+    assert(kind=='legacy' or kind=='lifecycle' or kind=='image' or kind=='replacement' or
+        kind=='save-chain' or kind=='save-cast')
     assert(not batch.active and not batch.cases[kind] and not batch.failed and not batch.disabled,'no repeat')
     assert(qa.QA:inspect().status=='complete')
     local t={kind=kind,phase='preflight',status='running',startedMs=Infinity_GetClockTicks(),castStarts=0}
     batch.cases[kind]=t;batch.active=t
     local ok,err=pcall(function()
+        assert(not paused(),'fresh case must be unpaused')
         local s=snapshot();t.before=s
         assert(s.area=='BG2602' and #s.clones==0)
         for _,a in ipairs({s.caster,s.target}) do
@@ -256,7 +295,14 @@ function batch.begin(kind)
         assert(s.caster.ready==2 and s.caster.total==2 and s.caster.aura==-1 and s.caster.legacy==0)
         local _,_,caster,target=scan()
         setLocal(caster,'B-XIDENT',93301);setLocal(target,'B-XIDENT',93302)
-        if kind=='image' then
+        if kind=='save-chain' or kind=='save-cast' then
+            t.saveName=kind=='save-chain' and 'BGSE Chain Capture 1003' or 'BGSE Cast Capture 1003'
+            t.captureMarker=kind=='save-chain' and 10031 or 10041
+        end
+        if kind=='save-chain' then
+            queue('Wait(60)\nMoveToPoint([232.264])',caster)
+            phase('waiting-to-save')
+        elseif kind=='image' then
             phase('creating-image')
             queue('ReallyForceSpellRES("SPWI703",Myself)',caster)
             row('image-setup-submitted',nil,'forced condition setup only; no fair PI-cast claim')
@@ -266,8 +312,15 @@ function batch.begin(kind)
     return {kind=kind,phase=t.phase,rows=batch.rows}
 end
 function batch.loadSaved(folder)
-    local t=assert(batch.active);assert(t.kind=='lifecycle' and t.phase=='saved-await-host-load')
-    assert(folder:match('^%d%d%d%d%d%d%d%d%d%-BGSE Batch Flight 0930$'))
+    local t=assert(batch.active);assert(t.phase=='saved-await-host-load')
+    local name=t.saveName or 'BGSE Batch Flight 0930'
+    assert(folder:match('^%d%d%d%d%d%d%d%d%d%-') and folder:sub(11)==name)
+    if t.captureMarker then
+        assert(paused(),'saved verification window lost pause')
+        local _,_,caster=scan()
+        setLocal(caster,'B-XCAPTURE',t.captureMarker+1)
+        row('unsaved-marker',actor(caster,'BG2602'),'must disappear on load')
+    end
     phase('loading');t.savedFolder=folder;t.lastQA=nil;t.resumedMs=Infinity_GetClockTicks()
     qa.QA:start_load(folder,qa.revision)
 end

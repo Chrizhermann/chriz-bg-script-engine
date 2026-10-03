@@ -96,3 +96,25 @@ Exact requested Y264 was not attained; observed Y270 is reported without inventi
 Private closed TSV and deployed source provide reproduction and independent review. No queue
 clearing, retry, gameplay rule or general compatibility claim. Remaining actual replacement/
 ownership-loss handling stays open rather than requiring every script or encounter variant.
+
+## Normal competing ActionOverride replaces the observed cast — E4, 2026-10-03
+
+In the [second integrated batch](ACT-01-action-state-model.md#task9-research-exit--2026-10-03),
+fresh own baseline/room/pair, ordinary targeted Strength is queued and starts at32935.
+By32939, current31, one copy spent and target effect-free. On the separate idle protagonist,
+queue ordinary `ActionOverride("B-XCAST2",MoveToPoint([232.264]))` once. No native queue clear,
+forced movement, synthetic player input or direct action-field write is used.
+
+The caster has queued Move23 while current31 during32941–32951. Its Move start callback is
+32951; independent displacement begins32952 and reaches(232,270), idle, by32965. All301
+unique target samples32935–33235 lack source-SPWI214 effects; one spell copy remains spent.
+The competing ordinary action took over the caster before any observed Strength delivery.
+This contrasts with the prior ordinary BCS block, which waited until after delivery.
+
+This is representative external-producer replacement, **not** a general rule about player
+clicks, legacy priority, a native interruption reason or unique action ownership. Matching
+same-shaped requests from multiple producers remains ambiguous. On replacement, relinquish
+our old attempt and reconcile outcomes; never restore the old queue or blindly retry.
+Effective ACTION.IDS/EEex queue-helper identities are the ACT-01 pins; quoted ActionOverride
+syntax is statically supported. Exact trace/source/pins, review and cleanup are shared with
+ACT-01. Task9's narrow observer exit is met; production leases remain Task15 and G1 stays open.

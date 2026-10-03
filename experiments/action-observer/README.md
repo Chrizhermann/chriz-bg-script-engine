@@ -184,6 +184,23 @@ in ACT-02/03/04. Phase-only timestamps use the last sample; use actor snapshots/
 save resets. Source review and independent full-trace review were accepted, not a general lease.
 
 Owned processes stopped; nine additions/IPC removed and three originals restored. One tiny own
-save is retained privately, no game copy. Existing 12 checks passed; no new broad tests. Task9/G1
-remain open for actual replacement/ownership loss and saved-in-flight uncertainty. Continue with
+save is retained privately, no game copy. Existing 12 checks passed; no new broad tests. At this
+v1 checkpoint Task9/G1 remained open for replacement and saved-in-flight uncertainty. Continue with
 representative logged sequences, not a launch or exhaustive scenario suite per spell.
+
+### Second batch — replacement and paused save captures, 2026-10-03
+
+Use `replacement`, `save-chain` and `save-cast` after the same fresh own973/room/pair resets.
+The first queues ordinary ActionOverride from the protagonist during observed Strength windup.
+The latter two pause an observed Wait60/Move chain or ordinary cast, set an identifying local,
+and create a unique own save. Host verifies actual saved identity/capture/memorization bytes,
+then `loadSaved(exactFolder)` changes the unsaved marker and loads the verified slot. Restored
+marker must match the saved one; unpause and observe960/450ticks without resubmission.
+
+One hidden process completed all three;5233 closed rows. Replacement caused real movement
+before any observed spell delivery. Both saves restored the marker, but no unfinished action
+continued; the cast's spent copy persisted. Raw serialized action fields and general player
+ownership remain unknown. See ACT-01/03/04 for exact bounded conclusions, pins and cleanup.
+The prior v1 deployed chunk is preserved; the updated logger adds `capture` and refreshes its
+sample tick during snapshots. Phase-only rows across load still require epoch/snapshot context.
+Task9's narrow research exit is met, not G1 or production activation.

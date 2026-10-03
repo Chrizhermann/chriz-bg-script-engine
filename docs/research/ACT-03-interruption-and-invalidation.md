@@ -126,4 +126,41 @@ Do not promote pre-menu or post-menu snapshots into proof of the bytes inside a 
 Private `integrated-runtime-v1/events.tsv`, `batch-final.json`, `own-save-verified.json` and
 existing QA receipts preserve the complete evidence. Own save975 remains a tiny cleanup
 candidate; no personal save was loaded or overwritten. Source/stack/cleanup pins and independent
-review are in ACT-02. Task9/G1 remain open; do not add a retry, refund or queue-clear policy.
+review are in ACT-02. At this v1 checkpoint Task9/G1 remained open; no retry, refund or
+queue-clear policy followed from it.
+
+## Paused captures with independently verified saved markers — E4, 2026-10-03
+
+The [second integrated batch](ACT-01-action-state-model.md#task9-research-exit--2026-10-03)
+uses the same fresh baseline/quiet room/pair between cases, without restarting the game.
+At the observed in-flight state, set a unique caster local `B-XCAPTURE`, query/pause through
+the existing UI clock method, and save to a new own slot through queued menus. Read the actual
+GAM/SAV and embedded BG2602 CRE offline; verify identity/capture locals and memorization flags.
+Then change the live, unsaved marker by+1 and load that exact new folder. The original marker
+must return. Re-resolve actors, unpause if necessary, and observe without any resubmission.
+
+| Case | Paused capture and saved bytes | Fresh post-load observation |
+|---|---|---|
+| Wait60 then Move | ID63 start32921; capture current63/queued23, position(304,192), marker10031. Own save976 contains identity93301/marker10031 and both Strength copies available. | Unsaved10032 discarded,10031 restored; idle/empty queue/unchanged position through961 consecutive unique ticks32909–33869. No Wait/Move continuation. |
+| Ordinary targeted Strength | ID31 start32697, spent copy visible32701; pausing reports32700 with current31, ready1/2, target effect-free, marker10041. Own save977 contains identity93301/marker10041 and memorization flags[0,1]. | Unsaved10042 discarded,10041 and spent copy restored; idle/empty queue/unchanged position, no target source-SPWI214 effect through451 consecutive ticks32699–33149. No cast continuation or observed refund. |
+
+This removes uncertainty about loading the intended capture and about persisted spell debit.
+It does **not** identify raw serialized current-action/queue fields: those were not established
+in the ARE/CRE formats. It proves the bounded save/load behavior, not universal engine queue
+nonpersistence, a native interruption reason, or what every spell/projectile does during load.
+The GAM clock is in game seconds; pause can reverse a tick. Saved clock values (32910/32700)
+must not be used alone to infer that other saved state predates the capture. Phase-only rows
+can also carry the prior sample tick; use actor snapshots, markers and session epochs.
+
+Saved evidence pins (GAM / SAV):
+
+- Own976: `f763b8875f355e36878c6d0b2afd37bce9ecc111479015866680f0f52a6a62fe` /
+  `a5188c2fed539077a8fc7020999ead1fd7792e32eff66e80fab31f5b3426a053`.
+- Own977: `dfa05382eb58b313bffb0a596b3a1e55349032c859677fdb0a90018edf174750` /
+  `8baabfb546bfea3971e9a3789b7280650f705e79a4b31e90d438920ba1841077`.
+
+The private one-off extractor checks SAV/ARE/CRE signatures and table bounds, CRE V2-effect
+stride, opcode187 locals and memorized-spell entries. It is not a general save editor and
+never writes a save. E1 format interpretation accompanies E4 observation; original v1 evidence
+is not relabeled. Full trace/source review and cleanup are recorded in ACT-01. No automatic
+retry, refund or queue-clearing policy follows from this result.
