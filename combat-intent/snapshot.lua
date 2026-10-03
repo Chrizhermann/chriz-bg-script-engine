@@ -47,8 +47,8 @@ function M.new(input)
     -- Every constructor path uses the same fairness admission; callers cannot
     -- accidentally turn a structural record into trusted perceived knowledge.
     local data=require('combat-intent.perception').normalize(input)
-    M.record(data,{'schemaVersion','tick','observerKey','eligibleAllies','actors'})
-    assert(data.schemaVersion==1);M.assertTick(data.tick);M.assertKey(data.observerKey)
+    M.record(data,{'schemaVersion','sceneKey','tick','observerKey','eligibleAllies','actors'})
+    assert(data.schemaVersion==1);M.assertKey(data.sceneKey);M.assertTick(data.tick);M.assertKey(data.observerKey)
     M.array(data.eligibleAllies,function(key) M.assertKey(key) end)
     local actors={}
     M.array(data.actors,function(actor)

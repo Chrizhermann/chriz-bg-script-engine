@@ -5,7 +5,7 @@ local function fact(source,value,extra)
     for k,v in pairs(extra or {}) do f[k]=v end;return f
 end
 local function frame()
-    return {schemaVersion=1,tick=10,observerKey='mage/one',eligibleAllies={'ally/one'},actors={
+    return {schemaVersion=1,sceneKey='synthetic/scene-1',tick=10,observerKey='mage/one',eligibleAllies={'ally/one'},actors={
         {key='mage/one',visible=true,detected=true,facts={spellbook=fact('self',{'SPWI112'}),auraReady=fact('self',true)}},
         {key='enemy/one',visible=true,detected=true,facts={position=fact('sight',{x=10,y=20}),alive=fact('sight',true),
             protections=fact('witnessed',{'mirror-image'},{basis='visible-cast/123'}),
@@ -95,4 +95,7 @@ memory:observe(perception.build(newer));memory:observe(view)
 assert(memory:read('enemy/one','position',15).value.x==30)
 local tiny=beliefs.new({observerKey='mage/one',maxEntries=1});local ok,why=tiny:observe(view)
 assert(not ok and why=='capacity' and tiny:size()==0) -- no partial memory replacement
+local otherScene=frame();otherScene.sceneKey='synthetic/scene-2';otherScene.actors[2].visible=false
+assert(memory:observe(perception.build(otherScene)))
+assert(memory:read('enemy/one','position',15).kind=='unknown') -- no memory across scene boundaries
 return 7

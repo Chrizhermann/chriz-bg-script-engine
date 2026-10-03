@@ -39,8 +39,8 @@ local function admit(field,evidence,actor,frame,allies)
 end
 function M.normalize(input)
     local frame=copy(input)
-    snapshot.record(frame,{'schemaVersion','tick','observerKey','eligibleAllies','actors'})
-    assert(frame.schemaVersion==1);snapshot.assertTick(frame.tick);snapshot.assertKey(frame.observerKey)
+    snapshot.record(frame,{'schemaVersion','sceneKey','tick','observerKey','eligibleAllies','actors'})
+    assert(frame.schemaVersion==1);snapshot.assertKey(frame.sceneKey);snapshot.assertTick(frame.tick);snapshot.assertKey(frame.observerKey)
     local allies={}
     snapshot.array(frame.eligibleAllies,function(key) snapshot.assertKey(key);assert(not allies[key]);allies[key]=true end)
     snapshot.array(frame.actors,function(actor)

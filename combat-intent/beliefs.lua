@@ -31,12 +31,16 @@ function M.new(config)
         limit<math.huge and limit%1==0,'invalid-beliefs-capacity')
 
     local entries,size={},0
+    local sceneKey
     local api={}
 
     function api:observe(view)
         if not snapshot.isView(view) then return false,'invalid-view' end
         local data=view:export()
         if data.observerKey~=observerKey then return false,'observer-mismatch' end
+        -- A fresh area/session/stack scene cannot inherit old target memory.
+        if sceneKey~=nil and sceneKey~=data.sceneKey then entries,size={},0 end
+        sceneKey=data.sceneKey
 
         -- Stage the whole update. Existing facts are immutable within this table;
         -- fresh evidence is copied before replacement, so failure cannot leak writes.
@@ -93,6 +97,7 @@ function M.new(config)
 
     function api:invalidate()
         entries,size={},0
+        sceneKey=nil
     end
 
     function api:size() return size end

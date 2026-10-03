@@ -35,7 +35,7 @@ def exported_view(backend):
             for key,item in pairs(extra or {}) do result[key]=item end
             return result
         end
-        return perception.build({schemaVersion=1,tick=10,observerKey='mage/one',
+        return perception.build({schemaVersion=1,sceneKey='synthetic/scene-1',tick=10,observerKey='mage/one',
             eligibleAllies={'ally/one'},actors={
                 {key='mage/one',visible=true,detected=true,facts={
                     spellbook=fact('self',{'SPWI112'}),auraReady=fact('self',true)}},

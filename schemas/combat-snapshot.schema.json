@@ -5,9 +5,10 @@
   "title": "Combat Intent normalized scalar snapshot v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "tick", "observerKey", "eligibleAllies", "actors"],
+  "required": ["schemaVersion", "sceneKey", "tick", "observerKey", "eligibleAllies", "actors"],
   "properties": {
     "schemaVersion": {"type": "integer", "const": 1},
+    "sceneKey": {"$ref": "#/$defs/key"},
     "tick": {"$ref": "#/$defs/tick"},
     "observerKey": {"$ref": "#/$defs/key"},
     "eligibleAllies": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/key"}},
