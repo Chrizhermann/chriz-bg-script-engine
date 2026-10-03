@@ -196,6 +196,13 @@ maps WIZARD_MINOR_LIGHTNING_BOLT to2229. These exact local mappings, not a gener
 connect the call to BAF11083–11124. The definition is
 [caster_definitions.ssl:1313–1333](https://github.com/Gibberlings3/SwordCoastStratagems/blob/5dc240e9ff85d3909b6436e54b56297d3b61e33b/stratagems/caster_shared/caster_definitions.ssl#L1313-L1333).
 
+The same hashed MAGE18B CRE also allocates both DW#MS22 and SPWI229 in its known table and one
+memorized entry each with flags1. This is installed-file allocation, not a claim that HaveSpell
+will pass in a particular live encounter or that manual casting spends the child entry.
+Private `manual-sequencer-allocation.private.json` records four exact offsets/values and the
+[CRE layout method](https://gibberlings3.github.io/iesdp/file_formats/ie_formats/cre_v1.htm#CREV1_0_KnownSpell).
+Independent review rechecked all four entries and the unchanged CRE hash; all table bounds fit.
+
 The emitted action block requires the bundle, cast timer, enabled/living caster, no improved
 alacrity or running time stop, and targetability/DNT, resistance/protection, allegiance,
 difficulty and sight predicates. Its150-weight response sets the cast timer, forces the
