@@ -63,6 +63,11 @@ local calls=0
 local decorated=setmetatable(facts(),{__index=function() calls=calls+1;error('must not run') end})
 refused(decorated,v3,'metatable');assert(calls==0)
 for _,n in ipairs({0/0,math.huge,-math.huge}) do refused(n,natural,'non-finite') end
+-- Pinned EEex wire uses integer writers and NUL-terminated strings. Keep the
+-- current direct numeric profile unsigned32; other values need explicit encoding.
+for _,n in ipairs({0.5,-1,4294967296}) do refused(n,{kind='number'},'wire-number') end
+assert(state.copy(4294967295,{kind='number'},limits)==4294967295)
+refused('before\0after',text,'string-nul')
 
 -- 6. Explicit budgets bound nesting, nodes, bytes, strings and array length/holes.
 refused(facts(),v3,'node-limit',{maxDepth=8,maxNodes=2,maxBytes=4096,maxStringBytes=128})

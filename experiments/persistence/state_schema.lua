@@ -16,6 +16,7 @@ function M.copy(value,shape,limits)
     assert(limits.maxDepth<=64,'persistence depth is too large')
     local active,nodes,bytes={},0,0
     local function charge(text)
+        if text:find('\0',1,true) then fail('string-nul') end
         if #text>limits.maxStringBytes then fail('string-limit') end
         bytes=bytes+#text
         if bytes>limits.maxBytes then fail('byte-limit') end
@@ -31,6 +32,9 @@ function M.copy(value,shape,limits)
             if input~=input or input==math.huge or input==-math.huge then fail('non-finite') end
             if schema.integer and input%1~=0 then fail('number-range') end
             if (schema.min and input<schema.min) or (schema.max and input>schema.max) then fail('number-range') end
+            -- Current direct EEex profile: integer-width writers, conservatively uint32.
+            -- Fractional/signed/wider semantic values need a separately proved encoding.
+            if input%1~=0 or input<0 or input>4294967295 then fail('wire-number') end
             bytes=bytes+8
             if bytes>limits.maxBytes then fail('byte-limit') end
             return input

@@ -10,8 +10,8 @@ the capabilities/action-observer experiments. No real quest phases or gameplay p
 
 ## Pure state boundary
 
-`state_schema.copy(value, shape, limits)` accepts only explicitly declared finite numbers,
-strings, records and bounded arrays. Record fields are allowlisted, not a blacklist of suspicious
+`state_schema.copy(value, shape, limits)` accepts only explicitly declared unsigned32 integers,
+NUL-free strings, records and bounded arrays. Record fields are allowlisted, not a blacklist of suspicious
 names. Stable actor/resource identities must be declared strings; undeclared numeric object IDs
 and numeric identity values are rejected. A validator cannot recognize a session ID deliberately
 disguised as another allowed number: schema authors retain responsibility for semantic fields.
@@ -68,6 +68,20 @@ still obtaining exit0/two passed; that separate output is not represented as ano
 Exact RED/GREEN/correction/combined output is private `.work/task10/`.
 
 ## Engine evidence and remaining work
+
+Prelaunch E1 review tightened the initially generic finite-number/string validator. The pinned
+EEex serializer selects integer-width writers/readers and NUL-terminated strings. Fractions
+have no explicit integer validation there; an embedded NUL changes the reader's logical string
+length. Signed-width selection also warrants separate proof, not assumptions about native
+conversion. This research direct-wire profile therefore admits only0..4294967295 integers and
+NUL-free keys/values. Other logical values need an explicit proved encoding later; this does
+not remove any planned gameplay feature. The source supports Lua booleans in this version,
+but the agreed cross-version numeric0/1 flag contract is retained.
+
+Focused RED runs independently reached the fractional-number and embedded-NUL acceptance
+defects; minimal boundary checks made both backends GREEN. The existing eight scenarios remain
+eight, with targeted assertions rather than a broad new suite. Logs: `state-wire-red.log`,
+`state-nul-red.log`, `state-wire-green.log`. Native unsigned value round trips remain E4 work.
 
 Prior Task8 proved a Lua root survives own save/load, a destroyed listener advances the session
 epoch and fresh observation resolves actors again. Task9 proved independent saved markers and
