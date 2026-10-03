@@ -100,3 +100,18 @@ tokens without altering engine actions. Neither manager state nor raw object IDs
 This E2 implementation is not permission to dispatch in a game before the active-behavior gate.
 
 Reproduce: `pwsh -File scripts/test.ps1 -Suite unit -Filter 'ownership or identity_attempt'`.
+
+## Observer kernel integration
+
+`kernel/bootstrap.lua` connects explicit enrollment, fresh semantic resolution, exact eligibility,
+scalar snapshots, bounded trace and per-adapter error circuits. `adapters/eeex/engine.lua` is a
+read-only boundary for the pinned BG2:EE2.7.3/EEex1.2/LuaJIT call shapes; its profile label is not
+a binary verification substitute. `adapters/eeex/listeners.lua` preserves one registration and
+void-only protected callbacks. The bundle exports no action dispatcher or persistence mutation.
+
+Task16's four-character E4 batch observed ordinary legacy casting/movement, local observer-error
+recovery, individual disable, capability decline, sticky epoch drift and load invalidation.
+See [KERNEL-01](../research/KERNEL-01-integrated-observer.md) for exact evidence, cost and limits.
+Its C1 admission used an injected authored fixture envelope, not a real-game dependency scanner;
+the intentionally wrong expected digest was not a modified installed resource. No C2–C4 or
+active mage support follows from this batch. Task17 and G2/G3 remain open.

@@ -1,0 +1,63 @@
+BACKUP ~backup~
+AUTHOR ~BGSE local research fixture~
+BEGIN ~Build disposable observer casters~ DESIGNATED 0
+
+// Caller supplies the exact stripped B-XMAGE2.CRE donor and output directory.
+// Preserve its prepared Strength and inventory; change only control and identity.
+OUTER_SPRINT ~BGSE_DONOR~ ~%argv[0]%~
+
+COPY ~%BGSE_DONOR%~ ~%argv[1]%/B-XKMAG0.CRE~
+  READ_ASCII 0 signature (8)
+  READ_ASCII 0x280 dv (32) NULL
+  READ_ASCII 0x248 override_script (8) NULL
+  PATCH_IF NOT (~%signature%~ STRING_EQUAL ~CRE V1.0~ AND
+                ~%dv%~ STRING_EQUAL_CASE ~B-XCAST2~ AND
+                ~%override_script%~ STRING_EQUAL_CASE ~B-XLEG00~) BEGIN
+    PATCH_FAIL ~Unexpected stripped donor~
+  END
+  WRITE_ASCII 0x248 ~~ (0x28)       // Clear inherited override/class/race/general/default.
+  WRITE_ASCII 0x248 ~B-XKLEG0~ (8) // One authored legacy observer script.
+  WRITE_ASCII 0x280 ~B-XKMAG0~ (32)
+  WRITE_ASCII 0x2cc ~~ (8)         // No inherited dialogue control.
+
+COPY ~%BGSE_DONOR%~ ~%argv[1]%/B-XKMAG1.CRE~
+  READ_ASCII 0 signature (8)
+  READ_ASCII 0x280 dv (32) NULL
+  READ_ASCII 0x248 override_script (8) NULL
+  PATCH_IF NOT (~%signature%~ STRING_EQUAL ~CRE V1.0~ AND
+                ~%dv%~ STRING_EQUAL_CASE ~B-XCAST2~ AND
+                ~%override_script%~ STRING_EQUAL_CASE ~B-XLEG00~) BEGIN
+    PATCH_FAIL ~Unexpected stripped donor~
+  END
+  WRITE_ASCII 0x248 ~~ (0x28)
+  WRITE_ASCII 0x248 ~B-XKLEG0~ (8)
+  WRITE_ASCII 0x280 ~B-XKMAG1~ (32)
+  WRITE_ASCII 0x2cc ~~ (8)
+
+COPY ~%BGSE_DONOR%~ ~%argv[1]%/B-XKMAG2.CRE~
+  READ_ASCII 0 signature (8)
+  READ_ASCII 0x280 dv (32) NULL
+  READ_ASCII 0x248 override_script (8) NULL
+  PATCH_IF NOT (~%signature%~ STRING_EQUAL ~CRE V1.0~ AND
+                ~%dv%~ STRING_EQUAL_CASE ~B-XCAST2~ AND
+                ~%override_script%~ STRING_EQUAL_CASE ~B-XLEG00~) BEGIN
+    PATCH_FAIL ~Unexpected stripped donor~
+  END
+  WRITE_ASCII 0x248 ~~ (0x28)
+  WRITE_ASCII 0x248 ~B-XKLEG0~ (8)
+  WRITE_ASCII 0x280 ~B-XKMAG2~ (32)
+  WRITE_ASCII 0x2cc ~~ (8)
+
+COPY ~%BGSE_DONOR%~ ~%argv[1]%/B-XKMAG3.CRE~
+  READ_ASCII 0 signature (8)
+  READ_ASCII 0x280 dv (32) NULL
+  READ_ASCII 0x248 override_script (8) NULL
+  PATCH_IF NOT (~%signature%~ STRING_EQUAL ~CRE V1.0~ AND
+                ~%dv%~ STRING_EQUAL_CASE ~B-XCAST2~ AND
+                ~%override_script%~ STRING_EQUAL_CASE ~B-XLEG00~) BEGIN
+    PATCH_FAIL ~Unexpected stripped donor~
+  END
+  WRITE_ASCII 0x248 ~~ (0x28)
+  WRITE_ASCII 0x248 ~B-XKLEG0~ (8)
+  WRITE_ASCII 0x280 ~B-XKMAG3~ (32)
+  WRITE_ASCII 0x2cc ~~ (8)

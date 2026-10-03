@@ -1,0 +1,53 @@
+// Synthetic legacy behavior for the isolated observer fixture only.
+// Unarmed B-XKPHASE=0 has no matching block; this is not production AI.
+IF
+  Global("B-XKPHASE","LOCALS",1)
+THEN
+  RESPONSE #100
+    SpellRES("SPWI214",Myself)
+    SetGlobal("B-XKPHASE","LOCALS",2)
+END
+
+IF
+  Global("B-XKPHASE","LOCALS",2)
+  Global("B-XKCASE","LOCALS",0)
+THEN
+  RESPONSE #100
+    MoveToPoint([304.240])
+    SetGlobal("B-XKPHASE","LOCALS",3)
+END
+
+IF
+  Global("B-XKPHASE","LOCALS",2)
+  Global("B-XKCASE","LOCALS",1)
+THEN
+  RESPONSE #100
+    MoveToPoint([352.240])
+    SetGlobal("B-XKPHASE","LOCALS",3)
+END
+
+IF
+  Global("B-XKPHASE","LOCALS",2)
+  Global("B-XKCASE","LOCALS",2)
+THEN
+  RESPONSE #100
+    MoveToPoint([400.240])
+    SetGlobal("B-XKPHASE","LOCALS",3)
+END
+
+IF
+  Global("B-XKPHASE","LOCALS",2)
+  Global("B-XKCASE","LOCALS",3)
+THEN
+  RESPONSE #100
+    MoveToPoint([448.240])
+    SetGlobal("B-XKPHASE","LOCALS",3)
+END
+
+IF
+  Global("B-XKPHASE","LOCALS",3)
+THEN
+  RESPONSE #100
+    SetGlobal("B-XKDONE","LOCALS",1)
+    SetGlobal("B-XKPHASE","LOCALS",4)
+END

@@ -21,12 +21,16 @@ function M.new()
     end
     function api:evaluate(id,environment,identity)
         if not entries[id] then return {eligible=false,reason='unknown-adapter',fallback='legacy',dispatchAuthorized=false} end
-        if type(environment)=='table' and rawget(environment,'epoch')~=epoch then stale=true end
+        self:observeEnvironment(environment)
         local result=eligibility.evaluate(entries[id],environment,identity)
         if stale or quarantine[id] then
             result.eligible=false;result.reason=stale and 'stale-stack' or quarantine[id]
         end
         return result
+    end
+    function api:observeEnvironment(environment)
+        if epoch and (type(environment)~='table' or rawget(environment,'epoch')~=epoch) then stale=true end
+        return not stale
     end
     function api:report()
         local ids,lines={},{}
