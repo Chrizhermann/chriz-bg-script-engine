@@ -83,8 +83,14 @@ end
 
 local function checkContract(contract)
     assert(type(contract)=='table' and type(contract.schemaId)=='string' and #contract.schemaId>0
-        and integer(contract.version) and contract.version>0 and type(contract.shapes)=='table'
+        and not contract.schemaId:find('\0',1,true)
+        and integer(contract.version) and contract.version>0 and contract.version<=4294967295
+        and type(contract.shapes)=='table'
         and type(contract.migrations)=='table','invalid persistence contract')
+    -- Metadata crosses the same direct-wire boundary as the validated payload.
+    assert(type(contract.limits)=='table' and integer(contract.limits.maxStringBytes)
+        and contract.limits.maxStringBytes>0 and #contract.schemaId<=contract.limits.maxStringBytes,
+        'invalid schema identifier size')
 end
 
 function M.export(payload,contract)

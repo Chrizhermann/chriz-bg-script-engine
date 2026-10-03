@@ -31,6 +31,8 @@ with validation/copying before and after each step. Missing/throwing/invalid mig
 only that record. `absent` is **not** permission to adopt a real legacy quest without inspection.
 Schemas, limits and migration functions are trusted programming configuration and may assert
 when invalid; persisted data is untrusted. No engine call, storage write or automatic retry.
+Contract metadata also crosses the wire boundary: schema IDs must be nonempty, NUL-free and
+within the configured string limit; schema versions must be positive unsigned32 integers.
 
 ## Bounded diagnostics
 
@@ -68,6 +70,17 @@ The per-run diagnostic-hook switch is the documented Windows/LuaJIT handled-exce
 not an assertion bypass. The independent reviewer omitted it and saw that known diagnostic while
 still obtaining exit0/two passed; that separate output is not represented as anomaly-free.
 Exact RED/GREEN/correction/combined output is private `.work/task10/`.
+
+A final lead review found that the payload checks did not cover the exported envelope's trusted
+schema ID/version. The existing envelope scenario was extended, not replaced: both backends
+first failed for NUL IDs, oversized IDs and versions above unsigned32 through export and load.
+The minimal contract checks then passed the same combined16 checks (exit0, no skips).
+Receipts: `state-envelope-red.log` and `state-envelope-green.log`. Updated state module SHA256
+`6bfb1df69a4dd7ce50d408333f70a573af1d0c46e640a50aa7ff03aa9f77d1e1` is **E2-only**;
+the E4 batches below used the earlier, separately fingerprinted module with valid metadata.
+Their observed results stand, but they are not an engine retest of this final check.
+Independent review accepted the six-path regression and short-circuit guards; it inspected the
+saved RED/GREEN receipts rather than claiming a separate rerun.
 
 ## Engine evidence and remaining work
 

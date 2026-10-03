@@ -94,4 +94,19 @@ assert(state.load(extra,contract).reason=='envelope-shape')
 assert(state.load(envelope(1.5,{}),contract).reason=='schema-version')
 assert(state.load({schemaId=contract.schemaId,schemaVersion=3},contract).status=='quarantined')
 assert(not pcall(state.copy,{},v1,{maxDepth=0,maxNodes=1,maxBytes=1,maxStringBytes=1}))
+
+-- Trusted contract metadata is still serialized: reject invalid wire identifiers
+-- and versions before an exporter can return an otherwise valid payload.
+local admitted={}
+for _,metadata in ipairs({
+    {name='nul-id',id='research\0hidden',version=3},
+    {name='oversized-id',id=string.rep('x',limits.maxStringBytes+1),version=3},
+    {name='wide-version',id=contract.schemaId,version=4294967296},
+}) do
+    local badContract={schemaId=metadata.id,version=metadata.version,limits=limits,
+        shapes={[metadata.version]=v3},migrations={}}
+    if pcall(state.export,facts(),badContract) then admitted[#admitted+1]=metadata.name..'-export' end
+    if pcall(state.load,nil,badContract) then admitted[#admitted+1]=metadata.name..'-load' end
+end
+assert(#admitted==0,'invalid contract metadata admitted: '..table.concat(admitted,','))
 return 8
