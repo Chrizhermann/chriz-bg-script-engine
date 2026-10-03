@@ -127,6 +127,7 @@ diagnostics `21aaf716850119f71bbed4b3542520200112f1de384f17dc69d2332842d5ccf9`.
 | Case | Independent observed result |
 | --- | --- |
 | Save/load current facts | Saved marker10031 replaced unsaved20031 on reload; current v3 ready. Unsigned255/256/65535/65536/4294967295 returned exactly. |
+| Named-load ephemeral clear | Immediately before load, both before/changed receipts show armed=true, epoch0. Destroyed event9 clears it before imports10–15; later receipt shows false, epoch1/imports1. This is a scalar synthetic attempt, not production lease/handle cleanup. |
 | Old version | v1 imported through two migrations to v3. Later upgraded save reloaded as v3 with zero repeated migrations. |
 | Future/corrupt sibling | Future99 quarantined `future-schema`; wire-valid but semantically invalid epoch999 quarantined `number-range`. Good/old records still loaded. |
 | Area away/back | Ephemeral attempt cleared; durable facts were exported/imported on leaving/returning to the arena. |
@@ -162,6 +163,9 @@ listed in private CLEANUP; active game and personal saves untouched.
 Independent Sol full-trace/source/receipt review accepted these bounded conclusions; lead
 verified marker reversal, migration counts, final state and cleanup. It specifically retained
 the missing raw-byte decode and broader lifecycle/production limitations above.
+Final evidence-to-plan review also checked `initial-load-submit.json`, `initial-load-result.json`
+and trace5–16: the attempt was still armed before named load, not prematurely cleared by the
+first area poll. This observation had been omitted from the first memo; it required no rerun.
 
 ### First new-game follow-up: partial, not acceptance
 
@@ -220,7 +224,11 @@ The installed UI exposes quicksave and named LoadGame but no source-backed calla
 was found in a bounded Lua/bindings search. Do not claim the two paths equivalent or send OS
 input to fill the gap. Keep Task10 open rather than silently waive its listed lifecycle case.
 
-Remaining: true quickload observation and later production
-disable/reconciliation behavior. Corruption here means semantic payload corruption, not arbitrary
+True quickload is not the only listed acceptance boundary left open. Task10 also names mod disable;
+the handler-absence experiment is **not** a full runtime/module-disable check. The next bounded
+batch must explicitly address that research case, or record a reviewed scope decision before
+Task10 completion. Production legacy handback/reconciliation and real lease/handle cleanup still
+belong to their later implementation tasks; no such runtime exists in this research probe.
+Corruption here means semantic payload corruption, not arbitrary
 malformed native save bytes. No native crash was induced or retried. This narrow result is not
 WorldFlow activation, a general save-compatibility promise or G1 approval.

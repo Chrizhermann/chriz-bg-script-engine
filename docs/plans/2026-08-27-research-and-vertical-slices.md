@@ -611,7 +611,9 @@ and the [first observer-cost batch](../research/PERF-01-observer-baseline.md) ar
 reviewed. Host foundations remain research modules under `experiments/persistence`, not production
 kernel code. Current/old/future/corrupt records and named save/load, area, menu, death and new-game
 paths have bounded observations; the cost batch retains its disclosed contaminated window.
-True quickload remains unproved, so Task10 stays in progress and Task11/G1 stay pending.
+Named-load scalar-attempt clearing is proved; true quickload and a broader runtime/module-disable
+case remain unproved. Handler absence alone does not discharge mod disable. Task10 stays in
+progress and Task11/G1 stay pending; production lease/handle cleanup belongs to later tasks.
 
 **Files:**
 
