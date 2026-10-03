@@ -4,7 +4,8 @@
 is discarded and corrupt data affects only its own record?
 
 **Status:** Host contract accepted at E2; bounded engine marshal/lifecycle batch observed at E4.
-Quickload/new-game coverage and baseline-cost work remain pending.
+Quickload/new-game coverage remains pending; the first measured cost batch is in
+[PERF-01](PERF-01-observer-baseline.md).
 Task10/G1 are not complete. Modules are under `experiments/persistence`, not registered production
 kernel code. The plan's eventual `kernel/` placement is deferred until the research gate, as for
 the capabilities/action-observer experiments. No real quest phases or gameplay policy selected.
@@ -149,7 +150,28 @@ Independent Sol full-trace/source/receipt review accepted these bounded conclusi
 verified marker reversal, migration counts, final state and cleanup. It specifically retained
 the missing raw-byte decode and broader lifecycle/production limitations above.
 
-Remaining: new-game/quickload observation, measured observer-only cost, and later production
+### New-game follow-up: partial, not acceptance
+
+After the separate performance trace closed, the same hidden process seeded fresh synthetic
+state and followed the existing Task3 pre-generated test-character route. An immediate return
+from character acceptance reported WORLD_ACTIONBAR, but a later world-menu assertion failed.
+The lead incorrectly treated that immediate response as settled state and skipped the old
+conditional chapter-screen step. The receipt does not identify the intervening menu, so chapter
+timing is a source-backed diagnosis to verify, not a newly observed screen or native-crash claim.
+
+The trace also exposes a fixture mistake: arming immediately after probe installation let the
+first area observation clear the ephemeral marker before the main-menu destruction event.
+The next focused check must wait for that initial area observation before arming. Neither this
+case nor an immediate command response is promoted to new-game lifecycle acceptance.
+
+Evidence remains private in `.work/task10/persistence-runtime-v2`; the game was closed without
+retrying the failed command. Its two existing **own** automatic-save/prologue folders were
+preserved before/after and all eight original files restored;28 files in copied personal
+auto/quickslots were unchanged. Independent receipt/trace review accepted the diagnosis and
+bounded correction: once after character acceptance, inspect the settled menu; perform the
+already proved chapter action only if actually present; verify a later world observation.
+
+Remaining: accepted new-game/true quickload observation and later production
 disable/reconciliation behavior. Corruption here means semantic payload corruption, not arbitrary
 malformed native save bytes. No native crash was induced or retried. This narrow result is not
 WorldFlow activation, a general save-compatibility promise or G1 approval.
