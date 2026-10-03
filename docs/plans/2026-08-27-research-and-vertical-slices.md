@@ -758,6 +758,12 @@ existing reset-based E4 runs are reused without claiming a newly executed smoke 
 
 ### Task 13: Establish the deterministic host simulation scaffold
 
+**2026-10-04 delivery:** Completed with injected clock/RNG and a thin pytest/Lupa entry point.
+Existing inline fake engines are sufficient; no separate helper framework was added without a
+consumer. Missing-module RED preceded implementation. Unit seeds17/29 each passed16 checks
+(including Task14); both Lua backends execute the same authored cases. Runtime identities print
+in the run output. This is host E2, not native timing evidence.
+
 **Research linkage (not automatic closure):** TEST-01
 
 **Depends on:** Tasks 2 and 12; G1 must not be `FAIL`
@@ -792,6 +798,11 @@ existing reset-based E4 runs are reused without claiming a newly executed smoke 
 **Exit:** future policy and state machines can be proved without constructing EEex userdata.
 
 ### Task 14: Implement exact-hash support manifests and conservative activation eligibility
+
+**2026-10-04 delivery:** Completed pure contract and registry with failing-first tests on both
+backends. Independent review's extra observed closure finding was reproduced and corrected.
+The [support manifest](../compatibility/support-manifest.md#kernel-contract-v1) documents exact
+inputs and limits; no real resource discovery or runtime action admission is implied.
 
 **Research linkage (not automatic closure):** IR-04, COMP-I01 through COMP-I12
 

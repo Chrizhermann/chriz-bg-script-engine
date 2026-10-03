@@ -55,3 +55,29 @@ upgrade needs a representative smoke batch and updated pins, not a new compatibi
 No native-call shape was newly executed or quarantined in this documentation review. Recorded
 Lua/harness failures remain in the research memos. Consult the
 [G1 review](../decisions/gates/G1-bridge-feasibility.md) before interpreting any row as permission.
+
+## Kernel contract v1
+
+`kernel/manifest.lua` validates an authored scalar declaration: schema/API identity, exact adapter
+version, C0–C4 tier, profile/stack epoch, SHA-256 v1, required capabilities, explicit roots and
+external-control closure, each resource's hash/dependencies/slots, public-state reader/writer
+closure, legacy fallback, provenance and evidence. It does not discover resources or authenticate
+an installed corpus. The earlier Task5 JSON shapes remain analysis-only; they cannot activate this
+contract by being renamed or marked true.
+
+`kernel/eligibility.lua.evaluate(manifest, environment, identity)` returns copied diagnostic data,
+`eligible`, a stable reason and `dispatchAuthorized=false`. The environment supplies independently
+observed exact resources, the declared closure's complete public-state map and control closure,
+profile/epoch/capabilities and explicit completeness flags. Flags alone are insufficient: closure
+maps/lists must match. Identity is a unique, fresh, explicitly rooted semantic key. The engine
+boundary, not this pure reducer, is responsible for truthful fresh observations. No userdata,
+functions, automatic tier promotion or semantic matching is accepted.
+
+`adapters/registry.lua.new()` retains independent declarations, rejects duplicate IDs, quarantines
+one adapter locally and latches all adapters stale after observed epoch drift. Merely restoring an
+old epoch value does not reactivate it. Reports name tier, profile, version and evidence, not a
+blanket compatibility claim. Fresh reactivation is not implemented.
+
+Reproduce focused E2 checks with `pwsh -File scripts/test.ps1 -Suite unit -Filter eligibility`.
+The fixture is authored dummy data, not an installed-game fingerprint. No C2–C4 action can run
+without later runtime ownership and the applicable active-behavior gate.
