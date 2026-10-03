@@ -1,0 +1,16 @@
+// Higher encounter-style script slot: blocking and Continue are distinct cases.
+IF
+  Global("B-XBRHIGH","LOCALS",1)
+THEN
+  RESPONSE #100
+    NoAction()
+END
+
+IF
+  Global("B-XBRHIGH","LOCALS",2)
+  Global("B-XBRMARK","LOCALS",0)
+THEN
+  RESPONSE #100
+    SetGlobal("B-XBRMARK","LOCALS",1)
+    Continue()
+END

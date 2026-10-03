@@ -1,0 +1,20 @@
+BACKUP ~backup~
+AUTHOR ~BGSE local research fixture~
+BEGIN ~Build disposable bridge caster~ DESIGNATED 0
+
+COPY ~%argv[0]%/B-XMAGE2.CRE~ ~%argv[1]%/B-XBRCRE.CRE~
+  READ_ASCII 0 signature (8)
+  READ_ASCII 0x280 dv (32) NULL
+  READ_ASCII 0x248 override_script (8) NULL
+  PATCH_IF NOT (~%signature%~ STRING_EQUAL ~CRE V1.0~ AND
+                ~%dv%~ STRING_EQUAL_CASE ~B-XCAST2~ AND
+                ~%override_script%~ STRING_EQUAL_CASE ~B-XLEG00~) BEGIN
+    PATCH_FAIL ~Unexpected stripped donor~
+  END
+  WRITE_ASCII 0x248 ~B-XBRHI0~ (8)
+  WRITE_ASCII 0x250 ~~ (8)
+  WRITE_ASCII 0x258 ~~ (8)
+  WRITE_ASCII 0x260 ~~ (8)
+  WRITE_ASCII 0x268 ~B-XBRSC0~ (8)
+  WRITE_ASCII 0x280 ~B-XBRCRE~ (32)
+  WRITE_ASCII 0x2cc ~B-XBRDL0~ (8)

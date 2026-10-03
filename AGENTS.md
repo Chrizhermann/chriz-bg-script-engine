@@ -43,6 +43,16 @@ missing observations remain unknown. Use isolated probes to diagnose actual fail
 not to enumerate every spell/encounter. Restart only for required disk changes, failure or end
 of batch. Preserve feature scope, active-game isolation, user-owned design choices and G0-G8.
 
+## Deliverable-sized implementation batches — 2026-10-04
+
+The next product target is a representative multi-behavior mage in the existing lab, not
+another isolated spell demonstration. Implement independent pieces concurrently behind
+lead-owned interfaces; run related host checks together and use substantial logged engine
+scenarios with explicit postconditions. Use small reproductions to diagnose observed failures.
+Review a coherent change/batch once, then recheck affected fixes rather than recursively reviewing
+reviews. Report working behavior and remaining defects, not each internal step. This changes
+execution cadence, not gameplay design, feature scope, evidence claims, or G0–G8 approval.
+
 ## Project charter
 
 This repository develops a compatibility-first EEex scripting platform with two policy domains:

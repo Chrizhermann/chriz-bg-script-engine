@@ -44,6 +44,15 @@ reason to continue an unnecessary subsystem.
 
 ## 1. Execution contract
 
+**2026-10-04 delivery update:** The next product milestone is a representative multi-behavior
+mage pilot. Tasks are work packages inside integrated delivery batches, not one-launch or
+one-report units. Prepare independent bridge, persistence and installer pieces concurrently,
+run their focused host checks together, and exercise connected behavior in the same hidden
+session where practical. Preserve explicit expected outcomes and diagnose actual failures with
+small reproductions. The first batch finishes the G1 engine-connection prerequisites; it does
+not activate production AI or bypass G1–G5. Later mage decisions remain SCS-derived under the
+existing ledger, with gameplay changes reserved for the user.
+
 This is a dependency-ordered program plan, not blanket authorization to run every task. Each gate
 must be recorded as a decision before downstream tasks begin. A negative research result is a valid
 outcome: narrow the adapter, change the bridge, or stop the affected branch.
@@ -611,9 +620,11 @@ and the [first observer-cost batch](../research/PERF-01-observer-baseline.md) ar
 reviewed. Host foundations remain research modules under `experiments/persistence`, not production
 kernel code. Current/old/future/corrupt records and named save/load, area, menu, death and new-game
 paths have bounded observations; the cost batch retains its disclosed contaminated window.
-Named-load scalar-attempt clearing is proved; true quickload and a broader runtime/module-disable
-case remain unproved. Handler absence alone does not discharge mod disable. Task10 stays in
-progress and Task11/G1 stay pending; production lease/handle cleanup belongs to later tasks.
+Named-load scalar-attempt clearing is proved. A later cold start without any BGSE modules
+retained own records in EEex fallback storage; absent-session resave/re-enable was not tested
+in that run, and production disable handback is not claimed. True quickload remains unproved
+and lacks an established allowed callable. Task10 and Task11 remain in progress, G1 pending;
+production lease/handle cleanup belongs to later tasks.
 
 **Files:**
 
@@ -646,13 +657,21 @@ measured baseline.
 
 **Research linkage (not automatic closure):** EEEX-03, BCS-01, BCS-04, DLG-01
 
-**Depends on:** Tasks 3 and 8 through 10
+**Start dependencies:** Tasks 3, 8 and 9. Task 10 and Task 11 may prepare and run independent
+pieces in one batch; Task 10 remains a completion dependency. Task 12/G1 still requires both.
+
+**2026-10-04 checkpoint:** The authored bridge and conventional installer exist;13 focused
+host/synthetic checks pass. Two integrated engine runs verified nine bridge branches; the
+final main run completed six dialogue paths. A real `Continue()` fallthrough defect was
+fixed with a failing-first regression. The combined follow-up proved pending-initiation
+cancellation but failed its expectation of continuation after area exit/return; that observed
+loss remains counterevidence, not transition acceptance. See the combined BCS-01 memo.
+Task11/G1 are not complete; no production actor ownership or mage-policy claim follows.
 
 **Files:**
 
-- Create: `docs/research/BCS-01-lua-handoff.md`
-- Create: `docs/research/DLG-01-normal-dialogue-initiation.md`
-- Create: `docs/research/FLOW-01-legacy-decline-and-handback.md`
+- Create: `docs/research/BCS-01-lua-handoff.md` (combined BCS/DLG/FLOW evidence packet;
+  consolidate the former separate DLG-01 and FLOW-01 memo outputs, not their research scope)
 - Create: `experiments/bridge/{allocated-bridge-script-stem}.baf`
 - Create: `experiments/bridge/{allocated-dialogue-stem}.d`
 - Create: `experiments/bridge/{allocated-bridge-lua-stem}.lua`
@@ -669,7 +688,9 @@ resource derivation.
 
 1. Write a failing synthetic-game test requiring a conventional WeiDU component to compile a tiny
    BAF/D resource set, publish only allowlisted files, reinstall idempotently, and uninstall to
-   byte-identical fixture state.
+   exact original resource and string-content restoration. WeiDU may retain newly allocated
+   dialogue strings after uninstall; verify that native behavior explicitly rather than requiring
+   whole-TLK byte identity or adding a custom string-table rollback system.
 2. Implement the smallest bridge whose BCS side can ask Lua whether it has a valid claim. A decline,
    missing capability, or Lua error must reach an existing legacy sentinel block in the same test
    without clearing its actions or changing a plot variable.

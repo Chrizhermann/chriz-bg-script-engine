@@ -217,6 +217,34 @@ reconciled and IPC removed; own reservation released. The two own automatic-save
 folders were restored (eight files), and28 copied personal slot files remained unchanged.
 No new named save, full copy or active-game mutation.
 
+### Cold load with all BGSE experiment modules absent — E4
+
+The combined Task10/11 follow-up reused the same isolated engine/profile and loaded own978
+without staging the BGSE bootstrap or observer and without loading any bridge/persistence
+module. Before and after load, `_G["B-"]` and our marshal registry entry were absent. The
+own actor also had no imported `B-` UDAux. EEex remained installed and active.
+
+The exact native fallback packet was present at
+`EEex_GetUDAux(caster).EEex_Sprite_FallbackMarshalStorage["B-"]`. Its direct shape follows
+effective `EEex_Sprite.lua` lines1431–1438, SHA-256
+`ECD341BAE5295D3DB5A52279F84C55A4FF173150665A94B450EF3DFCF6CB3B4E`.
+Assertions verified good10031/schema3 with all five uint32 boundary samples, old10032/schema1,
+future10033/schema99 and corrupt10034/schema3/epoch999. Without our importer, the old record
+was not migrated and future/corrupt records were not classified as ready or quarantined.
+
+This adds **module-absence named-load retention**, beyond the earlier handler-only test.
+It does not prove saving/re-enabling in this fully absent session, EEex uninstall/absence,
+production disable handback, or arbitrary malformed-save recovery. The earlier absent-handler
+resave/re-enable experiment remains separate evidence, not a substitute for those limits.
+
+Private `.work/task11/absence-and-area-v1` contains the exact16-target stage/cleanup ledger,
+`absence-audit.lua`, fresh pong and load/QA/result receipts. The existing own978 SAV identity
+above was rechecked before launching. No new save was made. A later, independent dialogue
+area experiment in the same session failed its continuation expectation (BCS-01); it does
+not invalidate the completed fallback audit. Independent source/result review confirmed
+these bounded claims. All16 staged targets and owned IPC were reconciled after own processes
+stopped, original lab bytes restored, and the matching reservation released.
+
 ### Remaining boundary
 
 True quickload remains unproved: the verified helper uses an explicitly selected named save.
@@ -224,11 +252,18 @@ The installed UI exposes quicksave and named LoadGame but no source-backed calla
 was found in a bounded Lua/bindings search. Do not claim the two paths equivalent or send OS
 input to fill the gap. Keep Task10 open rather than silently waive its listed lifecycle case.
 
-True quickload is not the only listed acceptance boundary left open. Task10 also names mod disable;
-the handler-absence experiment is **not** a full runtime/module-disable check. The next bounded
-batch must explicitly address that research case, or record a reviewed scope decision before
-Task10 completion. Production legacy handback/reconciliation and real lease/handle cleanup still
-belong to their later implementation tasks; no such runtime exists in this research probe.
+The bounded follow-up also inspected the published InfinityLoader bindings at commit
+`f14a00527286f819b8034411bc92ca719cfe3c86` and installed LuaBindings (SHA-256
+`0C6A86DBB402AA5863286C4398CC9E691FA8A2CD7F83D517B29EDCAEAC51F1E9`). The apparent stats
+QuickLoad method reloads sprite statistics, not a game save; no allowed true QuickLoad
+entry point was established. Do not invent a native call or represent named loading as proof.
+
+Task10 now includes cold module-absence retention as well as handler-absence resave/re-enable.
+Those are explicitly bounded research disable cases, not a full production uninstall or
+legacy handback. The remaining true-QuickLoad requirement needs an approved test route or
+an explicit scope decision before Task10 completion. Production handback/reconciliation and
+real lease/handle cleanup belong to their later implementation tasks; no such runtime exists
+in this research probe.
 Corruption here means semantic payload corruption, not arbitrary
 malformed native save bytes. No native crash was induced or retried. This narrow result is not
 WorldFlow activation, a general save-compatibility promise or G1 approval.

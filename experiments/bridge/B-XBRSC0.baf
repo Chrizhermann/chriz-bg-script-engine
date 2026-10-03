@@ -1,0 +1,19 @@
+// Synthetic bridge; missing/declining Lua leaves the following legacy block eligible.
+IF
+  Global("B-XBRCASE","LOCALS",1)
+  Global("B-XBRDONE","LOCALS",0)
+  EEex_LuaTrigger("return _G[ [[B-]] ] and _G[ [[B-]] ].bridge and _G[ [[B-]] ].bridge.claim(EEex_LuaTrigger_Object.m_id) or false")
+THEN
+  RESPONSE #100
+    SetGlobal("B-XBRDONE","LOCALS",1)
+    EEex_LuaAction("if _G[ [[B-]] ] and _G[ [[B-]] ].bridge then _G[ [[B-]] ].bridge.note(EEex_LuaAction_Object.m_id) end")
+    // Do not Continue: conditions in the next block would see the pre-action marker.
+END
+
+IF
+  Global("B-XBRCASE","LOCALS",1)
+  Global("B-XBRDONE","LOCALS",0)
+THEN
+  RESPONSE #100
+    SetGlobal("B-XBRDONE","LOCALS",2)
+END

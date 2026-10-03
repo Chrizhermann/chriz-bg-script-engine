@@ -1,0 +1,14 @@
+BACKUP ~experiments/bridge/backup~
+AUTHOR ~BGSE synthetic research~
+
+BEGIN ~BGSE synthetic bridge compilation~ DESIGNATED 0
+
+REQUIRE_PREDICATE (IDS_OF_SYMBOL (~TRIGGER~ ~EEex_LuaTrigger~) = 0x410E)
+  ~The installed TRIGGER.IDS lacks EEex_LuaTrigger 0x410E.~
+REQUIRE_PREDICATE (IDS_OF_SYMBOL (~ACTION~ ~EEex_LuaAction~) = 472)
+  ~The installed ACTION.IDS lacks EEex_LuaAction 472.~
+
+COMPILE ~experiments/bridge/B-XBRSC0.baf~
+COMPILE ~experiments/bridge/B-XBRHI0.baf~
+COMPILE ~experiments/bridge/B-XBRDL0.d~
+COPY ~experiments/bridge/B-XBRDG0.lua~ ~override/B-XBRDG0.lua~
