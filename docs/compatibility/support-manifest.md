@@ -114,4 +114,7 @@ recovery, individual disable, capability decline, sticky epoch drift and load in
 See [KERNEL-01](../research/KERNEL-01-integrated-observer.md) for exact evidence, cost and limits.
 Its C1 admission used an injected authored fixture envelope, not a real-game dependency scanner;
 the intentionally wrong expected digest was not a modified installed resource. No C2–C4 or
-active mage support follows from this batch. Task17 and G2/G3 remain open.
+active mage support follows from this batch. Task17 subsequently verified an actually changed
+script/CRE and an independent unknown controller. G2/G3 now pass only for the fixed current-stack,
+explicit observer development envelope; see their decisions. Pure/shadow Combat Intent work may
+proceed, but real-content closure, public packaging and active dispatch remain separate gates.
