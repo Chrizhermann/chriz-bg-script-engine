@@ -11,7 +11,8 @@ the wider PERF-01/PERF-05 backlog. No gameplay latency/quality trade-off has bee
 Authored `experiments/persistence/performance-probe.lua` runs in one hidden disposable session.
 For each scene it collects four windows: minimal telemetry, observer, observer, minimal telemetry.
 Each window has two seconds of unreported warmup followed by ten seconds of buffered scalar
-rows. Disk output occurs only between windows; host commands are not sent during measurement.
+rows. Disk output occurs only between windows; the protocol excludes host commands during
+measurement. One premature completion check in the actual run is disclosed and excluded below.
 Scene counts, active-action counts and HP sums at each window boundary expose scene drift.
 The same process and tiny fixtures are reused, resetting from our own baseline between scenes.
 
