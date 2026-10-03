@@ -4,7 +4,7 @@
 is discarded and corrupt data affects only its own record?
 
 **Status:** Host contract accepted at E2; bounded engine marshal/lifecycle batch observed at E4.
-Quickload/new-game coverage remains pending; the first measured cost batch is in
+New-game follow-up is accepted below; true quickload remains unproved. The first measured cost batch is in
 [PERF-01](PERF-01-observer-baseline.md).
 Task10/G1 are not complete. Modules are under `experiments/persistence`, not registered production
 kernel code. The plan's eventual `kernel/` placement is deferred until the research gate, as for
@@ -150,7 +150,7 @@ Independent Sol full-trace/source/receipt review accepted these bounded conclusi
 verified marker reversal, migration counts, final state and cleanup. It specifically retained
 the missing raw-byte decode and broader lifecycle/production limitations above.
 
-### New-game follow-up: partial, not acceptance
+### First new-game follow-up: partial, not acceptance
 
 After the separate performance trace closed, the same hidden process seeded fresh synthetic
 state and followed the existing Task3 pre-generated test-character route. An immediate return
@@ -171,7 +171,43 @@ auto/quickslots were unchanged. Independent receipt/trace review accepted the di
 bounded correction: once after character acceptance, inspect the settled menu; perform the
 already proved chapter action only if actually present; verify a later world observation.
 
-Remaining: accepted new-game/true quickload observation and later production
+### Corrected new-game / old-save batch — E4
+
+One focused follow-up reused the unchanged probe and existing Task3 character-creation commands;
+no new menu framework was built. First area observation now preceded arming. The later command
+receipt confirmed the ephemeral attempt was armed, then the main-menu destroyed event cleared
+it and advanced epoch1. This fixes the fixture ordering flaw without weakening the assertion.
+
+After character acceptance, a two-second settle and one state read observed CHAPTER with its
+Done button clickable and no transition in progress. The existing chapter action then produced
+a later settled WORLD_ACTIONBAR observation. This directly confirms the timing explanation;
+the earlier failed attempt remains failure evidence, not retroactively a pass.
+
+In the new world the own portrait character was in BG2600, had neither `B-` UDAux nor fallback
+state, and the handler remained registered with zero imports. Loading own initial-record save978
+then produced exactly one import: good10031 ready, old v1→v3/migrated2, future/corrupt quarantined.
+Loading own pre-state baseline973 returned to BG2600 without inventing own state or fallback;
+imports stayed1 and epoch became3. Listener registration counts stayed one each; no probe error.
+This proves the observed main-menu/new-game path and handler retention, **not** a distinct
+new-game hook independent of the already-cleared main-menu boundary.
+
+Private `.work/task10/persistence-runtime-v3` preserves the reviewed corrected recipe, exact
+deployed source, settled menu/result receipts and closed20-event/1107-byte trace, SHA256
+`24c9945fd9e49c26b04238a4faa69cd0dc5093f44515d7e04869344e31b27cdf`.
+Independent full-trace/receipt/source review accepted the bounded findings and verified eight
+restoration hashes against the private backups. Own processes stopped; all12 staged targets
+reconciled and IPC removed; own reservation released. The two own automatic-save/prologue
+folders were restored (eight files), and28 copied personal slot files remained unchanged.
+No new named save, full copy or active-game mutation.
+
+### Remaining boundary
+
+True quickload remains unproved: the verified helper uses an explicitly selected named save.
+The installed UI exposes quicksave and named LoadGame but no source-backed callable QuickLoad
+was found in a bounded Lua/bindings search. Do not claim the two paths equivalent or send OS
+input to fill the gap. Keep Task10 open rather than silently waive its listed lifecycle case.
+
+Remaining: true quickload observation and later production
 disable/reconciliation behavior. Corruption here means semantic payload corruption, not arbitrary
 malformed native save bytes. No native crash was induced or retried. This narrow result is not
 WorldFlow activation, a general save-compatibility promise or G1 approval.
