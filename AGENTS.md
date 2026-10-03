@@ -53,6 +53,22 @@ Review a coherent change/batch once, then recheck affected fixes rather than rec
 reviews. Report working behavior and remaining defects, not each internal step. This changes
 execution cadence, not gameplay design, feature scope, evidence claims, or G0–G8 approval.
 
+## Current-stack delivery priority — 2026-10-04
+
+Christopher approved the currently tested lab/toolchain as the first development target:
+BG2:EE2.7.3.0, EEex1.2.0/LuaJIT, EET14, SCS35.21, SR4.21-chriz.5, Bubb Spell Menu5.2,
+WeiDU24900 for the existing reproducible build. Prefer current versions for new development;
+check upgrades when useful, but do not destabilize an integrated batch merely to chase a label.
+Older-version and broad-stack compatibility is secondary to useful feature delivery, not deleted.
+Keep exact-profile evidence, C0 pass-through and active-game/save isolation. The prior candidate
+baseline does not block development on this approved stack.
+
+The user authorized substantial overnight implementation/testing batches, preferably several
+characters and connected behaviors. Treat evidence-backed technical gates as recorded checkpoints
+within that work; stop on a failed safety criterion or a substantive scope/gameplay decision,
+not simply for another acknowledgement. This does not permit claiming an unexecuted test passed
+or bypassing a failed gate. Implement actual features with focused TDD and representative tests.
+
 ## Project charter
 
 This repository develops a compatibility-first EEex scripting platform with two policy domains:
@@ -74,9 +90,9 @@ fingerprint, or global fallback mode.
 
 ## Current phase
 
-The current phase is research and architecture. Do not create production runtime code until the
-corresponding research gate and implementation task are approved. A document describing an API is
-not evidence that the API is safe in the engine.
+The current phase is initial kernel implementation under the narrowed G1 development envelope.
+Do not enable production behavior beyond the corresponding approved gate and implementation task.
+A document describing an API is not evidence that the API is safe in the engine.
 
 The canonical architecture is:
 

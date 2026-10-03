@@ -44,6 +44,13 @@ reason to continue an unnecessary subsystem.
 
 ## 1. Execution contract
 
+**2026-10-04 current-stack approval:** Christopher adopted the tested lab/toolchain for development,
+made old-version/broad-stack compatibility secondary, and authorized substantial overnight feature
+batches. G1 now passes with the exact narrowed envelope and carried obligations in its decision.
+Tasks13–17 proceed as one useful implementation batch; dependent technical gates are reviewed and
+recorded before continuing. Stop for failed safety criteria or substantive user-owned choices.
+Do not use old profile requirements to block current-stack implementation or silently erase them.
+
 **2026-10-04 delivery update:** The next product milestone is a representative multi-behavior
 mage pilot. Tasks are work packages inside integrated delivery batches, not one-launch or
 one-report units. Prepare independent bridge, persistence and installer pieces concurrently,
@@ -632,7 +639,7 @@ Named-load scalar-attempt clearing is proved. A later cold start without any BGS
 retained own records in EEex fallback storage; absent-session resave/re-enable was not tested
 in that run, and production disable handback is not claimed. True quickload remains unproved
 and lacks an established allowed callable. The approved COMP-P13 deferral completes Task10's
-bounded research scope; Task11 and G1 remain under review. Production lease/handle cleanup
+bounded research scope; Task11 and G1 were subsequently accepted within the narrowed current-stack envelope. Production lease/handle cleanup
 belongs to later tasks.
 
 **Files:**
@@ -675,7 +682,8 @@ final main run completed six dialogue paths. A real `Continue()` fallthrough def
 fixed with a failing-first regression. The combined follow-up proved pending-initiation
 cancellation but failed its expectation of continuation after area exit/return; that observed
 loss remains counterevidence, not transition acceptance. See the combined BCS-01 memo.
-Task11/G1 are not complete; no production actor ownership or mage-policy claim follows.
+Task11/G1 were subsequently accepted within the narrowed current-stack envelope; automatic
+area continuation remains unavailable. No production actor ownership or mage-policy claim follows.
 
 **Files:**
 
@@ -722,8 +730,10 @@ failure visibly restore the legacy path.
 
 **2026-10-04 review checkpoint:** User authorized reviewing the existing evidence with QuickLoad
 deferred and the failed area-continuation expectation included. No new engine run is required
-merely to assemble the review. Final G1 admission still requires an explicit supported envelope
-and disposition of the unexecuted normative cases; a draft/review is not a gate pass.
+merely to assemble the review. Subsequent explicit current-stack approval adopted the narrowed
+envelope and assigned unexecuted cases to their applicable implementation checkpoints. G1 is
+recorded PASS WITH NARROWED SCOPE; the combined relevant host suite passed153 checks, and the
+existing reset-based E4 runs are reused without claiming a newly executed smoke run.
 
 **Files:**
 

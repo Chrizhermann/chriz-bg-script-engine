@@ -1,14 +1,15 @@
 # Support manifest — G1 review inventory
 
-**Status:** Research inventory only; no production support or G1 admission
+**Status:** G1 current-stack development envelope; no release-wide support claim
 
 **Date:** 2026-10-04
 
-This is not an activation manifest. All real content remains C0/legacy-owned. The initial
-candidate is unchanged until Christopher approves a separate profile decision; a successful
-experiment on another stack cannot silently replace it.
+This is not an activation manifest. All real content remains C0/legacy-owned. Christopher
+approved the tested comparison stack as the first development target on2026-10-04 and made
+older-version compatibility secondary. The old candidate remains unaccepted historical scope,
+not a blocker or an inferred equivalent. Future adapters still need exact eligibility/ownership.
 
-| Field | PREP-01 candidate, not runtime accepted | Observed comparison profile, not yet adopted |
+| Field | Historic PREP-01 candidate, not runtime accepted | Approved tested development profile |
 |---|---|---|
 | Game | BG2:EE2.6.6.0 | BG2:EE2.7.3.0 |
 | EEex | v0.11.0-alpha + LuaJIT | v1.2.0 + LuaJIT |
@@ -26,6 +27,11 @@ Experiment compiler SHA-256:
 `AD70F5897A6D0BA4B0D226F845A9B14CF345F56CC9697CA8D05CAC9FE4932C1A`.
 Source-file pins are in EEEX-01/02 and BCS-01; exact private install/staging identities are in
 their linked receipts. A few file hashes alone do not authenticate a whole future mod stack.
+
+Upstream release check on 2026-10-04 found [EEex v1.3.0](https://github.com/Bubb13/EEex/releases/tag/v1.3.0)
+and [WeiDU v251.00](https://github.com/WeiDUorg/weidu/releases/tag/v251.00). They were not installed
+or tested by that check. The current batch retains the working profile above; a later deliberate
+upgrade needs a representative smoke batch and updated pins, not a new compatibility project.
 
 ## Capability disposition for this research inventory
 

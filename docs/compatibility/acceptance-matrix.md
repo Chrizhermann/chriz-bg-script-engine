@@ -50,6 +50,14 @@ Gate names follow the architecture design:
 
 ## 3. Compatibility tiers
 
+### Current development-profile adjustment — approved2026-10-04
+
+The [G1 decision](../decisions/gates/G1-bridge-feasibility.md) admits only the tested current
+development stack. Original table gate labels retain the broader target history; the explicit
+current-stack schedule is X05/X07 at Task16, X03/X04/X08/X09 at Task17 before G2/G3, X01/older
+profile parity at Task40 before corresponding support claims, and P13 at Task40/G8. None of
+these rows is marked passed by moving it. Area/load automatic continuation remains unavailable.
+
 Tiers are per resource or behavior family. A single mod may contain content at several tiers.
 
 | Tier | Name | Meaning | Permitted mutation | Required fallback |
