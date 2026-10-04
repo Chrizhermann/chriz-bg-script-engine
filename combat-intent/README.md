@@ -1,8 +1,9 @@
 # Combat Intent policy boundary
 
-Task20 is a host-tested information model, not a native perception adapter or active AI.
-The first target remains the approved current-stack lab. No spell, balance, memory-lifetime
-or difficulty preset is selected by these modules.
+Task20 defines the host-tested information contract. The authored current-stack pilot now also
+has a bounded native input mapper, G4 shadow decisions and Task25's default-off ordinary
+actor-target Magic Missile path. None is general SCS activation or a player-facing balance,
+memory-lifetime or difficulty preset.
 
 ## Information contract v1
 
@@ -21,8 +22,9 @@ resistances. Self-only readiness and available spell copies require the observer
 source; another actor's spellbook is never admitted. Engine-private evidence is rejected.
 Allied reports require an explicitly eligible source and public evidence provenance.
 
-The boundary validates the supplied provenance; it cannot establish whether a caller lied
-about witnessing a cast. That belongs to the later native mapper and G4 fairness audit.
+The boundary validates supplied provenance; it cannot establish whether a caller lied about
+witnessing a cast. The bounded native mapper and G4 audit cover only the authored hostile fixtures,
+not general truthfulness of public observations.
 There is no omniscience mode. `spellbook` currently means a list of available spell copies,
 not all known spells; repeated resource names can represent multiple available copies.
 
@@ -51,13 +53,14 @@ combat snapshot schema checks. The runner identifies Python, Lupa and both Lua b
 The tests group visibility, witnessed casts, sharing, forbidden fields, copies, scorer reads,
 staleness and observer-bound memory rather than enumerating game encounters.
 
-Evidence: E2 only. Missing-module RED preceded implementation. Independent review found
-that plain sight incorrectly admitted a previous exact spell; a failing regression reproduced
-it before requiring a witnessed/inferred basis. Lead review similarly rejected allied guesses
-for self-only readiness/allocation. Both corrections pass on Lua5.1 and LuaJIT. Native visibility,
-resource mapping, information extraction and actual decision behavior remain unproved.
+The Task20 contract's host evidence is E2. Missing-module RED preceded implementation.
+Independent review found that plain sight incorrectly admitted a previous exact spell; a failing
+regression reproduced it before requiring a witnessed/inferred basis. Lead review similarly
+rejected allied guesses for self-only readiness/allocation. Both corrections pass on Lua5.1
+and LuaJIT. The authored current-stack pilot has separate E1+E2+bounded E4 evidence under
+G4 and Task25. General native visibility, resource mapping and decision behavior remain unproved.
 
-## Combat shadow candidates (Task21, partial)
+## Combat shadow candidates (Task21, completed narrowed pilot)
 
 `candidates.generate(view, config)` returns ordered eligible proposals and reason-coded
 exclusions. Config supplies exact selected ability metadata, target keys, observed ownership,
@@ -74,12 +77,14 @@ An immune point anchor does not imply that every area recipient is immune.
 Point checks must attest complete/safe coverage, the anchor, exact point, resource, geometry,
 observer/scene/tick and matching normalized actor scene. This validates attachment of trusted
 assessment data, not geometry calculation or an attestation that the caller measured correctly.
-The future native mapper must include sufficient nearby contacts or declare coverage unknown.
+The authored pilot supplies no point-coverage assessment, so unknown geometry excludes point
+candidates. Broader nearby-contact mapping remains future work.
 
-All actions are `shadow-spell`, `shadow-wait` or `legacy-decline`, deliberately incompatible
-with the lease dispatch types. Wait is only a hypothetical option, never an engine queue action.
-No actions, scores, costs or spellbook mutations are performed. Scoring/dispatch must still
-freshly revalidate ownership and all action-specific conditions at their later gates.
+The candidate reducer emits `shadow-spell`, `shadow-preparation`, `shadow-wait` or
+`legacy-decline`; it performs no native action, scoring or spellbook mutation. Wait is only a
+hypothetical option, never an engine queue action. Downstream utility, choice and replay exist;
+Task25's separate default-off dispatcher admits only ordinary actor-target Magic Missile after
+fresh ownership and action revalidation, not preparation helpers or point spells.
 
 Run `scripts/test.ps1 -Suite unit -Filter combat_candidates` for the grouped combat tests.
 The deliberately authored Slow/Glitterdust/Magic Missile fixtures prove reducers (E2), not the
@@ -87,5 +92,6 @@ installed spells' geometry or support. Review reproduced stale ownership/point-a
 the current interface binds them to their frame/scene and explicitly rejects offensive self
 targets. Scene changes clear old belief memory. See
 [the actual input inspection](../docs/research/COMBAT-01-candidate-inputs.md) for E1 identities
-and its corrected projectile lookup. Prebuff windows/accounting and native mapping are still
-unfinished; Task21 remains in progress rather than silently reducing its intended scope.
+and its corrected projectile lookup. Selected generic Shield/Mirror Image prep gates and the
+authored-fixture native mapper are complete within narrowed Task21/G4 scope. Helper execution
+and debit, neutral/special prep and Slow/Glitterdust point geometry remain unadmitted.

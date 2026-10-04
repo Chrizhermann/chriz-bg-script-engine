@@ -54,3 +54,14 @@ Read current G4/G5 and task state before activation. A queued command, syntactic
 host test or prepared recipe is not a successful runtime result. No baseline here proves a
 whole SCS mage, general encounter balance, broad install-stack compatibility or full-scale
 performance. Expand those capabilities through the retained roadmap, not implicit enrollment.
+
+The Task25 follow-up adds `replacement-control`, `replacement-differential` and
+`load-paused-start`. The first two compare the complete original-script sequence/state from
+the same observed starting positions; absolute arrival remains a separate diagnostic. An
+interrupted action may spend zero or one copy depending on when it is replaced; record that
+count rather than assuming start means debit. The third pauses at the native start and refuses
+loading unless the actor still has action31, the target is untouched and one claim is pending.
+Use the same named-load/reset sequence; close each failed trace and preserve it before any
+reviewed correction. The private paired checker compares only the completed control and
+explicitly corrected differential, never promotes the failed trial. See the soak memo/G5 for
+exact results and retained limits. No new launcher, game copy or generic framework is needed.

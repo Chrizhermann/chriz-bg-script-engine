@@ -19,10 +19,10 @@ ownership, persistence, diagnostics, and conservative fallback.
 
 ## Status
 
-The repository is currently in architecture and research planning. It contains no production
-runtime and makes no support claim yet. The active playthrough is a read-only research source,
-not a test environment. Future engine validation must use synthetic fixtures and explicitly
-approved disposable game installations.
+The repository has a tested current-stack kernel, a narrowed G4 Combat Intent shadow pilot,
+and a default-off Task25 prototype for one ordinary Magic Missile action in the disposable lab.
+It has no production release or general support claim. The active game and playthrough remain
+outside testing; further engine validation uses synthetic fixtures or the approved disposable lab.
 
 Start with:
 

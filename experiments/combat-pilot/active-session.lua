@@ -8,6 +8,7 @@ return function(config)
     local native=assert(m.eeex.new(_G,'bg273-eeex12-luajit-v1'))
     local function clean(v) return tostring(v or ''):match('^[^%z]*'):upper() end
     local function now() return EngineGlobals.g_pBaldurChitin.m_pObjectGame.m_worldTime.m_gameTime end
+    local function paused() return worldScreen:CheckIfPaused() end
     local arrayFields={eligibleAllies=true,actors=true,notes=true,excluded=true,eligible=true,
         bandCandidates=true,immunityTags=true,spells=true,targets=true,prebuffs=true,scores=true,reasons=true}
     local function json(v,field,parent)
@@ -29,7 +30,7 @@ return function(config)
     end
     local old=io.open(config.eventPath,'r');if old then old:close();error('existing output') end
     local output=assert(io.open(config.eventPath,'w'))
-    local p={phase='idle',rows=0,hooks=previous and previous.combatActive.hooks or {},session=0,cases={},costs={}}
+    local p={phase='idle',rows=0,hooks=previous and previous.combatActive.hooks or {},session=0,cases={},costs={},moveStarts={}}
     _G['B-']={project='chriz-bg-script-engine',schema=1,combatActive=p}
     local core,dispatch,attempts,proposals,identities={},{},{},{},{}
     local function emit(event,data)
@@ -119,14 +120,23 @@ return function(config)
     end
     local function armLegacy(sprites)
         dispatch:setEnabled(false)
+        p.preLegacyStates={};p.moveBeforeLegacy={}
+        for i=0,2 do
+            p.preLegacyStates[i+1]={actor=i,state=details(sprites[i])}
+            p.moveBeforeLegacy[i]=p.moveStarts[i] or 0
+        end
         for i=0,2 do EEex_Sprite_SetLocalInt(sprites[i],'B-XKCASE',i);EEex_Sprite_SetLocalInt(sprites[i],'B-XKPHASE',1) end
         phase('legacy');emit('legacy-armed',{count=3})
     end
     function p.begin(name)
         assert(not p.closed and not p.failed and (p.phase=='idle' or p.phase=='reset-ready'))
-        assert(name=='baseline' or name=='disable-during-cast' or name=='replacement' or name=='load-after-start')
+        assert(name=='baseline' or name=='disable-during-cast' or name=='replacement' or
+            name=='replacement-control' or name=='replacement-differential' or
+            name=='load-after-start' or name=='load-paused-start')
+        assert(not paused(),'fresh case must be unpaused')
         assert(not p.cases[name],'one attempt per case');p.cases[name]={};p.case=name;p.session=p.session+1
-        local sprites=scan();attempts={};p.starts={};p.baseline={};p.lastTick=nil;p.destroyedForCase=0;p.expectedPartyAction=false
+        local sprites=scan();attempts={};p.starts={};p.moveStarts={};p.baseline={};p.lastTick=nil
+        p.destroyedForCase=0;p.expectedPartyAction=false;p.controlSettled=nil;p.pausedByHarness=false
         for i=0,2 do
             p.baseline[i]=details(sprites[i]);assert(idle(p.baseline[i]) and p.baseline[i].done==0 and p.baseline[i].scriptPhase==0)
             assert(p.baseline[i].ready.SPWI112==1 and p.baseline[i].ready.SPWI214==2)
@@ -155,7 +165,8 @@ return function(config)
         local target=details(sprites.target);emit('target',target)
         emit('party-idle',{action=pc.m_curAction.m_actionID,queued=pc.m_queuedActions.m_nCount})
         for i,a in pairs(attempts) do
-            if p.case~='replacement' and not a.finished and a.started and (states[i].ready.SPWI112 or 0)==a.before.ready.SPWI112-1 and
+            if p.case~='replacement' and p.case~='replacement-differential' and not a.finished and a.started and
+                (states[i].ready.SPWI112 or 0)==a.before.ready.SPWI112-1 and
                 target.hp<a.targetHP and target.hp>0 and idle(states[i]) then
                 a.finished=true;a.afterHP=target.hp
                 if not a.invalidated then
@@ -176,28 +187,79 @@ return function(config)
             if now()-p.phaseAt>=150 and idle(states[0]) and pc.m_curAction.m_actionID==0 and pc.m_queuedActions.m_nCount==0 then
                 assert(a.displaced,'replacement movement not observed')
                 local interrupted=a.hpAtDisplacement==a.targetHP and target.hp==a.targetHP
+                if p.case=='replacement-differential' then
+                    assert(p.starts['B-XPMAG0:SPWI112']==1 and
+                        ((states[0].ready.SPWI112 or 0)==a.before.ready.SPWI112 or
+                         (states[0].ready.SPWI112 or 0)==a.before.ready.SPWI112-1),
+                        'replacement-differential start or bounded debit missing')
+                    -- A started action can be replaced before its spell copy is spent.
+                    -- This is interruption evidence; completed casts still require a debit.
+                    emit('interruption-debit',{spent=a.before.ready.SPWI112-(states[0].ready.SPWI112 or 0)})
+                    assert(interrupted,'replacement-differential delivery was not excluded')
+                end
                 local result,why=dispatch:observe(a.attemptId,{kind=interrupted and 'interrupted' or 'unknown',
                     reason=interrupted and 'ordinary-replacement-before-delivery' or 'intervention-order-ambiguous'})
                 assert(result,why);emit('outcome',result);a.finished=true;a.interruption=result.state
                 p.expectedPartyAction=false;armLegacy(sprites)
             end
+        elseif p.phase=='control-move' then
+            local dx,dy=states[0].x-232,states[0].y-264
+            local moved=states[0].x~=p.baseline[0].x or states[0].y~=p.baseline[0].y
+            if idle(states[0]) and moved and dx*dx+dy*dy<=16*16 then
+                if not p.controlSettled or p.controlSettled.x~=states[0].x or p.controlSettled.y~=states[0].y then
+                    p.controlSettled={tick=tick,x=states[0].x,y=states[0].y}
+                    emit('control-move-settled',p.controlSettled)
+                elseif tick-p.controlSettled.tick>=150 then
+                    assert((p.moveStarts[0] or 0)>=1,'control move did not start')
+                    emit('control-move-held',{position=p.controlSettled,heldTicks=tick-p.controlSettled.tick})
+                    armLegacy(sprites)
+                end
+            else p.controlSettled=nil end
         elseif p.phase=='default-off' and tick-p.phaseAt>=15 then
             local result,why=try(0);assert(not result and why=='runtime-disabled')
             assert((p.starts['B-XPMAG0:SPWI112'] or 0)==0 and states[0].ready.SPWI112==1)
-            dispatch:setEnabled(true);phase('cast-0');assert(try(0))
+            if p.case=='replacement-control' then
+                phase('control-move')
+                emit('harness-control-move-request',{actor='B-XPMAG0',target={x=232,y=264}})
+                EEex_Action_QueueResponseStringOnAIBase('MoveToPoint([232.264])',sprites[0])
+            else dispatch:setEnabled(true);phase('cast-0');assert(try(0)) end
         elseif p.phase=='cast-0' and attempts[0] and attempts[0].finished then
             if p.case=='baseline' then phase('cast-1');assert(try(1)) else armLegacy(sprites) end
         elseif p.phase=='cast-1' and attempts[1] and attempts[1].finished then armLegacy(sprites)
         elseif p.phase=='legacy' then
             local done=true;for i=0,2 do if not idle(states[i]) or states[i].done~=1 then done=false end end
             if done then
+                local diagnostic=p.case=='replacement-control' or p.case=='replacement-differential'
+                local signature={diagnosticOnly=diagnostic,finalStates={},spellStarts=m.manifest.copy(p.starts),
+                    moveStarts={},legacyMoveObserved={},arrivalDiagnostics={},preLegacyStates=p.preLegacyStates,
+                    comparison={actors={},strengthStarts={}}}
                 for i=0,2 do
                     assert(p.starts['B-XPMAG'..i..':SPWI214']==1 and states[i].ready.SPWI214==1 and states[i].strength)
                     local dx,dy=states[i].x-(304+i*48),states[i].y-240
-                    assert(dx*dx+dy*dy<=24*24 and (states[i].x~=p.baseline[i].x or states[i].y~=p.baseline[i].y))
+                    local moved=states[i].x~=p.preLegacyStates[i+1].state.x or
+                        states[i].y~=p.preLegacyStates[i+1].state.y
+                    signature.finalStates[i+1]={actor=i,state=m.manifest.copy(states[i])}
+                    signature.moveStarts[i+1]=p.moveStarts[i] or 0
+                    signature.legacyMoveObserved[i+1]=(p.moveStarts[i] or 0)>p.moveBeforeLegacy[i] and moved
+                    signature.arrivalDiagnostics[i+1]={actor=i,goal={x=304+i*48,y=240},
+                        distanceSquared=dx*dx+dy*dy,within24=dx*dx+dy*dy<=24*24}
+                    signature.comparison.actors[i+1]={actor=i,x=states[i].x,y=states[i].y,
+                        action=states[i].action,queued=states[i].queued,strengthReady=states[i].ready.SPWI214,
+                        strengthEffect=states[i].strength,scriptPhase=states[i].scriptPhase,done=states[i].done,
+                        observedMove=signature.legacyMoveObserved[i+1]}
+                    signature.comparison.strengthStarts[i+1]=p.starts['B-XPMAG'..i..':SPWI214']
+                    if diagnostic then assert(signature.legacyMoveObserved[i+1],'legacy move not observed')
+                    else assert(dx*dx+dy*dy<=24*24 and
+                        (states[i].x~=p.baseline[i].x or states[i].y~=p.baseline[i].y)) end
                 end
                 assert(not attempts[2] and not p.starts['B-XPMAG2:SPWI112'])
-                p.cases[p.case]={attempts=attempts,legacy='three casts and moves',dispatch=dispatch:inspect()}
+                if diagnostic then
+                    assert(not p.starts['B-XPMAG0:SPWI112'] or p.case=='replacement-differential',
+                        'control issued an active missile')
+                    emit('legacy-final-diagnostic',signature)
+                end
+                p.cases[p.case]={attempts=attempts,legacy='three casts and moves',
+                    dispatch=dispatch:inspect(),signature=diagnostic and signature or nil}
                 phase('await-load')
             end
         end
@@ -215,6 +277,7 @@ return function(config)
             local dv=clean(sprite.m_scriptName:get());local i=tonumber(dv:match('^B%-XPMAG([0-2])$'))
             if not i or clean(sprite.m_resref:get())~=dv then return end
             local res=clean(action.m_string1.m_pchData:get());emit('start',{actor=dv,action=action.m_actionID,resource=res})
+            if action.m_actionID==23 then p.moveStarts[i]=(p.moveStarts[i] or 0)+1 end
             if action.m_actionID~=31 then return end
             p.starts[dv..':'..res]=(p.starts[dv..':'..res] or 0)+1
             local a=attempts[i]
@@ -223,13 +286,22 @@ return function(config)
                 assert(result and result.state=='started',why);emit('outcome',result)
                 if p.case=='disable-during-cast' then
                     dispatch:setEnabled(false);a.invalidated=true;emit('disabled-during-cast',dispatch:inspect())
-                elseif p.case=='replacement' then
+                elseif p.case=='replacement' or p.case=='replacement-differential' then
                     local pc=assert(EEex_Sprite_GetInPortrait(0));p.expectedPartyAction=true
                     phase('replacement-observe')
                     emit('harness-replacement-request',{command='ordinary ActionOverride MoveToPoint',actor=dv})
-                    EEex_Action_QueueResponseStringOnAIBase('ActionOverride("B-XPMAG0",MoveToPoint([232.216]))',pc)
+                    if p.case=='replacement-differential' then
+                        EEex_Action_QueueResponseStringOnAIBase('ActionOverride("B-XPMAG0",MoveToPoint([232.264]))',pc)
+                    else EEex_Action_QueueResponseStringOnAIBase('ActionOverride("B-XPMAG0",MoveToPoint([232.216]))',pc) end
                 elseif p.case=='load-after-start' then
                     p.cases[p.case]={started=true,pending=dispatch:inspect()};phase('await-load')
+                elseif p.case=='load-paused-start' then
+                    assert(not paused(),'cast began while already paused')
+                    worldScreen:TogglePauseGame(true)
+                    assert(paused(),'cast-start pause did not take')
+                    p.pausedByHarness=true
+                    p.cases[p.case]={started=true,pending=dispatch:inspect()}
+                    phase('await-load');emit('paused-at-start',{actor=dv,action=details(sprite)})
                 end
             end
         end,
@@ -249,7 +321,16 @@ return function(config)
     function p.requestLoad()
         assert(p.phase=='await-load' and not p.failed)
         local sprites=scan()
-        emit('before-load',{actor=details(sprites[0]),target=details(sprites.target),dispatch=dispatch:inspect(),
+        local actor,target,bookkeeping=details(sprites[0]),details(sprites.target),dispatch:inspect()
+        if p.case=='load-paused-start' then
+            local a=assert(attempts[0])
+            assert(p.pausedByHarness and paused(),'own cast-start pause lost')
+            assert(a.started and p.starts['B-XPMAG0:SPWI112']==1 and actor.action==31,
+                'native cast no longer started')
+            assert(a.targetHP==37 and target.hp==37,'target changed before paused load')
+            assert(bookkeeping.enabled and bookkeeping.pending==1,'attempt not pending before paused load')
+        end
+        emit('before-load',{actor=actor,target=target,dispatch=bookkeeping,paused=paused(),
             limitation='pending bookkeeping after observed start; native continuation at destruction is not inferred'})
         return BGSELabTest.QA:start_load('000000973-BGSE Local Only 0928',BGSELabTest.revision)
     end
@@ -257,11 +338,21 @@ return function(config)
         assert(p.phase=='await-load' and not p.failed and native:ready() and not p.hooks.disabled)
         assert(p.destroyedForCase==1 and core:inspect().enrolled==0 and BGSELabTest.QA:inspect().status=='complete')
         assert(not dispatch:inspect().enabled and dispatch:inspect().pending==0)
+        if p.pausedByHarness then
+            if paused() then worldScreen:TogglePauseGame(true) end
+            assert(not paused(),'own pause persisted after load');p.pausedByHarness=false
+        end
         p.cases[p.case].loadReset=true;phase('reset-ready');return p.inspect()
     end
     function p.close()
+        if p.pausedByHarness then
+            if paused() then worldScreen:TogglePauseGame(true) end
+            assert(not paused(),'own pause persisted at close');p.pausedByHarness=false
+        end
         assert(not p.closed);dispatch:setEnabled(false);core:shutdown();emit('closed');assert(output:close())
         p.closed=true;EEexRemote.Poll=originalPoll;return {state=p.inspect(),costs=p.costs}
     end
-    return {ready=true,mode='default-off',activeActors=2,legacyOnly=1,cases={'baseline','disable-during-cast','replacement','load-after-start'}}
+    return {ready=true,mode='default-off',activeActors=2,legacyOnly=1,
+        cases={'baseline','disable-during-cast','replacement','load-after-start',
+            'replacement-control','replacement-differential','load-paused-start'}}
 end

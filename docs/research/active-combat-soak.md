@@ -1,7 +1,8 @@
 # Active Combat Intent pilot — current-stack batch
 
-**Status:** Connected ordinary casting, disable and load reset observed; replacement endpoint
-checks failed and are retained. G5's precise admission decision is recorded separately.
+**Status:** Connected ordinary casting, disable, full paired legacy handback and paused-native
+load reset observed. Earlier endpoint/debit assertions failed and are retained. G5 records
+the precise development admission, not broad supported-stack acceptance.
 
 **Question:** Can the new chooser cause one ordinary action, recognize its actual result,
 stop claiming actions when disabled, and return control to the original script?
@@ -71,7 +72,7 @@ reuse allowed a reset/corrected batch in the same process, without a new native 
   not its precise pathfinding cause. A single reviewed nearby-intervention attempt also
   interrupted the cast and resumed legacy behavior but stopped at(280,234), about24.74pixels
   from the destination. That assertion also remains failed. No thresholds were relaxed and
-  no further retries were made. Task28 retains this route/arrival limitation.
+  no further endpoint retries were made. Task28 retains this route/arrival limitation.
 - Load-after-start passed the stated bookkeeping check: just before reload the spell was
   already spent, target28HP and caster idle, while one uncompleted observation record remained.
   Destruction invalidated that record; own baseline restored zero enrollment/pending claims
@@ -103,9 +104,55 @@ or explanation of this observed short stop; it does not resolve the runtime coun
 
 ## Evidence limits
 
+### Reviewed follow-up: paired legacy behavior and paused native action
+
+A second combined session reused the identical product bundle and fixture assets, with one
+native listener per event. Before execution, G5 declared a full AI-off control versus active
+replacement comparison and a synchronous pause at native cast start. This does not substitute
+an easier endpoint assertion: the old endpoint tests remain failed, while the new question is
+whether handback preserves the original script's actual behavior. Movement is not admitted as
+a Combat Intent action by this result.
+
+The full control completed. The first differential failed an incorrect new assertion: it had
+one action31 start, Move23 at three ticks later, real displacement, no damage for150ticks and
+an idle caster, but the spell remained available. Starting an action does not prove debit.
+Independent trace review and a focused source-predicate RED/GREEN reproduction established the
+correction: interruption permits exactly zero or one spent copy, records which, and still
+requires one start, displacement before damage, sustained unchanged target HP and idle state.
+Missing/duplicate starts, increased or over-debited copies still fail. Successful completion
+still requires one debit and its independent effect proof. No product action code changed.
+
+One corrected differential in that same session spent one copy, interrupted without damage,
+then produced the same full legacy result as the completed control for all three actors:
+each had the same ordered six original-script actions, Strength copy2→1 and source op44 effect,
+actual movement, final HP/other ready copies, idle/empty queue, phase4 and done1. Before-legacy
+positions and final positions matched exactly: (264,258), (360,246), (408,246). The first remains
+outside the original24pixel threshold in **both** control and treatment. This establishes the
+bounded handback comparison, not a pathfinding explanation or successful arrival at the goal.
+The failed differential never reached legacy and contributes no passing handback evidence.
+
+The independent load case paused synchronously at the sole matching Magic Missile start.
+Immediately before named load, native action31 was still present, the world paused, target37HP,
+one copy still ready and one active pending claim. Destruction invalidated that claim; completed
+load had zero enrollment/pending claims, default-off state and no automatic reissue. Own pause
+was released. This proves reset from an observed running action, not serializing/resuming it.
+
+The three closed follow-up segments contain1190/66/732rows and10/8/8decisions. All26 decisions
+replay on both Lua backends; together with the earlier54, that is80 saved active-batch decisions.
+The full legacy comparison checks18ordered actions, not just completion markers. All372 completed
+recorder callbacks: median0.9945ms, p951.885ms, max104.074ms with verbose recording. The same
+small-scene/development-budget limits apply; failed callback cost is not included. Full current
+host suite still passes202checks. No broad tooling tests were added.
+
+The owned process tree stopped; all13 targets were reconciled (three originals restored, ten
+additions removed) and owned IPC preserved/removed. Matching reservation released. No new game
+copy/save, personal-profile change or active-game write. Private Task25 active-runtime-v2 keeps
+source versions, failed/corrected traces, commands, tool identities, replay and cleanup receipts.
+
 Host simulation, source inspection and this bounded engine batch are E1+E2+E4, not E5. Current-stack
 development admission must not become a general SCS-family/support claim. Wider stack combinations,
 actual SCS prebuff helper accounting, area geometry, broader actor/control closures, image/summon
 families, full-encounter performance/allocations and supported-corpus soak remain on the roadmap.
 Earlier G1/G3 research and host lifecycle checks remain complementary evidence, not unrun active
-cases. Do not describe the load-after-start result as a saved in-flight action continuation test.
+cases. Neither load case proves saved in-flight continuation. The second proves invalidation
+after an actually paused native start; the first remains bookkeeping-only counterevidence.

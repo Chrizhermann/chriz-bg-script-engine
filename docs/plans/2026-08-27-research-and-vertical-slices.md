@@ -1097,9 +1097,10 @@ claimed and no advisory graph is trusted as complete activation evidence.
 **2026-10-04 connected implementation checkpoint:** Tasks21–23 now have host implementations
 for the legal combat/preparation set, reason-coded score/seeded choice, reaction/commitment
 controller and data-only saved-decision replay. See [COMBAT-02](../research/COMBAT-02-connected-shadow.md).
-Actual installed geometry stays excluded where unknown. Task24's hostile-fixture mapping,
-mutation audit, comparisons and cost measurements remain the G4 acceptance step; host checks
-alone do not authorize dispatch. Test-vector weights are not gameplay defaults.
+Actual installed geometry stays excluded where unknown. Task24 subsequently passed narrowed G4
+for the authored hostile fixtures after native mapping, mutation audit, comparisons and cost
+measurements. Host checks alone did not authorize dispatch; Task25 separately exercised a
+default-off ordinary actor-target Magic Missile path. Test-vector weights are not gameplay defaults.
 
 **Research linkage (not automatic closure):** SCS-03, SCS-06
 
