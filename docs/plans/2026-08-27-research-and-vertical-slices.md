@@ -457,6 +457,14 @@ match; it does not yet activate runtime ownership.
 
 **Depends on:** Tasks 4 and 5
 
+**2026-10-04 bounded exit:** The [pilot oracle](../research/SCS-pilot-oracle.md), reviewed
+source-derived fixture and updated mage/prebuff ledgers now satisfy this task's bounded
+semantic-oracle exit. This supersedes earlier missing-oracle/admission blockers below, not
+their disclosed opaque cases. The exact six-case fixture and two shadow preparation gate
+shapes have artifact-specific provenance admission. No whole SCS actor, corpus closure,
+forced helper delivery or runtime activation is admitted. Remaining families and transitive
+semantics stay in their migration/engine tasks, not as hundreds of prerequisite micro-tests.
+
 **2026-09-27 continuation:** The [first installed mage/prebuff comparison](../research/2026-09-27-scs-effective-mage-pilot.md)
 now records MAGE6B's effective slots, selected prebuff branches and byte-identical WeiDU
 decompile/recompile. This supersedes the missing-effective-sample portion of the historical
@@ -1085,6 +1093,13 @@ claimed and no advisory graph is trusted as complete activation evidence.
 **Exit:** no unavailable, illegal, imperceptible, or unowned action can enter scoring.
 
 ### Task 22: Implement utility, competence profiles, and bounded randomness
+
+**2026-10-04 connected implementation checkpoint:** Tasks21–23 now have host implementations
+for the legal combat/preparation set, reason-coded score/seeded choice, reaction/commitment
+controller and data-only saved-decision replay. See [COMBAT-02](../research/COMBAT-02-connected-shadow.md).
+Actual installed geometry stays excluded where unknown. Task24's hostile-fixture mapping,
+mutation audit, comparisons and cost measurements remain the G4 acceptance step; host checks
+alone do not authorize dispatch. Test-vector weights are not gameplay defaults.
 
 **Research linkage (not automatic closure):** SCS-03, SCS-06
 

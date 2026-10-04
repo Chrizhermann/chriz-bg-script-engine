@@ -11,19 +11,22 @@ MODULES = (
 )
 
 
-def build() -> str:
+EXPORTS = ("new=require('kernel.bootstrap').new,clock=require('kernel.clock'),"
+           "eeex=require('adapters.eeex.engine'),listeners=require('adapters.eeex.listeners'),"
+           "manifest=require('kernel.manifest')")
+
+
+def build(modules=MODULES, exports=EXPORTS) -> str:
     lines = ["-- Generated from authored BGSE sources. Observer only.",
              "local factories,loaded={},{}",
              "local function require(name)",
              "  if loaded[name] then return loaded[name] end",
              "  local value=assert(factories[name], 'unbundled module')(require)",
              "  loaded[name]=value;return value", "end"]
-    for name in MODULES:
+    for name in modules:
         source = (ROOT / (name.replace(".", "/") + ".lua")).read_text(encoding="utf-8")
         lines.extend((f"factories[{json.dumps(name)}]=function(require)", source, "end"))
-    lines.append("return {new=require('kernel.bootstrap').new,clock=require('kernel.clock'),"
-                 "eeex=require('adapters.eeex.engine'),listeners=require('adapters.eeex.listeners'),"
-                 "manifest=require('kernel.manifest')}")
+    lines.append("return {" + exports + "}")
     return "\n".join(lines) + "\n"
 
 

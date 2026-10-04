@@ -1,0 +1,83 @@
+BACKUP ~backup~
+AUTHOR ~BGSE private combat pilot fixture~
+BEGIN ~Build three disposable pilot casters and one target~ DESIGNATED 0
+
+// argv[0]: exact private B-XMAGE2.CRE donor; argv[1]: B-XTARG0.CRE donor.
+// argv[2]: private output directory. No game resource lookup or publication.
+OUTER_SPRINT ~BGSE_MAGE~ ~%argv[0]%~
+OUTER_SPRINT ~BGSE_TARGET~ ~%argv[1]%~
+
+COPY ~%BGSE_MAGE%~ ~%argv[2]%/B-XPMAG0.CRE~
+  READ_ASCII 0 signature (8)
+  READ_ASCII 0x280 dv (32) NULL
+  READ_ASCII 0x248 prior_script (8) NULL
+  READ_BYTE 0x270 ea
+  PATCH_IF NOT (~%signature%~ STRING_EQUAL ~CRE V1.0~ AND
+                ~%dv%~ STRING_EQUAL_CASE ~B-XCAST2~ AND
+                ~%prior_script%~ STRING_EQUAL_CASE ~B-XLEG00~ AND ea = 4) BEGIN
+    PATCH_FAIL ~Unexpected pilot mage donor~
+  END
+  WRITE_ASCII 0x248 ~~ (0x28)
+  WRITE_ASCII 0x248 ~B-XKLEG0~ (8)
+  WRITE_ASCII 0x280 ~B-XPMAG0~ (32)
+  WRITE_ASCII 0x2cc ~~ (8)
+  WRITE_BYTE 0x270 255
+  ADD_MEMORIZED_SPELL ~SPWI112~ #0 ~wizard~ (1)
+  ADD_MEMORIZED_SPELL ~SPWI224~ #1 ~wizard~ (1)
+  ADD_MEMORIZED_SPELL ~SPWI312~ #2 ~wizard~ (1)
+  ADD_MEMORIZED_SPELL ~SPWI114~ #0 ~wizard~ (1)
+  ADD_MEMORIZED_SPELL ~SPWI212~ #1 ~wizard~ (1)
+
+COPY ~%BGSE_MAGE%~ ~%argv[2]%/B-XPMAG1.CRE~
+  READ_ASCII 0 signature (8)
+  READ_ASCII 0x280 dv (32) NULL
+  READ_ASCII 0x248 prior_script (8) NULL
+  READ_BYTE 0x270 ea
+  PATCH_IF NOT (~%signature%~ STRING_EQUAL ~CRE V1.0~ AND
+                ~%dv%~ STRING_EQUAL_CASE ~B-XCAST2~ AND
+                ~%prior_script%~ STRING_EQUAL_CASE ~B-XLEG00~ AND ea = 4) BEGIN
+    PATCH_FAIL ~Unexpected pilot mage donor~
+  END
+  WRITE_ASCII 0x248 ~~ (0x28)
+  WRITE_ASCII 0x248 ~B-XKLEG0~ (8)
+  WRITE_ASCII 0x280 ~B-XPMAG1~ (32)
+  WRITE_ASCII 0x2cc ~~ (8)
+  WRITE_BYTE 0x270 255
+  ADD_MEMORIZED_SPELL ~SPWI112~ #0 ~wizard~ (1)
+  ADD_MEMORIZED_SPELL ~SPWI224~ #1 ~wizard~ (1)
+  ADD_MEMORIZED_SPELL ~SPWI312~ #2 ~wizard~ (1)
+  ADD_MEMORIZED_SPELL ~SPWI114~ #0 ~wizard~ (1)
+  ADD_MEMORIZED_SPELL ~SPWI212~ #1 ~wizard~ (1)
+
+COPY ~%BGSE_MAGE%~ ~%argv[2]%/B-XPMAG2.CRE~
+  READ_ASCII 0 signature (8)
+  READ_ASCII 0x280 dv (32) NULL
+  READ_ASCII 0x248 prior_script (8) NULL
+  READ_BYTE 0x270 ea
+  PATCH_IF NOT (~%signature%~ STRING_EQUAL ~CRE V1.0~ AND
+                ~%dv%~ STRING_EQUAL_CASE ~B-XCAST2~ AND
+                ~%prior_script%~ STRING_EQUAL_CASE ~B-XLEG00~ AND ea = 4) BEGIN
+    PATCH_FAIL ~Unexpected pilot mage donor~
+  END
+  WRITE_ASCII 0x248 ~~ (0x28)
+  WRITE_ASCII 0x248 ~B-XKLEG0~ (8)
+  WRITE_ASCII 0x280 ~B-XPMAG2~ (32)
+  WRITE_ASCII 0x2cc ~~ (8)
+  WRITE_BYTE 0x270 255
+  ADD_MEMORIZED_SPELL ~SPWI112~ #0 ~wizard~ (1)
+  ADD_MEMORIZED_SPELL ~SPWI224~ #1 ~wizard~ (1)
+  ADD_MEMORIZED_SPELL ~SPWI312~ #2 ~wizard~ (1)
+  ADD_MEMORIZED_SPELL ~SPWI114~ #0 ~wizard~ (1)
+  ADD_MEMORIZED_SPELL ~SPWI212~ #1 ~wizard~ (1)
+
+COPY ~%BGSE_TARGET%~ ~%argv[2]%/B-XPTRG0.CRE~
+  READ_ASCII 0 signature (8)
+  READ_ASCII 0x280 dv (32) NULL
+  PATCH_IF NOT (~%signature%~ STRING_EQUAL ~CRE V1.0~ AND
+                ~%dv%~ STRING_EQUAL_CASE ~B-XTARG0~) BEGIN
+    PATCH_FAIL ~Unexpected pilot target donor~
+  END
+  WRITE_ASCII 0x248 ~~ (0x28)
+  WRITE_ASCII 0x280 ~B-XPTRG0~ (32)
+  WRITE_ASCII 0x2cc ~~ (8)
+  WRITE_BYTE 0x270 4
