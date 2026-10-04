@@ -19,8 +19,14 @@ ownership, persistence, diagnostics, and conservative fallback.
 
 ## Status
 
-The repository has a tested current-stack kernel, a narrowed G4 Combat Intent shadow pilot,
-and a default-off Task25 prototype for one ordinary Magic Missile action in the disposable lab.
+The repository has a tested current-stack kernel and a narrowed G5 Combat Intent pilot:
+two disposable-lab mages selected and performed ordinary Magic Missile casts through the new
+system, with interruption, disable/fallthrough and load invalidation checked separately.
+Short plans, group reservations and conservative spatial reasoning are host-tested;
+native movement/AoE activation is not yet admitted. A second, priest Turn shadow family
+has source and host evidence but still needs its disposable-engine comparison batch.
+See [active results](docs/research/active-combat-soak.md) and the
+[priest checkpoint](docs/research/priest-turn-shadow-results.md).
 It has no production release or general support claim. The active game and playthrough remain
 outside testing; further engine validation uses synthetic fixtures or the approved disposable lab.
 

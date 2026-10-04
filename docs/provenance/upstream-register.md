@@ -1,6 +1,6 @@
 # Upstream register and reuse holds
 
-**Status:** Reference register with one narrow source-derived fixture/reducer admission;
+**Status:** Reference register with narrow mage/prebuff and priest-shadow admissions;
 unresolved derived classes remain shipping-blocked
 
 **Date:** Updated 2026-10-04
@@ -45,8 +45,8 @@ policy interpretation, not legal advice. Use PREP-02's exact retrieval/hash reci
 | Rule/data tables | Reference-only | Row/content origin, bundled contributions, derivative scope, exact allowed use |
 | Documentation/prose | Link and paraphrase minimal relevant facts only; no full text or copied narrative | Context-specific extract/reuse decision; code permission is not assumed to cover prose |
 | Bundled third-party assets | Reference-only; unknown owner means hold | Component-level owner and independent terms, not the umbrella SCS statement |
-| Reimplemented tactical/encounter behavior | The reviewed generic Shield/Mirror shadow gate is admitted for repository use only; other derived implementation remains held | Distinguish original mechanisms from derived policy, trace source rules, review transformations and permitted-use conclusion for each later family |
-| Source-derived synthetic oracle | Only the exact reviewed mage/prebuff/Glitterdust pilot fixture is admitted for repository use; other source-derived fixtures remain held | New cases require their own source/effective evidence, classification, digest, credit and integration-owner review |
+| Reimplemented tactical/encounter behavior | The reviewed generic Shield/Mirror shadow gate and two-block priest Turn shadow reducer are admitted for private repository use only; other derived implementation remains held | Distinguish original mechanisms from derived policy, trace source rules, review transformations and permitted-use conclusion for each later family |
+| Source-derived synthetic oracle | The exact reviewed mage/prebuff/Glitterdust pilot fixture and compact priest Turn host scenarios are admitted for private repository use; other source-derived fixtures remain held | New cases require their own source/effective evidence, classification, digest where applicable, credit and integration-owner review |
 | Small factual observation or digest | Conditional metadata, never an encoded payload | Exact evidence chain, privacy/content review, and recorded admission decision |
 
 The 2026-10-04 bounded [pilot oracle](../research/SCS-pilot-oracle.md) admits the exact
@@ -68,6 +68,13 @@ their own review. No maintainer was contacted, no reservation was requested, and
 repository/package was published.
 
 ## Credit and update procedure
+
+The 2026-10-04 [priest Turn ledger](scs/priest-turn-ledger.md) separately admits an
+authored two-block shadow reducer and compact source-derived host scenarios for
+private repository use after independent source/scope review. Generation exclusion,
+coupled target checks and the conservative Continue observation boundary are explicit.
+This does not admit the installed priest actor, copied SCS assets, native Turn
+dispatch, the wider priest family or public redistribution. Other holds above remain.
 
 Credit SCS (DavidW) and Spell Revisions (Demivrgvs/G3) visibly where they inform an adapter. Add every
 relevant component author rather than treating a project name as complete attribution. A family
