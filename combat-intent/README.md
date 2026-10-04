@@ -95,3 +95,36 @@ targets. Scene changes clear old belief memory. See
 and its corrected projectile lookup. Selected generic Shield/Mirror Image prep gates and the
 authored-fixture native mapper are complete within narrowed Task21/G4 scope. Helper execution
 and debit, neutral/special prep and Slow/Glitterdust point geometry remain unadmitted.
+
+## Short plans and coordination (Task27)
+
+`intention.new({identity, sceneKey, maxSteps, maxLifetimeTicks})` accepts a copied plan with a
+purpose, one to three semantic step labels, scalar assumptions and an absolute expiry. `next`
+offers only the current label after checking fresh identity, scene, assumptions and legality;
+it is not an engine request. The caller regenerates a current legal decision and obtains the
+ordinary dispatcher lease separately. `observe` uses the existing action-result reducer:
+accepted/started do not advance the plan, proved completion advances once, and failure,
+interruption or unknown aborts without automatic retry. `cancel` abandons a plan; `invalidate`
+retires the instance on load or other lifecycle boundaries. Reads never extend the deadline.
+
+`reservation.new({sceneKey, groupKey, maxEntries, maxLifetimeTicks})` provides an advisory,
+explicit-group board, not global telepathy or action ownership. Each current scalar context
+names the permitted members, known targets and admitted space keys. `reserve` claims one
+target, one target/effect pair or one space until expiry; same-owner reads cannot renew it.
+`view` gives a copied snapshot for the consuming policy's trace. Missing members/subjects reap
+claims; changed group/scene or combat end retires the board. Completion, interruption and
+adapter disable must release claims or invalidate the board at the caller's lifecycle boundary.
+Kinds do not silently impose cross-kind tactical rules; no spell slots or future actions are
+reserved. Lifetimes, group membership and tactical priorities have no built-in gameplay defaults.
+
+Both modules return `dispatchAuthorized=false`; tokens are transient module-session handles,
+never save data. Discard their objects and outstanding tokens together on module/session reload.
+If coordination affects a choice, retain the copied advisory view alongside its decision inputs;
+do not introduce an unrecorded score modifier. The current native pilot has not wired this layer.
+
+Reproduce with `scripts/test.ps1 -Suite all -Seed 47`, or the two intention/reservation unit
+drivers and `tests/integration/test_combat_coordination.py`. The combined two-mage example
+reserves a control effect and position, completes a synthetic reposition, attempts Slow,
+handles interruption, hands the job to the second mage, then loses the target and resets.
+Seeded interleavings check bounded exclusivity. These are E2 policy results, **not live movement,
+Slow casting or pathfinding proof**. Task28 still supplies the required spatial admission.
