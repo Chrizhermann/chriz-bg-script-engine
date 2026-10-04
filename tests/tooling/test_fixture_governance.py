@@ -53,6 +53,25 @@ def test_accepts_reviewed_original_bytes_and_does_not_modify_them(tmp_path: Path
     assert path.read_bytes() == before
 
 
+def test_source_derived_fixture_requires_exact_class_origin_pair(tmp_path: Path) -> None:
+    registry = write_case(tmp_path)
+    entry = registry["entries"][0]
+    entry["classification"] = "source-derived-synthetic-fixture"
+    entry["origin"] = "SCS-derived"
+    entry["source"] = "SCS 35.21 pinned source/effective comparison; authored cases, no copied payload."
+    entry["requiredCredit"] = "Sword Coast Stratagems by David Wallace (DavidW)"
+    assert validate_fixture_set(tmp_path, registry) == [entry["path"]]
+
+    for origin, classification in [
+        ("original", "source-derived-synthetic-fixture"),
+        ("SCS-derived", "redistributable-synthetic-fixture"),
+        ("game-derived", "source-derived-synthetic-fixture"),
+    ]:
+        entry["origin"], entry["classification"] = origin, classification
+        with pytest.raises(FixtureRefused, match="classification|origin"):
+            validate_fixture_set(tmp_path, registry)
+
+
 @pytest.mark.parametrize("classification", [
     "upstream-source", "locally-generated-effective-artifact", "forbidden-packaged-content",
     "short-factual-extract", "generated-fingerprint", "unclassified",

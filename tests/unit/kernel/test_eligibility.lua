@@ -1,7 +1,7 @@
 local manifest = require('kernel.manifest')
 local eligibility = require('kernel.eligibility')
 local registry = require('adapters.registry')
-local fixture = require('tests.fixtures.manifests.eligibility.fixture')
+local fixture = require('tests.unit.kernel.eligibility_fixture')
 local function denied(change,reason)
     local m,e,a=fixture();change(m,e,a)
     local result=eligibility.evaluate(m,e,a)

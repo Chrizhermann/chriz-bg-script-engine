@@ -1,4 +1,4 @@
-"""Read-only admission of the reviewed original JSON fixture set (Task 4 / E2).
+"""Read-only admission of reviewed JSON fixtures and source-derived pilot cases.
 
 This is not a release scanner, a legal decision engine, or a proof of authorship.
 Human review establishes origin; exact paths and digests bind that review to bytes.
@@ -179,11 +179,15 @@ def validate_fixture_set(root: Path, registry: Any) -> list[str]:
             raise FixtureRefused("invalid artifact id")
         if not re.fullmatch(r"[0-9a-f]{64}", entry["sha256"]):
             raise FixtureRefused("invalid SHA-256 digest")
-        if entry["classification"] not in {
-            "redistributable-synthetic-fixture", "independently-authored-metadata",
-        }:
+        admitted_pairs = {
+            "redistributable-synthetic-fixture": "original",
+            "independently-authored-metadata": "original",
+            "source-derived-synthetic-fixture": "SCS-derived",
+        }
+        expected_origin = admitted_pairs.get(entry["classification"])
+        if expected_origin is None:
             raise FixtureRefused("classification is held; not admitted by this contract")
-        if entry["origin"] != "original":
+        if entry["origin"] != expected_origin:
             raise FixtureRefused("origin is held; synthetic labeling does not erase derivation")
         if entry["redistributionStatus"] != "redistributable":
             raise FixtureRefused("redistributionStatus is held")

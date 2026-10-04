@@ -1,4 +1,4 @@
--- Independently authored host data, not hashes or resources from an installed game.
+-- Independently authored unit helper, not a distributable game/corpus fixture.
 return function()
     local resource = {sha256=string.rep('a',64),dependencies={'B-XTEST0.BCS'},
         slots={override='B-XTEST0',class='',race='',general='',default=''},opaque=false}

@@ -1,6 +1,6 @@
 local bootstrap=require('kernel.bootstrap')
 local clock=require('kernel.clock')
-local fixture=require('tests.fixtures.manifests.eligibility.fixture')
+local fixture=require('tests.unit.kernel.eligibility_fixture')
 local listeners=require('adapters.eeex.listeners')
 local eeex=require('adapters.eeex.engine')
 local m,e,a,copy=fixture()

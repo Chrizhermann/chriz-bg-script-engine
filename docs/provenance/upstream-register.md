@@ -1,8 +1,9 @@
 # Upstream register and reuse holds
 
-**Status:** Reference register; unresolved derived classes remain shipping-blocked
+**Status:** Reference register with one narrow source-derived fixture/reducer admission;
+unresolved derived classes remain shipping-blocked
 
-**Date:** 2026-09-22
+**Date:** Updated 2026-10-04
 
 **Owners:** Integration owner for intake; upstream authors retain their respective rights
 
@@ -44,11 +45,27 @@ policy interpretation, not legal advice. Use PREP-02's exact retrieval/hash reci
 | Rule/data tables | Reference-only | Row/content origin, bundled contributions, derivative scope, exact allowed use |
 | Documentation/prose | Link and paraphrase minimal relevant facts only; no full text or copied narrative | Context-specific extract/reuse decision; code permission is not assumed to cover prose |
 | Bundled third-party assets | Reference-only; unknown owner means hold | Component-level owner and independent terms, not the umbrella SCS statement |
-| Reimplemented tactical/encounter behavior | Document intended preservation/changes in a family ledger; derived implementation remains held | Distinguish original mechanisms from derived policy, trace source rules, review transformations and permitted-use conclusion |
+| Reimplemented tactical/encounter behavior | The reviewed generic Shield/Mirror shadow gate is admitted for repository use only; other derived implementation remains held | Distinguish original mechanisms from derived policy, trace source rules, review transformations and permitted-use conclusion for each later family |
+| Source-derived synthetic oracle | Only the exact reviewed mage/prebuff/Glitterdust pilot fixture is admitted for repository use; other source-derived fixtures remain held | New cases require their own source/effective evidence, classification, digest, credit and integration-owner review |
 | Small factual observation or digest | Conditional metadata, never an encoded payload | Exact evidence chain, privacy/content review, and recorded admission decision |
 
-No SCS-derived fixture is approved in the current fixture registry. No upstream maintainer was
-contacted, no permission/reservation was requested, and no repository/package was published.
+The 2026-10-04 bounded [pilot oracle](../research/SCS-pilot-oracle.md) admits the exact
+[`scs-pilot.synthetic.json`](../../tests/fixtures/manifests/scs-pilot.synthetic.json) as a
+`source-derived-synthetic-fixture` with `SCS-derived` origin. Its six authored expectations
+derive from selected pinned SCS 35.21 source and MAGE6B/MAGE18B effective observations;
+the [allowlist](fixture-allowlist.json) binds the review to SHA-256
+`fee6fb860ebc30f54db75f5dad0700590f7cedf6190e3a1593a0f06c9350727b`.
+The reviewed [shadow-only reducer](../../combat-intent/preparation.lua) represents just the
+generic Shield/Mirror short/long gate shapes and a one-copy debit *proposal*. It never forces
+a helper, spends a spell or takes ownership from legacy scripts. Fresh self observations,
+ready-copy, known current-buff absence, accounting readiness and combat ownership are this
+project's conservative requirements, not exact SCS predicates. The pinned copyright statement
+permits code reuse with full credit and asks that SCS/modified SCS not be mirrored. Credit SCS
+(David Wallace/DavidW) and Spell Revisions (Demivrgvs/G3) for the selected stack. No source
+code, spell data, decompile or game resource is included; this is neither a mirror nor a blanket
+reuse admission. Forced delivery, wider SCS corpus policy and bundled assets remain held for
+their own review. No maintainer was contacted, no reservation was requested, and no
+repository/package was published.
 
 ## Credit and update procedure
 

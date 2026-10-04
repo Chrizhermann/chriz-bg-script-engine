@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "scs-mage-prebuff-glitterdust-pilot-v1",
+  "origin": "SCS-derived",
+  "purpose": "Bounded factual source-to-effective comparison and authored source-derived gate examples",
+  "derivedCaseCredit": "Sword Coast Stratagems by David Wallace (DavidW); Spell Revisions by Demivrgvs and G3 for the installed stack; BGSE contributors authored the case wording",
+  "admission": "integration-owner-reviewed-for-repository-2026-10-04; no external publication authorized",
+  "evidenceLayer": "E1 for selected file observations; synthetic expectations are not executed behavior",
+  "scope": {
+    "sourceRevision": "SCS 35.21, 5dc240e9ff85d3909b6436e54b56297d3b61e33b",
+    "effectiveStack": "BG2:EE 2.7.3.0, EET 14.0, EEex 1.2.0/LuaJIT, SCS 35.21, Spell Revisions 4.21-chriz.5, WeiDU 24900",
+    "selectedActors": ["MAGE6B", "MAGE18B"],
+    "legacyOwnership": true,
+    "runtimeActivation": false
+  },
+  "selectedObservations": [
+    {
+      "id": "mirror-short-prep",
+      "actor": "MAGE6B",
+      "originalSpell": "SPWI212",
+      "helper": "DWSW212",
+      "effectiveLines": "381-409",
+      "sourceLines": "caster_definitions.ssl:470-486",
+      "gateSummary": "ready original, instantprep zero, sight of nearest enemy or offscreenprep one, caster alive, mage prep difficulty gate",
+      "actionOrder": ["request forced helper delivery on self", "request removal of one original spell copy", "continue"],
+      "setsInstantprep": false
+    },
+    {
+      "id": "shield-long-prep",
+      "actor": "MAGE6B",
+      "originalSpell": "SPWI114",
+      "helper": "DWSW114",
+      "effectiveLines": "411-447",
+      "sourceLines": "caster_definitions.ssl:488-514",
+      "gateSummary": "ready original, instantprep zero, detection or offscreenprep or player proximity plus detection or offscreenprep or enemy allegiance, caster alive, mage difficulty gate",
+      "actionOrder": ["request forced helper delivery on self", "request removal of one original spell copy", "continue"],
+      "setsInstantprep": false
+    },
+    {
+      "id": "glitterdust-ordinary-area-choice",
+      "actor": "MAGE18B",
+      "originalSpell": "SPWI224",
+      "effectiveLines": "12556-12681",
+      "sourceLines": "glitterdust.ssl:1-10; caster_definitions.ssl:798-813",
+      "gateSummary": "last-seen enemy visible, available spell and cast timer, target not invisible or disabled, no sanctuary, hold, Minor Globe, do-not-target state or cannot-turn-invisible state; caster spell failure below 60; save-vs-spell positive; resistance or target-compromise gate",
+      "observedResponses": [
+        {"weight": 100, "actionOrder": ["apply visibility helper to self", "set cast timer", "request normal Glitterdust cast on last-seen target"]},
+        {"weight": 50, "actionOrder": ["continue"]}
+      ]
+    }
+  ],
+  "syntheticCases": [
+    {
+      "id": "sight-only-short",
+      "inputs": {"mirrorReady": true, "shieldReady": true, "instantprep": 0, "alive": true, "seeNearestEnemy": true, "detectNearestEnemy": false, "offscreenprep": 0, "anyPlayerWithin20": false, "casterEnemy": true, "magePrepDifficulty": 5, "mageDifficulty": 3},
+      "expectedSelectedPrep": ["mirror-short-prep"],
+      "reason": "Short sight gate passes; long detection, offscreen and proximity gate does not."
+    },
+    {
+      "id": "detection-only-long",
+      "inputs": {"mirrorReady": true, "shieldReady": true, "instantprep": 0, "alive": true, "seeNearestEnemy": false, "detectNearestEnemy": true, "offscreenprep": 0, "anyPlayerWithin20": false, "casterEnemy": true, "magePrepDifficulty": 5, "mageDifficulty": 3},
+      "expectedSelectedPrep": ["shield-long-prep"],
+      "reason": "Long detection gate passes; short sight and offscreen gates do not."
+    },
+    {
+      "id": "configuration-split-short",
+      "inputs": {"mirrorReady": true, "shieldReady": true, "instantprep": 0, "alive": true, "seeNearestEnemy": true, "detectNearestEnemy": true, "offscreenprep": 0, "anyPlayerWithin20": false, "casterEnemy": true, "magePrepDifficulty": 5, "mageDifficulty": 2},
+      "expectedSelectedPrep": ["mirror-short-prep"],
+      "reason": "The emitted prep-difficulty five clauses pass; mage-difficulty two fails the long block's first configuration clause."
+    },
+    {
+      "id": "configuration-split-long",
+      "inputs": {"mirrorReady": true, "shieldReady": true, "instantprep": 0, "alive": true, "seeNearestEnemy": true, "detectNearestEnemy": true, "offscreenprep": 0, "anyPlayerWithin20": false, "casterEnemy": true, "magePrepDifficulty": 2, "mageDifficulty": 3},
+      "expectedSelectedPrep": ["shield-long-prep"],
+      "reason": "Prep-difficulty two fails the short block's first configuration clause; mage-difficulty three passes the long block."
+    },
+    {
+      "id": "ordered-generic-prep",
+      "inputs": {"mirrorReady": true, "shieldReady": true, "instantprep": 0, "alive": true, "seeNearestEnemy": true, "detectNearestEnemy": true, "offscreenprep": 0, "anyPlayerWithin20": false, "casterEnemy": true, "magePrepDifficulty": 5, "mageDifficulty": 3},
+      "expectedSelectedPrep": ["mirror-short-prep", "shield-long-prep"],
+      "expectedAfterGenericBlocks": {"instantprep": 0, "oneOriginalRemovalRequestPerHelperRequest": true, "eachBlockContinues": true},
+      "reason": "Both effective generic blocks can run in order before a separate first-round branch changes instantprep."
+    },
+    {
+      "id": "prep-state-transition",
+      "inputs": {"afterGenericPrepInstantprep": 0, "firstRoundStateBranchSelected": true, "laterRestResetBranchSelected": true},
+      "expectedSequence": ["generic prep leaves instantprep zero", "selected first-round branch sets instantprep one", "selected rest reset clears instantprep to zero"],
+      "reason": "Effective MAGE6B local-state writers occur outside the two generic blocks."
+    }
+  ],
+  "exclusions": {
+    "mage6bOffense": "Its final known and memorized spell tables contain none of SPWI112, SPWI224 or SPWI312; no migration claim for those spells in this actor.",
+    "runtimeUnknown": ["actual helper delivery", "one-copy expenditure", "weighted response selection", "Glitterdust recipients and area geometry", "buff lifetime", "save and reload behavior"],
+    "closureUnknown": ["external offscreenprep writer", "area or controller script overrides", "full historical generator inputs", "transitive spell and projectile ownership"]
+  }
+}
