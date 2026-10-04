@@ -5,11 +5,12 @@ local ownership=require('kernel.ownership')
 local legality=require('combat-intent.legality')
 local actions=require('combat-intent.actions')
 local preparation=require('combat-intent.preparation')
+local spatial=require('combat-intent.spatial')
 local M={}
 function M.generate(view,input)
     assert(snapshot.isView(view),'perception view required')
     local config=copy(input)
-    snapshot.record(config,{'ownership','ownershipContext','spells','targets','areaChecks'}, {'prebuffs','preparation'})
+    snapshot.record(config,{'ownership','ownershipContext','spells','targets','areaChecks'}, {'prebuffs','preparation','spatial'})
     assert(type(config.areaChecks)=='table')
     local seen={}
     snapshot.array(config.spells,function(spell)
@@ -53,6 +54,20 @@ function M.generate(view,input)
         if owner.combat then action,reason=preparation.check(view,spell,config.preparation) else reason=owner.reason end
         if action then result.eligible[#result.eligible+1]={id=id,action=action,notes={'generic-preparation-shadow-only'}}
         else result.excluded[#result.excluded+1]={id=id,reason=reason} end
+    end
+    if config.spatial then
+        snapshot.record(config.spatial,{'config','reports'})
+        local positions=spatial.evaluate(view,config.spatial.config,config.spatial.reports)
+        for _,row in ipairs(positions.eligible) do
+            if owner.combat then
+                result.eligible[#result.eligible+1]={id='position/'..row.id,action=row.action,
+                    pathProofId=row.pathProofId,features={retreatGain=row.retreatGain,travelDistance=row.travelDistance},
+                    notes={'spatial-shadow-only'}}
+            else result.excluded[#result.excluded+1]={id='position/'..row.id,reason=owner.reason} end
+        end
+        for _,row in ipairs(positions.excluded) do
+            result.excluded[#result.excluded+1]={id='position/'..row.id,reason=owner.combat and row.reason or owner.reason}
+        end
     end
     if owner.combat then result.eligible[#result.eligible+1]={id='wait',action=actions.wait(),notes={}} end
     result.eligible[#result.eligible+1]={id='decline',action=actions.decline(),notes={owner.reason}}

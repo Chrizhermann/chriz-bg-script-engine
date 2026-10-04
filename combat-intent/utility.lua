@@ -1,5 +1,6 @@
 -- Deterministic arithmetic over admitted shadow proposals; never dispatches.
 local copy=require('kernel.manifest').copy
+local equal=require('kernel.manifest').equal
 local snapshot=require('combat-intent.snapshot')
 local profile=require('combat-intent.profile')
 local M={}
@@ -22,6 +23,11 @@ local function candidate(row)
         snapshot.record(row.action.target,{'kind','key'});snapshot.assertKey(row.action.target.key)
         assert(row.action.target.kind=='actor' and row.action.originalDebit==1 and
             row.action.continueLegacy==true and row.action.setsInstantPrep==false)
+    elseif kind=='shadow-position' then
+        snapshot.record(row,{'id','action','pathProofId','features','notes'})
+        snapshot.record(row.action,{'kind','point'});snapshot.value('position',row.action.point)
+        snapshot.assertKey(row.pathProofId);assert(row.id:sub(1,9)=='position/')
+        snapshot.record(row.features,{'retreatGain','travelDistance'})
     elseif kind=='shadow-wait' then
         snapshot.record(row,{'id','action','notes'})
         snapshot.record(row.action,{'kind'});assert(row.id=='wait')
@@ -47,6 +53,9 @@ function M.score(eligibleArray,termsByCandidateId,profileInput)
     for _,row in ipairs(eligible) do
         local values=terms[row.id]
         assert(type(values)=='table','missing candidate terms')
+        if row.action.kind=='shadow-position' then
+            assert(equal(values,row.features),'spatial terms must match generated features')
+        end
         local details={}
         for reason,value in pairs(values) do
             assert(p.weights[reason]~=nil,'unweighted or unknown term')

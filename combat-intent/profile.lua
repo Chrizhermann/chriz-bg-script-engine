@@ -4,7 +4,7 @@ local snapshot=require('combat-intent.snapshot')
 local M={}
 local reasons={control=true,affectedTargets=true,friendlyRisk=true,redundancy=true,
     resourceCost=true,interruptionRisk=true,urgency=true,uncertainty=true,
-    duration=true,preparation=true,archetype=true}
+    duration=true,preparation=true,archetype=true,retreatGain=true,travelDistance=true}
 
 local function bounded(value,minimum,maximum)
     return type(value)=='number' and value==value and value>-math.huge and

@@ -80,7 +80,7 @@ assessment data, not geometry calculation or an attestation that the caller meas
 The authored pilot supplies no point-coverage assessment, so unknown geometry excludes point
 candidates. Broader nearby-contact mapping remains future work.
 
-The candidate reducer emits `shadow-spell`, `shadow-preparation`, `shadow-wait` or
+The candidate reducer emits `shadow-spell`, `shadow-preparation`, `shadow-position`, `shadow-wait` or
 `legacy-decline`; it performs no native action, scoring or spellbook mutation. Wait is only a
 hypothetical option, never an engine queue action. Downstream utility, choice and replay exist;
 Task25's separate default-off dispatcher admits only ordinary actor-target Magic Missile after
@@ -127,4 +127,32 @@ drivers and `tests/integration/test_combat_coordination.py`. The combined two-ma
 reserves a control effect and position, completes a synthetic reposition, attempts Slow,
 handles interruption, hands the job to the second mage, then loses the target and resets.
 Seeded interleavings check bounded exclusivity. These are E2 policy results, **not live movement,
-Slow casting or pathfinding proof**. Task28 still supplies the required spatial admission.
+Slow casting or pathfinding proof**. Native movement/AoE admission remains separate.
+
+## Position proposals and area risk (Task28)
+
+`spatial.sample(view, config)` produces up to eight explicit offsets. `evaluate` rejects
+unproved routes, occupied points, inadequate clearance, blocked LOS and stale query context.
+Queries bind the exact actor frame as well as scene/observer/tick/from/point; same-tick actor
+changes invalidate them. `pathProofId=false` is the current native setting: the verified
+nearest-open query does not prove reachability. An identity string binds a trusted caller's
+reviewed attestation; the reducer does not establish that the underlying proof is correct.
+Metric scales, footprint/clearance units, sampling radius and score weights are caller-owned.
+`travelDistance` is straight-line metric displacement, not route length; `retreatGain` compares
+distance to the nearest currently observed enemy, not omniscient threat or damage prediction.
+
+Optional candidate config `spatial={config=..., reports=...}` feeds accepted positions through
+the same ownership, utility, choice and replay path. Each `shadow-position` carries generated
+`retreatGain`/`travelDistance` features; score terms must match those values and profile weights
+are explicit. The active dispatcher rejects this action type. No engine movement is queued.
+
+`geometry.assess` supplies the existing point-spell legality shape with current full-frame
+coverage, a caller-attested circle/radius/metric and conservative non-enemy overlap risk. It
+does not infer shape or ally-safe filtering from spell names. Unknown coverage cannot attest
+safety. The installed pilot's point-spell metadata remains unadmitted, so these are not new
+live spell claims. The Task28 query batch verified personal space, five open-square results
+and LOS-range call shapes in one room; it did not verify routes or projectile recipients.
+
+Reproduce the focused spatial/geometry drivers and `tests/integration/test_spatial_decision.py`,
+or the full existing host suite. See [SPACE-01](../docs/research/SPACE-01-coordinate-and-los.md)
+and [SPACE-02](../docs/research/SPACE-02-projectile-geometry.md) for exact E1/E2/E4 boundaries.

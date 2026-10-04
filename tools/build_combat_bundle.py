@@ -6,6 +6,7 @@ from tools.build_observer_bundle import MODULES, EXPORTS, build as bundle
 SHADOW_MODULES = MODULES + (
     'kernel.ownership', 'kernel.rng', 'combat-intent.snapshot', 'combat-intent.perception',
     'combat-intent.actions', 'combat-intent.legality', 'combat-intent.preparation',
+    'combat-intent.spatial', 'combat-intent.geometry',
     'combat-intent.candidates', 'combat-intent.profile', 'combat-intent.utility',
     'combat-intent.choose', 'combat-intent.decision', 'combat-intent.trace',
     'combat-intent.controller', 'adapters.eeex.mage_inputs',
