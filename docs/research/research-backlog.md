@@ -1430,6 +1430,27 @@ Every research issue derived from this backlog must include in its closing comme
 
 # Explicit deferred scope
 
+## Deferred feature — perceptive enemies dodging observed spells (2026-10-12)
+
+Christopher requested enemies with suitable intelligence/perception to attempt to dodge
+spells once they notice the cast, especially slow spells. Revisit **after the base engine is
+working and near the SCS-replacement milestone**. This is not an initial-engine prerequisite.
+
+The bounded read-only feasibility check found existing cast-start and ordinary movement
+observations, not proof of dodging. Ground-targeted delayed effects look like the strongest
+candidate; moving does not necessarily evade homing creature-targeted projectiles. A global
+cast callback is engine knowledge, not proof that a defender saw or understood a cast.
+See ACT-02, SPACE-01/02/04, and the current perception model's unseen-cast exclusions.
+
+Later: inspect effective projectile targeting/travel, expose only witnessed or fairly inferred
+cast cues, then try normal movement in representative delayed-AoE and homing-control cases.
+Verify actual movement and hit/miss outcomes; do not equate a queued move with a dodge.
+Projectile launch/ETA, reachable escape points and fair recognition remain unproved.
+Reaction delay/chance, intelligence thresholds and balance remain user-owned design choices.
+No dodge implementation or extra acceptance gate is introduced now.
+
+## Other deferred scope
+
 The following are north-star possibilities or later work, not promises made by the initial architecture:
 
 - Automatic safe conversion of arbitrary third-party BCS or DLG.
