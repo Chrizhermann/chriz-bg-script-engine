@@ -65,7 +65,7 @@ G4 and Task25. General native visibility, resource mapping and decision behavior
 `candidates.generate(view, config)` returns ordered eligible proposals and reason-coded
 exclusions. Config supplies exact selected ability metadata, target keys, observed ownership,
 its observer/scene/tick context, and point-coverage assessments where applicable. Metadata
-includes resource, actor/point target form, normalized range, geometry identity, explicit
+includes resource, actor/point/self target form, normalized range, geometry identity, explicit
 casting-failure limit and known blocking-protection tags. There are no built-in spell-name
 guesses or tuning defaults. The range fact and selected ability range must use the same
 boundary-normalized units; no native distance conversion is implemented here.
@@ -83,8 +83,25 @@ candidates. Broader nearby-contact mapping remains future work.
 The candidate reducer emits `shadow-spell`, `shadow-preparation`, `shadow-position`, `shadow-wait` or
 `legacy-decline`; it performs no native action, scoring or spellbook mutation. Wait is only a
 hypothetical option, never an engine queue action. Downstream utility, choice and replay exist;
-Task25's separate default-off dispatcher admits only ordinary actor-target Magic Missile after
-fresh ownership and action revalidation, not preparation helpers or point spells.
+Task25's separate default-off dispatcher requires fresh ownership/action revalidation. Its
+default admission remains ordinary actor-target Magic Missile. An explicit reviewed admission
+map can add ordinary actor/self spells; preparation helpers, point spells and movement remain
+unsupported by that boundary. Runtime acceptance is scoped by G5, not by the presence of code.
+
+Ordinary self defenses require a declared `buffTag`, current own readiness/copies/protection
+knowledge and exact geometry. They yield one candidate for the observer, not one per enemy.
+An existing protection excludes a redundant cast even when another copy remains. The trusted
+mapper accepts profile-owned `{tag, resource, opcode, parameter2?}` markers, scans effects
+without count/order assumptions and preserves unrelated data. The caller must establish marker
+coverage for the admitted spells; an empty observed tag list is not a universal buff classifier.
+Historical default markers are only the current pilot's Shield/Mirror mapping.
+
+`combat-intent.dispatch.revalidate(proposal, fresh, maxAge, admission)` accepts an optional
+map such as `{SPWI114={target='self', geometryId='lab/shield'}}`. Both replayable decisions
+must retain the selected descriptor/action and match that admitted call shape. The kernel
+freezes its map at construction and supplies it to both fresh checks; the native bridge freezes
+the same declared map and re-resolves identities. Self dispatch uses normal `SpellRES(...,Myself)`;
+neither a helper spell nor direct effect application substitutes for aura, debit and casting time.
 
 Run `scripts/test.ps1 -Suite unit -Filter combat_candidates` for the grouped combat tests.
 The deliberately authored Slow/Glitterdust/Magic Missile fixtures prove reducers (E2), not the

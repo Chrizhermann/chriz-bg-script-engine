@@ -60,4 +60,47 @@ assert(view:get('target/one','relation').value=='enemy')
 b.m_typeAI.m_EnemyAlly=255
 view=perception.build(sample(g,'mage/one',scene,'test/scene',19))
 assert(view:get('target/one','relation').value=='ally')
+
+-- Default replay still recognizes the two historical tags and helper sources.
+a.m_timedEffectList={{m_sourceRes=str('DWSW212'),m_effectId=159,m_dWFlags=17},
+    {m_sourceRes=str('SPWI114'),m_effectId=328,m_dWFlags=126},
+    {m_sourceRes=str('DWSW114'),m_effectId=328,m_dWFlags=126}}
+view=perception.build(sample(g,'mage/one',scene,'test/scene',20))
+local tags=view:get('mage/one','protections').value
+assert(#tags==2 and tags[1]=='buff/mirror' and tags[2]=='buff/shield')
+
+-- A profile supplies the effective resource identity; effect order and extra
+-- unrelated effects do not change the mapped tags or mutate input records.
+local descriptors={{tag='buff/shield',resource='SRSHLD1',opcode=328,parameter2=126},
+    {tag='buff/mirror',resource='SRMIRR1',opcode=159}}
+local unrelated={m_sourceRes=str('OTHER001'),m_effectId=328,m_dWFlags=126}
+local matchedShield={m_sourceRes=str('SRSHLD1'),m_effectId=328,m_dWFlags=126}
+local matchedMirror={m_sourceRes=str('SRMIRR1'),m_effectId=159,m_dWFlags=42}
+a.m_timedEffectList={unrelated,{m_sourceRes=str('SPWI114'),m_effectId=328,m_dWFlags=126},
+    {m_sourceRes=str('SRSHLD1'),m_effectId=328,m_dWFlags=125},matchedMirror,
+    matchedShield,{m_sourceRes=str('SRMIRR1'),m_effectId=159,m_dWFlags=7},
+    {m_sourceRes=str('SRSHLD1'),m_effectId=159,m_dWFlags=126},matchedShield}
+view=perception.build(sample(g,'mage/one',scene,'test/scene',21,descriptors))
+tags=view:get('mage/one','protections').value
+assert(#tags==2 and tags[1]=='buff/mirror' and tags[2]=='buff/shield')
+assert(a.m_timedEffectList[1]==unrelated and unrelated.m_effectId==328)
+assert(a.m_timedEffectList[5]==matchedShield and a.m_timedEffectList[4]==matchedMirror)
+a.m_timedEffectList={matchedShield,unrelated,matchedMirror}
+tags=perception.build(sample(g,'mage/one',scene,'test/scene',22,descriptors)):get('mage/one','protections').value
+assert(#tags==2 and tags[1]=='buff/mirror' and tags[2]=='buff/shield')
+local vanillaDescriptors={{tag='buff/shield',resource='SPWI114',opcode=328,parameter2=126},
+    {tag='buff/mirror',resource='SPWI212',opcode=159}}
+a.m_timedEffectList={{m_sourceRes=str('SPWI212'),m_effectId=159,m_dWFlags=0},
+    {m_sourceRes=str('SPWI114'),m_effectId=328,m_dWFlags=126},unrelated}
+tags=perception.build(sample(g,'mage/one',scene,'test/scene',23,vanillaDescriptors)):get('mage/one','protections').value
+assert(#tags==2 and tags[1]=='buff/mirror' and tags[2]=='buff/shield')
+tags=perception.build(sample(g,'mage/one',scene,'test/scene',23,{})):get('mage/one','protections').value
+assert(#tags==0)
+for _,bad in ipairs({
+    {{tag='',resource='SRSHLD1',opcode=328}},
+    {{tag='buff/shield',resource='TOO-LONG1',opcode=328}},
+    {{tag='buff/shield',resource='SRSHLD1',opcode=-1}},
+    {{tag='buff/shield',resource='SRSHLD1',opcode=328,parameter2='126'}},
+    {{tag='buff/shield',resource='SRSHLD1',opcode=328,other=true}},
+}) do assert(not pcall(sample,g,'mage/one',scene,'test/scene',24,bad)) end
 return 2

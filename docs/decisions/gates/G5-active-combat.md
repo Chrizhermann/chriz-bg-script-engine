@@ -2,7 +2,7 @@
 
 **Status:** PASS WITH NARROWED SCOPE — exact current-stack ordinary-action development pilot
 
-**Date:** 2026-10-04
+**Date:** 2026-10-12
 
 **Owners:** Integration owner; Christopher owns gameplay and support-scope decisions
 
@@ -92,3 +92,44 @@ stacks, missing/mixed/cold runtime variants and supported-corpus performance rem
 Their Task28/29/40 obligations remain, with early revisit when a new feature uses them. This
 gate does not silently erase the full intended feature/support scope or substitute host tests
 for unrun engine cells. Do not expand activation based on this passing development checkpoint.
+
+## Ordinary-defense extension, declared 2026-10-12 before execution
+
+Under the approved multi-behavior mage deliverable, run one connected experiment on the same
+two authored mages: ordinary Shield, Mirror Image and Magic Missile on each, then their legacy
+Strength/movement sequence and own baseline reload. This extends the **experimental** call-shape
+map, not the accepted runtime envelope, until results are reviewed. Helpers/forced casting,
+free-copy accounting, native movement/AoE and general SCS enrollment remain outside admission.
+
+The product uses explicit resource/target/geometry admission, ordinary self `SpellRES(...,Myself)`,
+fresh self-protection/allocation checks, and the same default-off two-read ownership lease.
+Self-protection descriptors belong to the declared profile, not a universal reference-install
+layout. Test-only scores prescribe defense-before-offense for this reproducible scenario; they
+are not a new gameplay balance decision. Required evidence per cast is choice/submission,
+matching native start, one spent copy, later source-specific effect or target damage, and idle
+completion. All three legacy actors must still cast and move; arrival distance remains a
+separate diagnostic, preserving the prior failed endpoint assertions. Record any failure rather
+than calling host checks an engine pass. The priest family remains a separate shadow comparator
+within the same process when its private fixture/reader review is ready.
+
+### Ordinary-defense result — accepted development extension
+
+The connected batch passed: two mages each selected and completed ordinary Shield,
+Mirror Image and Magic Missile, with six matching action31 starts, exact one-copy
+debits, independent later protection/damage and idle completion. Spare Shield copies
+remained unspent and were excluded while protection was present. All three actors'
+legacy Strength/movement sequences completed; the own baseline reload cleared
+enrollment/pending state and left dispatch off. Independent raw-trace review and
+38decision replays on both Lua backends agree. The combined host suite passes216checks.
+
+The explicit experimental map now admits these two ordinary self defenses alongside
+the prior actor-target Missile on the exact authored current-stack fixture. Scores
+remain test sequencing, not approved production tactics. Generic SCS enrollment,
+other resource/geometry mappings, helpers and broad compatibility remain unadmitted.
+The priest comparison is shadow-only and does not add native priest dispatch to G5.
+
+The one hidden process was closed after the connected mage/priest batch. Its16-file
+ledger was reconciled:13temporary additions removed, three originals restored to
+their recorded hashes; owned IPC was preserved/removed and the matching reservation
+released. No save or game copy was created. See the linked soak report and private
+Task25 `multi-runtime-v1` packet for commands, failures, identities and cleanup.

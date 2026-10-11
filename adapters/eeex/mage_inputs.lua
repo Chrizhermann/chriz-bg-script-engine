@@ -4,8 +4,25 @@
 local schema=require('combat-intent.snapshot')
 local M={}
 local function clean(value) return value:match('^[^%z]*'):upper() end
-function M.sample(g,observerKey,scene,sceneKey,tick)
+-- Legacy replay mapping only; an admitted profile may declare its own sources.
+local defaultBuffs={
+    {tag='buff/mirror',resource='SPWI212',opcode=159},
+    {tag='buff/mirror',resource='DWSW212',opcode=159},
+    {tag='buff/shield',resource='SPWI114',opcode=328,parameter2=126},
+    {tag='buff/shield',resource='DWSW114',opcode=328,parameter2=126},
+}
+local function integer(value,maximum)
+    return type(value)=='number' and value%1==0 and value>=0 and value<=maximum
+end
+function M.sample(g,observerKey,scene,sceneKey,tick,descriptors)
     schema.assertKey(observerKey);schema.assertKey(sceneKey);schema.assertTick(tick)
+    local buffs=descriptors or defaultBuffs
+    schema.array(buffs,function(row)
+        schema.record(row,{'tag','resource','opcode'},{'parameter2'})
+        schema.assertKey(row.tag);schema.value('lastCast',row.resource)
+        assert(integer(row.opcode,65535),'invalid buff opcode')
+        if row.parameter2~=nil then assert(integer(row.parameter2,4294967295),'invalid buff parameter2') end
+    end)
     local observer,keys,ids=nil,{},{}
     for _,row in ipairs(scene) do
         schema.assertKey(row.key);assert(not keys[row.key]);keys[row.key]=true
@@ -81,9 +98,12 @@ function M.sample(g,observerKey,scene,sceneKey,tick)
             local present={}
             g.EEex_Utility_IterateCPtrList(s.m_timedEffectList,function(effect)
                 local resource=clean(effect.m_sourceRes:get())
-                if (resource=='SPWI212' or resource=='DWSW212') and effect.m_effectId==159 then present['buff/mirror']=true end
-                if (resource=='SPWI114' or resource=='DWSW114') and effect.m_effectId==328 and
-                    effect.m_dWFlags==126 then present['buff/shield']=true end
+                for _,buff in ipairs(buffs) do
+                    if resource==buff.resource and effect.m_effectId==buff.opcode and
+                        (buff.parameter2==nil or effect.m_dWFlags==buff.parameter2) then
+                        present[buff.tag]=true
+                    end
+                end
             end)
             local tags={};for tag in pairs(present) do tags[#tags+1]=tag end;table.sort(tags)
             facts.protections=fact('self',tags)

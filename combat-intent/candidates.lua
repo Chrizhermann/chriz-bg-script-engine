@@ -37,7 +37,9 @@ function M.generate(view,input)
         owner={combat=false,owner='legacy',reason='ownership-observation-stale'}
     end
     for _,spell in ipairs(config.spells) do
-        for _,targetKey in ipairs(config.targets) do
+        local targetKeys=config.targets
+        if spell.target=='self' then targetKeys={frame.observerKey} end
+        for _,targetKey in ipairs(targetKeys) do
             local id=spell.id..'@'..targetKey
             local admitted,reason
             if owner.combat then admitted,reason=legality.check(view,spell,targetKey,config.areaChecks)

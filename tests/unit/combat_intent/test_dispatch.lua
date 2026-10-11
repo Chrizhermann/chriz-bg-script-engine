@@ -90,4 +90,29 @@ changed.candidates.preparation={sceneKey='synthetic/scene',observerKey='mage/one
 changed.frame.actors[1].facts.protections=fact('self',{},10)
 changed.terms['prep-mirror@mage/one']={control=10}
 assert(select(2,paired(changed))=='unsupported-action')
+-- Explicit reviewed admission can add ordinary self defenses, but not helpers,
+-- altered geometry, or an actor-target interpretation of that same resource.
+local admission={SPWI114={target='self',geometryId='synthetic/shield'}}
+local function defense(tick)
+    local i=input(tick)
+    i.candidates.spells={{id='shield',resource='SPWI114',target='self',range=0,
+        geometry='exact',geometryId='synthetic/shield',maxCastingFailure=0,immunityTags={},buffTag='buff/shield'}}
+    i.frame.actors[1].facts.spellbook.value={'SPWI114'}
+    i.frame.actors[1].facts.protections=fact('self',{},tick)
+    i.terms={['shield@mage/one']={control=5},wait={},decline={resourceCost=1}}
+    return i
+end
+local a,b=decision.evaluate(defense(10)),decision.evaluate(defense(11))
+assert(select(2,check(a,b))=='unsupported-resource')
+assert(equal(dispatch.revalidate(a,b,2,admission),{kind='spell',resource='SPWI114',targetKey='mage/one'}))
+local wrong=copy(admission);wrong.SPWI114.geometryId='different/geometry'
+assert(select(2,dispatch.revalidate(a,b,2,wrong))=='admission-mismatch')
+wrong=copy(admission);wrong.SPWI114.target='actor'
+assert(select(2,dispatch.revalidate(a,b,2,wrong))=='admission-mismatch')
+local drift=defense(11);drift.candidates.spells[1].buffTag='buff/another'
+assert(select(2,dispatch.revalidate(a,decision.evaluate(drift),2,admission))=='spell-metadata-changed')
+local refreshed=defense(11);refreshed.frame.actors[1].facts.protections.value={'buff/shield'}
+refreshed.terms['shield@mage/one']=nil
+assert(select(2,dispatch.revalidate(a,decision.evaluate(refreshed),2,admission))=='action-not-eligible')
+assert(select(2,dispatch.revalidate(a,b,2,{['bad"']={target='self',geometryId='x'}}))=='invalid-admission')
 return 10

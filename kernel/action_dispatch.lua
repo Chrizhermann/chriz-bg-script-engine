@@ -11,6 +11,7 @@ function M.new(config)
     assert(type(config.maxProposalAgeTicks)=='number' and config.maxProposalAgeTicks>=0 and
         config.maxProposalAgeTicks<math.huge and config.maxProposalAgeTicks%1==0)
     local manager=leases.new(config)
+    local admission=config.admission and values.copy(config.admission) or nil
     local enabled,disabled,pending,inDispatch=false,{},{},false
     local api={}
     function api:invalidate(reason,adapterId)
@@ -66,14 +67,14 @@ function M.new(config)
         self:tick()
         local ok,why=allowed(id);if not ok then return nil,why end
         local first,why=read(id);if not first then return nil,why end
-        local request,why=combat.revalidate(proposal,first.decision,config.maxProposalAgeTicks)
+        local request,why=combat.revalidate(proposal,first.decision,config.maxProposalAgeTicks,admission)
         if not request then return nil,why end
         local token,why=manager:acquire(id,first.ownership,first.context);if not token then return nil,why end
         local second,why=read(id)
         if not second then manager:invalidate('sample-error',id.adapterId);return nil,why end
         local stillAllowed,why=allowed(id)
         if not stillAllowed then manager:invalidate(why,id.adapterId);return nil,why end
-        local current,why=combat.revalidate(proposal,second.decision,config.maxProposalAgeTicks)
+        local current,why=combat.revalidate(proposal,second.decision,config.maxProposalAgeTicks,admission)
         if not current or not values.equal(request,current) then
             manager:invalidate('candidate-changed',id.adapterId);return nil,why or 'candidate-changed'
         end

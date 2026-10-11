@@ -24,4 +24,19 @@ request.extra=true;assert(b:submit(id,request)==false);request.extra=nil
 target.m_baseStats.m_hitPoints=0;assert(b:submit(id,request)==false);target.m_baseStats.m_hitPoints=37
 g.EEex_Action_QueueResponseStringOnAIBase=function() error('changed capability') end
 assert(b:submit(id,request)==false and calls==1)
+-- New resources require an explicit map. Self mode uses the engine's Myself
+-- object, never an unquoted DV or an arbitrary actor argument.
+local admission={SPWI114={target='self',geometryId='lab/shield'}}
+local responseSeen
+g.EEex_Action_QueueResponseStringOnAIBase=function(response,s) responseSeen=response;assert(s==caster) end
+local own=assert(bridge.new(g,'bg273-eeex12-luajit-v1',function() return caster,caster end,admission))
+admission.SPWI114.target='actor' -- constructor owns a frozen copy
+local defense={kind='spell',resource='SPWI114',targetKey=id.key}
+assert(own:submit(id,defense) and responseSeen=='SpellRES("SPWI114",Myself)')
+defense.targetKey='B-XPTRG0';assert(not own:submit(id,defense));defense.targetKey=id.key
+local wrong=assert(bridge.new(g,'bg273-eeex12-luajit-v1',function() return caster,target end,
+    {SPWI114={target='self',geometryId='lab/shield'}}))
+assert(not wrong:submit(id,defense))
+assert(not own:submit(id,request))
+assert(not bridge.new(g,'bg273-eeex12-luajit-v1',function() end,{SPWI114={target='point',geometryId='x'}}))
 return 2

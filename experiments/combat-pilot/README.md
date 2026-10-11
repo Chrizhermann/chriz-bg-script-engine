@@ -65,3 +65,20 @@ Use the same named-load/reset sequence; close each failed trace and preserve it 
 reviewed correction. The private paired checker compares only the completed control and
 explicitly corrected differential, never promotes the failed trial. See the soak memo/G5 for
 exact results and retained limits. No new launcher, game copy or generic framework is needed.
+
+## Connected ordinary-defense case
+
+`begin('multi-defense')` adds a connected Shield → Mirror Image → Magic Missile sequence on
+each of the two enrolled mages, followed by the three legacy Strength/movement sequences and
+the same named-load reset. The private config explicitly supplies the three admission rules,
+effect markers and fixture-only30/20/10 scores. Those scores demonstrate the mechanism, not a
+production difficulty or tactical preset. The donor's two Shield copies are preserved: one is
+spent, and current protection must exclude the other. Each cast requires matching native start,
+exactly one debit, later own effect or target damage, and idle state. Legacy arrival distance
+remains diagnostic; earlier failed endpoint tests are unchanged.
+
+The combined private recipe may stage the three authored priest comparator assets alongside
+the existing thirteen entries:16 targets, three originals restored and thirteen additions
+removed at cleanup. This permits mage and priest sequences within one hidden process, resetting
+our own fixture between them. The priest is a separately instrumented shadow comparison, not
+an activated production priest. Check current task evidence before claiming either result.

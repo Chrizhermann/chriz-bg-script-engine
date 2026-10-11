@@ -64,12 +64,15 @@ return function(config)
     local function details(s)
         local d={x=s.m_pos.x,y=s.m_pos.y,hp=s.m_baseStats.m_hitPoints,action=s.m_curAction.m_actionID,
             queued=s.m_queuedActions.m_nCount,aura=EEex_Sprite_GetCastTimer(s),ready={},strength=false,
+            shield=false,mirror=false,
             scriptPhase=EEex_Sprite_GetLocalInt(s,'B-XKPHASE'),done=EEex_Sprite_GetLocalInt(s,'B-XKDONE')}
         for level=0,8 do EEex_Utility_IterateCPtrList(s.m_memorizedSpellsMage:getReference(level),function(mem)
             if mem.m_flags%2==1 then local r=clean(mem.m_spellId:get());d.ready[r]=(d.ready[r] or 0)+1 end
         end) end
         EEex_Utility_IterateCPtrList(s.m_timedEffectList,function(e)
             if clean(e.m_sourceRes:get())=='SPWI214' and e.m_effectId==44 then d.strength=true end
+            if clean(e.m_sourceRes:get())=='SPWI114' and e.m_effectId==328 and e.m_dWFlags==126 then d.shield=true end
+            if clean(e.m_sourceRes:get())=='SPWI212' and e.m_effectId==159 then d.mirror=true end
         end)
         return d
     end
@@ -78,7 +81,7 @@ return function(config)
         local i=assert(tonumber(id.key:match('([01])$')));local scene={}
         for j=0,2 do scene[#scene+1]={key='B-XPMAG'..j,sprite=sprites[j],relation=i==j and 'self' or 'ally'} end
         scene[#scene+1]={key='B-XPTRG0',sprite=sprites.target,relation='enemy'}
-        local tick=now();local frame=m.inputs.sample(_G,id.key,scene,'task25/room/'..p.session,tick)
+        local tick=now();local frame=m.inputs.sample(_G,id.key,scene,'task25/room/'..p.session,tick,config.buffSignals)
         local view=m.snapshot.new(frame)
         local function own(field) return view:get(id.key,field).value end
         local ownership={player=false,hardMode=false,world=false,
@@ -92,7 +95,9 @@ return function(config)
             spells=config.spells,targets={'B-XPTRG0'},areaChecks={}}
         local legal=m.candidates.generate(view,candidates);local terms={}
         for _,row in ipairs(legal.eligible) do
-            terms[row.id]=row.action.kind=='shadow-spell' and {control=10,resourceCost=1} or {urgency=row.id=='wait' and 0 or -1}
+            terms[row.id]=row.action.kind=='shadow-spell' and
+                {control=config.testScores and assert(config.testScores[row.action.resource]) or 10,resourceCost=1} or
+                {urgency=row.id=='wait' and 0 or -1}
         end
         local decision=m.decision.evaluate({frame=frame,candidates=candidates,profile=config.profile,terms=terms,seed=470+i})
         emit('decision',decision)
@@ -114,7 +119,12 @@ return function(config)
         local result,why=dispatch:dispatch(id,proposal)
         emit('dispatch',{actor=id.key,result=result or false,reason=why or false})
         if result and result.state=='accepted' then
-            attempts[i]={attemptId=result.attemptId,before=actorBefore,targetHP=targetBefore.hp,submittedAt=now()}
+            local resource
+            for _,row in ipairs(proposal.candidates.eligible) do
+                if row.id==proposal.choice.id then resource=row.action.resource end
+            end
+            attempts[i]={attemptId=result.attemptId,resource=assert(resource),before=actorBefore,
+                targetHP=targetBefore.hp,submittedAt=now()}
         end
         return result,why
     end
@@ -132,14 +142,23 @@ return function(config)
         assert(not p.closed and not p.failed and (p.phase=='idle' or p.phase=='reset-ready'))
         assert(name=='baseline' or name=='disable-during-cast' or name=='replacement' or
             name=='replacement-control' or name=='replacement-differential' or
-            name=='load-after-start' or name=='load-paused-start')
+            name=='load-after-start' or name=='load-paused-start' or name=='multi-defense')
         assert(not paused(),'fresh case must be unpaused')
+        if name=='multi-defense' then
+            assert(config.testScores and config.testScores.SPWI114>config.testScores.SPWI212 and
+                config.testScores.SPWI212>config.testScores.SPWI112,'missing fixture sequence scores')
+            assert(config.admission and config.buffSignals,'missing reviewed self-cast mapping')
+        end
         assert(not p.cases[name],'one attempt per case');p.cases[name]={};p.case=name;p.session=p.session+1
         local sprites=scan();attempts={};p.starts={};p.moveStarts={};p.baseline={};p.lastTick=nil
         p.destroyedForCase=0;p.expectedPartyAction=false;p.controlSettled=nil;p.pausedByHarness=false
         for i=0,2 do
             p.baseline[i]=details(sprites[i]);assert(idle(p.baseline[i]) and p.baseline[i].done==0 and p.baseline[i].scriptPhase==0)
             assert(p.baseline[i].ready.SPWI112==1 and p.baseline[i].ready.SPWI214==2)
+            if name=='multi-defense' then
+                assert((p.baseline[i].ready.SPWI114 or 0)>=1 and (p.baseline[i].ready.SPWI212 or 0)>=1 and
+                    not p.baseline[i].shield and not p.baseline[i].mirror)
+            end
         end
         core=m.new({clock=m.clock.new(function() return native:now() end),retryTicks=500,traceCapacity=64})
         for i=0,1 do
@@ -148,10 +167,12 @@ return function(config)
             assert(core:enroll(identities[i]))
         end
         local bridge=assert(m.nativeDispatch.new(_G,'bg273-eeex12-luajit-v1',function(id,target)
-            local current=scan();assert(target=='B-XPTRG0');return current[tonumber(id.key:match('([01])$'))],current.target
-        end))
+            local current=scan();assert(target=='B-XPTRG0' or target==id.key)
+            local caster=current[tonumber(id.key:match('([01])$'))]
+            return caster,target==id.key and caster or current.target
+        end,config.admission))
         dispatch=m.activeDispatch.new({clock={now=now},leaseTicks=5,attemptTicks=300,maxProposalAgeTicks=5,
-            read=fresh,submit=function(id,r) return bridge:submit(id,r) end})
+            admission=config.admission,read=fresh,submit=function(id,r) return bridge:submit(id,r) end})
         assert(not dispatch:inspect().enabled)
         phase('default-off');return p.inspect()
     end
@@ -165,16 +186,19 @@ return function(config)
         local target=details(sprites.target);emit('target',target)
         emit('party-idle',{action=pc.m_curAction.m_actionID,queued=pc.m_queuedActions.m_nCount})
         for i,a in pairs(attempts) do
+            local postcondition=a.resource=='SPWI112' and target.hp<a.targetHP and target.hp>0 or
+                a.resource=='SPWI114' and not a.before.shield and states[i].shield or
+                a.resource=='SPWI212' and not a.before.mirror and states[i].mirror
             if p.case~='replacement' and p.case~='replacement-differential' and not a.finished and a.started and
-                (states[i].ready.SPWI112 or 0)==a.before.ready.SPWI112-1 and
-                target.hp<a.targetHP and target.hp>0 and idle(states[i]) then
+                (states[i].ready[a.resource] or 0)==a.before.ready[a.resource]-1 and postcondition and idle(states[i]) then
                 a.finished=true;a.afterHP=target.hp
                 if not a.invalidated then
                     local result,why=dispatch:observe(a.attemptId,{kind='completed',proof='independent-postcondition'})
                     assert(result and result.state=='completed',why);emit('outcome',result)
                 end
                 emit('ordinary-cast-proof',{actor=i,attemptId=a.attemptId,startedAt=a.started,
-                    spent=1,beforeHP=a.targetHP,afterHP=target.hp,idle=true,invalidated=a.invalidated or false})
+                    resource=a.resource,spent=1,beforeHP=a.targetHP,afterHP=target.hp,
+                    shield=states[i].shield,mirror=states[i].mirror,idle=true,invalidated=a.invalidated or false})
             end
         end
         for _,ended in ipairs(dispatch:tick()) do emit('deadline',ended);error('missing action outcome') end
@@ -224,12 +248,16 @@ return function(config)
                 EEex_Action_QueueResponseStringOnAIBase('MoveToPoint([232.264])',sprites[0])
             else dispatch:setEnabled(true);phase('cast-0');assert(try(0)) end
         elseif p.phase=='cast-0' and attempts[0] and attempts[0].finished then
-            if p.case=='baseline' then phase('cast-1');assert(try(1)) else armLegacy(sprites) end
-        elseif p.phase=='cast-1' and attempts[1] and attempts[1].finished then armLegacy(sprites)
+            if p.case=='multi-defense' and attempts[0].resource~='SPWI112' then phase('cast-0');assert(try(0))
+            elseif p.case=='baseline' or p.case=='multi-defense' then phase('cast-1');assert(try(1))
+            else armLegacy(sprites) end
+        elseif p.phase=='cast-1' and attempts[1] and attempts[1].finished then
+            if p.case=='multi-defense' and attempts[1].resource~='SPWI112' then phase('cast-1');assert(try(1))
+            else armLegacy(sprites) end
         elseif p.phase=='legacy' then
             local done=true;for i=0,2 do if not idle(states[i]) or states[i].done~=1 then done=false end end
             if done then
-                local diagnostic=p.case=='replacement-control' or p.case=='replacement-differential'
+                local diagnostic=p.case=='replacement-control' or p.case=='replacement-differential' or p.case=='multi-defense'
                 local signature={diagnosticOnly=diagnostic,finalStates={},spellStarts=m.manifest.copy(p.starts),
                     moveStarts={},legacyMoveObserved={},arrivalDiagnostics={},preLegacyStates=p.preLegacyStates,
                     comparison={actors={},strengthStarts={}}}
@@ -254,9 +282,23 @@ return function(config)
                 end
                 assert(not attempts[2] and not p.starts['B-XPMAG2:SPWI112'])
                 if diagnostic then
-                    assert(not p.starts['B-XPMAG0:SPWI112'] or p.case=='replacement-differential',
+                    assert(not p.starts['B-XPMAG0:SPWI112'] or p.case=='replacement-differential' or p.case=='multi-defense',
                         'control issued an active missile')
                     emit('legacy-final-diagnostic',signature)
+                end
+                if p.case=='multi-defense' then
+                    for i=0,1 do
+                        for _,res in ipairs({'SPWI114','SPWI212','SPWI112'}) do
+                            assert(p.starts['B-XPMAG'..i..':'..res]==1 and
+                                (states[i].ready[res] or 0)==p.baseline[i].ready[res]-1)
+                        end
+                        assert(states[i].shield and states[i].mirror)
+                    end
+                    assert(states[2].ready.SPWI114==p.baseline[2].ready.SPWI114 and
+                        states[2].ready.SPWI212==p.baseline[2].ready.SPWI212 and
+                        not states[2].shield and not states[2].mirror)
+                    emit('multi-defense-complete',{activeActors=2,ordinaryCasts=6,legacyCasts=3,
+                        legacyMoves=signature.legacyMoveObserved})
                 end
                 p.cases[p.case]={attempts=attempts,legacy='three casts and moves',
                     dispatch=dispatch:inspect(),signature=diagnostic and signature or nil}
@@ -281,7 +323,7 @@ return function(config)
             if action.m_actionID~=31 then return end
             p.starts[dv..':'..res]=(p.starts[dv..':'..res] or 0)+1
             local a=attempts[i]
-            if res=='SPWI112' and a and not a.started then
+            if a and res==a.resource and not a.started then
                 a.started=now();local result,why=dispatch:observe(a.attemptId,{kind='started'})
                 assert(result and result.state=='started',why);emit('outcome',result)
                 if p.case=='disable-during-cast' then
@@ -354,5 +396,5 @@ return function(config)
     end
     return {ready=true,mode='default-off',activeActors=2,legacyOnly=1,
         cases={'baseline','disable-during-cast','replacement','load-after-start',
-            'replacement-control','replacement-differential','load-paused-start'}}
+            'replacement-control','replacement-differential','load-paused-start','multi-defense'}}
 end

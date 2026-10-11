@@ -156,3 +156,45 @@ families, full-encounter performance/allocations and supported-corpus soak remai
 Earlier G1/G3 research and host lifecycle checks remain complementary evidence, not unrun active
 cases. Neither load case proves saved in-flight continuation. The second proves invalidation
 after an actually paused native start; the first remains bookkeeping-only counterevidence.
+
+## Connected ordinary defenses — 2026-10-12
+
+The reviewed extension connects ordinary self defenses to the same default-off action path.
+Explicit profile admission adds self Shield/Mirror; the default without that map remains
+actor-target Missile only. Both fresh decisions must preserve the exact selected descriptor;
+native submission re-resolves the self identity and queues normal `SpellRES(...,Myself)`.
+Profile-owned effect markers avoid treating the reference spell's effect count/order as a
+universal layout. Alternate declared resrefs, unrelated/reordered effects and stale/buffed/
+spent exclusions are host-tested on both Lua backends. No SCS forced helper is dispatched.
+
+The existing four-actor scene and original fixture bytes were reused in one hidden session.
+Test-only scores30/20/10 produced Shield → Mirror → Missile on each of two enrolled mages.
+All six selections passed native action31 start, one ready-copy debit, later source-specific
+protection or target damage, and idle completion. Target HP was37→26→14. Each mage retained
+one of its original two Shield copies; subsequent decision records exclude it as already
+protected rather than removing or spending the spare copy. Both protections remained present
+through the final legacy sequence. The third mage retained both Shield copies and its Mirror.
+
+All three original scripts then started Strength, spent one copy, acquired its source-op44
+effect, started and completed observed movement, and reached idle/empty queue plus done marker.
+Arrival distances are diagnostics, not a new pathfinding admission or erasure of prior failures.
+The named baseline load cleared enrollment/pending state and left dispatch off. No save created.
+The closed trace has1944events and38decisions; all replay identically on Lua5.1 and LuaJIT.
+Independent raw-trace review confirms one expected default-off refusal followed by six accepted
+requests and six started/completed outcomes, not merely matching final-looking spell effects.
+
+The full current host suite remains216checks/38files (existing groups expanded, no broad tooling
+suite). Recorded368 callback durations max51.365ms against the same300ms development ceiling;
+this includes verbose logging and is not a production encounter-scale budget. A separate read-only
+status query used invalid Lua indexing syntax, failed before reading state, and was corrected
+with `rawget`; the failed RPC is preserved and is not a failed gameplay trial.
+
+Private reproducibility packet: Task25 `multi-runtime-v1` contains config, exact sources, build,
+predeclared G5 extension, stage/cleanup ledger, commands, trace, checker and replay. Bundle SHA256
+`41389ECCEAD81F1B0FF2CB1D73682D8FBAD789F50ACB8A26FDF19ED56A410083`; harness SHA256
+`408E706065942E4CFA76C25B09CBF3630E87C1AF7D6049A815F5B7ECF1BA4C8B`.
+The same process also ran the separate priest shadow comparison. Afterward the owned
+hidden launcher exited0, lab-process absence was checked,13temporary additions were
+removed and three originals restored to their recorded hashes; the matching reservation
+was released. The G5 extension is accepted for this exact development fixture. No new
+game copy or save was made, and the active game/personal saves were not used.

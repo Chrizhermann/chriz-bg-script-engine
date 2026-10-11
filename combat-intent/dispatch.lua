@@ -4,6 +4,32 @@ local trace=require('combat-intent.trace')
 local snapshot=require('combat-intent.snapshot')
 local M={}
 
+-- A capability profile admits reviewed ordinary call shapes, not every known
+-- spell. Omission retains the original missile-only development envelope.
+function M.compileAdmission(raw)
+    if raw==nil then return {SPWI112={target='actor'}} end
+    local ok,result=pcall(function()
+        local out=require('kernel.manifest').copy(raw)
+        assert(type(out)=='table')
+        for resource,rule in pairs(out) do
+            assert(type(resource)=='string' and #resource>0 and #resource<=8 and
+                not resource:find('[^A-Z0-9_#%-]'))
+            snapshot.record(rule,{'target','geometryId'})
+            assert(rule.target=='actor' or rule.target=='self')
+            snapshot.assertKey(rule.geometryId)
+        end
+        return out
+    end)
+    if ok then return result end
+    return nil,'invalid-admission'
+end
+
+local function descriptor(record,row)
+    for _,spell in ipairs(record.input.candidates.spells) do
+        if row.id==spell.id..'@'..row.action.target.key then return spell end
+    end
+end
+
 local function replay(record)
     local ok,saved=pcall(trace.replay,record)
     if ok then return saved end
@@ -15,8 +41,10 @@ local function eligible(result,id)
     end
 end
 
-function M.revalidate(proposalDecisionRecord,freshDecisionRecord,maxAgeTicks)
+function M.revalidate(proposalDecisionRecord,freshDecisionRecord,maxAgeTicks,admission)
     if not pcall(snapshot.assertTick,maxAgeTicks) then return nil,'invalid-max-age' end
+    local admitted,why=M.compileAdmission(admission)
+    if not admitted then return nil,why end
     local proposal=replay(proposalDecisionRecord)
     if not proposal then return nil,'invalid-proposal-trace' end
     local fresh=replay(freshDecisionRecord)
@@ -39,13 +67,18 @@ function M.revalidate(proposalDecisionRecord,freshDecisionRecord,maxAgeTicks)
     if oldAction.kind~='shadow-spell' or oldAction.target.kind~='actor' then
         return nil,'unsupported-action'
     end
-    if oldAction.resource~='SPWI112' then return nil,'unsupported-resource' end
+    local rule=admitted[oldAction.resource]
+    if not rule then return nil,'unsupported-resource' end
     if before.geometryId~=after.geometryId or newAction.kind~=oldAction.kind or
         newAction.target.kind~='actor' or
         newAction.resource~=oldAction.resource or newAction.target.key~=oldAction.target.key then
         return nil,'action-changed'
     end
-    return {kind='spell',resource='SPWI112',targetKey=newAction.target.key}
+    local oldSpell,newSpell=descriptor(proposal,before),descriptor(fresh,after)
+    if not oldSpell or not newSpell or oldSpell.target~=rule.target or newSpell.target~=rule.target or
+        rule.geometryId and rule.geometryId~=before.geometryId then return nil,'admission-mismatch' end
+    if not require('kernel.manifest').equal(oldSpell,newSpell) then return nil,'spell-metadata-changed' end
+    return {kind='spell',resource=oldAction.resource,targetKey=newAction.target.key}
 end
 
 return M

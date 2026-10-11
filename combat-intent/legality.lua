@@ -9,10 +9,13 @@ local function current(read,key,field,tick)
     if f.kind=='observed' and f.observedAt==tick and f.expiresAt>tick and f.confidence==1 then return f.value end
 end
 function M.validateSpell(spell)
-    snapshot.record(spell,{'id','resource','target','range','geometry','geometryId','maxCastingFailure','immunityTags'})
+    snapshot.record(spell,{'id','resource','target','range','geometry','geometryId','maxCastingFailure','immunityTags'},
+        {'buffTag'})
     assert(type(spell.id)=='string' and #spell.id<=64 and spell.id:match('^[a-z][a-z0-9%-]*$'))
     snapshot.value('lastCast',spell.resource)
-    assert(spell.target=='actor' or spell.target=='point')
+    assert(spell.target=='actor' or spell.target=='point' or spell.target=='self')
+    if spell.target=='self' then snapshot.assertKey(spell.buffTag)
+    else assert(spell.buffTag==nil,'buff tag requires self target') end
     snapshot.value('range',spell.range)
     assert(spell.geometry=='exact' or spell.geometry=='unknown');snapshot.assertKey(spell.geometryId)
     snapshot.value('castingFailure',spell.maxCastingFailure)
@@ -22,7 +25,9 @@ function M.check(view,spell,targetKey,areaChecks)
     assert(snapshot.isView(view));M.validateSpell(spell);snapshot.assertKey(targetKey)
     local frame=view:export();local read=view:reader(fields)
     local observer,tick=frame.observerKey,frame.tick
-    if targetKey==observer then return nil,'offensive-self-target' end
+    if spell.target=='self' then
+        if targetKey~=observer then return nil,'self-target-required' end
+    elseif targetKey==observer then return nil,'offensive-self-target' end
     for _,rule in ipairs({{'alive',true,'caster-dead'},{'canAct',true,'caster-disabled'},
         {'idle',true,'action-occupied'},{'auraReady',true,'aura-not-ready'},{'silenced',false,'caster-silenced'}}) do
         local value=current(read,observer,rule[1],tick)
@@ -36,6 +41,15 @@ function M.check(view,spell,targetKey,areaChecks)
     if not available then return nil,'stale-spell-allocation' end
     local hasCopy=false;for _,resource in ipairs(available) do if resource==spell.resource then hasCopy=true end end
     if not hasCopy then return nil,'spell-unavailable' end
+    if spell.target=='self' then
+        if spell.geometry~='exact' then return nil,'geometry-unknown' end
+        local protections=current(read,observer,'protections',tick)
+        if not protections then return nil,'stale-self-protections' end
+        for _,tag in ipairs(protections) do
+            if tag==spell.buffTag then return nil,'buff-already-present' end
+        end
+        return {target={kind='actor',key=observer},notes={}}
+    end
     for _,rule in ipairs({{'alive',true,'target-dead'},{'relation','enemy','target-not-enemy'},
         {'lineOfSight',true,'no-line-of-sight'}}) do
         local value=current(read,targetKey,rule[1],tick)

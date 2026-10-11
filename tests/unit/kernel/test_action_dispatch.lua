@@ -1,12 +1,13 @@
 -- Orchestration is tested independently of the separately tested decision revalidator.
-package.loaded['combat-intent.dispatch']={revalidate=function(_,fresh)
+package.loaded['combat-intent.dispatch']={revalidate=function(_,fresh,age,admission)
+    if fresh.expectedResource then assert(admission[fresh.expectedResource],'admission was not frozen/passed') end
     if fresh.unexpected then error('unexpected-revalidator') end
     if fresh.illegal then return nil,'no-current-choice' end
     return {kind='spell',resource='SPWI112',targetKey='target/one'}
 end}
 local boundary=require('kernel.action_dispatch')
 local copy=require('kernel.manifest').copy
-local function setup()
+local function setup(admission)
     local now,reads,submits=0,0,0
     local id={adapterId='B-/combat/lab-mage',key='mage/one',resource='B-XPMAG0.CRE'}
     local frame={decision={input={frame={observerKey=id.key}}},
@@ -17,6 +18,7 @@ local function setup()
             candidates={{key=id.key,resource=id.resource,area='BG2602.ARE',epoch='test/epoch'}}}}
     local mutate,submitHook
     local api=boundary.new({clock={now=function() return now end},leaseTicks=3,attemptTicks=20,maxProposalAgeTicks=2,
+        admission=admission,
         read=function() reads=reads+1;local f=copy(frame);if mutate then mutate(f,reads) end;return f end,
         submit=function(who,request) submits=submits+1;assert(who.key==id.key and request.kind=='spell');
             if submitHook then return submitHook() end;return true end})
@@ -83,4 +85,8 @@ assert(not ok and tostring(err):find('unexpected-revalidator',1,true))
 mutate(nil)
 outer=assert(a:dispatch(id,{}));reads,submits=count()
 assert(outer.state=='accepted' and reads==3 and submits==1)
+local admission={SPWI114={target='self',geometryId='test/shield'}}
+local a,id,f,count=setup(admission)
+admission.SPWI114=nil;f.decision.expectedResource='SPWI114';a:setEnabled(true)
+assert(a:dispatch(id,{}).state=='accepted');assert(count()==2)
 return 5

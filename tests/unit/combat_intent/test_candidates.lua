@@ -118,4 +118,82 @@ config=options();config.targets={'enemy/one','enemy/one'}
 assert(not pcall(run,nil,config))
 config=options();config.spells[1].rawObjectId=1234
 assert(not pcall(run,nil,config))
+
+-- Ordinary defensive casts consume a declared current copy and current self
+-- protection knowledge. These scalar declarations do not identify SPL layouts.
+local function selfSpell(id,resource,tag)
+    return {id=id,resource=resource,target='self',range=0,geometry='exact',
+        geometryId='synthetic/'..id,maxCastingFailure=.5,immunityTags={},buffTag=tag}
+end
+local function selfOptions(spells,targets)
+    local result=options();result.spells=copy(spells);result.targets=copy(targets or {});return result
+end
+local function selfScene(resources,protections)
+    local result=scene();result.actors[1].facts.spellbook=fact('self',resources)
+    if protections then result.actors[1].facts.protections=fact('self',protections) end
+    return result
+end
+local vanilla=selfSpell('shield','BGSHLD1','protect/shield')
+local revised=selfSpell('mirror','SRMIRR1','protect/mirror')
+local defensive=selfOptions({vanilla,revised})
+raw=selfScene({'BGSHLD1','SRMIRR1'}, {})
+result=run(raw,defensive)
+assert(#result.eligible==4 and #result.excluded==0)
+for _,id in ipairs({'shield@mage/one','mirror@mage/one'}) do
+    local row=assert(find(result,id));assert(row.action.kind=='shadow-spell')
+    assert(row.action.target.kind=='actor' and row.action.target.key=='mage/one')
+    assert(row.geometryId=='synthetic/'..id:match('^([^@]+)'))
+end
+assert(result.dispatchAuthorized==false)
+defensive.targets={'enemy/one','mage/one'}
+result=run(raw,defensive)
+assert(find(result,'shield@mage/one') and find(result,'mirror@mage/one'))
+assert(not find(result,'shield@enemy/one') and not excluded(result,'shield@enemy/one'))
+assert(#result.eligible==4 and #result.excluded==0)
+-- An explicit self descriptor may not be offered against another actor.
+local legality=require('combat-intent.legality')
+assert(select(2,legality.check(perception.build(raw),vanilla,'enemy/one'))=='self-target-required')
+raw=selfScene({'BGSHLD1','SRMIRR1'},{'protect/shield'})
+assert(excluded(run(raw,defensive),'shield@mage/one')=='buff-already-present')
+assert(find(run(raw,defensive),'mirror@mage/one'))
+raw=selfScene({'BGSHLD1','SRMIRR1'})
+assert(excluded(run(raw,defensive),'shield@mage/one')=='stale-self-protections')
+raw=selfScene({'BGSHLD1','SRMIRR1'},{});raw.actors[1].facts.protections.observedAt=9
+assert(excluded(run(raw,defensive),'shield@mage/one')=='stale-self-protections')
+raw=selfScene({'BGSHLD1','SRMIRR1'},{});raw.actors[1].facts.protections.source='engine-private'
+assert(excluded(run(raw,defensive),'shield@mage/one')=='stale-self-protections')
+raw=selfScene({'BGSHLD1','SRMIRR1'},{'protect/shield'})
+raw.actors[1].facts.protections.source='witnessed'
+raw.actors[1].facts.protections.basis='visible-protection/self'
+assert(excluded(run(raw,defensive),'shield@mage/one')=='buff-already-present')
+raw=selfScene({'BGSHLD1'},{});
+assert(excluded(run(raw,defensive),'mirror@mage/one')=='spell-unavailable')
+raw=selfScene({'BGSHLD1'},{});raw.actors[1].facts.spellbook.observedAt=9
+assert(excluded(run(raw,defensive),'shield@mage/one')=='stale-spell-allocation')
+for _,case in ipairs({{'auraReady',false,'aura-not-ready'},
+    {'silenced',true,'caster-silenced'}, {'castingFailure',.75,'casting-failure-too-high'}}) do
+    raw=selfScene({'BGSHLD1'},{});raw.actors[1].facts[case[1]]=fact('self',case[2])
+    assert(excluded(run(raw,defensive),'shield@mage/one')==case[3])
+end
+raw=selfScene({'BGSHLD1','SRMIRR1'},{});raw.actors[1].visible=false;raw.actors[1].detected=false
+assert(find(run(raw,defensive),'shield@mage/one'))
+config=selfOptions({selfSpell('shield','BGSHLD1','protect/shield')})
+config.spells[1].geometry='unknown'
+assert(excluded(run(selfScene({'BGSHLD1'},{}),config),'shield@mage/one')=='geometry-unknown')
+config=selfOptions({vanilla});config.ownership.dialogue=true
+assert(excluded(run(selfScene({'BGSHLD1'},{}),config),'shield@mage/one')=='higher-world-owner')
+config=selfOptions({vanilla});config.ownership.capable=false
+assert(excluded(run(selfScene({'BGSHLD1'},{}),config),'shield@mage/one')=='blocked-capable')
+config=selfOptions({vanilla});local selfOriginal=copy(config)
+result=run(selfScene({'BGSHLD1'},{}),config)
+find(result,'shield@mage/one').action.target.key='changed'
+assert(require('kernel.manifest').equal(config,selfOriginal))
+assert(find(run(selfScene({'BGSHLD1'},{}),config),'shield@mage/one').action.target.key=='mage/one')
+config=selfOptions({vanilla});config.spells[1].buffTag=nil
+assert(not pcall(run,nil,config))
+config=selfOptions({vanilla},{'enemy/one','enemy/one'})
+local valid,problem=pcall(run,selfScene({'BGSHLD1'},{}),config)
+assert(not valid and tostring(problem):find('duplicate target',1,true))
+config=options();config.spells[1].buffTag='protect/unexpected'
+assert(not pcall(run,nil,config))
 return 6
