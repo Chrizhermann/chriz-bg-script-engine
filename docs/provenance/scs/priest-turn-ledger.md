@@ -1,7 +1,7 @@
 # Priest Turn Undead: second-family shadow ledger
 
-Date2026-10-04; integration owner. **Partial Task29**, no active priest adapter,
-runtime outcome or G6 admission. Origin: SCS-derived authored rule reduction.
+Updated2026-10-12; integration owner. **Bounded Task29 authored comparison**, no
+active priest adapter or G6 admission. Origin: SCS-derived authored rule reduction.
 
 ## Source and effective identity
 
@@ -75,7 +75,11 @@ family binding was reproduced RED2 and corrected GREEN2. Both the manifest ID an
 exact authored B-XPRST0.CRE root are required; an otherwise valid unrelated manifest
 or actor is refused. These are invented host resource identities/hashes, not game bytes.
 The [results checkpoint](../../research/priest-turn-shadow-results.md) records
-commands, coverage and remaining observation work. No E4 priest comparison has run. Before completing
-Task29: review exact authored runtime-fixture closure and predicate reader, observe
-one representative shadow batch with real legacy timer/Turn behavior, classify
-agreement/divergence and record migration cost. Native Turn dispatch is not in scope.
+commands, coverage and remaining observation work. The2026-10-12 exact authored
+fixture now has bounded E4 evidence: two continuous90second intervals, twelve native
+Turn starts each, timer windows/cooldowns and later target displacement. The refined
+passive reader records the sole target's selected-marker match without executing See.
+First-selection timing and native predicate boundary equivalence remain unknown;
+runtime callback cost was not measured. No full installed-actor claim follows.
+Fixture CRE/BCS hashes, instrumentation differences and cleanup are in the results
+memo and private packet. Native Turn dispatch remains out of scope.
