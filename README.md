@@ -15,8 +15,8 @@ Private, in development, nothing released. In a disposable lab today:
 - two lab mages casting Magic Missile through the engine, with interruption, switching off and
   loading a save checked.
 
-Short plans, group reservations and spatial checks pass host tests. A priest Turn behaviour is
-mapped but not yet compared in the lab.
+Short plans, group reservations and spatial checks pass host tests. A test priest's Turn Undead
+choices were compared with SCS's own in two lab runs.
 
 Next: hook into SCS-generated scripts, classify spells by their effects, a group fight director,
 and the first big mixed lab fight.
