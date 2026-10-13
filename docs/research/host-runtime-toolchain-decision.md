@@ -150,7 +150,7 @@ python -X utf8 -c "from importlib.metadata import version; from lupa import lua5
 $vc = Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64'
 [pscustomobject]@{ Installed = $vc.Installed; Version = $vc.Version }
 
-python -X utf8 -m pytest tests/tooling/test_environment_contract.py -q
+python -X utf8 -m pytest archive/2026-10-process/tests/tooling/test_environment_contract.py -q
 ```
 
 The initial intentional RED is preserved in commit `cbb42a0`: the focused test exited 1 because the
@@ -178,10 +178,10 @@ discoverability-only reporting.
 ## Artifacts and evidence grade
 
 - `scripts/check-dev-environment.ps1`: read-only Windows preflight.
-- `tests/tooling/test_environment_contract.py`: synthetic temporary-directory E2 guard matrix.
+- `archive/2026-10-process/tests/tooling/test_environment_contract.py`: synthetic temporary-directory E2 guard matrix.
 - `pyproject.toml`: selected Python/pytest bounds.
 - `docs/research/disposable-lab-runbook.md`: later authorized operating procedure.
-- `docs/research/PREP-01-support-baseline.md`: dependency/revision baseline.
+- `archive/2026-10-process/docs/research/PREP-01-support-baseline.md`: dependency/revision baseline.
 
 The host inventory is E1 for the exact observed binaries/metadata. The temporary path, output, and
 complete fixture-tree snapshots are E2 for checker policy and Win32 call behavior on this host. They

@@ -167,8 +167,9 @@ SCS has shouts and per-creature timers but no group plan. The director is new.
 - **Process:** the G0–G8 gates, E0–E5 evidence grading as a blocker, exact-hash
   activation, per-spell admission maps, and the per-family migration and provenance
   ledgers.
-- **Tools:** the acquisition and process-screening tooling. It is kept in history and on
-  the `wip/` branches.
+- **Tools:** the acquisition and process-screening tooling, the exact-hash inventory, and the
+  G0 validators. All of it, with the retired docs and their tests, is in
+  `archive/2026-10-process/`; older states are also on the `wip/` branches.
 - **Still in force:** SCS (DavidW) and Spell Revisions (Demivrgvs and G3) get prominent
   credit, and SCS files are not redistributed.
 
@@ -190,6 +191,20 @@ Short decisions for the first release:
 2. **Named SCS creatures:** stay pure SCS at first (suggested)?
 3. **Difficulty:** follow SCS's own difficulty settings (suggested), or a separate slider?
 4. **First lab fight:** is there a specific fight or group you'd like to see first?
+
+Christopher's ideas so far (living list; more will follow):
+- **Started casts don't fail when the target runs out of sight.** Reported in September:
+  casts aimed at a character, such as Davaeorn's suspected Fireball, usually don't go off
+  once that character runs around a corner. Not yet reproduced in a lab. A likely
+  approach: aim area spells at the spot instead of the creature, so they still land.
+- **Prebuffed area buffs reach the allies, not only the caster.** Designed in August; one
+  lab probe on `codex/aoe-prebuff-design` cast SCS's Haste prebuff for real and both the
+  caster and a nearby ally got it. Not wired in yet.
+- **Smart enemies dodge slow area spells** (clouds, webs, dragon breath and the like) when
+  they could see the cast. Recorded as later work on Oct 12: ground-targeted, delayed
+  effects are the best candidates; homing projectiles can't be outrun.
+- **Smarter spell use, dispelling and breaching, scaled by how clever the enemy is.**
+  Fits the personality and difficulty layer.
 
 Bigger design topics, in a dedicated design session:
 - what the director should do in typical situations (which threats come first, when a

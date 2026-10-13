@@ -313,7 +313,7 @@ symbol aliases, byte roundtrip and source digests. The worker's final document r
 blocking technical error; wording corrections distinguished the earlier source-only checkpoint,
 untraced remainder and unproved selector side effect. The lead incorporated those corrections.
 Existing checks passed:24 in0.15s using
-`python -X utf8 -m pytest -q tests/schemas/test_scs_source_checkpoint.py tests/schemas/test_research_evidence_schema.py`.
+`python -X utf8 -m pytest -q archive/2026-10-process/tests/schemas/test_scs_source_checkpoint.py archive/2026-10-process/tests/schemas/test_research_evidence_schema.py`.
 These validate evidence records, not game behavior. No new test suite/cases; `git diff --check` passed.
 
 **Continuation review:** Sol independently traced the trigger builder/allocation/rest source,

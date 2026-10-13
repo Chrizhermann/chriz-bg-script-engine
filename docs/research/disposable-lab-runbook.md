@@ -118,8 +118,8 @@ save routing. Leave that check open for a permitted backend method or a later ma
 
 Use a few representative script families and actual regressions, expanding when a feature
 requires it. The next source-to-effective study is the already planned mage/prebuff pilot,
-using the [mage ledger](../provenance/scs/mage-pilot-ledger.md) and
-[prebuff ledger](../provenance/scs/prebuff-pilot-ledger.md). Static decompilation is not gameplay
+using the [mage ledger](../../archive/2026-10-process/docs/provenance/scs/mage-pilot-ledger.md) and
+[prebuff ledger](../../archive/2026-10-process/docs/provenance/scs/prebuff-pilot-ledger.md). Static decompilation is not gameplay
 testing and does not activate an adapter.
 
 Task 3 completes after the separate copy/profile works, one authorized launch/save verifies

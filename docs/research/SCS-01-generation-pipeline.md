@@ -8,12 +8,12 @@
 
 **Versions and fingerprints:** SCS v35.21, commit
 `5dc240e9ff85d3909b6436e54b56297d3b61e33b`; raw-file SHA-256 and byte counts in
-[the evidence record](scs-source-pilot.evidence.json). This pin is a research reference, not a newly
+[the evidence record](../../archive/2026-10-process/docs/research/scs-source-pilot.evidence.json). This pin is a research reference, not a newly
 chosen lab version or proof that any installed copy matches it.
 
 **Method:** Trace selected source callers and includes, hash raw HTTPS bytes in memory, then
 independently check extraction. Reproduction below; workflow/review in
-[the checkpoint report](2026-09-22-task6-source-checkpoint.md).
+[the checkpoint report](../../archive/2026-10-process/docs/research/2026-09-22-task6-source-checkpoint.md).
 
 **Observations:** Source stages inspected:
 
@@ -45,7 +45,7 @@ entry point performs later edits/crosspatching. A single SSL file or generated n
 the effective creature. No generated BCS comparison was performed.
 
 **Artifacts:** `artifact:scs3521-tp2`, `mage-entry`, `mage-shared`, `caster-shared`, `ssl-driver`
-(latter names abbreviate the same ID prefix); see [manifest](scs-source-pilot.evidence.json).
+(latter names abbreviate the same ID prefix); see [manifest](../../archive/2026-10-process/docs/research/scs-source-pilot.evidence.json).
 For example, [the per-creature generator](https://github.com/Gibberlings3/SwordCoastStratagems/blob/5dc240e9ff85d3909b6436e54b56297d3b61e33b/stratagems/mage/mage_shared.tph#L28-L46).
 
 **Applicable evidence:** evidence:E1 for the pinned source statements only. Offline documentation
@@ -67,7 +67,7 @@ Line references count LF boundaries, starting at one; a terminal newline is not 
 physical line. Do not normalize CRLF/LF before hashing.
 
 ```powershell
-$scsRecord = Get-Content docs/research/scs-source-pilot.evidence.json -Raw | ConvertFrom-Json
+$scsRecord = Get-Content archive/2026-10-process/docs/research/scs-source-pilot.evidence.json -Raw | ConvertFrom-Json
 $scsClient = [Net.WebClient]::new()
 try {
     foreach ($scsArtifact in $scsRecord.artifacts) {

@@ -9,7 +9,7 @@ by one E1 installed-output comparison. Not runtime semantics.
 installed continuation inspects only the approved copied lab offline; no engine/save access.
 
 **Versions and fingerprints:** SCS v35.21 pin/digests in
-[scs-source-pilot.evidence.json](scs-source-pilot.evidence.json).
+[scs-source-pilot.evidence.json](../../archive/2026-10-process/docs/research/scs-source-pilot.evidence.json).
 
 **Method:** Inspect one early-dispel call site and the ordinary Spell action definition using
 [the pinned-source recipe](SCS-01-generation-pipeline.md). The
@@ -30,7 +30,7 @@ exist, and install libraries differ. A readable name such as a protection check 
 evidence of exact immunity semantics, target visibility or friendly-fire safety.
 
 **Artifacts:** `artifact:scs3521-first-dispel`, `caster-definitions` in the
-[manifest](scs-source-pilot.evidence.json).
+[manifest](../../archive/2026-10-process/docs/research/scs-source-pilot.evidence.json).
 [Dispel call site](https://github.com/Gibberlings3/SwordCoastStratagems/blob/5dc240e9ff85d3909b6436e54b56297d3b61e33b/stratagems/mage/ssl/combatblocks/first_dispel.ssl#L7-L31).
 
 **Applicable evidence:** evidence:E1 for source and the linked installed-file observations only.

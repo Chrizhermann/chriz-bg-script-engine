@@ -189,7 +189,7 @@ Independent Sol review checked source digests, script round-trip, block anchors 
 limits. It caught an attribution overclaim: the retained script diagnostic does not itself prove
 the script's owner. The lead checked that log and corrected the attribution to the SCS install log.
 Focused existing source-checkpoint/evidence-schema checks: 24 passed in 0.06s via
-`python -X utf8 -m pytest -q tests/schemas/test_scs_source_checkpoint.py tests/schemas/test_research_evidence_schema.py`.
+`python -X utf8 -m pytest -q archive/2026-10-process/tests/schemas/test_scs_source_checkpoint.py archive/2026-10-process/tests/schemas/test_research_evidence_schema.py`.
 No new test suite was added for this static comparison.
 
 For this helper/state continuation, an independent Sol reviewer decoded all four SPLs and

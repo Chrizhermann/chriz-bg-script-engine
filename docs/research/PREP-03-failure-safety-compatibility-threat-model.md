@@ -64,11 +64,11 @@ promote that behavior to E1 engine evidence.
 | Source ID | Exact identity | Fingerprint or version | Use in this register |
 |---|---|---|---|
 | `PJT-ARCH` | `c1220d0:docs/plans/2026-08-27-script-engine-architecture-design.md` | Git blob SHA-1 `93ea6a1b981047dfdd8d9bcd8713b04b95de9545` | Ownership hierarchy, persistence split, containment ladder, core hazards |
-| `PJT-PLAN` | `c1220d0:docs/plans/2026-08-27-research-and-vertical-slices.md` | Git blob SHA-1 `9e901ff3df36952e34f3da2d39ae027f1acac40e` | Task 2 sequencing, gates, stop conditions, required evidence |
-| `PJT-BACKLOG` | `c1220d0:docs/research/research-backlog.md` | Git blob SHA-1 `2f4785ebe0955d8d036585207088ed158437b0d1` | PREP-03 named hazard list and exit criterion |
-| `PJT-MATRIX` | `c1220d0:docs/compatibility/acceptance-matrix.md` | Git blob SHA-1 `0bb4cf19cdec230b1b4457324c8c64c89ed6fa04` | Required evidence layers, gates, and `COMP-*` cases |
-| `PJT-PREP01` | `c1220d0:docs/research/PREP-01-support-baseline.md` | Git blob SHA-1 `74c803a0678d391ee8fd0e09912e540156a87340` | Candidate ecosystem and deterministic no-claim behavior |
-| `PJT-PREP02` | `c1220d0:docs/research/PREP-02-evidence-and-provenance-index.md` | Git blob SHA-1 `c80d9c853a0169b337ac54620cc2a44c86cff141` | Trace rules and the boundary between static evidence and runtime proof |
+| `PJT-PLAN` | `c1220d0:archive/2026-10-process/docs/plans/2026-08-27-research-and-vertical-slices.md` | Git blob SHA-1 `9e901ff3df36952e34f3da2d39ae027f1acac40e` | Task 2 sequencing, gates, stop conditions, required evidence |
+| `PJT-BACKLOG` | `c1220d0:archive/2026-10-process/docs/research/research-backlog.md` | Git blob SHA-1 `2f4785ebe0955d8d036585207088ed158437b0d1` | PREP-03 named hazard list and exit criterion |
+| `PJT-MATRIX` | `c1220d0:archive/2026-10-process/docs/compatibility/acceptance-matrix.md` | Git blob SHA-1 `0bb4cf19cdec230b1b4457324c8c64c89ed6fa04` | Required evidence layers, gates, and `COMP-*` cases |
+| `PJT-PREP01` | `c1220d0:archive/2026-10-process/docs/research/PREP-01-support-baseline.md` | Git blob SHA-1 `74c803a0678d391ee8fd0e09912e540156a87340` | Candidate ecosystem and deterministic no-claim behavior |
+| `PJT-PREP02` | `c1220d0:archive/2026-10-process/docs/research/PREP-02-evidence-and-provenance-index.md` | Git blob SHA-1 `c80d9c853a0169b337ac54620cc2a44c86cff141` | Trace rules and the boundary between static evidence and runtime proof |
 | `GAME-266` | Retained historical candidate only | BG2:EE `2.6.6.0`; `Baldur.exe` SHA-256 `FC821A4806A0305B84FD85F1AAD2BD472C8DB642ED34B4494AE62351CAE1C580` | Candidate executable identity; not re-read and not current support evidence |
 | `UP-EEEX-011` | EEex tag `v0.11.0-alpha`, commit [`89e524640766aa61d6963070299eaaac86f883d8`](https://github.com/Bubb13/EEex/tree/89e524640766aa61d6963070299eaaac86f883d8) | Release asset SHA-256 `BFC5133C8118A83AE4F6C5BFDFD40E8177F401A653E1CD5D4074AF082716D87B` from upstream metadata | Initial capability-profile source candidate; no native behavior inferred |
 | `UP-WEIDU-251` | WeiDU tag `v251.00`, commit [`5d94cb73661d74a6fd5126ede39c4c7b3748e188`](https://github.com/WeiDUorg/weidu/tree/5d94cb73661d74a6fd5126ede39c4c7b3748e188) | Annotated tag object `ed63cc84e9e6c67a6edde635f6d9b88703865420`; Windows asset SHA-256 `A54C6198D6EBED8139793FCACB225500D563657C23FC775B840383F9750493D8` | Required future installer/compiler identity; executable unavailable and unexecuted here |
@@ -101,11 +101,11 @@ $revision = 'c1220d0'
 git rev-parse $revision
 foreach ($path in @(
     'docs/plans/2026-08-27-script-engine-architecture-design.md',
-    'docs/plans/2026-08-27-research-and-vertical-slices.md',
-    'docs/research/research-backlog.md',
-    'docs/compatibility/acceptance-matrix.md',
-    'docs/research/PREP-01-support-baseline.md',
-    'docs/research/PREP-02-evidence-and-provenance-index.md'
+    'archive/2026-10-process/docs/plans/2026-08-27-research-and-vertical-slices.md',
+    'archive/2026-10-process/docs/research/research-backlog.md',
+    'archive/2026-10-process/docs/compatibility/acceptance-matrix.md',
+    'archive/2026-10-process/docs/research/PREP-01-support-baseline.md',
+    'archive/2026-10-process/docs/research/PREP-02-evidence-and-provenance-index.md'
 )) {
     git rev-parse "${revision}:$path"
 }
@@ -1113,7 +1113,7 @@ if ($namedRows.Count -ne 14) { throw "Expected 14 named-hazard mappings; found $
 
 Final Task 2 integration verification on 2026-08-31 recorded:
 
-- `python -X utf8 -m pytest tests/tooling/test_environment_contract.py -q` — `62 passed in 62.02s`;
+- `python -X utf8 -m pytest archive/2026-10-process/tests/tooling/test_environment_contract.py -q` — `62 passed in 62.02s`;
 - `python -X utf8 -m pytest -q` — `68 passed in 63.19s`;
 - `./scripts/validate-g0-decisions.ps1`, `./scripts/test-g0-line-endings.ps1`, and
   `./scripts/validate-g0-namespace.ps1` — direct, LF, CRLF, and namespace checks passed;

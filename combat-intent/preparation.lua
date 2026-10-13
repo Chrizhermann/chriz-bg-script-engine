@@ -1,6 +1,6 @@
 -- Shadow-only generic preparation comparison, not a force-cast implementation.
 -- Source rules: SCS 35.21, David Wallace (DavidW), SpellPrecast/SpellPrecastLong.
--- See docs/provenance/scs/prebuff-pilot-ledger.md. Helpers remain installed/local.
+-- See archive/2026-10-process/docs/provenance/scs/prebuff-pilot-ledger.md. Helpers remain installed/local.
 local snapshot=require('combat-intent.snapshot')
 local M={}
 function M.validateSpell(spell)

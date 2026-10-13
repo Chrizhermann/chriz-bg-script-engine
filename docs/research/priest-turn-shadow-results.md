@@ -35,7 +35,7 @@ LuaJIT2.1.1774896198. This is host evidence, not a priest executing Turn in the 
 
 ## Source and initial reader boundary (historical checkpoint)
 
-The [family ledger](../provenance/scs/priest-turn-ledger.md) pins SCS35.21/component6040,
+The [family ledger](../../archive/2026-10-process/docs/provenance/scs/priest-turn-ledger.md) pins SCS35.21/component6040,
 source/effective hashes, the exact offline byte-identical roundtrip and its limitations.
 The decompile emitted179 missing-ID diagnostics; these remain recorded, not dismissed
 as a clean whole-script translation. Its installed neutral priest is not enrolled:

@@ -64,7 +64,7 @@ identities. The log's finalizer entry does not prove no later mod changed releva
   cloud-sync state inferred, or settings changed. The existing no-reparse lab policy rejects this
   location without needing to guess its target or type.
 
-[PREP-01](PREP-01-support-baseline.md) retains the separate `2.6.6.0` / EEex `0.11.0-alpha` /
+[PREP-01](../../archive/2026-10-process/docs/research/PREP-01-support-baseline.md) retains the separate `2.6.6.0` / EEex `0.11.0-alpha` /
 SR `4.19` candidate. The observed source does not match that candidate, but **2.7.3.0 is not
 generally unsupported by EEex v1.2**. PREP-01 already records the
 [v1.1.0 support addition](https://github.com/Bubb13/EEex/releases/tag/v1.1.0) and the pinned
@@ -102,7 +102,7 @@ approved copy scope. It does not admit an engine lab or change PREP-01's runtime
 This is an internal scope clarification within the approved reference-copy request, not a new
 runtime design decision. It has not yet been implemented or used to copy files.
 
-Subsequent host checkpoint: [read-only source measurement](offline-reference-measurement.md).
+Subsequent host checkpoint: [read-only source measurement](../../archive/2026-10-process/docs/research/offline-reference-measurement.md).
 That helper is not a copier; its result never admits a write operation or engine launch.
 
 ## Isolation implementation packet
@@ -203,8 +203,8 @@ the user's global Documents setting. The approved offline copy can be prepared i
 its guarded host implementation is reviewed. Never substitute the currently running game.
 
 **Verification:** `python -X utf8 -m pytest -q`: 483 passed in 57.35 seconds. Both
-`scripts/validate-g0-decisions.ps1` and `scripts/validate-g0-namespace.ps1` passed;
-`scripts/test-g0-line-endings.ps1` passed its LF and CRLF cases. `git diff --check` and seven
+`archive/2026-10-process/scripts/validate-g0-decisions.ps1` and `archive/2026-10-process/scripts/validate-g0-namespace.ps1` passed;
+`archive/2026-10-process/scripts/test-g0-line-endings.ps1` passed its LF and CRLF cases. `git diff --check` and seven
 changed-document relative links passed. The ignored local request was confirmed excluded by
 `.gitignore`; the source executable and installation-log hashes were rechecked unchanged and the
 destination still did not exist. Independent Astra review accepted this five-file preflight

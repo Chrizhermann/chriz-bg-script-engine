@@ -57,7 +57,7 @@ private decompile `5FE9A10D0955A15845D15B561F6B03459DE3FDA193D03A7718346A6C6182B
 and the helper/original SPL hashes. [The MAGE18B comparison](2026-09-28-scs-high-mage-dispel.md#reproduction-artifacts-and-review)
 pins effective BCS `2E7CF46847CFC0704DB7789D45BE9D4864B7F3748E8B8296B226E5C6F883388D`
 and private decompile `99491588A4F702BFAF665E0C9670CE32EA7C6FE58B928827FD80D8DB034917C1`.
-[The source manifest](scs-source-pilot.evidence.json) holds the pinned identities; the
+[The source manifest](../../archive/2026-10-process/docs/research/scs-source-pilot.evidence.json) holds the pinned identities; the
 private WeiDU249 decompiles remain under `.work/task6`, outside this fixture. No upstream
 payload is copied into these artifacts.
 

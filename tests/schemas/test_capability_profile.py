@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from test_research_evidence_schema import validate_project_subset
+from schema_subset import validate_project_subset
 
 ROOT = Path(__file__).resolve().parents[2]
 

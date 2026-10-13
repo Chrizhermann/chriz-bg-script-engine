@@ -1,7 +1,7 @@
 # Task 6: shared-rule and generation-helper source trace
 
 **Outcome:** Conditional, source-only checkpoint, 2026-09-22. Task 6 remains in progress.
-This continues the [first checkpoint](2026-09-22-task6-source-checkpoint.md), not a gate pass.
+This continues the [first checkpoint](../../archive/2026-10-process/docs/research/2026-09-22-task6-source-checkpoint.md), not a gate pass.
 
 **Question:** What changes between compact early-dispel source, selected shared libraries and
 the compiler/helper stages, before any effective generated-script comparison?
@@ -11,7 +11,7 @@ authored metadata and offline documentation checks. No game, save, installer or 
 
 **Versions and fingerprints:** SCS v35.21, commit
 `5dc240e9ff85d3909b6436e54b56297d3b61e33b`; 15 raw-file identities in
-[scs-shared-rules.evidence.json](scs-shared-rules.evidence.json). Three identities are reused
+[scs-shared-rules.evidence.json](../../archive/2026-10-process/docs/research/scs-shared-rules.evidence.json). Three identities are reused
 unchanged from the first checkpoint; twelve are new. This is not an installed-stack fingerprint.
 
 **Method:** Use the PowerShell recipe in [SCS-01](SCS-01-generation-pipeline.md), changing its
@@ -145,18 +145,18 @@ any provisioning; neither source research nor this checkpoint authorizes install
 
 ## Verification and delegation record
 
-- RED: `python -X utf8 -m pytest tests/schemas/test_scs_shared_rule_trace.py -q --tb=short`:
+- RED: `python -X utf8 -m pytest archive/2026-10-process/tests/schemas/test_scs_shared_rule_trace.py -q --tb=short`:
   eight failures in 0.43s because the new record/memo did not exist. Assertions were not weakened.
-- Focused GREEN: `python -X utf8 -m pytest tests/schemas/test_scs_source_checkpoint.py tests/schemas/test_scs_shared_rule_trace.py -q`:
+- Focused GREEN: `python -X utf8 -m pytest archive/2026-10-process/tests/schemas/test_scs_source_checkpoint.py archive/2026-10-process/tests/schemas/test_scs_shared_rule_trace.py -q`:
   26 passed in 0.06s. Full host suite: `python -X utf8 -m pytest -q`:
   **483 passed in 65.13s**, exit 0.
 - Executed the SCS-01 PowerShell recipe with the input filename substitution described above:
   all 15 hashes matched, 330,977 aggregate raw bytes read in memory. The independent reviewer
   separately matched all 15 hashes and lengths; neither retained upstream payload files.
-- `pwsh -NoProfile -File scripts/validate-g0-decisions.ps1`: passed; existing G0 status remains
+- `pwsh -NoProfile -File archive/2026-10-process/scripts/validate-g0-decisions.ps1`: passed; existing G0 status remains
   Pass with narrowed scope, not a new gate decision.
-- `pwsh -NoProfile -File scripts/validate-g0-namespace.ps1`: grammar/collision vectors passed.
-- `pwsh -NoProfile -File scripts/test-g0-line-endings.ps1`: LF and CRLF checkout checks passed.
+- `pwsh -NoProfile -File archive/2026-10-process/scripts/validate-g0-namespace.ps1`: grammar/collision vectors passed.
+- `pwsh -NoProfile -File archive/2026-10-process/scripts/test-g0-line-endings.ps1`: LF and CRLF checkout checks passed.
 - Independent review accepted the source-only checkpoint with no blocking findings and separately
   ran the 26 focused tests (0.06s). Review covered source anchors, raw identities, provenance and
   authority limits. One wording correction clarified that AvoidDispel checks across six player

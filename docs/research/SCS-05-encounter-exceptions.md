@@ -10,7 +10,7 @@ Continuation uses the approved copied lab offline and WeiDU24900 in private scra
 UI, save or active-game operation.
 
 **Versions and fingerprints:** SCS v35.21 pin/digests in
-[scs-source-pilot.evidence.json](scs-source-pilot.evidence.json).
+[scs-source-pilot.evidence.json](../../archive/2026-10-process/docs/research/scs-source-pilot.evidence.json).
 
 **Method:** Follow a named include and first-round exception gates using
 [the source method](SCS-01-generation-pipeline.md); no installed creature/area inspected in the
@@ -30,7 +30,7 @@ summon relationships and subsequent patches are still part of the eligibility in
 template similarity. No complete exception census or external-control scan was performed.
 
 **Artifacts:** `artifact:scs3521-standard-mage`, `kruin`, `first-round`, `mage-entry` in the
-[manifest](scs-source-pilot.evidence.json).
+[manifest](../../archive/2026-10-process/docs/research/scs-source-pilot.evidence.json).
 [Named first-round branches](https://github.com/Gibberlings3/SwordCoastStratagems/blob/5dc240e9ff85d3909b6436e54b56297d3b61e33b/stratagems/mage/ssl/prep/first_round_buff.ssl#L25-L77).
 
 **Applicable evidence:** evidence:E1; evidence:E4 handoff/containment testing is still future work.

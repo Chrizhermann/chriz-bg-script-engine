@@ -1,5 +1,5 @@
 -- SCS-derived two-branch shadow model; SCS35.21 by David Wallace (DavidW).
--- No native calls or timer writes. See docs/provenance/scs/priest-turn-ledger.md.
+-- No native calls or timer writes. See archive/2026-10-process/docs/provenance/scs/priest-turn-ledger.md.
 local manifest=require('kernel.manifest')
 local eligibility=require('kernel.eligibility')
 local ownership=require('kernel.ownership')

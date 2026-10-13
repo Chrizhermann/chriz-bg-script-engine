@@ -7,7 +7,7 @@
 **Environment:** env:host; game-state access none.
 
 **Versions and fingerprints:** SCS v35.21, exact revision and per-file identities in
-[scs-source-pilot.evidence.json](scs-source-pilot.evidence.json).
+[scs-source-pilot.evidence.json](../../archive/2026-10-process/docs/research/scs-source-pilot.evidence.json).
 
 **Method:** Trace setup's short/medium/long/very-long includes into shared action definitions and
 the allocation PRECAST branch; use [the pinned-source recipe](SCS-01-generation-pipeline.md).
@@ -36,7 +36,7 @@ explicit branches for that setting (204-213, 260-268). Do not silently change th
 
 **Artifacts:** `artifact:scs3521-caster-definitions`, `mage-shared`, `mage-setup`, `prep-short`,
 `prep-medium`, `prep-long`, `prep-very-long`, `first-round`, `caster-shared` in the
-[manifest](scs-source-pilot.evidence.json).
+[manifest](../../archive/2026-10-process/docs/research/scs-source-pilot.evidence.json).
 [Generic definitions](https://github.com/Gibberlings3/SwordCoastStratagems/blob/5dc240e9ff85d3909b6436e54b56297d3b61e33b/stratagems/caster_shared/caster_definitions.ssl#L470-L514).
 
 **Applicable evidence:** evidence:E1. No spell removal, buff application, fair casting or engine

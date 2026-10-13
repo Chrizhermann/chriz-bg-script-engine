@@ -121,7 +121,7 @@ the tradeoff is no fault-handler traceback if that process genuinely crashes. No
 setting was disabled. Final command, exit 0, 26 passed in 0.09s, no skips:
 
 ```powershell
-python -X utf8 -m pytest -p no:faulthandler -q tests/schemas/test_capability_profile.py tests/schemas/test_scs_source_checkpoint.py tests/schemas/test_research_evidence_schema.py
+python -X utf8 -m pytest -p no:faulthandler -q tests/schemas/test_capability_profile.py archive/2026-10-process/tests/schemas/test_scs_source_checkpoint.py archive/2026-10-process/tests/schemas/test_research_evidence_schema.py
 ```
 
 Independent Sol review accepted the contract/test/schema boundaries and checked all 14 catalog/map

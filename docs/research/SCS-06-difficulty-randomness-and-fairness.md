@@ -7,7 +7,7 @@
 **Environment:** env:host; game-state access none.
 
 **Versions and fingerprints:** SCS v35.21 pin/digests in
-[scs-source-pilot.evidence.json](scs-source-pilot.evidence.json).
+[scs-source-pilot.evidence.json](../../archive/2026-10-process/docs/research/scs-source-pilot.evidence.json).
 
 **Method:** Inspect prep call sites and selected difficulty-library bodies with
 [the source recipe](SCS-01-generation-pipeline.md), retaining distinctions rather than rewriting them.
@@ -31,7 +31,7 @@ and comments are not measured runtime distributions. Duration-group labels do no
 SPL duration or resource expenditure.
 
 **Artifacts:** `artifact:scs3521-difficulty`, `mage-setup`, `mage-shared`, `prep-short`, `prep-medium`,
-`prep-long`, `prep-very-long` in [the manifest](scs-source-pilot.evidence.json).
+`prep-long`, `prep-very-long` in [the manifest](../../archive/2026-10-process/docs/research/scs-source-pilot.evidence.json).
 [Difficulty distinction](https://github.com/Gibberlings3/SwordCoastStratagems/blob/5dc240e9ff85d3909b6436e54b56297d3b61e33b/stratagems/ssl/difficulty.slb#L148-L190).
 
 **Applicable evidence:** evidence:E1 only; no shadow oracle or replay comparison ran.

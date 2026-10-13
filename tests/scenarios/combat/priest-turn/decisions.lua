@@ -1,5 +1,5 @@
 -- Authored SCS-derived examples, not copied BAF. SCS35.21 by David Wallace/DavidW.
--- See docs/provenance/scs/priest-turn-ledger.md for exact source and admission.
+-- See archive/2026-10-process/docs/provenance/scs/priest-turn-ledger.md for exact source and admission.
 local shadow=require('adapters.scs.priest_turn_shadow')
 local fixture=require('tests.unit.kernel.eligibility_fixture')
 local copy=require('kernel.manifest').copy

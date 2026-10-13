@@ -83,11 +83,11 @@ authorization naming its destination.
 - E1 host inventory in `docs/research/host-runtime-toolchain-decision.md`: exact PowerShell, .NET,
   Python, pytest, Lupa, Lua/LuaJIT, Java, VC++ metadata, command discoverability, filesystem, and
   encoding observations.
-- E2 temporary-directory guard matrix in `tests/tooling/test_environment_contract.py`, including
+- E2 temporary-directory guard matrix in `archive/2026-10-process/tests/tooling/test_environment_contract.py`, including
   lexical refusal, type-strict marker validation, junction/reparse rejection,
   final-path/file-identity checks, 8.3 and hard-link alias refusal, rejection of unaudited directory
   write scopes, multi-target containment, path redaction, and no checked-fixture-tree mutation.
-- E1 pinned WeiDU v251.00 source/release identity in `docs/research/PREP-01-support-baseline.md`; the
+- E1 pinned WeiDU v251.00 source/release identity in `archive/2026-10-process/docs/research/PREP-01-support-baseline.md`; the
   executable remains unavailable and no parser/compiler run is claimed.
 - No evidence:E3 synthetic-game integration or evidence:E4 disposable-engine runtime claim is made.
 

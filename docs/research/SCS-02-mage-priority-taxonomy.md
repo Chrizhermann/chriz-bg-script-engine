@@ -10,7 +10,7 @@ The 2026-10-04 continuation also reads source files in the approved copied lab, 
 the engine, inspecting saves, running the installer or changing the game.
 
 **Versions and fingerprints:** SCS v35.21 pin and hashes in
-[scs-source-pilot.evidence.json](scs-source-pilot.evidence.json).
+[scs-source-pilot.evidence.json](../../archive/2026-10-process/docs/research/scs-source-pilot.evidence.json).
 
 **Method:** Apply the [source retrieval method](SCS-01-generation-pipeline.md); compare the main
 template, setup and standard combat include list. No SSL expansion or BCS parsing executed.
@@ -34,7 +34,7 @@ contain unequal explicit response weights; lines 76-100 contain state-setting an
 Flattening the files to an unordered spell list loses real source distinctions.
 
 **Artifacts:** `artifact:scs3521-main-mage`, `standard-mage`, `mage-setup`, `preamble` in the
-[manifest](scs-source-pilot.evidence.json). [Main template](https://github.com/Gibberlings3/SwordCoastStratagems/blob/5dc240e9ff85d3909b6436e54b56297d3b61e33b/stratagems/mage/ssl/main/dw%23mage.ssl#L7-L122).
+[manifest](../../archive/2026-10-process/docs/research/scs-source-pilot.evidence.json). [Main template](https://github.com/Gibberlings3/SwordCoastStratagems/blob/5dc240e9ff85d3909b6436e54b56297d3b61e33b/stratagems/mage/ssl/main/dw%23mage.ssl#L7-L122).
 
 **Applicable evidence:** evidence:E1, selected authored structure only.
 
@@ -114,7 +114,7 @@ All 33 first-argument labels in that private inventory resolve to named definiti
 not complete semantic coverage. Copied-source raw SHA256 is
 `825f0d0000101acc375c5c3d4d43ee5cf7656bbac80d825d4932231ee5255440`; CRLF-to-LF bytes match
 the existing pinned artifact digest `7040c135bc0233f149cc56f7433bd05bca1109b5f44318a9ad479572827a3373`
-in [the source manifest](scs-source-pilot.evidence.json). The lead independently repeated the
+in [the source manifest](../../archive/2026-10-process/docs/research/scs-source-pilot.evidence.json). The lead independently repeated the
 label lookup and hash checks after worker extraction, and read these consequential bodies.
 
 The following small checklist identifies distinctions to preserve when grouping reusable code.

@@ -1,6 +1,8 @@
 # Chriz BG Script Engine — Architecture Design
 
-**Status:** Approved direction; research and implementation gates remain open
+**Status:** Goals and module structure still apply. The delivery model (stop/go gates,
+evidence grades, exact-hash activation, ledgers) was replaced on 2026-10-14 by
+[Combat Intent on SCS](2026-10-14-combat-intent-on-scs.md).
 
 **Date:** 2026-08-27
 

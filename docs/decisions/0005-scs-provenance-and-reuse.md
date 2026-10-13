@@ -1,6 +1,8 @@
 # ADR 0005: SCS provenance, attribution, and reuse holds
 
-**Status:** Accepted
+**Status:** Amended 2026-10-14. Still in force: SCS as the knowledge base, prominent credit,
+and no copying or redistribution of SCS files. Retired: per-family migration ledgers and reuse
+holds (archived in `archive/2026-10-process/docs/provenance/`).
 
 **Date:** 2026-08-30
 
@@ -71,7 +73,7 @@ artifacts.
 - E0 architecture: sections 2, 6.7, and 14.
 - E0 backlog questions and hold points: LIC-01 through LIC-04.
 - E1 follow-up, 2026-09-22: PREP-02 pins the SCS v35.21 reuse statement; its readme digest was
-  reproduced without game access. See `docs/provenance/upstream-register.md` for the exact identity.
+  reproduced without game access. See `archive/2026-10-process/docs/provenance/upstream-register.md` for the exact identity.
 - E2 Task 4 fixture admission is limited to reviewed original JSON. Class-by-class permission for
   SCS-derived material and complete bundled-content tracing remain LIC-01 work.
 

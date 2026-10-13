@@ -65,7 +65,7 @@ before ring eviction so it actually exercises the intended case. No assertion wa
 
 Combined existing observer/schema plus new focused checks: **16 passed**, no skips:
 
-`python -X utf8 -m pytest -p no:faulthandler -q tests/unit/test_state_schema.py tests/unit/test_diagnostics.py tests/unit/test_action_observer.py tests/unit/test_listener_trampoline.py tests/schemas/test_capability_profile.py tests/schemas/test_research_evidence_schema.py`
+`python -X utf8 -m pytest -p no:faulthandler -q tests/unit/test_state_schema.py tests/unit/test_diagnostics.py tests/unit/test_action_observer.py tests/unit/test_listener_trampoline.py tests/schemas/test_capability_profile.py archive/2026-10-process/tests/schemas/test_research_evidence_schema.py`
 
 The per-run diagnostic-hook switch is the documented Windows/LuaJIT handled-exception workaround,
 not an assertion bypass. The independent reviewer omitted it and saw that known diagnostic while
@@ -252,8 +252,8 @@ True quickload remains unproved: the verified helper uses an explicitly selected
 The installed UI exposes quicksave and named LoadGame but no source-backed callable QuickLoad
 was found in a bounded Lua/bindings search. Do not claim the two paths equivalent or send OS
 input to fill the gap. On2026-10-04 Christopher explicitly approved deferring this one check,
-not forgetting it. [COMP-P13](../compatibility/acceptance-matrix.md#108-save-upgrade-downgrade-disable-and-uninstall)
-and the [owned follow-up](research-backlog.md#approved-deferral-comp-p13--true-quickload) carry it
+not forgetting it. [COMP-P13](../../archive/2026-10-process/docs/compatibility/acceptance-matrix.md#108-save-upgrade-downgrade-disable-and-uninstall)
+and the [owned follow-up](../../archive/2026-10-process/docs/research/research-backlog.md#approved-deferral-comp-p13--true-quickload) carry it
 into Task40 before G8. Task10 can close at its bounded research scope; QuickLoad is not passed.
 
 The bounded follow-up also inspected the published InfinityLoader bindings at commit

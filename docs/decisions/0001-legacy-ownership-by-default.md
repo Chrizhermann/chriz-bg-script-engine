@@ -1,6 +1,10 @@
 # ADR 0001: Legacy ownership by default
 
-**Status:** Accepted
+**Status:** Amended 2026-10-14. Falling back to the creature's own script stays. Which
+creatures take part is now decided as described in
+[the Oct 14 design](../plans/2026-10-14-combat-intent-on-scs.md): an installed hook in scripts
+that look like SCS output, real spell data read at runtime, unknown content skipped. Exact
+fingerprints and hashes are no longer required.
 
 **Date:** 2026-08-30
 
@@ -64,7 +68,7 @@ Read-only source inspection does not establish runtime safety.
   order."
 - E0 architecture: `docs/plans/2026-08-27-script-engine-architecture-design.md`, sections 2, 6, 8,
   and 11.
-- E0 acceptance contract: `docs/compatibility/acceptance-matrix.md`, sections 1, 3, 4, and 10.1.
+- E0 acceptance contract: `archive/2026-10-process/docs/compatibility/acceptance-matrix.md`, sections 1, 3, 4, and 10.1.
 - evidence:E3 synthetic-game pass-through integration and evidence:E4 disposable-engine
   pass-through behavior are both planned for Tasks 17-18 and are not yet executed.
 
