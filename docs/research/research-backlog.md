@@ -1411,6 +1411,63 @@ The following are north-star possibilities or later work, not promises made by t
 - Treating all high-INT or high-WIS creatures as equally coordinated or omniscient; personality/training profiles require their own later design.
 - A universal cure for all legacy script bugs. Unknown scripts first receive pass-through, observation, linting, and optional manual migration.
 
+# Deferred follow-ups after the planned engine migration
+
+These issue-ready follow-ups are parked outside the initial 64 research spikes. They do not
+add migration blockers or waive the existing action-observation and compatibility gates.
+
+## FOLLOWUP-01 — Investigate started character-targeted casts failing after sight loss
+
+**Status:** Deferred by user decision, 2026-09-22. Revisit after the planned engine migration,
+not during the first pilot. Follow the scope and completion decisions in the
+[canonical migration plan](../plans/2026-08-27-research-and-vertical-slices.md); do not assume
+that migration itself will fix the behavior.
+
+**Issue type / area:** Investigation; Combat Intent, action outcomes, SCS compatibility.
+**Migration blocker:** No. This defers the specific gameplay investigation and any behavior
+change; ACT-01/ACT-02 still need to establish safe observation and handling of target loss.
+
+**Player observation:** On 2026-09-21, Davaeorn visibly began casting a spell, suspected but
+not confirmed to be Fireball. The player ran out of range/around a corner without becoming
+invisible or changing areas; the cast did not finish. On 2026-09-22, the player clarified
+that this is a recurring observation: already-started casts targeted at a character usually
+do not go through when that character runs out of sight. Preserve this as a reported
+pattern, not merely a one-off Davaeorn anomaly.
+
+**Existing evidence:** Read-only inspection on 2026-09-21 of the Chriz Easy BG installation
+found SCS 35.21, Spell Revisions v4.21-chriz.5, EEex v1.2.0, and Baldur.exe file version
+2.7.3.0. Davaeorn's effective CRE assigned DAVAEORN and the install-local generated mage
+script dw#mg103. Its Fireball branches use ordinary character-targeted Spell actions;
+there are also movement responses to loss of visible enemies. Generated script names
+are not stable identities. This is E1 static evidence for those resource facts only;
+the reported cancellation has not been reproduced in a controlled disposable engine.
+No reproducible artifact hash set was recorded, so recapture versions and fingerprints
+before testing. Local decompiles and installed resources are not repository fixtures.
+
+**Open question:** Is the observed failure native target/range/visibility handling,
+legacy/SCS action replacement, another installed interaction, or a combination? Does it
+remain after the corresponding behavior is migrated? Whether it is intended, and whether
+it should change, remain undecided. A cast animation or accepted action alone proves
+neither projectile release nor completion.
+
+**Future investigation:** In an explicitly approved disposable environment, identify the
+actual spell and compare a stationary target, straight-line retreat beyond sight/range,
+and retreat behind an obstruction. Separate those from invisibility and area transition.
+Compare legacy ownership with the migrated adapter on a pinned stack. Record action
+transitions, visibility/range, spell expenditure, aura, projectile/effect postconditions,
+and whether the caster recovers when the target returns. Distinguish native cancellation,
+AI preemption, suspended processing, and an apparent cast with no release.
+
+**Exit criterion:** Explain the reproduced result and choose retain/document, a narrowly
+scoped fix, or an explicitly reviewed gameplay change. Any change must preserve ordinary
+casting costs, interruption, target legality, and legacy fallback. Do not force completion
+or switch to direct effects as a workaround. If unreproduced, retain the report as unresolved
+rather than declaring intended behavior or a confirmed defect. Credit SCS (DavidW) and
+Spell Revisions (Demivrgvs/G3) in any resulting adapter/provenance work.
+
+**Related research:** ACT-01, ACT-02, ACT-03, SPACE-02, SPACE-04, TEST-05. These are existing
+research links, not new backward dependencies from this deferred follow-up.
+
 # Initial program success definition
 
 The first meaningful success is not a large spell catalog or a rewritten quest. It is reproducible evidence that the platform can:
