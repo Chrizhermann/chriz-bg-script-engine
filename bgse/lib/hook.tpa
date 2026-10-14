@@ -60,6 +60,8 @@ BEGIN
     SET clears = 0
     SET item_names = 0
     SET ungated = 0
+    SET nodec = 0
+    SET removes = 0
     INNER_PATCH ~%resp%~ BEGIN
       SET pos = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~%LNL%  RESPONSE #~)
       WHILE (pos >= 0) BEGIN
@@ -91,6 +93,12 @@ BEGIN
             PATCH_IF ((~%MATCH1%~ STRING_MATCHES_REGEXP ~^\(ForceSpell\|ForceSpellRES\|ReallyForceSpell\|ReallyForceSpellRES\|ForceSpellPoint\|ForceSpellPointRES\|ReallyForceSpellPoint\|ReallyForceSpellPointRES\)$~) = 0) BEGIN
               SET ungated += 1
             END
+            PATCH_IF ((~%MATCH1%~ STRING_MATCHES_REGEXP ~^\(SpellNoDec\|SpellNoDecRES\)$~) = 0) BEGIN
+              SET nodec += 1
+            END
+            PATCH_IF ((~%MATCH1%~ STRING_MATCHES_REGEXP ~^RemoveSpell$~) = 0) BEGIN
+              SET removes += 1
+            END
           END ~%MATCH0%~
         END
         PATCH_IF ((~%last%~ STRING_MATCHES_REGEXP ~^Continue$~) = 0) BEGIN
@@ -116,7 +124,9 @@ BEGIN
       SET bgse_book = 1
     END
     SET bgse_items = ((item_names > 0) OR (self_applies > 0)) ? 1 : 0
-    SET bgse_special = ((gated = 0) AND (ungated > 0)) ? 1 : 0
+    // A SpellNoDec cast without a spellbook check is a special too, unless the block also
+    // removes the spell (tools/hook_rule.py: NO_DECREMENT).
+    SET bgse_special = ((gated = 0) AND ((ungated > 0) OR ((nodec > 0) AND (removes = 0)))) ? 1 : 0
     PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~See(~ ~%trig%~) >= 0) AND (responses > 0)
          AND (only_continue = responses) BEGIN
       SET bgse_pick = 1
@@ -201,9 +211,10 @@ BEGIN
           PATCH_IF (anchor < 0) AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~castspell~ ~%block%~) < 0) BEGIN
             // Cannot be the anchor and nothing before the anchor is copied.
           END ELSE PATCH_IF (anchor >= 0) AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~Continue()~ ~%block%~) < 0)
-              AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~ForceSpell~ ~%block%~) < 0) BEGIN
-            // Neither bookkeeping nor a target pick (no Continue) nor a special (no ForceSpell),
-            // but it may still do more than an ordinary combat round.
+              AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~ForceSpell~ ~%block%~) < 0)
+              AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~SpellNoDec~ ~%block%~) < 0) BEGIN
+            // Neither bookkeeping nor a target pick (no Continue) nor a special (no ForceSpell
+            // or SpellNoDec), but it may still do more than an ordinary combat round.
             SET then = INDEX (CASE_SENSITIVE EXACT_MATCH ~%LNL%THEN%LNL%~ ~%block%~)
             PATCH_IF (then > 0) BEGIN
               INNER_PATCH ~%block%~ BEGIN

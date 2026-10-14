@@ -86,3 +86,33 @@ THEN
     RandomWalkContinuous()
 END
 
+IF
+  !GlobalTimerNotExpired("castspell","LOCALS")
+  See(NearestEnemyOf(Myself))
+  HPPercentLT(Myself,50)
+THEN
+  RESPONSE #100
+    SetGlobalTimer("castspell","LOCALS",6)
+    SpellNoDecRES("b-hkheal",Myself)
+END
+
+IF
+  !GlobalTimerNotExpired("castspell","LOCALS")
+  HaveSpell(WIZARD_MAGIC_MISSILE)
+  See(NearestEnemyOf(Myself))
+THEN
+  RESPONSE #100
+    SetGlobalTimer("castspell","LOCALS",6)
+    SpellNoDec(NearestEnemyOf(Myself),WIZARD_MAGIC_MISSILE)
+END
+
+IF
+  !GlobalTimerNotExpired("castspell","LOCALS")
+  See(NearestEnemyOf(Myself))
+THEN
+  RESPONSE #100
+    SetGlobalTimer("castspell","LOCALS",6)
+    SpellNoDec(NearestEnemyOf(Myself),WIZARD_MAGIC_MISSILE)
+    RemoveSpell(WIZARD_MAGIC_MISSILE)
+END
+

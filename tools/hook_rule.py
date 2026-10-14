@@ -39,6 +39,10 @@ SPELLBOOK_GATE = re.compile(r'[^A-Za-z0-9_](HaveSpell|HaveSpellRES|HasItem|KnowS
 UNGATED_CAST = {'ForceSpell', 'ForceSpellRES', 'ReallyForceSpell', 'ReallyForceSpellRES',
                 'ForceSpellPoint', 'ForceSpellPointRES', 'ReallyForceSpellPoint',
                 'ReallyForceSpellPointRES'}
+# Casts that use up no memorized spell. Without a spellbook check they are scripted abilities
+# too (Christopher's answer 10), unless the block also removes the spell: then it uses up a
+# spellbook entry after all.
+NO_DECREMENT = {'SpellNoDec', 'SpellNoDecRES'}
 # What an ordinary combat round is made of: casts, items, attacks, weapons, movement around
 # enemies, waiting, and the variables, timers and messages that go with them. A block at or
 # below the anchor with any other action belongs to SCS's own logic and is copied above the
@@ -120,7 +124,11 @@ def carries_items(block):
 
 def is_special(block):
     trig, _ = split(block)
-    return not SPELLBOOK_GATE.search(trig) and any(n in UNGATED_CAST for r in responses(block) for n in r)
+    if SPELLBOOK_GATE.search(trig):
+        return False
+    names = [n for r in responses(block) for n in r]
+    return any(n in UNGATED_CAST for n in names) or (
+        any(n in NO_DECREMENT for n in names) and 'RemoveSpell' not in names)
 
 
 def is_encounter(block):

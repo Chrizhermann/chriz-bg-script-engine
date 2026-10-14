@@ -16,7 +16,7 @@ from tools import build_runtime, hook_rule
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / 'tests/fixtures/hook'
 HOOKED = {'B-HKMAG': ('mage', 7), 'B-HKPRI': ('priest', 2), 'B-HKRNG': ('fighter', 0),
-          'B-HKMON': ('monster', 6)}
+          'B-HKMON': ('monster', 7)}
 UNTOUCHED = ('B-HKNOA', 'B-HKOLD', 'B-HKCST', 'B-HKNON', 'B-HKVAN')
 
 # Authored synthetic identifiers with the signature shapes the fixtures use.
@@ -61,6 +61,8 @@ ACTION = """IDS V1.0
 19 CreateCreatureObject(S:ResRef*,O:Object*,I:Usage1*,I:Usage2*,I:Usage3*)
 20 DestroySelf()
 21 Enemy()
+22 SpellNoDec(O:Target*,I:Spell*Spell)
+23 SpellNoDecRES(S:RES*,O:Target*)
 """
 IDS = {
     'OBJECT': 'IDS V1.0\n0 Nothing\n1 Myself\n12 NearestEnemyOf\n18 LastSeenBy\n20 LastHeardBy\n21 Player1\n22 Player2\n',
@@ -168,7 +170,7 @@ def test_installer_matches_reference_and_is_reversible(tmp_path: Path) -> None:
 
     output = _install(tmp_path, '--force-install-list', '0')
     assert 'SUCCESSFULLY INSTALLED' in output, output
-    assert 'BGSE hook: 4 SCS scripts hooked, 15 SCS blocks guarded, 3 left as they are.' in output, output
+    assert 'BGSE hook: 4 SCS scripts hooked, 16 SCS blocks guarded, 3 left as they are.' in output, output
     for name, reason in (('B-HKNOA', 'no-anchor'), ('B-HKOLD', 'already-hooked'), ('B-HKCST', 'no-castspell')):
         assert f'left {name} as it is ({reason})'.casefold() in output.casefold(), output
     installed = _snapshot(tmp_path)

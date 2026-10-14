@@ -58,6 +58,9 @@ running. The mage, priest and general-AI scripts have no such blocks below their
    (`COMBAT` in the Python rule: casts, items, attacks, weapons, movement around enemies,
    waiting, and their variables, timers and messages) and every death handler; target picks go
    with them when they aim at `LastSeenBy(Myself)`. On the step-1 scripts this adds nothing.
+   Specials are casts without a spellbook check: the `ForceSpell` family and, since
+   Christopher's answer 10, `SpellNoDec` and `SpellNoDecRES`, unless the block also removes
+   the spell (`RemoveSpell` means a spellbook entry is used up).
 3. Each hook and copy names its own script: `BGSE_Claim(object, family, script)`. The installer
    also writes `override/M_BGSEHK.lua` with every hooked script and its family; uninstalling
    removes it.
@@ -85,6 +88,13 @@ scripts; no game folder was touched.
 - So when the engine takes a monster's round, it picks the ordinary combat round: attacks,
   movement and spellbook casts. Innate powers stay SCS's for now (answer 5); step 2 classifies
   them so the engine can take them over.
+- With answer 10 (same scratch run, repeated): 3,003 guarded copies (426 mage, 265 priest,
+  109 general AI, 2,203 monster). The new specials are 130 `SpellNoDec` casts without a
+  spellbook check in 37 scripts: fiends (Demogorgon, balors, glabrezus, succubi, alu-fiends,
+  mariliths and other `DMWW_fiend` scripts), two dragons, Ascension's bosses (Melissan's
+  `finmel` with 11, Illasera) and one general-AI script. 207 target picks go with them.
+  WeiDU still matches the Python rule on all 1,148 scripts, the registry is unchanged and
+  every other file kept its bytes.
 - Above the anchor, the monster scripts keep SCS's conditional moves and attacks, as the
   mage and priest scripts do: wandering while no enemy is seen, escaping clouds, chasing,
   opening doors, a vampire's bat-form flight, a cornugon attacking tanar'ri on sight (checked

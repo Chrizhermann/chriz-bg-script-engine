@@ -131,6 +131,10 @@ So the rule does not depend on Spell Revisions. It does depend on what counts as
 summons and `ActionOverride` commands are not. That only matters for scripted bosses (Melissan
 without Ascension, one Illasera block with it). Copying those too, or leaving such bosses to
 the monster-script pass, is Christopher's call.
+Since then, the monster hook copies summons and other blocks beyond a combat round
+([HOOK-02](HOOK-02-monster-scripts-and-script-slots.md)), and Christopher agreed to copy the
+`SpellNoDec` casts as well (answer 10): a `SpellNoDec` or `SpellNoDecRES` cast without a
+spellbook check now counts as a special, unless the block also removes the spell.
 
 ## Lab fights
 

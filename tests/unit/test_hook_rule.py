@@ -75,11 +75,13 @@ def test_monster_script_keeps_specials_and_everything_beyond_a_combat_round():
     source = text('B-HKMON')
     spans, anchor, copies = hook_rule.plan(source)
     # The setup block stays above; the first round-timer block is the anchor. Copied: the
-    # innate power, the summon with its target pick, the escape, the death handler and the
-    # allegiance change. The ordinary attacks and the wandering are the engine's.
-    assert anchor == 1 and copies == [2, 3, 4, 6, 7, 8]
+    # innate power, the summon with its target pick, the escape, the death handler, the
+    # allegiance change and the scripted heal cast with SpellNoDecRES. The ordinary attacks,
+    # the wandering and the two spellbook casts (checked with HaveSpell, or used up with
+    # RemoveSpell) are the engine's.
+    assert anchor == 1 and copies == [2, 3, 4, 6, 7, 8, 10]
     patched, reason, family, count = hook_rule.patch(source, 'B-HKMON')
-    assert (reason, family, count) == ('hooked', 'monster', 6)
+    assert (reason, family, count) == ('hooked', 'monster', 7)
     assert hook_rule.guard('monster', 'b-hkmon') in patched
 
 
@@ -97,3 +99,19 @@ def test_script_names_are_lower_case_and_must_be_safe_in_lua_text():
     assert hook_rule.patch(source, 'B-HKMAG') == hook_rule.patch(source, 'b-hkmag')
     for name in ("b'hk", 'b"hk', 'b\\hk'):
         assert hook_rule.patch(source, name)[:2] == (None, 'unsafe-name')
+
+
+@pytest.mark.parametrize('trigger,actions,special', [
+    ('See(NearestEnemyOf(Myself))', ['SpellNoDec(NearestEnemyOf(Myself),WIZARD_MAGIC_MISSILE)'], True),
+    ('See(NearestEnemyOf(Myself))', ['SpellNoDecRES("b-hkheal",Myself)'], True),
+    ('HaveSpell(WIZARD_MAGIC_MISSILE)', ['SpellNoDec(NearestEnemyOf(Myself),WIZARD_MAGIC_MISSILE)'], False),
+    ('HaveSpellRES("b-hkheal")', ['SpellNoDecRES("b-hkheal",Myself)'], False),
+    ('See(NearestEnemyOf(Myself))', ['SpellNoDec(NearestEnemyOf(Myself),WIZARD_MAGIC_MISSILE)',
+                                     'RemoveSpell(WIZARD_MAGIC_MISSILE)'], False),
+    ('See(NearestEnemyOf(Myself))', ['Spell(NearestEnemyOf(Myself),WIZARD_MAGIC_MISSILE)'], False),
+    ('See(NearestEnemyOf(Myself))', ['ReallyForceSpellRES("b-hkpow",Myself)', 'RemoveSpell(2124)'], True),
+])
+def test_scripted_casts_without_a_spellbook_check_are_specials(trigger, actions, special):
+    lines = ''.join(f'    {a}\n' for a in actions)
+    block = f'IF\n  {trigger}\nTHEN\n  RESPONSE #100\n{lines}END\n'
+    assert hook_rule.is_special(block) is special

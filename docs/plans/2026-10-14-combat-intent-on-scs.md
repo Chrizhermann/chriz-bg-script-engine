@@ -187,7 +187,9 @@ SCS has shouts and per-creature timers but no group plan. The director is new.
 2. **Spell classifier and creature profile reader,** with logic tests. They also cover
    named specials that are spellbook entries and abilities used without a spellbook check
    (answers 5 and 6). **The 166 monster-only SCS scripts get the hook** (answer 7; done
-   2026-10-14, see "Monster hook result").
+   2026-10-14, see "Monster hook result"). **The spell classifier works on the host**
+   (2026-10-14, [SPELLS-01](../research/SPELLS-01-spell-classifier.md)); the in-game reader
+   and the creature profile come next.
 3. **Fight director and per-creature decisions** for mages, priests, fighters and monsters.
 4. **The lab fight scenario, batch runner and engine-on versus SCS comparison logs,** on
    Insane (answer 8), with a run without the hook to time SCS against.
@@ -278,6 +280,9 @@ Details in [HOOK-02](../research/HOOK-02-monster-scripts-and-script-slots.md).
 - **In the lab game:** 1,148 scripts hooked (585 mage, 307 priest, 136 general AI, 120
   monster) with 2,666 copies; WeiDU and `tools/hook_rule.py` agree on every one. Install
   time is still about 4 minutes.
+- **`SpellNoDec` casts (answer 10):** copied since the same day: 130 more specials in 37
+  scripts (fiends, two dragons, Ascension's bosses, one general AI) and 207 target picks,
+  3,003 copies in all; WeiDU and the Python rule still agree on every script.
 - **So far:** host tests only; monsters join the next lab batch.
 
 ## To design with Christopher
