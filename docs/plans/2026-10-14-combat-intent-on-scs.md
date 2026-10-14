@@ -341,6 +341,41 @@ Open after step 1 (2026-10-14):
    Schwachsinn, den benutzt niemand. Das ist, glaube ich, von Beamdog und nicht von BioWare.
    Und äh, ist völlig unspaßig." A check on a lower setting comes later, to make sure the
    engine copes with less.
+9. **Ascension** (Christopher's own point, after the no-SR check found that SCS scripts the
+   original Melissan differently without Ascension): "aus meiner Sicht ähm, sollten wir auf
+   Ascension aufbauen. Und mit Ascension zusammenarbeiten können. Genau wie SAS das ähm,
+   genau wie SCS das macht. Nur halt mit unserer eigenen Engine. […] ich glaube nicht, dass
+   wir komplett Ascension auch ähm, äh, übernehmen sollten. Also austauschen sollten. Weil
+   das ja auch einiges an Story Elementen hinzufügt und das eigentlich für die meisten Leute
+   vollkommen okay ist. […] Lass uns das erstmal einfach nur übernehmen und dann die
+   Skripte verbessern, anstatt dass wir ähm, Ascension selbst austauschen."
+   **So:** Ascension stays as it is, like SCS: its story, dialogue, phases and special moves
+   stay Ascension's (and SCS's Improved Ascension's), and the engine improves the creatures'
+   combat choices through the same hook. SCS's Ascension scripts are hooked as monster
+   scripts since the monster hook.
+   Later the same day, on Ascension's special abilities: "wir müssen tatsächlich bei den
+   Spezialfähigkeiten von Ascension hinterher gucken. Das wird das [Da werden wir das]
+   vielleicht äh, reviewen und selber einbauen, weil sich schon sehr viele Leute über die
+   Ascension-Fähigkeiten beschwert haben. A, über, darüber, dass die cheaten, B, dass es
+   darüber keine Informationen gibt. Nirgendwo, das, ne, dass man nicht erfahren kann, was da
+   benutzt wird und ähm, dass man quasi nicht nachvollziehen kann, was passiert ist.
+   Nirgendwo, nicht in, nicht in den Logs, ähm, nirgendwo, quasi nicht im Chat, dass das
+   nicht die echten Fähigkeiten sind, wie aus dem Game und so weiter. Und da müssen wir
+   hinterher vielleicht mal Lösungen finden. Ähm, und ich finde ja, dass die Ascension Gegner
+   ruhig extrem stark sein können, aber dass die cheaten, finde ich eigentlich nicht geil."
+   **So, later work:** go through Ascension's special abilities and, where it helps, rebuild
+   them in the engine. They may stay extremely strong, but they should not cheat, and the
+   player should be able to see what was used. What counts as cheating and how the fight
+   shows it is designed with Christopher; the engine's fair-play rule already holds for its
+   own choices.
+10. **Scripted casts without a spellbook check** (`SpellNoDec`, `SpellNoDecRES`; found by the
+    no-SR check): the hook rule leaves them below the hook, so they stop while the engine
+    holds the creature. That matters for Melissan without Ascension (105 blocks, her whole
+    spell list) and one self-heal of Ascension's Illasera. Suggested: copy them above the hook
+    like the other abilities without a spellbook check (answer 5), except blocks that also
+    remove the spell, since `RemoveSpell` means a spellbook entry is used up.
+    **Answer: yes.** "Neurostring [SpellNoDec] an sich erstmal gut, was du da vorgeschlagen
+    hattest."
 
 Christopher's ideas so far (living list; more will follow):
 - **Started casts don't fail when the target runs out of sight.** Reported in September:
