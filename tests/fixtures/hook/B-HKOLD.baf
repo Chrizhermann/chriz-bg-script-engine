@@ -1,0 +1,15 @@
+IF
+  EEex_LuaTrigger("return BGSE_Claim and BGSE_Claim(EEex_LuaTrigger_Object,'mage') or false")
+THEN
+  RESPONSE #100
+    EEex_LuaAction("if BGSE_Act then BGSE_Act(EEex_LuaAction_Object) end")
+END
+
+IF
+  INI("DMWW_mage_difficulty",0)
+  !GlobalTimerNotExpired("castspell","LOCALS")
+THEN
+  RESPONSE #100
+    SetGlobalTimer("castspell","LOCALS",6)
+END
+

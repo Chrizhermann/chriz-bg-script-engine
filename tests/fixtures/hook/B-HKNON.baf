@@ -1,0 +1,9 @@
+IF
+  !GlobalTimerNotExpired("castspell","LOCALS")
+  See(NearestEnemyOf(Myself))
+THEN
+  RESPONSE #100
+    SetGlobalTimer("castspell","LOCALS",6)
+    AttackReevaluate(NearestEnemyOf(Myself),30)
+END
+

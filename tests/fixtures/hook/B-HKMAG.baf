@@ -1,0 +1,157 @@
+IF
+  Global("caster_label_ini","LOCALS",0)
+THEN
+  RESPONSE #100
+    SetGlobal("caster_label_ini","LOCALS",1)
+    Continue()
+END
+
+IF
+  See(NearestEnemyOf(Myself))
+  Global("instantprep","LOCALS",0)
+  HaveSpell(WIZARD_MIRROR_IMAGE)
+  INI("DMWW_mage_prep_difficulty",0)
+THEN
+  RESPONSE #100
+    ReallyForceSpellRES("dwsw212",Myself)
+    RemoveSpell(WIZARD_MIRROR_IMAGE)
+    Continue()
+END
+
+IF
+  !GlobalTimerNotExpired("castspell","LOCALS")
+  Global("instantprep","LOCALS",0)
+  See(NearestEnemyOf(Myself))
+THEN
+  RESPONSE #100
+    SetGlobalTimer("castspell","LOCALS",6)
+    Spell(Myself,WIZARD_MIRROR_IMAGE)
+    SetGlobal("instantprep","LOCALS",1)
+END
+
+IF
+  !GlobalTimerExpired("castspell","LOCALS")
+  Heard([ANYONE],404)
+THEN
+  RESPONSE #100
+    RunAwayFromNoLeaveArea(LastHeardBy(Myself),30)
+END
+
+IF
+  CheckStatGT(Myself,0,WIZARD_IMPROVED_ALACRITY)
+  GlobalTimerNotExpired("castspell","LOCALS")
+THEN
+  RESPONSE #100
+    SetGlobalTimer("castspell","LOCALS",0)
+END
+
+IF
+  !GlobalTimerNotExpired("castspell","LOCALS")
+  See(Player2)
+  False()
+THEN
+  RESPONSE #100
+    Continue()
+END
+
+IF
+  !GlobalTimerNotExpired("castspell","LOCALS")
+  See(Player1)
+  False()
+THEN
+  RESPONSE #100
+    Continue()
+END
+
+IF
+  !GlobalTimerNotExpired("castspell","LOCALS")
+  See(LastSeenBy(Myself))
+THEN
+  RESPONSE #500
+    SetGlobalTimer("castspell","LOCALS",6)
+    ForceSpell(LastSeenBy(Myself),DEMILICH_TRAP_SOUL)
+  RESPONSE #500
+    Continue()
+END
+
+IF
+  HasItem("eneblade",Myself)
+THEN
+  RESPONSE #100
+    SetGlobal("eneblade","LOCALS",10)
+    DestroyItem("eneblade")
+    GiveItemCreate("dw#missl",Myself,0,0,0)
+    Continue()
+END
+
+IF
+  GlobalTimerNotExpired("melfinit","LOCALS")
+  !HasItem("dw#missl",Myself)
+THEN
+  RESPONSE #100
+    SetGlobal("melfnum","LOCALS",0)
+    Continue()
+END
+
+IF
+  GlobalGT("melfnum","LOCALS",0)
+  HasItem("dw#missl",Myself)
+THEN
+  RESPONSE #100
+    IncrementGlobal("melfnum","LOCALS",-1)
+    ApplySpellRES("dw#melf",Myself)
+    Continue()
+END
+
+IF
+  GlobalTimerNotExpired("castspell","LOCALS")
+  ActionListEmpty()
+THEN
+  RESPONSE #100
+    RandomWalkContinuous()
+END
+
+IF
+  Global("bgsetest","LOCALS",0)
+THEN
+  RESPONSE #100
+    SetGlobal("bgsetest","LOCALS",1)
+    Continue()
+END
+
+IF
+  See(NearestEnemyOf(Myself))
+  HasItem("dw#missl",Myself)
+THEN
+  RESPONSE #100
+    GiveItemCreate("dw#melf",Myself,0,0,0)
+    Continue()
+END
+
+IF
+  !GlobalTimerNotExpired("castspell","LOCALS")
+  HaveSpellRES("dw#tg37")
+  See(NearestEnemyOf(Myself))
+THEN
+  RESPONSE #100
+    SetGlobalTimer("castspell","LOCALS",6)
+    ForceSpellRES("dw#tg37",Myself)
+END
+
+IF
+  !GlobalTimerNotExpired("castspell","LOCALS")
+  HaveSpell(WIZARD_MAGIC_MISSILE)
+  See(NearestEnemyOf(Myself))
+THEN
+  RESPONSE #100
+    SetGlobalTimer("castspell","LOCALS",6)
+    Spell(NearestEnemyOf(Myself),WIZARD_MAGIC_MISSILE)
+END
+
+IF
+  True()
+THEN
+  RESPONSE #100
+    SetGlobalTimer("castspell","LOCALS",6)
+END
+

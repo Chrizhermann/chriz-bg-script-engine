@@ -1,0 +1,44 @@
+BACKUP ~bgse/backup~
+AUTHOR ~Christopher (Chris)~
+VERSION ~0.1.0-dev~
+
+// Chriz BG Script Engine builds on Sword Coast Stratagems by David Wallace (DavidW) and on
+// Spell Revisions by Demivrgvs and the Gibberlings Three. It reads the scripts SCS generated
+// in this game; it ships no SCS files.
+
+BEGIN ~Chriz BG Script Engine: let the engine take over SCS creatures' rounds (experimental, needs EEex)~
+  DESIGNATED 0
+  LABEL ~bgse-hook~
+
+REQUIRE_PREDICATE (FILE_EXISTS ~override/M___EEex.lua~)
+  ~EEex is not installed.~
+REQUIRE_PREDICATE (IDS_OF_SYMBOL (~TRIGGER~ ~EEex_LuaTrigger~) = 0x410E)
+  ~TRIGGER.IDS lacks EEex_LuaTrigger (0x410E).~
+REQUIRE_PREDICATE (IDS_OF_SYMBOL (~ACTION~ ~EEex_LuaAction~) = 472)
+  ~ACTION.IDS lacks EEex_LuaAction (472).~
+
+INCLUDE ~bgse/lib/hook.tpa~
+
+COPY ~bgse/lua/M_BGSE.lua~ ~override~
+
+OUTER_SET bgse_hooked = 0
+OUTER_SET bgse_copied = 0
+OUTER_SET bgse_skipped = 0
+ACTION_BASH_FOR ~override~ ~^.+\.bcs$~ BEGIN
+  COPY_EXISTING ~%BASH_FOR_FILE%~ ~override~
+    // SCS scripts carry its castspell round timer and its DMWW_ difficulty settings.
+    PATCH_IF (INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~castspell~) >= 0)
+         AND (INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~DMWW_~) >= 0) BEGIN
+      LPF bgse_hook_bcs RET bgse_result bgse_family bgse_copies END
+      PATCH_IF (~%bgse_result%~ STRING_EQUAL_CASE ~hooked~) BEGIN
+        SET bgse_hooked += 1
+        SET bgse_copied += bgse_copies
+        PATCH_LOG ~BGSE hook: %BASH_FOR_RES% (%bgse_family%, %bgse_copies% guarded SCS blocks)~
+      END ELSE PATCH_IF NOT (~%bgse_result%~ STRING_EQUAL_CASE ~not-scs~) BEGIN
+        SET bgse_skipped += 1
+        PATCH_PRINT ~BGSE hook: left %BASH_FOR_RES% as it is (%bgse_result%)~
+      END
+    END
+  BUT_ONLY_IF_IT_CHANGES
+END
+PRINT ~BGSE hook: %bgse_hooked% SCS scripts hooked, %bgse_copied% SCS blocks guarded, %bgse_skipped% left as they are.~

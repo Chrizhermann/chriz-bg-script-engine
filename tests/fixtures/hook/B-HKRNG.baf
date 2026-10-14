@@ -1,0 +1,43 @@
+IF
+  INI("DMWW_genai_difficulty",0)
+  Global("removedpotions","LOCALS",1)
+THEN
+  RESPONSE #100
+    NoAction()
+END
+
+IF
+  See(NearestEnemyOf(Myself))
+  !GlobalTimerNotExpired("castspell","LOCALS")
+  GlobalTimerExpired("stayontarget","LOCALS")
+THEN
+  RESPONSE #100
+    SetGlobalTimer("stayontarget","LOCALS",12)
+    ClearActions(Myself)
+END
+
+IF
+  Global("rest_state","LOCALS",0)
+THEN
+  RESPONSE #100
+    SetGlobal("rest_state","LOCALS",1)
+    Continue()
+END
+
+IF
+  !GlobalTimerNotExpired("castspell","LOCALS")
+  HasItem("potn52",Myself)
+  HPPercentLT(Myself,50)
+THEN
+  RESPONSE #100
+    SetGlobalTimer("castspell","LOCALS",6)
+    UseItem("potn52",Myself)
+END
+
+IF
+  See(NearestEnemyOf(Myself))
+THEN
+  RESPONSE #100
+    AttackReevaluate(NearestEnemyOf(Myself),30)
+END
+

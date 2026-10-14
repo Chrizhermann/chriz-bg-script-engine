@@ -1,0 +1,7 @@
+IF
+  INI("DMWW_genai_difficulty",0)
+THEN
+  RESPONSE #100
+    SetGlobalTimer("castspell","LOCALS",6)
+END
+

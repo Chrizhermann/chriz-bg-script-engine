@@ -1,0 +1,18 @@
+IF
+  INI("DMWW_mage_difficulty",0)
+  !GlobalTimerNotExpired("castspell","LOCALS")
+  Global("instantprep","LOCALS",0)
+THEN
+  RESPONSE #100
+    SetGlobalTimer("castspell","LOCALS",6)
+    SetGlobal("instantprep","LOCALS",1)
+END
+
+IF
+  See(NearestEnemyOf(Myself))
+  !GlobalTimerNotExpired("castspell","LOCALS")
+THEN
+  RESPONSE #100
+    ClearActions(Myself)
+END
+

@@ -1,0 +1,56 @@
+IF
+  INI("DMWW_priest_difficulty",0)
+  Global("inafight","LOCALS",0)
+THEN
+  RESPONSE #100
+    SetGlobal("inafight","LOCALS",1)
+    Continue()
+END
+
+IF
+  See(NearestEnemyOf(Myself))
+  !GlobalTimerNotExpired("castspell","LOCALS")
+  !GlobalTimerNotExpired("turninitialise","LOCALS")
+THEN
+  RESPONSE #100
+    SetGlobalTimer("turninitialise","LOCALS",30)
+    SetGlobalTimer("turning","LOCALS",4)
+    Continue()
+END
+
+IF
+  See(NearestEnemyOf(Myself))
+  !GlobalTimerNotExpired("castspell","LOCALS")
+  GlobalTimerNotExpired("turning","LOCALS")
+THEN
+  RESPONSE #100
+    Turn()
+END
+
+IF
+  HasItem("dw-starl",Myself)
+THEN
+  RESPONSE #100
+    SetGlobal("starblade","LOCALS",10)
+    DestroyItem("dw-starl")
+    GiveItemCreate("dw#missl",Myself,0,0,0)
+    Continue()
+END
+
+IF
+  GlobalGT("starblade","LOCALS",0)
+  HasItem("dw#missl",Myself)
+THEN
+  RESPONSE #100
+    IncrementGlobal("starblade","LOCALS",-1)
+    ApplySpellRES("dw#starb",Myself)
+    Continue()
+END
+
+IF
+  See(NearestEnemyOf(Myself))
+THEN
+  RESPONSE #100
+    AttackReevaluate(NearestEnemyOf(Myself),30)
+END
+
