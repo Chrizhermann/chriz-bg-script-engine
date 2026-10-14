@@ -1,2 +1,5 @@
 # Reviewed fixture digests are byte-exact on Windows and Unix checkouts.
 tests/fixtures/**/*.json text eol=lf
+
+# The component copies its runtime into the game as it is; tools/build_runtime.py writes LF.
+bgse/lua/*.lua text eol=lf
