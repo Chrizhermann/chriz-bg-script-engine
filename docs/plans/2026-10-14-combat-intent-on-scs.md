@@ -189,7 +189,8 @@ SCS has shouts and per-creature timers but no group plan. The director is new.
    (answers 5 and 6). **The 166 monster-only SCS scripts get the hook** (answer 7; done
    2026-10-14, see "Monster hook result"). **The spell classifier works on the host**
    (2026-10-14, [SPELLS-01](../research/SPELLS-01-spell-classifier.md)); the in-game reader
-   and the creature profile come next.
+   and the creature profile are written and host-tested (2026-10-15) and get their lab check
+   in the next batch.
 3. **Fight director and per-creature decisions** for mages, priests, fighters and monsters.
 4. **The lab fight scenario, batch runner and engine-on versus SCS comparison logs,** on
    Insane (answer 8), with a run without the hook to time SCS against.

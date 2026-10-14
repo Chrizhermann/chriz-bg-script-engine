@@ -15,8 +15,8 @@ files alone, whatever Spell Revisions, SCS or other mods changed?
 ## What it is
 
 - `combat-intent/spells.lua` classifies one SPL or ITM ability from plain records: the
-  fields `tools/ie_resources.py` reads on the PC. In game, the EEex reader (next task) will
-  hand over the same records.
+  fields `tools/ie_resources.py` reads on the PC. In game, `adapters/eeex/resources.lua`
+  hands over the same records (see "In game" below).
 - It follows deliveries: spells cast by effects (146 and 148, at the casting level they name;
   type 1 uses the caster's level), spell effects applied directly (326), static charge (333;
   with no resource it casts the holder's resref plus B, at level 1 unless parameter 2 names
@@ -84,9 +84,29 @@ files alone, whatever Spell Revisions, SCS or other mods changed?
   secondary target) occur in neither lab; 24 and 25 (bypass mirror images, ignore
   difficulty) are flags.
 
+## In game
+
+- `adapters/eeex/resources.lua` reads SPL, ITM, EFF and PRO records from the engine's
+  resource table through EEex (`EEex_Resource_Fetch`, then `Demand`, as EEex's own
+  `EEex_Resource_Demand` does) and maps projectile numbers through PROJECTL.IDS. The raw
+  reads dereference any address unchecked, so every read is bounded by the resource's size
+  first. A missing resource is nil, a malformed one nil plus a problem; it never raises and
+  caches plain records only.
+- `adapters/eeex/creature.lua` takes a creature's snapshot: memorized spells and innate
+  abilities (copies, ready copies, whether the engine's spell buttons offer them, caster
+  level), its items by slot with their use counts, and its level.
+  `combat-intent/abilities.lua` classifies that snapshot: each spell at the creature's
+  caster level for it, and every ability of every item it carries.
+- Host tests run both on synthetic files through a fake EEex memory that flags any read
+  outside a resource: the reader returns exactly the host parser's records, also with
+  only `EEex_ReadU8` available, and the profile classifies like the host records.
+
 ## Limits
 
-- Host only. The EEex reader and a check that it returns the same records in game come next.
+- Nothing has run in game yet. The next lab batch compares the in-game reader with the host
+  parser on the lab game and dumps creature profiles. The binding shapes the creature
+  snapshot relies on (item array, button lists, memorized lists) come from the engine
+  header and EEex's own scripts, not from a game run.
 - Amounts are averages. Repeats (272, 333, cycles) are approximate, and conditional effects
   (177 with an IDS filter, 326, 366) are counted as if they applied.
 - Who gets an effect comes from its target field. SR's and SCS's own target filters (318 and
