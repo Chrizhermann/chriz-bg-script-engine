@@ -2,8 +2,8 @@
 
 **Status:** proposed for Christopher's review, 2026-10-14. His answers to the
 first-release questions are recorded under "To design with Christopher". Step 1 (hook
-placement and the component skeleton) is done; see "Step 1 result". Steps 2–3 wait for
-Christopher's look at it.
+placement and the component skeleton) is done; see "Step 1 result". Christopher reviewed it
+the same day (answers 5–8 below); step 2 is under way.
 **Replaces:** the delivery model of the August plan (stop/go gates, evidence grades,
 exact-hash activation, per-spell admission). The August goals stay: smarter, fairer,
 more dynamic fights first, scripted encounter phases next, quests (WorldFlow) later.
@@ -140,7 +140,7 @@ SCS has shouts and per-creature timers but no group plan. The director is new.
 
 ## First milestone: one big mixed fight
 
-- **Lab scenario** (the existing BG2 lab with EET, SCS and Spell Revisions): a party of
+- **Lab scenario** (the existing BG2 lab with EET, SCS and Spell Revisions, on Insane): a party of
   four to six (fighter, cleric, mage, thief, …) against a mixed group of two fighters
   with potions, a priest, a mage and a monster. A second variant has two mages and two
   priests.
@@ -183,9 +183,12 @@ SCS has shouts and per-creature timers but no group plan. The director is new.
 
 1. **Hook placement:** where the block sits in SCS-generated scripts (lab check), plus the
    installable component skeleton (WeiDU, EEex required, kill switch). **Done 2026-10-14.**
-2. **Spell classifier and creature profile reader,** with logic tests.
-3. **Fight director and per-creature decisions** for mages, priests and fighters.
-4. **The lab fight scenario, batch runner and engine-on versus SCS comparison logs.**
+2. **Spell classifier and creature profile reader,** with logic tests. They also cover
+   named specials that are spellbook entries and abilities used without a spellbook check
+   (answers 5 and 6). **The 166 monster-only SCS scripts get the hook** (answer 7).
+3. **Fight director and per-creature decisions** for mages, priests, fighters and monsters.
+4. **The lab fight scenario, batch runner and engine-on versus SCS comparison logs,** on
+   Insane (answer 8), with a run without the hook to time SCS against.
 5. **Iterate on fight quality,** then the experimental CEBG component.
 
 ## Step 1 result: hook placement (2026-10-14)
@@ -236,14 +239,15 @@ the same save.
 
 **Not hooked yet:** 166 SCS monster scripts with no mage, priest or general-AI part
 (dragons, beholders, demons, Bodhi, Sarevok, Melissan, …). Their specials include plot
-actions (summons, shape changes, plot variables), so they get their own pass.
+actions (summons, shape changes, plot variables), so they get their own pass. Christopher
+(2026-10-14): hook them now (answer 7).
 
 **Found on the way:** an SCS mage that stays invisible re-applies its invisibility animation
 on every script pass; the priest version checks whether it already did. Held for a minute,
 one mage's effect list grew from 123 to 467 entries. The hook doesn't cause this, but the
-engine must not keep an invisible mage waiting. Also, at the lab's SCS difficulty setting the
-general AI destroys a fighter's potions on its first pass; the first milestone's "fighters
-with potions" needs a setting where SCS keeps them.
+engine must not keep an invisible mage waiting. Also, the lab ran at difficulty 2 of 5 (SCS's
+IMPROVED), where the general AI destroys a fighter's potions on its first pass. From now on
+lab fights run on Insane (answer 8), where SCS keeps them.
 
 **What the engine must do when it acts** (for step 3): set SCS's round timer and hold while
 its own action runs; set `firedsequencer` when it fires a sequencer; keep SCS's limit of
@@ -278,11 +282,37 @@ Open after step 1 (2026-10-14):
 5. **Abilities without a spellbook check** stay SCS's for every family, including monsters
    run by SCS's general AI (golem haste, drake breath, beholder telekinesis). Should some of
    them become engine choices?
+   **Answer: yes, later, or earlier if it is easy.** In Christopher's words: "Ja. Ich denke
+   mal schon. Vor allem, wenn das unseren Code und unsere Geschwindigkeit äh, wenn das unsere
+   Code besser macht und unsere Geschwindigkeit verbessert, und wir dadurch dann später
+   flexibler sind, wenn wir da Änderungen haben wollen, dann möchte ich, dass wir das später
+   ändern, ja. Also wenn es einfach ist, können wir es auch eher als später ändern." So step 2
+   classifies these abilities too, and the engine takes them over where that makes the code
+   simpler, faster or more flexible.
 6. **Named specials that are spellbook entries** (Abazigal's breath, Kruin's wild magic) look
    like ordinary spells to the engine. Classify them with the other spells in step 2, or keep
    them SCS's?
+   **Answer: in step 2 if that is simpler:** "die können wir auch schon früher mit
+   reinnehmen, wenn es einfacher ist, klar."
 7. **The 166 monster-only SCS scripts** (dragons, beholders, demons, Bodhi, Sarevok,
    Melissan, …): their own step after the first mixed fight?
+   **Answer: hook them now.** "Wenn es nach mir geht, können wir das jetzt alles direkt mit
+   reinnehmen. Wir wollen ja sowieso relativ komplexe Lab-Tests machen. Und ähm, da können
+   auch gerne ein paar Monster mit dabei sein. Und wenn die dann direkt unsere Skripte
+   übernehmen und nicht die SES-Skripte [SCS-Skripte], das wäre geil." They get the hook in
+   step 2, and monsters join the lab fights.
+8. **Lab difficulty** (Christopher's own point): "ich würde fast behaupten, dass es wohl am
+   besten ist, wenn wir alle Lab-Versuche auf Insane machen. Also auf der höchsten
+   Schwierigkeitsstufe. Beziehungsweise auf der höchsten Schwierigkeitsstufe, die halt, die
+   es halt gibt jeweils. Warum? Weil das dann alle Intelligenzen ähm, und alle Items und alle
+   Spells beinhaltet. […] Wenn wir dann nochmal hinterher Tests machen wollen, irgendwie auf
+   Core oder auf Mittel […], können wir das ja auch nochmal später machen. Aber aus meiner
+   Ansicht nach, wenn mit den komplexesten Kombinationen alles funktioniert, dann wird es
+   wahrscheinlich auch funktionieren, wenn mal was wegfällt."
+   **Lab setting:** the game's slider on Insane and SCS's per-component settings at their
+   highest (a few go above Insane: Insane Plus and Legacy of Bhaal). Proposed: without the
+   game's Legacy of Bhaal mode, which mainly raises creature stats. A check on a lower
+   setting comes later, to make sure the engine copes with less.
 
 Christopher's ideas so far (living list; more will follow):
 - **Started casts don't fail when the target runs out of sight.** Reported in September:
@@ -300,6 +330,17 @@ Christopher's ideas so far (living list; more will follow):
 - **Harder fights on the top difficulties, once the engine runs everything.** Oct 14: "I
   want to increase some in difficulty, especially on insane and above (even though there
   should not be anything above) once we have taken over everything."
+- **Spells that differ between installs.** Oct 14: "Wir müssen auch hinterher dann uns mal
+  unterhalten über ähm, die großen Unterschiede zwischen ein paar Spells bei Spell
+  Revisions und ohne. Ob da die Engine die Unterschiede intelligent genug übernimmt. Ähm,
+  und was passieren würde, wenn jetzt jemand ein Spell austauscht oder verändert. […] Wäre
+  ja, der Sleep Spell […] ohne Spell Revisions bleibt ein Schlaf bestehen, wenn die Kreatur
+  angegriffen wird. Die schläft. Mit Spell Revisions wird die aufgeweckt, wenn die
+  angegriffen wird. Ein Gegner, der schlau genug ist, könnte ja zum Beispiel als eine
+  Aktionsmöglichkeit haben, jemanden aufzuwecken, wenn es denn möglich ist. Und er müsste
+  dann aber auch wissen, wenn es nicht möglich ist." No solution needed yet. Such
+  differences live in the installed spell's effects, which the classifier reads; how
+  Sleep's wake-up shows there is not checked yet.
 
 Bigger design topics, in a dedicated design session:
 - what the director should do in typical situations (which threats come first, when a

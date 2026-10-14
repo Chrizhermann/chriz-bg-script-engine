@@ -95,6 +95,13 @@ listener logged spells, attacks and item moves, and every creature was sampled e
 | Bookkeeping | MAGE18C got the Energy Blades item directly (effect 122, no action queue). It was casting Time Stop from tick 99 to 460, so nothing reacted before the engine took over at tick 300. With the engine holding, the guarded copy above the hook ran twice (ticks 467 and 483): it destroyed the blade item, created SCS's helper item and set `eneblade` to 10 and the `melfinit` timer, the original block's actions. The original sits below the hook and is not reached while the engine holds. During the cast the script was still evaluated (54 claims) but only 9 hook responses ran, all after it. |
 | Baldur.lua switch | `BGSE.setEnabled(false, true)` wrote `[BGSE] Enabled` 0, read back as the number 0; turning it on read back 1. |
 
+**Timing.** With the hook declining, SCS's casters started their next cast 5–9 ticks
+(0.3–0.6 s) after their round timer ran out whenever they had something to cast; longer gaps
+were SCS's own waits, such as MAGE18C's 24-second Time Stop. A declined hook is a false
+condition in the same script pass, so it cannot delay SCS by a tick. One check costs about
+2.4 µs on host LuaJIT, including compiling the trigger text as EEex does on every call. No
+run without the hook was timed, so the 5–9 ticks have no baseline yet.
+
 The runtime registered its load listener at startup: EEex is initialised before the game
 autoloads `M_` files.
 
@@ -115,10 +122,11 @@ autoloads `M_` files.
 - **INI values.** `Infinity_GetINIValue` returns numbers. `Infinity_SetINIValue` is read back
   at once, and the value was in the profile's `Baldur.lua` (as a string) after the game was
   stopped by force, so it is not written only at a clean exit.
-- **SCS removes fighters' potions on lower settings.** At the lab's difficulty the ranged
-  fighter's script destroyed its 15 potions on the first pass (`removedpotions`, above the
-  hook, so it ran while the engine held too). The first milestone's "fighters with potions"
-  needs a setting where SCS keeps them.
+- **SCS removes fighters' potions on lower settings.** The lab ran at difficulty 2 of 5
+  (SCS's IMPROVED). There the ranged fighter's script destroyed its 15 potions on the first
+  pass (`removedpotions`, done at BASIC and IMPROVED; above the hook, so it ran while the
+  engine held too). Its Stoneskin and Mind Blank prebuffs need at least IMPROVED. Later lab
+  fights run on Insane.
 - **Lab start.** On the hidden desktop the startup movie runs about two minutes. The console
   answers meanwhile, but the queued load must wait until `START` is on the menu stack.
 - **`WeiDU.log` after the uninstall.** WeiDU writes the whole log again on every install and
