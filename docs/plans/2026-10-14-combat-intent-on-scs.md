@@ -373,7 +373,10 @@ Open after step 1 (2026-10-14):
    them in the engine. They may stay extremely strong, but they should not cheat, and the
    player should be able to see what was used. What counts as cheating and how the fight
    shows it is designed with Christopher; the engine's fair-play rule already holds for its
-   own choices.
+   own choices. The groundwork is
+   [ASC-01](../research/ASC-01-ascension-specials.md) (2026-10-15): every special of
+   Ascension's bosses, how it leaves fair play, whether Ascension, SCS or vanilla wrote it,
+   and design options to talk through.
 10. **Scripted casts without a spellbook check** (`SpellNoDec`, `SpellNoDecRES`; found by the
     no-SR check): the hook rule leaves them below the hook, so they stop while the engine
     holds the creature. That matters for Melissan without Ascension (105 blocks, her whole
@@ -382,6 +385,16 @@ Open after step 1 (2026-10-14):
     remove the spell, since `RemoveSpell` means a spellbook entry is used up.
     **Answer: yes.** "Neurostring [SpellNoDec] an sich erstmal gut, was du da vorgeschlagen
     hattest."
+11. **Powers a monster applies to itself** (`ApplySpell`, `ApplySpellRES` on `Myself` without
+    a spellbook check; found by the no-SR re-check): they stay below the hook, so they stop
+    while the engine holds the creature. 167 blocks in 23 monster scripts without SR, 170 in
+    26 with SR. The visible case is SCS's 12 vampire scripts: the rat-form cast is copied,
+    but turning invisible and turning back are self-applies below the hook, so a vampire the
+    engine holds stays a rat until the engine declines. The rest are single buffs: genie fire
+    shields, dragon stoneskin and protection from magic energy, a fiend's stoneskin or
+    invisibility, and with SR Ascension's Abazigal, balor and succubus. Suggested: copy them
+    above the hook like answers 5 and 10, so the creature keeps SCS's powers while the engine
+    holds it. Open. (HOOK-01)
 
 Christopher's ideas so far (living list; more will follow):
 - **Started casts don't fail when the target runs out of sight.** Reported in September:
