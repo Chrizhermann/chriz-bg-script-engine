@@ -3,7 +3,7 @@ local M={}
 function M.new(capacity)
     assert(type(capacity)=='number' and capacity%1==0 and capacity>=1 and capacity<=4096)
     local rows,nextSlot,size={},1,0
-    local fields={'kind','actorKey','adapterId','profile','snapshotVersion','owner','reason','tick'}
+    local fields={'kind','actorKey','adapterId','profile','snapshotVersion','owner','family','reason','tick'}
     local api={}
     function api:record(event)
         local row={}
