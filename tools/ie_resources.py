@@ -221,7 +221,8 @@ def _unpack(fmt, data, offset):
 
 
 def _resref(raw):
-    return raw.split(b'\0')[0].decode('latin-1').rstrip(' ').upper()
+    # bytes.upper() changes ASCII letters only, as the engine and the in-game reader do.
+    return raw.split(b'\0')[0].rstrip(b' ').upper().decode('latin-1')
 
 
 def _check(data, signature, minimum):
@@ -246,13 +247,14 @@ def _effect(data, offset):
 def _effects(data, table, index, count):
     """The count effect blocks starting at block index of the shared table."""
     start = table + 48 * index
-    if start + 48 * count > len(data):
+    if count and start + 48 * count > len(data):
         raise FormatError(f'effects {index}..{index + count - 1} run past the end of the data')
     return [_effect(data, start + 48 * i) for i in range(count)]
 
 
 def _table_end(data, offset, stride, count, what):
-    if offset + stride * count > len(data):
+    # An empty table reads nothing, wherever its offset points.
+    if count and offset + stride * count > len(data):
         raise FormatError(f'{what} table runs past the end of the data')
 
 

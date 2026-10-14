@@ -149,6 +149,27 @@ def test_spl_without_abilities_or_effects():
     assert spl['abilities'] == [] and spl['casting'] == []
 
 
+def far_tables(data):
+    """Point the ability and effect tables of a record without either past its end."""
+    data = bytearray(data)
+    struct.pack_into('<I', data, 0x64, len(data) + 400)
+    struct.pack_into('<I', data, 0x6A, len(data) + 800)
+    return bytes(data)
+
+
+def test_empty_tables_may_point_past_the_end():
+    spl = ie.parse_spl(far_tables(build_spl([], [])), 'x')
+    assert spl['abilities'] == [] and spl['casting'] == []
+    itm = ie.parse_itm(far_tables(build_itm([], [])), 'x')
+    assert itm['abilities'] == [] and itm['equipping'] == []
+
+
+def test_resref_upper_changes_ascii_letters_only():
+    raw = fx()[:0x14] + b'sp\xe9x\0\0\0\0' + fx()[0x1C:]
+    spl = ie.parse_spl(build_spl([spl_ability(count=1, index=0)], [raw]), 'a')
+    assert spl['abilities'][0]['effects'][0]['res'] == 'SP\xe9X'
+
+
 def test_itm_two_abilities_prove_stride_56():
     effects = [fx(opcode=10), fx(opcode=11), fx(opcode=12, p1=-4)]
     abilities = [itm_ability(count=1, index=0), itm_ability(attack=3, thac0=5, count=2, index=1,
