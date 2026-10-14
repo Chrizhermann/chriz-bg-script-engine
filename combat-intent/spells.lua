@@ -464,7 +464,8 @@ local function deliver(c,state,e,where,depth,p)
     -- casts repeatedly, 366 casts when the target moves.
     -- 333 casts the holder's resref plus B when it names none.
     local res=e.res
-    if op==333 and res=='' and c.owner then res=c.owner..'B' end
+    -- A resref holds eight characters, so an eight-character holder names itself.
+    if op==333 and res=='' and c.owner then res=(c.owner..'B'):sub(1,8) end
     local sub=state.lookup('SPL',res)
     if type(sub)~='table' then return state.miss(c,'SPL',res) end
     -- Casting level: 146 and 148 use parameter 1 (0 or instant type 1: the caster's level);

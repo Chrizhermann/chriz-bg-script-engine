@@ -159,6 +159,9 @@ assert(near(classify(charge,strikes,{level=1}).roles.damage.amount,300))
 charge.abilities[1].effects[1].res='OTHERB'
 c=classify(charge,strikes)
 assert(c.partial and c.reasons['missing:SPL:OTHERB'])
+local long=spl('TESTSCXY',{ability({fx(333,{p1=1})})})
+c=classify(long,world({['SPL:TESTSCXY']=long}))
+assert(c.approximate and c.reasons['cycle:SPL:TESTSCXY'] and not c.partial)
 groups=groups+1
 
 -- Summons, hostile summons and replacing a creature.
