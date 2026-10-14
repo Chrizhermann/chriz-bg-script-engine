@@ -3,7 +3,8 @@
 **Status:** proposed for Christopher's review, 2026-10-14. His answers to the
 first-release questions are recorded under "To design with Christopher". Step 1 (hook
 placement and the component skeleton) is done; see "Step 1 result". Christopher reviewed it
-the same day (answers 5–8 below); step 2 is under way.
+the same day (answers 5–8 below). The monster scripts are hooked too (see "Monster hook
+result"); step 2 is under way.
 **Replaces:** the delivery model of the August plan (stop/go gates, evidence grades,
 exact-hash activation, per-spell admission). The August goals stay: smarter, fairer,
 more dynamic fights first, scripted encounter phases next, quests (WorldFlow) later.
@@ -185,7 +186,8 @@ SCS has shouts and per-creature timers but no group plan. The director is new.
    installable component skeleton (WeiDU, EEex required, kill switch). **Done 2026-10-14.**
 2. **Spell classifier and creature profile reader,** with logic tests. They also cover
    named specials that are spellbook entries and abilities used without a spellbook check
-   (answers 5 and 6). **The 166 monster-only SCS scripts get the hook** (answer 7).
+   (answers 5 and 6). **The 166 monster-only SCS scripts get the hook** (answer 7; done
+   2026-10-14, see "Monster hook result").
 3. **Fight director and per-creature decisions** for mages, priests, fighters and monsters.
 4. **The lab fight scenario, batch runner and engine-on versus SCS comparison logs,** on
    Insane (answer 8), with a run without the hook to time SCS against.
@@ -237,10 +239,9 @@ the same save.
   set, as SCS's own block does. It happened right after the mage's 24-second Time Stop cast;
   responses chosen during a running cast wait for it, with or without the engine.
 
-**Not hooked yet:** 166 SCS monster scripts with no mage, priest or general-AI part
-(dragons, beholders, demons, Bodhi, Sarevok, Melissan, …). Their specials include plot
-actions (summons, shape changes, plot variables), so they get their own pass. Christopher
-(2026-10-14): hook them now (answer 7).
+**Not hooked in step 1:** 166 SCS monster scripts with no mage, priest or general-AI part
+(dragons, beholders, demons, Bodhi, Sarevok, Melissan, …). Christopher (2026-10-14): hook
+them now (answer 7). Done the same day; see "Monster hook result".
 
 **Found on the way:** an SCS mage that stays invisible re-applies its invisibility animation
 on every script pass; the priest version checks whether it already did. Held for a minute,
@@ -254,6 +255,30 @@ its own action runs; set `firedsequencer` when it fires a sequencer; keep SCS's 
 three level-9 spells per mage (`l9_mage_spells`); keep SCS's group flags (Malison, time-stop
 recast, curing blindness, the beholder flags); decline when the creature perceives no enemy,
 so SCS's chase and closedown run.
+
+## Monster hook result (2026-10-14)
+
+Details in [HOOK-02](../research/HOOK-02-monster-scripts-and-script-slots.md).
+- **Which scripts:** 123 of the 166 carry another SCS difficulty setting (fiend, dragon,
+  vampire, genie, spider, Durlag, Ascension, illithid, Bodhi, beholder, spirit troll); 120
+  of them now get the hook as the family `monster`. The three that never check the round
+  timer and the 43 without an SCS setting (named-encounter scripts, other mods' scripts)
+  stay as they are.
+- **What stays SCS's:** besides the specials, the monster scripts hold blocks below the
+  anchor that do more than a combat round: summons, gating away at low health, death
+  handlers, turning hostile, resting, dialogue starts. The installer copies them above the
+  hook like the specials. On the mage, priest and general-AI scripts this adds nothing.
+- **Several hooked scripts on one creature** (146 creature files carry two or more SCS
+  scripts; monster scripts usually sit in a higher slot above SCS's general AI): the first
+  hooked script that asks in a pass decides for the creature, with its own family, and the
+  others decline in that pass. The engine also declines when a script without the hook sits
+  below the deciding one (28 of 4,050 creatures), because taking the round would keep that
+  script from running. The installer writes the list of hooked scripts to
+  `override/M_BGSEHK.lua` for this.
+- **In the lab game:** 1,148 scripts hooked (585 mage, 307 priest, 136 general AI, 120
+  monster) with 2,666 copies; WeiDU and `tools/hook_rule.py` agree on every one. Install
+  time is still about 4 minutes.
+- **So far:** host tests only; monsters join the next lab batch.
 
 ## To design with Christopher
 
@@ -310,9 +335,12 @@ Open after step 1 (2026-10-14):
    Ansicht nach, wenn mit den komplexesten Kombinationen alles funktioniert, dann wird es
    wahrscheinlich auch funktionieren, wenn mal was wegfällt."
    **Lab setting:** the game's slider on Insane and SCS's per-component settings at their
-   highest (a few go above Insane: Insane Plus and Legacy of Bhaal). Proposed: without the
-   game's Legacy of Bhaal mode, which mainly raises creature stats. A check on a lower
-   setting comes later, to make sure the engine copes with less.
+   highest (a few go above Insane: Insane Plus and Legacy of Bhaal), but not the game's
+   Legacy of Bhaal mode. Christopher: "Gerne alles auf maximale Stufe, aber die
+   Game-Schwierigkeitsstufe, also den Spielmodus, LOB bitte nicht. Der ist absoluter
+   Schwachsinn, den benutzt niemand. Das ist, glaube ich, von Beamdog und nicht von BioWare.
+   Und äh, ist völlig unspaßig." A check on a lower setting comes later, to make sure the
+   engine copes with less.
 
 Christopher's ideas so far (living list; more will follow):
 - **Started casts don't fail when the target runs out of sight.** Reported in September:
@@ -341,6 +369,25 @@ Christopher's ideas so far (living list; more will follow):
   dann aber auch wissen, wenn es nicht möglich ist." No solution needed yet. Such
   differences live in the installed spell's effects, which the classifier reads; how
   Sleep's wake-up shows there is not checked yet.
+
+- **How fast engine casters react compared to SCS.** Oct 14: "Für mich wäre mal
+  interessant, wie schnell wäre unsere Engine? Also zum Beispiel, ne? ähm, ein Caster wird
+  hostile bemerkt, dass er in Kampf losgeht. Und bei SES SCS äh, dauert es ne, deine 0,3
+  bis 0,6 Sekunden oder was du da gerade angibst. Oder vielleicht ein bisschen länger. Ne,
+  das, dass er da anfängt, ähm, dass die Buffs wirklich da sind. Weil manchmal ist es noch
+  so, dass es einfach einen Moment dauert, bis die Buffs wirklich da sind. Und wie lange
+  würde unsere Engine brauchen?" To measure in the lab: from first sight to the first action
+  and to the first buff in effect, for SCS without the hook, with the hook declining and,
+  from step 3, with the engine deciding.
+- **Creature parameters such as intelligence and cooperation.** Oct 14: "Zum Beispiel hatte
+  ChatGPT damals ja die Idee, dass man ähm, Kreaturen oder Charakteren, also allen,
+  Kreaturen, Files an sich, ähm, Intelligenzen zuweist. Ne? Oder irgendwie so einen Wert
+  zuweist und Kooperation zuweist. Also gewisse Parameter hat, die dann mitbestimmen, wie der
+  Charakter reagiert. Ne? Ob der dann irrational reagiert oder sowas. [...] Oder wie
+  kooperativ der Charakter reagiert. Und äh, das fand ich eigentlich echt cool. Und da würde
+  ich hoffen, dass das schnell innerhalb des Games klappen könnte, ohne dass äh, die KI dann
+  irgendwie super langsam werden würde." Fits the personality layer; a few numbers per
+  creature in the scoring cost little at run time.
 
 Bigger design topics, in a dedicated design session:
 - what the director should do in typical situations (which threats come first, when a

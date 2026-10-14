@@ -1,0 +1,88 @@
+IF
+  INI("DMWW_fiend_difficulty",0)
+  Global("inafight","LOCALS",0)
+  See(NearestEnemyOf(Myself))
+THEN
+  RESPONSE #100
+    SetGlobal("inafight","LOCALS",1)
+    Continue()
+END
+
+IF
+  !GlobalTimerNotExpired("castspell","LOCALS")
+  See(NearestEnemyOf(Myself))
+  HPPercentLT(Myself,90)
+THEN
+  RESPONSE #100
+    SetGlobalTimer("castspell","LOCALS",6)
+    AttackReevaluate(NearestEnemyOf(Myself),30)
+END
+
+IF
+  !GlobalTimerNotExpired("castspell","LOCALS")
+  See(NearestEnemyOf(Myself))
+THEN
+  RESPONSE #100
+    SetGlobalTimer("castspell","LOCALS",6)
+    ForceSpell(NearestEnemyOf(Myself),DEMILICH_TRAP_SOUL)
+END
+
+IF
+  See(Player1)
+  False()
+THEN
+  RESPONSE #100
+    Continue()
+END
+
+IF
+  !GlobalTimerNotExpired("castspell","LOCALS")
+  Global("summoned","LOCALS",0)
+  See(LastSeenBy(Myself))
+THEN
+  RESPONSE #100
+    SetGlobal("summoned","LOCALS",1)
+    SetGlobalTimer("castspell","LOCALS",6)
+    CreateCreatureObject("b-hkimp",LastSeenBy(Myself),0,0,0)
+END
+
+IF
+  See(NearestEnemyOf(Myself))
+THEN
+  RESPONSE #100
+    AttackReevaluate(NearestEnemyOf(Myself),30)
+END
+
+IF
+  HPPercentLT(Myself,15)
+  Global("GateAway","LOCALS",0)
+THEN
+  RESPONSE #100
+    SetGlobal("GateAway","LOCALS",1)
+    DestroySelf()
+END
+
+IF
+  Die()
+THEN
+  RESPONSE #100
+    SetGlobal("b_hk_demon_dead","GLOBAL",1)
+END
+
+IF
+  Global("hostile","LOCALS",0)
+  HPPercentLT(Myself,99)
+THEN
+  RESPONSE #100
+    SetGlobal("hostile","LOCALS",1)
+    Enemy()
+    Continue()
+END
+
+IF
+  !See(NearestEnemyOf(Myself))
+THEN
+  RESPONSE #100
+    RandomWalkContinuous()
+END
+

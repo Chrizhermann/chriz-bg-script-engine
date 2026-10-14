@@ -1,8 +1,10 @@
--- EEex side of the BCS handoff. A hook block's trigger calls BGSE_Claim(object, family) and
--- its response calls BGSE_Act(object); guarded copies of SCS blocks above the hook call
--- BGSE_Claim too. Switches live in the player's Baldur.lua under [BGSE] (Enabled, Mages,
--- Priests, Fighters, Monsters; all on unless set to 0). Errors never escape into the
--- creature's script: a failure is a decline, and the script's own blocks run on.
+-- EEex side of the BCS handoff. A hook block's trigger calls BGSE_Claim(object, family, script)
+-- and its response calls BGSE_Act(object); guarded copies of SCS blocks above the hook call
+-- BGSE_Claim too. script is the hooked script's own resref, written in at install time.
+-- Switches live in the player's Baldur.lua under [BGSE] (Enabled, Mages, Priests, Fighters,
+-- Monsters; all on unless set to 0). The install also writes M_BGSEHK.lua, which sets
+-- BGSE_HOOKED (hooked script -> family); the gate reads it on first use. Errors never escape
+-- into the creature's script: a failure is a decline, and the script's own blocks run on.
 local hook=require('kernel.hook')
 local M={}
 M.keys={mage='Mages',priest='Priests',fighter='Fighters',monster='Monsters'}
@@ -31,10 +33,38 @@ function M.gameTime(g)
     return chitin.m_pObjectGame.m_worldTime.m_gameTime
 end
 -- Only a plain record leaves the engine boundary; the object itself is never kept.
-local function actor(object) return {id=object.m_id} end
+local function actor(object,script) return {id=object.m_id,script=script} end
 local function sprite(g,id)
     local object=g.EEex_GameObject_Get(id)
     if object and g.EEex_GameObject_IsSprite(object,false) then return object end
+end
+-- Script levels in the order the engine runs them (SCRLEV.IDS: override, area, specifics,
+-- class, race, general, default; 3 is unused), read with EEex's own accessor.
+M.levels={0,1,2,4,5,6,7}
+function M.scripts(g,object)
+    local get=g.EEex_AIBase_GetScriptLevelResRef
+    if type(get)~='function' then return nil end
+    local names={}
+    for i,level in ipairs(M.levels) do
+        local name=get(object,level)
+        names[i]=type(name)=='string' and name:lower() or ''
+    end
+    return names
+end
+-- The creature's non-empty scripts after the given one, or nil when it is not in the stack
+-- (or the stack cannot be read).
+function M.below(g,object,script)
+    local names=M.scripts(g,object)
+    if not names then return nil end
+    for i,name in ipairs(names) do
+        if name==script then
+            local rest={}
+            for j=i+1,#names do
+                if names[j]~='' and names[j]~='none' then rest[#rest+1]=names[j] end
+            end
+            return rest
+        end
+    end
 end
 function M.install(g,options)
     options=options or {}
@@ -44,6 +74,11 @@ function M.install(g,options)
         enabled=settings.enabled,families=settings.families,
         backoffTicks=options.backoffTicks,maxDecisionAgeTicks=options.maxDecisionAgeTicks,
         decide=options.decide,
+        hooked=options.hooked,
+        below=function(id,script)
+            local object=sprite(g,id)
+            if object then return M.below(g,object,script) end
+        end,
         perform=function(a,decision)
             local object=sprite(g,a.id)
             if not object or type(decision.response)~='string' or #decision.response==0 then return false end
@@ -64,8 +99,15 @@ function M.install(g,options)
     function root.setDecider(fn) gate:setDecider(fn) end
     function root.inspect() return gate:inspect() end
     g.BGSE=root
-    g.BGSE_Claim=function(object,family)
-        local ok,result=pcall(function() return gate:claim(actor(object),family) end)
+    local registered=options.hooked~=nil
+    g.BGSE_Claim=function(object,family,script)
+        local ok,result=pcall(function()
+            if not registered then
+                local list=rawget(g,'BGSE_HOOKED')
+                if type(list)=='table' then gate:setHooked(list);registered=true end
+            end
+            return gate:claim(actor(object,script),family)
+        end)
         return ok and result==true
     end
     g.BGSE_Act=function(object)

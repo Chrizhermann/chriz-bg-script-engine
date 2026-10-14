@@ -158,6 +158,12 @@ factories["kernel.hook"]=function(require)
 -- reached: true means the engine performs this round's action, false lets the creature's own
 -- blocks run on. Guarded copies of SCS blocks above the hook ask the same question in the same
 -- script pass, so the gate answers once per creature and tick and repeats that answer.
+-- A creature can carry hooked scripts in several slots (an SCS monster script above SCS's
+-- general AI, for example). Slots run from override down to default, and a lower script is
+-- reached only after the higher ones let the pass through, so the first hooked script that
+-- asks in a pass decides for the creature; the others decline in that pass. The engine also
+-- declines when a script that carries no hook sits below the deciding one: an engine round
+-- would keep that script from ever running.
 -- Nothing here raises to the caller and nothing in it survives a load.
 local values=require('kernel.manifest')
 local trace=require('kernel.trace')
@@ -176,6 +182,21 @@ function M.new(config)
         families[family]=not(type(config.families)=='table' and config.families[family]==false)
     end
     local decide,perform=config.decide,config.perform
+    -- hooked: script resref (lower case) -> family, from the install. below(id, script): the
+    -- creature's non-empty script resrefs in the slots after script, or nil when script is not
+    -- in its stack.
+    local hooked,below
+    local function setHooked(t)
+        assert(t==nil or type(t)=='table')
+        if t==nil then hooked=nil;return end
+        hooked={}
+        for name,family in pairs(t) do
+            if type(name)=='string' and #name>0 then hooked[name:lower()]=family end
+        end
+    end
+    setHooked(config.hooked)
+    below=config.below
+    assert(below==nil or type(below)=='function')
     local pending,blocked,answers={},{},{}
     local counts={reached=0,repeats=0,claimed=0,acted=0,held=0,stale=0,errors=0}
     local declines={}
@@ -192,15 +213,26 @@ function M.new(config)
         if tick then blocked[id]=tick+backoff end
         log:record({kind='error',actorKey=tostring(id),family=family,reason=reason,tick=tick})
     end
-    local function evaluate(id,actor,family,tick)
+    local function evaluate(id,actor,family,tick,script)
         if not enabled then return decline('disabled') end
         if not known[family] then return decline('unknown-family') end
         if not families[family] then return decline('family-off') end
+        if not hooked then return decline('no-registry') end
+        if not below then return decline('no-stack') end
+        local found,rest=pcall(below,id,script)
+        if not found then failed(id,family,'stack-error',tick);return decline('error') end
+        if type(rest)~='table' then return decline('no-stack') end
+        for _,name in ipairs(rest) do
+            if type(name)~='string' or not hooked[name:lower()] then return decline('script-below') end
+        end
         -- A load restarts the tick count, so a backoff from before it no longer applies.
         if blocked[id] and tick<blocked[id] and blocked[id]-tick<=backoff then return decline('backoff') end
         blocked[id]=nil
         if not decide then return decline('no-decider') end
-        local ok,decision=pcall(function() return decide(values.copy(actor),family) end)
+        local ok,decision=pcall(function()
+            local view=values.copy(actor);view.script=script
+            return decide(view,family)
+        end)
         if not ok then failed(id,family,'decide-error',tick);return decline('error') end
         if decision==nil then pending[id]=nil;return decline('no-decision') end
         local copied,result=pcall(values.copy,decision)
@@ -212,15 +244,23 @@ function M.new(config)
         log:record({kind='claim',actorKey=tostring(id),family=family,reason=result.hold and 'hold' or 'claimed',tick=tick})
         return true
     end
+    -- actor is {id=..., script=...}: the creature and the hooked script that asks.
     function api:claim(actor,family)
         local id=type(actor)=='table' and rawget(actor,'id')
         if not scalarId(id) then return decline('bad-actor') end
+        local script=rawget(actor,'script')
+        if type(script)~='string' or #script==0 or #script>32 then return decline('bad-script') end
+        script=script:lower()
         local tick=now();if not tick then return decline('no-clock') end
         local seen=answers[id]
-        if seen and seen.tick==tick and seen.family==family then bump(counts,'repeats');return seen.result end
+        if seen and seen.tick==tick then
+            if seen.script==script and seen.family==family then bump(counts,'repeats');return seen.result end
+            -- Another of the creature's scripts asked first in this pass and decided.
+            if seen.script~=script then return decline('lower-script') end
+        end
         bump(counts,'reached')
-        local result=evaluate(id,actor,family,tick)
-        answers[id]={tick=tick,family=family,result=result}
+        local result=evaluate(id,actor,family,tick,script)
+        answers[id]={tick=tick,script=script,family=family,result=result}
         return result
     end
     -- A decision is performed once, by the hook's response. {hold=true} claims the round
@@ -255,22 +295,27 @@ function M.new(config)
     end
     function api:setDecider(fn) assert(fn==nil or type(fn)=='function');decide=fn;pending,answers={},{} end
     function api:setPerformer(fn) assert(fn==nil or type(fn)=='function');perform=fn;pending,answers={},{} end
+    function api:setHooked(t) setHooked(t);answers={} end
     function api:invalidate() pending,blocked,answers={},{},{} end
     function api:inspect()
         local open=0;for _ in pairs(pending) do open=open+1 end
+        local scripts=0;for _ in pairs(hooked or {}) do scripts=scripts+1 end
         return {enabled=enabled,families=values.copy(families),counts=values.copy(counts),
-            declines=values.copy(declines),pending=open,trace=log:snapshot()}
+            declines=values.copy(declines),pending=open,hookedScripts=hooked and scripts or nil,
+            trace=log:snapshot()}
     end
     return api
 end
 return M
 end
 factories["adapters.eeex.hook"]=function(require)
--- EEex side of the BCS handoff. A hook block's trigger calls BGSE_Claim(object, family) and
--- its response calls BGSE_Act(object); guarded copies of SCS blocks above the hook call
--- BGSE_Claim too. Switches live in the player's Baldur.lua under [BGSE] (Enabled, Mages,
--- Priests, Fighters, Monsters; all on unless set to 0). Errors never escape into the
--- creature's script: a failure is a decline, and the script's own blocks run on.
+-- EEex side of the BCS handoff. A hook block's trigger calls BGSE_Claim(object, family, script)
+-- and its response calls BGSE_Act(object); guarded copies of SCS blocks above the hook call
+-- BGSE_Claim too. script is the hooked script's own resref, written in at install time.
+-- Switches live in the player's Baldur.lua under [BGSE] (Enabled, Mages, Priests, Fighters,
+-- Monsters; all on unless set to 0). The install also writes M_BGSEHK.lua, which sets
+-- BGSE_HOOKED (hooked script -> family); the gate reads it on first use. Errors never escape
+-- into the creature's script: a failure is a decline, and the script's own blocks run on.
 local hook=require('kernel.hook')
 local M={}
 M.keys={mage='Mages',priest='Priests',fighter='Fighters',monster='Monsters'}
@@ -299,10 +344,38 @@ function M.gameTime(g)
     return chitin.m_pObjectGame.m_worldTime.m_gameTime
 end
 -- Only a plain record leaves the engine boundary; the object itself is never kept.
-local function actor(object) return {id=object.m_id} end
+local function actor(object,script) return {id=object.m_id,script=script} end
 local function sprite(g,id)
     local object=g.EEex_GameObject_Get(id)
     if object and g.EEex_GameObject_IsSprite(object,false) then return object end
+end
+-- Script levels in the order the engine runs them (SCRLEV.IDS: override, area, specifics,
+-- class, race, general, default; 3 is unused), read with EEex's own accessor.
+M.levels={0,1,2,4,5,6,7}
+function M.scripts(g,object)
+    local get=g.EEex_AIBase_GetScriptLevelResRef
+    if type(get)~='function' then return nil end
+    local names={}
+    for i,level in ipairs(M.levels) do
+        local name=get(object,level)
+        names[i]=type(name)=='string' and name:lower() or ''
+    end
+    return names
+end
+-- The creature's non-empty scripts after the given one, or nil when it is not in the stack
+-- (or the stack cannot be read).
+function M.below(g,object,script)
+    local names=M.scripts(g,object)
+    if not names then return nil end
+    for i,name in ipairs(names) do
+        if name==script then
+            local rest={}
+            for j=i+1,#names do
+                if names[j]~='' and names[j]~='none' then rest[#rest+1]=names[j] end
+            end
+            return rest
+        end
+    end
 end
 function M.install(g,options)
     options=options or {}
@@ -312,6 +385,11 @@ function M.install(g,options)
         enabled=settings.enabled,families=settings.families,
         backoffTicks=options.backoffTicks,maxDecisionAgeTicks=options.maxDecisionAgeTicks,
         decide=options.decide,
+        hooked=options.hooked,
+        below=function(id,script)
+            local object=sprite(g,id)
+            if object then return M.below(g,object,script) end
+        end,
         perform=function(a,decision)
             local object=sprite(g,a.id)
             if not object or type(decision.response)~='string' or #decision.response==0 then return false end
@@ -332,8 +410,15 @@ function M.install(g,options)
     function root.setDecider(fn) gate:setDecider(fn) end
     function root.inspect() return gate:inspect() end
     g.BGSE=root
-    g.BGSE_Claim=function(object,family)
-        local ok,result=pcall(function() return gate:claim(actor(object),family) end)
+    local registered=options.hooked~=nil
+    g.BGSE_Claim=function(object,family,script)
+        local ok,result=pcall(function()
+            if not registered then
+                local list=rawget(g,'BGSE_HOOKED')
+                if type(list)=='table' then gate:setHooked(list);registered=true end
+            end
+            return gate:claim(actor(object,script),family)
+        end)
         return ok and result==true
     end
     g.BGSE_Act=function(object)

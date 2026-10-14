@@ -3,8 +3,11 @@
 Input is a decompiled SCS script (BAF text as WeiDU writes it). The hook goes immediately
 before the anchor, the first block of SCS's per-round action choice. Above the hook go guarded
 copies of the SCS blocks that must keep running while the engine drives the creature:
-bookkeeping runs and the creature's own special abilities. The original blocks stay where they
-are, so a declining or switched-off engine leaves SCS's order untouched.
+bookkeeping runs, the creature's own special abilities, and every block that does more than
+an ordinary combat round (summoning, dialogue, leaving the area, changing allegiance, death
+handlers and the like). The original blocks stay where they are, so a declining or
+switched-off engine leaves SCS's order untouched. Each hook and copy names its own script, so
+the engine can tell which of a creature's scripts asks.
 
 Run it on a folder of decompiled scripts to see what an install would do:
     python tools/hook_rule.py <folder-with-baf> [report.json]
@@ -17,6 +20,9 @@ from pathlib import Path
 CASTSPELL = 'GlobalTimerNotExpired("castspell","LOCALS")'
 FIRST_ROUND = 'SetGlobal("instantprep","LOCALS",1)'
 FAMILIES = (('DMWW_mage_', 'mage'), ('DMWW_priest_', 'priest'), ('DMWW_genai_', 'fighter'))
+# Any other SCS difficulty setting (fiend, dragon, vampire, genie, beholder, ...) marks an SCS
+# monster script.
+MONSTER = re.compile(r'DMWW_[a-z_]+_difficulty')
 MARK = 'BGSE_Claim'
 ACTION = re.compile(r'^ {4}([A-Za-z_][A-Za-z0-9_]*)\(', re.M)
 RETARGET = {'SetGlobal', 'SetGlobalTimer', 'IncrementGlobal', 'ClearActions'}
@@ -33,14 +39,29 @@ SPELLBOOK_GATE = re.compile(r'[^A-Za-z0-9_](HaveSpell|HaveSpellRES|HasItem|KnowS
 UNGATED_CAST = {'ForceSpell', 'ForceSpellRES', 'ReallyForceSpell', 'ReallyForceSpellRES',
                 'ForceSpellPoint', 'ForceSpellPointRES', 'ReallyForceSpellPoint',
                 'ReallyForceSpellPointRES'}
+# What an ordinary combat round is made of: casts, items, attacks, weapons, movement around
+# enemies, waiting, and the variables, timers and messages that go with them. A block at or
+# below the anchor with any other action belongs to SCS's own logic and is copied above the
+# hook.
+COMBAT = UNGATED_CAST | {
+    'Spell', 'SpellRES', 'SpellNoDec', 'SpellNoDecRES', 'SpellPoint', 'SpellPointRES',
+    'UseItem', 'Attack', 'AttackOneRound', 'AttackReevaluate', 'AttackNoSound',
+    'EquipMostDamagingMelee', 'EquipRanged', 'SelectWeaponAbility',
+    'MoveToObject', 'RunAwayFrom', 'RunAwayFromNoLeaveArea', 'RunAwayFromNoInterrupt',
+    'RunAwayFromNoInterruptNoLeaveArea', 'RandomWalk', 'RandomWalkContinuous', 'FaceObject',
+    'Turn', 'OpenDoor', 'Wait', 'SmallWait', 'NoAction', 'SetInterrupt', 'ClearActions',
+    'RemoveSpell', 'ApplySpellRES', 'ApplySpell',
+    'Continue', 'SetGlobal', 'SetGlobalTimer', 'SetGlobalTimerRandom', 'IncrementGlobal',
+    'DisplayString', 'DisplayStringHead', 'VerbalConstant', 'PlaySound'}
 
 
-def guard(family):
-    return f'EEex_LuaTrigger("return BGSE_Claim and BGSE_Claim(EEex_LuaTrigger_Object,\'{family}\') or false")'
+def guard(family, script):
+    return ('EEex_LuaTrigger("return BGSE_Claim and BGSE_Claim(EEex_LuaTrigger_Object,'
+            f"'{family}','{script}') or false\")")
 
 
-def hook_block(family):
-    return (f'IF\n  {guard(family)}\nTHEN\n  RESPONSE #100\n'
+def hook_block(family, script):
+    return (f'IF\n  {guard(family, script)}\nTHEN\n  RESPONSE #100\n'
             '    EEex_LuaAction("if BGSE_Act then BGSE_Act(EEex_LuaAction_Object) end")\nEND\n\n')
 
 
@@ -102,6 +123,12 @@ def is_special(block):
     return not SPELLBOOK_GATE.search(trig) and any(n in UNGATED_CAST for r in responses(block) for n in r)
 
 
+def is_encounter(block):
+    """A block that does more than an ordinary combat round, or a death handler."""
+    trig, _ = split(block)
+    return 'Die()' in trig or any(n not in COMBAT for r in responses(block) for n in r)
+
+
 def is_target_pick(block):
     """SCS picks a target by evaluating See() for its side effect in a block that never acts."""
     trig, _ = split(block)
@@ -113,7 +140,7 @@ def family(text):
     for key, name in FAMILIES:
         if key in text:
             return name
-    return None
+    return 'monster' if MONSTER.search(text) else None
 
 
 def plan(text):
@@ -136,7 +163,7 @@ def plan(text):
         else:
             i += 1
     for i in range(anchor, len(texts)):
-        if is_special(texts[i]):
+        if is_special(texts[i]) or is_encounter(texts[i]):
             copies.add(i)
             if 'LastSeenBy(Myself)' in texts[i]:
                 k = i - 1
@@ -146,12 +173,16 @@ def plan(text):
     return spans, anchor, sorted(copies)
 
 
-def patch(text):
-    """Return (patched text or None, reason, family, number of copies)."""
+def patch(text, script):
+    """Return (patched text or None, reason, family, number of copies) for the named script."""
     text = text.replace('\r', '')
+    script = script.lower()
     fam = family(text)
     if fam is None:
         return None, 'not-scs', None, 0
+    # The name goes into Lua text inside a BAF string.
+    if any(c in script for c in '\'"\\'):
+        return None, 'unsafe-name', fam, 0
     if CASTSPELL not in text:
         return None, 'no-castspell', fam, 0
     if MARK in text:
@@ -159,10 +190,10 @@ def patch(text):
     spans, anchor, copies = plan(text)
     if anchor is None:
         return None, 'no-anchor', fam, 0
-    insert = ''.join(text[spans[i][0]:spans[i][1]].replace('IF\n', f'IF\n  {guard(fam)}\n', 1) + '\n'
+    insert = ''.join(text[spans[i][0]:spans[i][1]].replace('IF\n', f'IF\n  {guard(fam, script)}\n', 1) + '\n'
                      for i in copies)
     at = spans[anchor][0]
-    return text[:at] + insert + hook_block(fam) + text[at:], 'hooked', fam, len(copies)
+    return text[:at] + insert + hook_block(fam, script) + text[at:], 'hooked', fam, len(copies)
 
 
 def main():
@@ -170,7 +201,7 @@ def main():
     rows = []
     for path in sorted(folder.glob('*.baf')):
         text = path.read_text(encoding='latin-1')
-        patched, reason, fam, copies = patch(text)
+        patched, reason, fam, copies = patch(text, path.stem)
         rows.append({'script': path.stem, 'family': fam, 'result': reason, 'copies': copies})
     summary = {}
     for row in rows:

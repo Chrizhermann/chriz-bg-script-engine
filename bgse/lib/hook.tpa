@@ -4,19 +4,38 @@
 // choice (the first block that checks GlobalTimerNotExpired("castspell","LOCALS"), skipping
 // SCS's first-round preparation and the ranged general AI's retarget block). Above the hook go
 // guarded copies of the SCS blocks that must keep running while the engine drives the
-// creature: bookkeeping runs (Melf's Minute Meteors, Energy and Star Blades) and the
-// creature's own special abilities. The original blocks stay where they are, so a declining or
-// switched-off engine leaves SCS's order untouched.
+// creature: bookkeeping runs (Melf's Minute Meteors, Energy and Star Blades), the creature's
+// own special abilities, and every block that does more than an ordinary combat round
+// (summoning, dialogue, leaving the area, changing allegiance, death handlers and the like).
+// The original blocks stay where they are, so a declining or switched-off engine leaves SCS's
+// order untouched. Each hook and copy names its own script, so the engine can tell which of a
+// creature's scripts asks.
 //
 // tools/hook_rule.py is the reference version of this rule. Keep the two in step;
 // tests/integration/test_hook_installer.py compares them.
 
+// Number of action lines in a response part that are not part of an ordinary combat round
+// (tools/hook_rule.py: COMBAT).
+DEFINE_PATCH_FUNCTION bgse_foreign_actions
+  STR_VAR bgse_resp = ~~
+  RET bgse_foreign
+BEGIN
+  SET bgse_foreign = 0
+  INNER_PATCH_SAVE rest ~%bgse_resp%~ BEGIN
+    REPLACE_TEXTUALLY CASE_SENSITIVE ~^    \(ForceSpell\|ForceSpellRES\|ReallyForceSpell\|ReallyForceSpellRES\|ForceSpellPoint\|ForceSpellPointRES\|ReallyForceSpellPoint\|ReallyForceSpellPointRES\|Spell\|SpellRES\|SpellNoDec\|SpellNoDecRES\|SpellPoint\|SpellPointRES\|UseItem\|Attack\|AttackOneRound\|AttackReevaluate\|AttackNoSound\|EquipMostDamagingMelee\|EquipRanged\|SelectWeaponAbility\|MoveToObject\|RunAwayFrom\|RunAwayFromNoLeaveArea\|RunAwayFromNoInterrupt\|RunAwayFromNoInterruptNoLeaveArea\|RandomWalk\|RandomWalkContinuous\|FaceObject\|Turn\|OpenDoor\|Wait\|SmallWait\|NoAction\|SetInterrupt\|ClearActions\|RemoveSpell\|ApplySpellRES\|ApplySpell\|Continue\|SetGlobal\|SetGlobalTimer\|SetGlobalTimerRandom\|IncrementGlobal\|DisplayString\|DisplayStringHead\|VerbalConstant\|PlaySound\)(.*$~ ~~
+  END
+  INNER_PATCH ~%rest%~ BEGIN
+    COUNT_REGEXP_INSTANCES CASE_SENSITIVE ~^    [A-Za-z_][A-Za-z0-9_]*(~ bgse_foreign
+  END
+END
+
 // Flags for one block (BAF text with \n line ends, from its IF line to its END line).
 DEFINE_PATCH_FUNCTION bgse_classify_block
   STR_VAR bgse_block = ~~
-  RET bgse_anchor bgse_book bgse_items bgse_special bgse_pick bgse_lastseen
+  RET bgse_anchor bgse_book bgse_items bgse_special bgse_pick bgse_lastseen bgse_encounter
 BEGIN
   SET bgse_anchor = 0
+  SET bgse_encounter = 0
   SET bgse_book = 0
   SET bgse_items = 0
   SET bgse_special = 0
@@ -103,13 +122,17 @@ BEGIN
       SET bgse_pick = 1
     END
     SET bgse_lastseen = (INDEX (CASE_SENSITIVE EXACT_MATCH ~LastSeenBy(Myself)~ ~%bgse_block%~) >= 0) ? 1 : 0
+    LPF bgse_foreign_actions STR_VAR bgse_resp = EVAL ~%resp%~ RET bgse_foreign END
+    SET bgse_encounter = ((bgse_foreign > 0) OR (INDEX (CASE_SENSITIVE EXACT_MATCH ~Die()~ ~%trig%~) >= 0)) ? 1 : 0
   END
 END
 
-// Hook one decompiled SCS script. bgse_result is hooked, not-scs, no-castspell,
-// already-hooked or no-anchor; only "hooked" changes bgse_baf.
+// Hook one decompiled SCS script; bgse_script is its resref in lower case. bgse_result is
+// hooked, not-scs, unsafe-name, no-castspell, already-hooked or no-anchor; only "hooked"
+// changes bgse_baf.
 DEFINE_PATCH_FUNCTION bgse_hook_baf
   STR_VAR bgse_baf = ~~
+          bgse_script = ~~
   RET bgse_result bgse_family bgse_copies bgse_baf
 BEGIN
   TEXT_SPRINT bgse_result ~not-scs~
@@ -124,9 +147,16 @@ BEGIN
     TEXT_SPRINT bgse_family ~priest~
   END ELSE PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~DMWW_genai_~ ~%bgse_baf%~) >= 0) BEGIN
     TEXT_SPRINT bgse_family ~fighter~
+  END ELSE PATCH_IF (~%bgse_baf%~ STRING_CONTAINS_REGEXP ~DMWW_[a-z_]+_difficulty~) = 0 BEGIN
+    // Any other SCS difficulty setting (fiend, dragon, vampire, genie, ...): a monster script.
+    TEXT_SPRINT bgse_family ~monster~
   END
   PATCH_IF (STRING_LENGTH ~%bgse_family%~ = 0) BEGIN
     TEXT_SPRINT bgse_result ~not-scs~
+  END ELSE PATCH_IF (INDEX (EXACT_MATCH ~'~ ~%bgse_script%~) >= 0) OR (INDEX (EXACT_MATCH ~"~ ~%bgse_script%~) >= 0)
+      OR (INDEX (EXACT_MATCH ~\~ ~%bgse_script%~) >= 0) BEGIN
+    // The name goes into Lua text inside a BAF string.
+    TEXT_SPRINT bgse_result ~unsafe-name~
   END ELSE PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~GlobalTimerNotExpired("castspell","LOCALS")~ ~%bgse_baf%~) < 0) BEGIN
     TEXT_SPRINT bgse_result ~no-castspell~
   END ELSE PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~BGSE_Claim~ ~%bgse_baf%~) >= 0) BEGIN
@@ -165,16 +195,28 @@ BEGIN
           SET $bgse_special(~%n%~) = 0
           SET $bgse_pick(~%n%~) = 0
           SET $bgse_lastseen(~%n%~) = 0
+          SET $bgse_encounter(~%n%~) = 0
           SET $bgse_copy(~%n%~) = 0
           READ_ASCII start block (stop - start)
           PATCH_IF (anchor < 0) AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~castspell~ ~%block%~) < 0) BEGIN
             // Cannot be the anchor and nothing before the anchor is copied.
           END ELSE PATCH_IF (anchor >= 0) AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~Continue()~ ~%block%~) < 0)
               AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~ForceSpell~ ~%block%~) < 0) BEGIN
-            // Neither bookkeeping nor a target pick (no Continue) nor a special (no ForceSpell).
+            // Neither bookkeeping nor a target pick (no Continue) nor a special (no ForceSpell),
+            // but it may still do more than an ordinary combat round.
+            SET then = INDEX (CASE_SENSITIVE EXACT_MATCH ~%LNL%THEN%LNL%~ ~%block%~)
+            PATCH_IF (then > 0) BEGIN
+              INNER_PATCH ~%block%~ BEGIN
+                READ_ASCII 0 trig (then)
+                READ_ASCII then resp (BUFFER_LENGTH - then)
+              END
+              LPF bgse_foreign_actions STR_VAR bgse_resp = EVAL ~%resp%~ RET bgse_foreign END
+              SET $bgse_encounter(~%n%~) = ((bgse_foreign > 0) OR (INDEX (CASE_SENSITIVE EXACT_MATCH ~Die()~ ~%trig%~) >= 0)) ? 1 : 0
+              SET $bgse_lastseen(~%n%~) = (INDEX (CASE_SENSITIVE EXACT_MATCH ~LastSeenBy(Myself)~ ~%block%~) >= 0) ? 1 : 0
+            END
           END ELSE BEGIN
             LPF bgse_classify_block STR_VAR bgse_block = EVAL ~%block%~
-              RET bgse_anchor bgse_book bgse_items bgse_special bgse_pick bgse_lastseen END
+              RET bgse_anchor bgse_book bgse_items bgse_special bgse_pick bgse_lastseen bgse_encounter END
             PATCH_IF (anchor < 0) AND (bgse_anchor = 1) BEGIN
               SET anchor = n
             END
@@ -184,6 +226,7 @@ BEGIN
               SET $bgse_special(~%n%~) = bgse_special
               SET $bgse_pick(~%n%~) = bgse_pick
               SET $bgse_lastseen(~%n%~) = bgse_lastseen
+              SET $bgse_encounter(~%n%~) = bgse_encounter
             END
           END
           SET n += 1
@@ -217,9 +260,10 @@ BEGIN
           SET i += 1
         END
       END
-      // Special abilities, with the target picks right before them when they aim at LastSeenBy.
+      // Special abilities and blocks that do more than an ordinary combat round, with the
+      // target picks right before them when they aim at LastSeenBy.
       FOR (i = anchor; i < n; i += 1) BEGIN
-        PATCH_IF ($bgse_special(~%i%~) = 1) BEGIN
+        PATCH_IF ($bgse_special(~%i%~) = 1) OR ($bgse_encounter(~%i%~) = 1) BEGIN
           SET $bgse_copy(~%i%~) = 1
           PATCH_IF ($bgse_lastseen(~%i%~) = 1) BEGIN
             SET k = i - 1
@@ -237,7 +281,7 @@ BEGIN
           END
         END
       END
-      TEXT_SPRINT guard ~EEex_LuaTrigger("return BGSE_Claim and BGSE_Claim(EEex_LuaTrigger_Object,'%bgse_family%') or false")~
+      TEXT_SPRINT guard ~EEex_LuaTrigger("return BGSE_Claim and BGSE_Claim(EEex_LuaTrigger_Object,'%bgse_family%','%bgse_script%') or false")~
       TEXT_SPRINT insert ~~
       FOR (i = anchor; i < n; i += 1) BEGIN
         PATCH_IF ($bgse_copy(~%i%~) = 1) BEGIN
@@ -264,9 +308,10 @@ BEGIN
   END
 END
 
-// Hook the BCS in the patch buffer. A script that fails to decompile, patch or compile is left
-// exactly as it was (bgse_result "failed").
+// Hook the BCS in the patch buffer; bgse_script is its resref in lower case. A script that
+// fails to decompile, patch or compile is left exactly as it was (bgse_result "failed").
 DEFINE_PATCH_FUNCTION bgse_hook_bcs
+  STR_VAR bgse_script = ~~
   RET bgse_result bgse_family bgse_copies
 BEGIN
   TEXT_SPRINT bgse_result ~failed~
@@ -277,7 +322,8 @@ BEGIN
     INNER_PATCH_SAVE baf ~%bcs%~ BEGIN
       DECOMPILE_BCS_TO_BAF
     END
-    LPF bgse_hook_baf STR_VAR bgse_baf = EVAL ~%baf%~ RET bgse_result bgse_family bgse_copies bgse_baf END
+    LPF bgse_hook_baf STR_VAR bgse_baf = EVAL ~%baf%~ bgse_script = EVAL ~%bgse_script%~
+      RET bgse_result bgse_family bgse_copies bgse_baf END
     PATCH_IF (~%bgse_result%~ STRING_EQUAL_CASE ~hooked~) BEGIN
       DELETE_BYTES 0 BUFFER_LENGTH
       INSERT_BYTES 0 (STRING_LENGTH ~%bgse_baf%~)

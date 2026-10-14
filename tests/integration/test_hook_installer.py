@@ -15,7 +15,8 @@ from tools import build_runtime, hook_rule
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / 'tests/fixtures/hook'
-HOOKED = {'B-HKMAG': ('mage', 6), 'B-HKPRI': ('priest', 2), 'B-HKRNG': ('fighter', 0)}
+HOOKED = {'B-HKMAG': ('mage', 7), 'B-HKPRI': ('priest', 2), 'B-HKRNG': ('fighter', 0),
+          'B-HKMON': ('monster', 6)}
 UNTOUCHED = ('B-HKNOA', 'B-HKOLD', 'B-HKCST', 'B-HKNON', 'B-HKVAN')
 
 # Authored synthetic identifiers with the signature shapes the fixtures use.
@@ -35,6 +36,7 @@ TRIGGER = """IDS V1.0
 0x400C CheckStatGT(O:Object*,I:Value*,I:StatNum*Stats)
 0x400D INI(S:Name*,I:Number*)
 0x400E HPPercentLT(O:Object*,I:Hit Points*)
+0x400F Die()
 """
 ACTION = """IDS V1.0
 0 NoAction()
@@ -56,6 +58,9 @@ ACTION = """IDS V1.0
 16 ClearActions(O:Object*)
 17 AttackReevaluate(O:Target*,I:ReevaluationPeriod*)
 18 UseItem(S:Object*,O:Target*)
+19 CreateCreatureObject(S:ResRef*,O:Object*,I:Usage1*,I:Usage2*,I:Usage3*)
+20 DestroySelf()
+21 Enemy()
 """
 IDS = {
     'OBJECT': 'IDS V1.0\n0 Nothing\n1 Myself\n12 NearestEnemyOf\n18 LastSeenBy\n20 LastHeardBy\n21 Player1\n22 Player2\n',
@@ -163,18 +168,23 @@ def test_installer_matches_reference_and_is_reversible(tmp_path: Path) -> None:
 
     output = _install(tmp_path, '--force-install-list', '0')
     assert 'SUCCESSFULLY INSTALLED' in output, output
-    assert 'BGSE hook: 3 SCS scripts hooked, 8 SCS blocks guarded, 3 left as they are.' in output, output
+    assert 'BGSE hook: 4 SCS scripts hooked, 15 SCS blocks guarded, 3 left as they are.' in output, output
     for name, reason in (('B-HKNOA', 'no-anchor'), ('B-HKOLD', 'already-hooked'), ('B-HKCST', 'no-castspell')):
         assert f'left {name} as it is ({reason})'.casefold() in output.casefold(), output
     installed = _snapshot(tmp_path)
     assert installed['override/m_bgse.lua'] == build_runtime.build().encode('utf-8')
     for name in UNTOUCHED:
         assert installed[f'override/{name.casefold()}.bcs'] == before[f'override/{name.casefold()}.bcs'], name
-    assert set(installed) - set(before) == {'override/m_bgse.lua'}
+    assert set(installed) - set(before) == {'override/m_bgse.lua', 'override/m_bgsehk.lua'}
+    # The registry lists exactly the hooked scripts, in lower case, with their family.
+    registry = installed['override/m_bgsehk.lua'].decode('ascii')
+    entries = sorted(line.strip() for line in registry.splitlines() if line.strip().startswith("['"))
+    assert entries == sorted(f"['{n.lower()}']='{f}'," for n, (f, _) in HOOKED.items()), registry
+    assert 'BGSE_HOOKED={' in registry
 
     hooked = _decompile(tmp_path, HOOKED)
     for name, (family, copies) in HOOKED.items():
-        expected, reason, got_family, got_copies = hook_rule.patch(originals[name])
+        expected, reason, got_family, got_copies = hook_rule.patch(originals[name], name)
         assert (reason, got_family, got_copies) == ('hooked', family, copies)
         assert hooked[name] == expected, name
 
