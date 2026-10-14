@@ -2,7 +2,9 @@
 
 Date: 2026-10-14. Step 1 of [the plan](../plans/2026-10-14-combat-intent-on-scs.md).
 Stack: the SCS-reference lab (BG2:EE 2.7.3.0, EET 14, EEex 1.2.0 with LuaJIT, SCS 35.21,
-Spell Revisions 4.21-chriz.5 and the rest of the CEBG collection), WeiDU 24900.
+Spell Revisions 4.21-chriz.5 and the rest of the CEBG collection), WeiDU 24900. A second,
+install-only lab without Spell Revisions (plain BG2:EE 2.7.3.0, EEex 1.2.0, SCS 35.21) is
+under "Without Spell Revisions".
 SCS is by David Wallace (DavidW); Spell Revisions by Demivrgvs and the Gibberlings Three.
 No SCS file or generated script is in this repository; the fixtures are synthetic.
 
@@ -74,6 +76,62 @@ copy's first trigger fails and SCS's script runs in its original order.
 - Install, reinstall and uninstall are exact in the fixture test. In the lab, the uninstall
   gave back all 1,028 scripts byte for byte.
 
+## Without Spell Revisions (install only)
+
+Second lab, same day: a new copy of unmodded BG2:EE 2.7.3.0 (the same executable as the first
+lab) with EEex 1.2.0 (core and main components) and SCS 35.21 from the same release, with the
+SCS components of the CEBG game that apply to BG2:EE on its own. No EET, Spell Revisions,
+Ascension or other mod; SCS skipped its four Ascension-only components (Illasera, Gromnir,
+Yaga-Shura, Abazigal). Scripts decompiled from PowerShell with WeiDU pointing at the lab. No
+game launch.
+- 838 scripts carry `castspell` (SR lab: 1,196). 718 hooked: 416 mage, 192 priest, 110
+  general AI, with 764 copied blocks (mage 415: 351 bookkeeping, 50 specials, 14 target picks;
+  priest 245: 244 bookkeeping, 1 special; general AI 104 specials). Most scripts get none (mage
+  344, priest 130, general AI 98). The same two scripts left alone (`sahamb02`, `sahamb05`, no
+  round timer). 118 monster-only scripts not hooked (SR lab: 166).
+- WeiDU's output matches the Python rule block for block on all 718 scripts (248,281 blocks),
+  with the same families and copy counts; only `M_BGSE.lua` is added. The install took
+  2.5 minutes, the uninstall 4 seconds, and afterwards all 8,488 files in `override` and the
+  game folder were byte-identical to before; `WeiDU.log` was put back from its copy.
+
+Compared with the SR lab:
+- SCS numbers its generated mage and priest scripts per install, so `dw#mg…` and `dw#pr…`
+  names don't match between the two games; they were compared by structure. The 115 hooked
+  scripts with fixed names in both games have the same anchor block and the same copies, apart
+  from string numbers. One differs in content: `elemimix` copies the same blocks, but SCS writes
+  vanilla Spell Immunity checks into them without SR and Shield of the Archons checks with SR.
+- Bookkeeping copies use the same SCS helper items and variables in both games (Melf's Minute
+  Meteors, Energy Blades, Star Blades): 64 mage and 61 priest scripts here, 65 and 66 there.
+- Everything else below the hook that differs between the games is a cast behind a spellbook
+  check (sequencers and triggers behind `HaveSpellRES`, no-decrement casts behind
+  `HaveSpell`); neither game copies those, by design.
+- New here: SCS's stone golem script (`golsto01`, 3 copies: Slow on the three nearest
+  enemies, like the other golems' powers; in the SR game another mod's stone golem script
+  replaces SCS's) and two general-AI scripts without copies (`dw3mc2ba`, `dw3mm2as`).
+- **Melissan.** Without Ascension, SCS's Throne of Bhaal villain component scripts the
+  original Melissan (`meliss01`–`03`). Her scripts carry SCS's general-AI settings, so they are
+  hooked (8, 9 and 23 copies). With Ascension (the SR lab) her script is `finmel`, which has
+  no family marker and stays with the monster-only scripts. Her own powers come first and
+  check the round timer, so the anchor is the first of them and the hook sits above them all.
+  Copied (`ForceSpellRES` and `ReallyForceSpellRES`): Taint of the Slayer, Blade Barrier,
+  Bone Blades, a whirlwind attack and SCS's fiend teleport. Not copied, so they stop while the
+  engine holds her: killing an undead (`ActionOverride` … `Kill`), summoning minions
+  (`CreateCreatureObjectEffect`) and her spell list: 105 blocks across the three scripts that
+  cast with `SpellNoDec` or `SpellNoDecRES` and no spellbook check (26 spells, among them her
+  heal, Time Stop, Power Word Kill, Dragon's Breath and the Symbols). These are not memorized
+  spells, so the engine would not offer them either.
+- The same kind of gap in the SR lab: one self-heal (`SpellNoDec`, Cure Critical Wounds, no
+  spellbook check) below the hook in Ascension's Illasera (`illasera`). A census of both games
+  found no other hooked script with such a block left below the hook (summons,
+  `ActionOverride`, `SpellNoDec` without a spellbook check, shape changes, cutscenes, global
+  plot variables).
+
+So the rule does not depend on Spell Revisions. It does depend on what counts as a special:
+`ForceSpell`-family casts without a spellbook check are copied; `SpellNoDec` casts without one,
+summons and `ActionOverride` commands are not. That only matters for scripted bosses (Melissan
+without Ascension, one Illasera block with it). Copying those too, or leaving such bosses to
+the monster-script pass, is Christopher's call.
+
 ## Lab fights
 
 Quiet room BG2602, one baseline save, one PC kept alive (minimum 1 HP plus protection from
@@ -131,12 +189,21 @@ autoloads `M_` files.
   (same bytes as before) and its three small `BFBOTBG*.MOS` files. They are not ours and stay.
 - **Decompiling.** WeiDU `--game … --out` decompiles failed under Git Bash ("None of the
   dialog paths were a match against en_us") and worked from PowerShell with the same
-  arguments. Not diagnosed.
+  arguments. Not diagnosed. In the second lab, PowerShell decompiled all 838 scripts in about
+  a minute, in chunks of 60.
+- **Line ends.** This PC's system git config sets `core.autocrlf=true`, so a fresh checkout
+  wrote `bgse/lua/M_BGSE.lua` with CRLF and the installer test's byte comparison with the
+  build failed. `.gitattributes` now keeps that file LF; the second lab installed the
+  committed bytes.
 
 ## Limits
 
-- One stack, with Spell Revisions. The rule matches SCS's generated structure, not spell
-  content, but no install without SR has been checked yet.
+- Two installs: the SR lab and plain BG2:EE with SCS but without SR, EET or Ascension
+  (install only, no fight). Other SCS versions, other spell or overhaul mods and EET without
+  SR are unchecked.
+- Specials are `ForceSpell`-family casts only; scripted bosses' `SpellNoDec` casts, summons
+  and `ActionOverride` commands below the hook stop while the engine holds them (Melissan
+  without Ascension, one Illasera block with it).
 - Specials ran in the lab only for the golem. Drake breath, elemental and hag powers and the
   target picks before specials are covered by the rule and the fixture tests, not by a fight.
 - The engine only held or ran one test response; real engine decisions start in step 3.
