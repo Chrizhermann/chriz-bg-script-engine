@@ -110,7 +110,8 @@ Compared with the SR lab:
   replaces SCS's) and two general-AI scripts without copies (`dw3mc2ba`, `dw3mm2as`).
 - **Melissan.** Without Ascension, SCS's Throne of Bhaal villain component scripts the
   original Melissan (`meliss01`–`03`). Her scripts carry SCS's general-AI settings, so they are
-  hooked (8, 9 and 23 copies). With Ascension (the SR lab) her script is `finmel`, which has
+  hooked (8, 9 and 23 copies under the step-1 rule; for the current rule see the re-check
+  below). With Ascension (the SR lab) her script is `finmel`, which has
   no family marker and stays with the monster-only scripts. Her own powers come first and
   check the round timer, so the anchor is the first of them and the hook sits above them all.
   Copied (`ForceSpellRES` and `ReallyForceSpellRES`): Taint of the Slayer, Blade Barrier,
@@ -135,6 +136,42 @@ Since then, the monster hook copies summons and other blocks beyond a combat rou
 ([HOOK-02](HOOK-02-monster-scripts-and-script-slots.md)), and Christopher agreed to copy the
 `SpellNoDec` casts as well (answer 10): a `SpellNoDec` or `SpellNoDecRES` cast without a
 spellbook check now counts as a special, unless the block also removes the spell.
+
+Re-checked in the same lab with that rule (`a4958c5`), install only:
+- 823 scripts hooked: 416 mage, 192 priest, 110 general AI and 105 monster. Left alone:
+  `sahamb02`, `sahamb05` and SCS's vampire minion script `dw#vmmin` (no round timer). 12
+  scripts with `castspell` carry no SCS difficulty setting.
+- Copies: 2,178 with the monster hook alone, 2,672 with answer 10 (mage 415 and priest 245
+  as before, general AI 110 → 335, monster 1,408 → 1,677). The 494 new copies are 200
+  `SpellNoDec` casts without a spellbook check and 294 target picks, in 31 scripts: Melissan's
+  three (105 casts, 120 picks) and 28 monster scripts (95 casts, 174 picks: fiends such as
+  Demogorgon, balors, glabrezus, succubi, alu-fiends and mariliths, the brown and shadow
+  dragons, Tahazzar and others). Run on the SR lab's 1,196 scripts, the same counting gives
+  that lab's 1,148 hooked scripts and 2,666 → 3,003 copies.
+- WeiDU hooked the same 823 scripts with the same families and copy counts and left the same
+  three alone. Its output decompiles to exactly the Python rule's text on all 823 (274,478
+  blocks), and `M_BGSEHK.lua` lists exactly these scripts with their families. Only
+  `M_BGSE.lua` and `M_BGSEHK.lua` were added; no other file changed. The install took about
+  3 minutes, the uninstall 2 seconds. Afterwards all 8,488 files were byte-identical to
+  before, after `WeiDU.log` was put back from its copy (the uninstall had added its
+  `// Recently Uninstalled` line).
+- **Melissan:** `meliss01`–`03` now carry 70, 81 and 120 copies (step-1 rule: 8, 9 and 23;
+  monster hook alone: 10, 11 and 25). All 105 `SpellNoDec` blocks are copied, with the target
+  picks before them. Killing an undead (`ActionOverride` … `Kill`) and summoning minions
+  (`CreateCreatureObjectEffect`) stay copied, as blocks beyond a combat round. Below the hook
+  only her ordinary round is left: melee, moving to a target, `AttackReevaluate`, `NoAction`
+  and variable resets.
+- **Still below the hook:** powers a creature applies to itself with `ApplySpell` or
+  `ApplySpellRES` and no spellbook check are not specials. 167 such blocks in 23 monster
+  scripts here, 170 in 26 in the SR lab. In SCS's 12 vampire scripts (both labs) the rat-form
+  cast (`dw#vmrat`, a copied special) sets `israt`; the steps after it are self-applies below
+  the hook: turning invisible, and turning back into the natural form (`dw#vmnrt`) when the
+  rat form runs out or a target is in reach. So a vampire that took rat form while the engine
+  holds it stays a rat until the engine declines. The others are single buffs: fire shields in
+  four genie scripts, stoneskin and protection from magic energy in four dragon scripts,
+  stoneskin or invisibility in two fiend scripts (Tahazzar, Karash), the brown dragon's
+  `runrun`, and with SR also Ascension's Abazigal and balor (stoneskin) and succubus (spell
+  deflection). Copying these is Christopher's call; nothing was changed.
 
 ## Lab fights
 
@@ -213,9 +250,9 @@ autoloads `M_` files.
 - Two installs: the SR lab and plain BG2:EE with SCS but without SR, EET or Ascension
   (install only, no fight). Other SCS versions, other spell or overhaul mods and EET without
   SR are unchecked.
-- Specials are `ForceSpell`-family casts only; scripted bosses' `SpellNoDec` casts, summons
-  and `ActionOverride` commands below the hook stop while the engine holds them (Melissan
-  without Ascension, one Illasera block with it).
+- Self-applied powers without a spellbook check (`ApplySpell`, `ApplySpellRES` on `Myself`)
+  are not copied, so they stop while the engine holds the creature; the vampires' way back
+  from rat form is among them (see "Without Spell Revisions").
 - Specials ran in the lab only for the golem. Drake breath, elemental and hag powers and the
   target picks before specials are covered by the rule and the fixture tests, not by a fight.
 - The engine only held or ran one test response; real engine decisions start in step 3.
