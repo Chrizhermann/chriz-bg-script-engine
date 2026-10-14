@@ -76,12 +76,14 @@ def test_monster_script_keeps_specials_and_everything_beyond_a_combat_round():
     spans, anchor, copies = hook_rule.plan(source)
     # The setup block stays above; the first round-timer block is the anchor. Copied: the
     # innate power, the summon with its target pick, the escape, the death handler, the
-    # allegiance change and the scripted heal cast with SpellNoDecRES. The ordinary attacks,
-    # the wandering and the two spellbook casts (checked with HaveSpell, or used up with
-    # RemoveSpell) are the engine's.
-    assert anchor == 1 and copies == [2, 3, 4, 6, 7, 8, 10]
+    # allegiance change, the scripted heal cast with SpellNoDecRES and the two steps of a
+    # shape change the creature applies to itself. The ordinary attacks, the wandering, the
+    # two spellbook casts (checked with HaveSpell, or used up with RemoveSpell), the
+    # self-application checked with HaveSpellRES and the power applied to an enemy are the
+    # engine's.
+    assert anchor == 1 and copies == [2, 3, 4, 6, 7, 8, 10, 13, 14]
     patched, reason, family, count = hook_rule.patch(source, 'B-HKMON')
-    assert (reason, family, count) == ('hooked', 'monster', 7)
+    assert (reason, family, count) == ('hooked', 'monster', 9)
     assert hook_rule.guard('monster', 'b-hkmon') in patched
 
 
@@ -112,6 +114,21 @@ def test_script_names_are_lower_case_and_must_be_safe_in_lua_text():
     ('See(NearestEnemyOf(Myself))', ['ReallyForceSpellRES("b-hkpow",Myself)', 'RemoveSpell(2124)'], True),
 ])
 def test_scripted_casts_without_a_spellbook_check_are_specials(trigger, actions, special):
+    lines = ''.join(f'    {a}\n' for a in actions)
+    block = f'IF\n  {trigger}\nTHEN\n  RESPONSE #100\n{lines}END\n'
+    assert hook_rule.is_special(block) is special
+
+
+@pytest.mark.parametrize('trigger,actions,special', [
+    ('Global("israt","LOCALS",1)', ['Wait(1)', 'ApplySpellRES("b-hkhid",Myself)', 'SetGlobal("israt","LOCALS",2)'], True),
+    ('See(NearestEnemyOf(Myself))', ['ApplySpell(Myself,WIZARD_MIRROR_IMAGE)'], True),
+    ('See([PC.0.0.MAGE])', ['ApplySpellRES("b-hknat",Myself)', 'AttackOneRound([PC.0.0.MAGE])'], True),
+    # Checked against the spellbook, or applied to someone else: not the creature's own power.
+    ('HaveSpellRES("b-hkhid")', ['ApplySpellRES("b-hkhid",Myself)'], False),
+    ('See(NearestEnemyOf(Myself))', ['ApplySpellRES("b-hkpow",NearestEnemyOf(Myself))'], False),
+    ('See(NearestEnemyOf(Myself))', ['ApplySpell(NearestEnemyOf(Myself),WIZARD_MIRROR_IMAGE)'], False),
+])
+def test_powers_a_creature_applies_to_itself_are_specials(trigger, actions, special):
     lines = ''.join(f'    {a}\n' for a in actions)
     block = f'IF\n  {trigger}\nTHEN\n  RESPONSE #100\n{lines}END\n'
     assert hook_rule.is_special(block) is special

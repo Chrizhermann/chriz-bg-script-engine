@@ -171,7 +171,21 @@ Re-checked in the same lab with that rule (`a4958c5`), install only:
   four genie scripts, stoneskin and protection from magic energy in four dragon scripts,
   stoneskin or invisibility in two fiend scripts (Tahazzar, Karash), the brown dragon's
   `runrun`, and with SR also Ascension's Abazigal and balor (stoneskin) and succubus (spell
-  deflection). Copying these is Christopher's call; nothing was changed.
+  deflection). Christopher agreed to copy them (answer 11, below).
+
+Since answer 11 (2026-10-15), a block whose response applies a spell to the creature itself
+(`ApplySpellRES("…",Myself)` or `ApplySpell(Myself,…)`) and whose triggers check no spellbook
+or item is a special too. On the decompiled scripts the rule adds exactly the blocks above:
+167 in 23 monster scripts without SR (2,672 → 2,839 copies) and 170 in 26 with SR (3,003 →
+3,173). Mage, priest and general-AI scripts get none: their self-applies sit above the
+anchor, in bookkeeping runs or in casts checked against the spellbook. In the vampire
+scripts the copies are the rat's whole cycle: turning invisible, turning back when the rat
+form runs out, and the ambush that turns back and attacks a mage, thief or bard in reach.
+Below the anchor, every block that applies a spell without a spellbook check is now copied
+in both labs. A block that only applied a spell to another creature would stay the
+engine's, but there is none. WeiDU, installing on copies of the SR lab's 1,196 SCS scripts,
+hooked the same 1,148 with the same 3,173 copies; its output decompiles to exactly the
+Python rule's text on all of them, and every other script kept its bytes.
 
 ## Lab fights
 
@@ -250,9 +264,9 @@ autoloads `M_` files.
 - Two installs: the SR lab and plain BG2:EE with SCS but without SR, EET or Ascension
   (install only, no fight). Other SCS versions, other spell or overhaul mods and EET without
   SR are unchecked.
-- Self-applied powers without a spellbook check (`ApplySpell`, `ApplySpellRES` on `Myself`)
-  are not copied, so they stop while the engine holds the creature; the vampires' way back
-  from rat form is among them (see "Without Spell Revisions").
+- Self-applied powers without a spellbook check are copied since answer 11 (see "Without
+  Spell Revisions"), checked on the host: the rule over both labs' scripts, the installer on
+  the SR lab's scripts and on synthetic ones.
 - Specials ran in the lab only for the golem. Drake breath, elemental and hag powers and the
   target picks before specials are covered by the rule and the fixture tests, not by a fight.
 - The engine only held or ran one test response; real engine decisions start in step 3.

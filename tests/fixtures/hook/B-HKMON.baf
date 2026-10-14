@@ -116,3 +116,35 @@ THEN
     RemoveSpell(WIZARD_MAGIC_MISSILE)
 END
 
+IF
+  Global("shape","LOCALS",1)
+THEN
+  RESPONSE #100
+    ApplySpellRES("b-hkhid",Myself)
+    SetGlobal("shape","LOCALS",2)
+END
+
+IF
+  Global("shape","LOCALS",2)
+  !GlobalTimerNotExpired("shapetime","LOCALS")
+THEN
+  RESPONSE #100
+    SetGlobal("shape","LOCALS",0)
+    ApplySpell(Myself,WIZARD_MIRROR_IMAGE)
+END
+
+IF
+  HaveSpellRES("b-hkhid")
+  See(NearestEnemyOf(Myself))
+THEN
+  RESPONSE #100
+    ApplySpellRES("b-hkhid",Myself)
+END
+
+IF
+  See(NearestEnemyOf(Myself))
+THEN
+  RESPONSE #100
+    ApplySpellRES("b-hkpow",NearestEnemyOf(Myself))
+END
+

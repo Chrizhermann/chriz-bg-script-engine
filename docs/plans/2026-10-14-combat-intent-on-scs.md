@@ -376,7 +376,9 @@ Open after step 1 (2026-10-14):
    own choices. The groundwork is
    [ASC-01](../research/ASC-01-ascension-specials.md) (2026-10-15): every special of
    Ascension's bosses, how it leaves fair play, whether Ascension, SCS or vanilla wrote it,
-   and design options to talk through.
+   and design options to talk through. On the cheapest option, showing everything in the
+   log and over the head: "Das müssen wir meiner Meinung nach aber nicht mit prio 1 jetzt
+   machen, das wäre aber cool für später." **So:** later, not now.
 10. **Scripted casts without a spellbook check** (`SpellNoDec`, `SpellNoDecRES`; found by the
     no-SR check): the hook rule leaves them below the hook, so they stop while the engine
     holds the creature. That matters for Melissan without Ascension (105 blocks, her whole
@@ -394,7 +396,13 @@ Open after step 1 (2026-10-14):
     shields, dragon stoneskin and protection from magic energy, a fiend's stoneskin or
     invisibility, and with SR Ascension's Abazigal, balor and succubus. Suggested: copy them
     above the hook like answers 5 and 10, so the creature keeps SCS's powers while the engine
-    holds it. Open. (HOOK-01)
+    holds it. (HOOK-01)
+    **Answer: yes.** "Klar. Gibt es eine Alternative, oder ist das einfach die beste Lösung?"
+    The alternatives were worse: handing the creature back to SCS while it is in such a state
+    needs every SCS script's own variable names, and the engine applying these powers itself
+    would apply effects directly, against the fair-play rule; taking powers over belongs to
+    the later work of answer 5. Done on 2026-10-15: exactly those blocks are copied now, and
+    mage, priest and general-AI scripts get no new copies.
 
 Christopher's ideas so far (living list; more will follow):
 - **Started casts don't fail when the target runs out of sight.** Reported in September:

@@ -43,6 +43,10 @@ UNGATED_CAST = {'ForceSpell', 'ForceSpellRES', 'ReallyForceSpell', 'ReallyForceS
 # too (Christopher's answer 10), unless the block also removes the spell: then it uses up a
 # spellbook entry after all.
 NO_DECREMENT = {'SpellNoDec', 'SpellNoDecRES'}
+# Powers a creature applies to itself without a spellbook check are its own abilities too
+# (Christopher's answer 11), for example the steps of a vampire's rat form or a genie's fire
+# shield.
+SELF_POWER = re.compile(r'^ {4}(ApplySpellRES\("[^"]*",Myself\)|ApplySpell\(Myself,)', re.M)
 # What an ordinary combat round is made of: casts, items, attacks, weapons, movement around
 # enemies, waiting, and the variables, timers and messages that go with them. A block at or
 # below the anchor with any other action belongs to SCS's own logic and is copied above the
@@ -123,12 +127,12 @@ def carries_items(block):
 
 
 def is_special(block):
-    trig, _ = split(block)
+    trig, resp = split(block)
     if SPELLBOOK_GATE.search(trig):
         return False
     names = [n for r in responses(block) for n in r]
     return any(n in UNGATED_CAST for n in names) or (
-        any(n in NO_DECREMENT for n in names) and 'RemoveSpell' not in names)
+        any(n in NO_DECREMENT for n in names) and 'RemoveSpell' not in names) or bool(SELF_POWER.search(resp))
 
 
 def is_encounter(block):
