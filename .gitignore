@@ -9,3 +9,6 @@ __pycache__/
 build/
 dist/
 .work/
+
+# WeiDU backups when installing from a checkout
+bgse/backup/
