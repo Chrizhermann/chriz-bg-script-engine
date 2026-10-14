@@ -1,7 +1,9 @@
 # Combat Intent on SCS — design
 
 **Status:** proposed for Christopher's review, 2026-10-14. His answers to the
-first-release questions are recorded under "To design with Christopher".
+first-release questions are recorded under "To design with Christopher". Step 1 (hook
+placement and the component skeleton) is done; see "Step 1 result". Steps 2–3 wait for
+Christopher's look at it.
 **Replaces:** the delivery model of the August plan (stop/go gates, evidence grades,
 exact-hash activation, per-spell admission). The August goals stay: smarter, fairer,
 more dynamic fights first, scripted encounter phases next, quests (WorldFlow) later.
@@ -55,12 +57,11 @@ At runtime the work is split:
 Christopher decided on 2026-10-14 that the engine drives monsters and named creatures from
 the first release; their SCS specials stay (see "To design with Christopher").
 
-**Hook.** A small block at the top of a creature's SCS combat script asks the engine for
-a decision. If the engine has one, the creature performs it with a normal action; if not,
-SCS's own blocks run exactly as before. This handoff already works in the lab
-(`docs/research/BCS-01-lua-handoff.md`). Where exactly the block sits relative to SCS's
-setup, preparation and special blocks is the first implementation step: the engine must
-not starve SCS's bookkeeping, prebuffs or specials.
+**Hook.** A small block in a creature's SCS script asks the engine for a decision. If the
+engine has one, the creature performs it with a normal action; if not, SCS's own blocks
+run exactly as before (`docs/research/BCS-01-lua-handoff.md`). The block sits just before
+SCS's per-round action choice, below SCS's setup, prebuffs and preparation; SCS
+bookkeeping and specials from further down are copied above it (see "Step 1 result").
 
 ## Read SCS's setup or recreate it?
 
@@ -181,11 +182,74 @@ SCS has shouts and per-creature timers but no group plan. The director is new.
 ## Order of work after approval
 
 1. **Hook placement:** where the block sits in SCS-generated scripts (lab check), plus the
-   installable component skeleton (WeiDU, EEex required, kill switch).
+   installable component skeleton (WeiDU, EEex required, kill switch). **Done 2026-10-14.**
 2. **Spell classifier and creature profile reader,** with logic tests.
 3. **Fight director and per-creature decisions** for mages, priests and fighters.
 4. **The lab fight scenario, batch runner and engine-on versus SCS comparison logs.**
 5. **Iterate on fight quality,** then the experimental CEBG component.
+
+## Step 1 result: hook placement (2026-10-14)
+
+**Where the hook sits.** The installer recognises SCS-generated scripts by SCS's own round
+timer (`castspell`) and difficulty settings (`DMWW_…`), never by name or hash. It puts the
+hook directly before the first block of SCS's per-round action choice: the first block that
+checks the round timer, skipping SCS's first-round preparation and the ranged fighters'
+retarget block. Everything above stays SCS's and runs first: setup, rest and alert state,
+prebuffs, contingencies, the first-round sequencer or protection, cloud escape, chasing and
+the non-hostile guards.
+
+**Guarded copies.** A few SCS blocks below that point must keep running while the engine
+drives the creature:
+- the bookkeeping that keeps Melf's Minute Meteors, Energy Blades and Star Blades working
+  (item swaps and charges);
+- abilities cast without a spellbook check (golem haste, drake breath, a hag's or an
+  elemental's powers), with the target-picking blocks they rely on.
+
+The installer copies these above the hook, each with the engine's claim as its first
+condition, and leaves the originals where they are. When the engine declines or is switched
+off, the copies don't fire and SCS's script runs in its exact original order. When the engine
+takes the round, the copies keep SCS's bookkeeping and specials alive.
+
+**In the lab game** (EET, SCS, Spell Revisions and the CEBG collection): 1,028 SCS scripts
+hooked (585 mage, 307 priest, 136 general AI) with 799 copied blocks; 2 scripts without a
+round timer left as they are; every other file unchanged. A Python version of the rule
+(`tools/hook_rule.py`) produces the same scripts block for block. The install takes about
+4 minutes; decompiling and recompiling SCS's scripts is most of it, and that round trip on
+its own changes no byte.
+
+**Lab check:** two level-18 mages, a level-18 priest, a melee and a ranged fighter and a
+clay golem, all installed SCS creatures, against one PC kept alive; one fight per case from
+the same save.
+- *Engine present but declining:* SCS ran as before: prebuffs (Stoneskin, Mind Blank), the
+  first-round sequencer, a spell most rounds, golem haste every three rounds, fighters
+  attacking. Each creature's hook was asked 30–108 times a minute and declined; no errors.
+- *Engine holding every round:* prebuffs and the first-round sequencer above the hook still
+  ran; round casts and attacks stopped; the golem's copied haste still fired every three
+  rounds; a test response on the priest ran once.
+- *Switches:* switching the fighter family off mid-fight gave the fighters and the golem back
+  to SCS at once; the global switch then gave back the mages and the priest. The Baldur.lua
+  switch writes and reads back.
+- *Bookkeeping:* with the engine holding, a mage given the Energy Blades item ran SCS's
+  copied bookkeeping twice: the item was swapped for SCS's helper item and the charge counter
+  set, as SCS's own block does. It happened right after the mage's 24-second Time Stop cast;
+  responses chosen during a running cast wait for it, with or without the engine.
+
+**Not hooked yet:** 166 SCS monster scripts with no mage, priest or general-AI part
+(dragons, beholders, demons, Bodhi, Sarevok, Melissan, …). Their specials include plot
+actions (summons, shape changes, plot variables), so they get their own pass.
+
+**Found on the way:** an SCS mage that stays invisible re-applies its invisibility animation
+on every script pass; the priest version checks whether it already did. Held for a minute,
+one mage's effect list grew from 123 to 467 entries. The hook doesn't cause this, but the
+engine must not keep an invisible mage waiting. Also, at the lab's SCS difficulty setting the
+general AI destroys a fighter's potions on its first pass; the first milestone's "fighters
+with potions" needs a setting where SCS keeps them.
+
+**What the engine must do when it acts** (for step 3): set SCS's round timer and hold while
+its own action runs; set `firedsequencer` when it fires a sequencer; keep SCS's limit of
+three level-9 spells per mage (`l9_mage_spells`); keep SCS's group flags (Malison, time-stop
+recast, curing blindness, the beholder flags); decline when the creature perceives no enemy,
+so SCS's chase and closedown run.
 
 ## To design with Christopher
 
@@ -209,6 +273,16 @@ Short decisions for the first release, answered by Christopher on 2026-10-14:
    **Answer: the mixed group (suggested).** Real installed SCS creatures in the quiet lab
    room: two fighters with potions, a priest, a mage and a monster against a party of four
    to six. The variant with two mages and two priests comes later.
+
+Open after step 1 (2026-10-14):
+5. **Abilities without a spellbook check** stay SCS's for every family, including monsters
+   run by SCS's general AI (golem haste, drake breath, beholder telekinesis). Should some of
+   them become engine choices?
+6. **Named specials that are spellbook entries** (Abazigal's breath, Kruin's wild magic) look
+   like ordinary spells to the engine. Classify them with the other spells in step 2, or keep
+   them SCS's?
+7. **The 166 monster-only SCS scripts** (dragons, beholders, demons, Bodhi, Sarevok,
+   Melissan, …): their own step after the first mixed fight?
 
 Christopher's ideas so far (living list; more will follow):
 - **Started casts don't fail when the target runs out of sight.** Reported in September:

@@ -10,16 +10,19 @@ quests (WorldFlow) later. It is planned as an optional, experimental component o
 ## Status
 
 Private, in development, nothing released. In a disposable lab today:
-- a small runtime kernel and the BCS→Lua handoff, where a script block asks the engine and falls
-  through to the creature's own script when the engine declines;
-- two lab mages casting Magic Missile through the engine, with interruption, switching off and
-  loading a save checked.
+- an installable WeiDU component (needs EEex) that hooks SCS's mage, priest and general-AI
+  scripts just before SCS's per-round action choice, keeps SCS's bookkeeping and special
+  abilities running, and has a global switch plus one per creature family;
+- with the hook installed, real SCS creatures fight as before while the engine declines, and
+  hand their rounds over when it claims them;
+- a small runtime kernel and the BCS→Lua handoff; two lab mages casting Magic Missile through
+  the engine, with interruption, switching off and loading a save checked.
 
 Short plans, group reservations and spatial checks pass host tests. A test priest's Turn Undead
 choices were compared with SCS's own in two lab runs.
 
-Next: hook into SCS-generated scripts, classify spells by their effects, a group fight director,
-and the first big mixed lab fight.
+Next: classify spells by their effects, read creature profiles, a group fight director, and the
+first big mixed lab fight.
 
 ## Start here
 

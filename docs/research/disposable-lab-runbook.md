@@ -103,6 +103,10 @@ save routing. Leave that check open for a permitted backend method or a later ma
 - For a small experiment, back up the specific lab files being changed and restore those files
   afterwards. Record additions so they can be removed from the lab. For an installed mod, use its
   normal WeiDU uninstall path when appropriate; do not hand-edit the install log.
+- WeiDU rewrites the whole `WeiDU.log` on every install and uninstall: `--quick-log` drops the
+  component names and an uninstall adds a `// Recently Uninstalled` line. Copy the log before
+  installing a test component; after its uninstall, check that the entries match the copy and
+  put the copy back. (HOOK-01)
 - If the lab is badly broken, close its game/loader first, preserve useful test evidence and
   rename the exact lab `game` folder to a dated failed-copy folder. Re-run the fresh-copy recipe
   and reapply the lab `engine.lua`. Never mirror or restore into the source installation.
