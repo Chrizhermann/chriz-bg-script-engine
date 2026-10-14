@@ -102,13 +102,26 @@ files alone, whatever Spell Revisions, SCS or other mods changed?
   only `EEex_ReadU8` available, and the profile classifies like the host records.
 - `tools/reader_parity.py` runs the same reader over every SPL, ITM, EFF and PRO of a game
   folder through a fake memory that maps only the resource being read. On both lab games and Christopher's two installs (up to 7,814 spells, 5,921 items, 1,933 EFF and 577 projectiles per folder) every record matches the host parser, the projectile maps match and no read leaves a resource.
+- In the SR lab game on Insane (2026-10-15) the reader returned the host parser's records for
+  all 6,744 SPL, 1,654 EFF and 417 PRO files and for 4,930 of 4,932 items, and the same 435
+  projectile numbers; reading all of them took 4.7 s, 2.9 s of it for the spells. The two other
+  items (`NPCHAN`, `NPSHLD`) have equipping effects with -1 dice sides in their files. The
+  game showed -1 too before a save was loaded and 0 after loading the lab save, while the
+  PC carries neither item: loading the save changed the engine's own copy, and the reader
+  reads that copy. Who carries them was not traced; 72 other items with negative dice sides
+  read as in their files.
+- Profiles of 11 lab creatures (two mages, a priest, two fighters, a clay golem, a
+  tanar'ri, a maurezhi, a glabrezu, a vampiric illithid, a mature vampire): a level-18
+  caster's first read took 13–29 ms, later reads 0–8 ms; no record was missing and the
+  reader logged no problem. Each mage showed 36 spells (40 or 41 ready copies), 31 or 32 of
+  which its spell buttons offered.
 
 ## Limits
 
-- Nothing has run in game yet. The next lab batch compares the in-game reader with the host
-  parser on the lab game and dumps creature profiles. The binding shapes the creature
-  snapshot relies on (item array, button lists, memorized lists) come from the engine
-  header and EEex's own scripts, not from a game run.
+- In game only in the SR lab, from one save, for 11 creatures. The no-SR lab has no profile
+  or save yet.
+- Once a save is loaded, the engine's copy of an item can differ from its file (seen for
+  two items' dice sides), so in-game records can differ from host records there.
 - Amounts are averages. Repeats (272, 333, cycles) are approximate, and conditional effects
   (177 with an IDS filter, 326, 366) are counted as if they applied.
 - Who gets an effect comes from its target field. SR's and SCS's own target filters (318 and

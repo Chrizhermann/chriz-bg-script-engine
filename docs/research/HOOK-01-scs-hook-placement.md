@@ -265,8 +265,9 @@ autoloads `M_` files.
   (install only, no fight). Other SCS versions, other spell or overhaul mods and EET without
   SR are unchecked.
 - Self-applied powers without a spellbook check are copied since answer 11 (see "Without
-  Spell Revisions"), checked on the host: the rule over both labs' scripts, the installer on
-  the SR lab's scripts and on synthetic ones.
+  Spell Revisions"), checked on the host (the rule over both labs' scripts, the installer on
+  the SR lab's scripts and on synthetic ones) and in one lab fight: a mature vampire the
+  engine held ran SCS's rat cycle three times in 60 seconds (step-2 batch, HOOK-02).
 - Specials ran in the lab only for the golem. Drake breath, elemental and hag powers and the
   target picks before specials are covered by the rule and the fixture tests, not by a fight.
 - The engine only held or ran one test response; real engine decisions start in step 3.

@@ -189,8 +189,8 @@ SCS has shouts and per-creature timers but no group plan. The director is new.
    (answers 5 and 6). **The 166 monster-only SCS scripts get the hook** (answer 7; done
    2026-10-14, see "Monster hook result"). **The spell classifier works on the host**
    (2026-10-14, [SPELLS-01](../research/SPELLS-01-spell-classifier.md)); the in-game reader
-   and the creature profile are written and host-tested (2026-10-15) and get their lab check
-   in the next batch.
+   and the creature profile work in the lab game (2026-10-15). **Done 2026-10-15,** see
+   "Step 2 lab batch".
 3. **Fight director and per-creature decisions** for mages, priests, fighters and monsters.
 4. **The lab fight scenario, batch runner and engine-on versus SCS comparison logs,** on
    Insane (answer 8), with a run without the hook to time SCS against.
@@ -285,6 +285,25 @@ Details in [HOOK-02](../research/HOOK-02-monster-scripts-and-script-slots.md).
   scripts (fiends, two dragons, Ascension's bosses, one general AI) and 207 target picks,
   3,003 copies in all; WeiDU and the Python rule still agree on every script.
 - **So far:** host tests only; monsters join the next lab batch.
+
+## Step 2 lab batch (2026-10-15)
+
+SR lab on Insane with SCS's per-component settings at their highest (answer 8), three hidden
+launches, the lab restored afterwards (all 1,196 SCS scripts byte-identical).
+- **In-game reader:** the same records as the host parser for every SPL, EFF and PRO file,
+  4,930 of 4,932 items and all 435 projectile numbers. The two other items differ only after
+  a save is loaded, where the engine's own copy changed. Creature profiles of 11 creatures
+  (mages, a priest, fighters, a golem, fiends, an illithid, a vampire) took at most 29 ms.
+  ([SPELLS-01](../research/SPELLS-01-spell-classifier.md))
+- **Engine declining:** casters and monsters fought as without the component; casts after
+  SCS's round timer ran out came at the same delays as without the hook.
+- **Engine holding the monsters:** their ordinary rounds stopped and their copied powers
+  ran: the tanar'ri's innate casts and the vampire's whole rat cycle, three times in a
+  minute (answer 11). The glabrezu declined because of an unhooked script below, and the
+  illithid's lower fighter script left it to its monster script.
+  ([HOOK-02](../research/HOOK-02-monster-scripts-and-script-slots.md))
+- **Lab lesson:** a save brings its own difficulty; the batch now sets Insane in game after
+  every load. The first baseline ran on Normal and was redone.
 
 ## To design with Christopher
 

@@ -101,11 +101,37 @@ scripts; no game folder was touched.
   in two scripts; 94 of the 120 have such blocks). The main melee choice is below the anchor.
 - The install takes about 4 minutes, as in step 1.
 
+## Lab fights (2026-10-15)
+
+SR lab on Insane, SCS settings at their highest, the rule with answers 10 and 11 installed
+(1,148 scripts, 3,173 copies). One PC, protected and alone, against five monsters: a
+tanar'ri (`tanari` above SCS's fighter AI), a maurezhi (`demmau01`), a glabrezu
+(`demglab2` with an unhooked script below), a vampiric illithid (a shout script above
+`flayun` above `dw2mp2ge`) and a mature vampire (a shout script above `vampir01`, with
+SCS's test switch `dw_test_vampire_tricks` set so it takes rat form). Each phase ran
+900 ticks (holding: 1,800) and was compared with the same fight without the component.
+- **Declining** (no decider): every claim was declined (596 times for want of a decider, 57
+  because of the glabrezu's script below, once for the illithid's lower script) and the
+  fight looked like the baseline: the same kinds of innate casts, the vampire's rat form, melee.
+- **Holding every claimed creature:** 445 holds, no errors. The maurezhi and the illithid
+  stopped acting. The tanar'ri still cast its copied innate powers (two `SpellNoDec`, two
+  `ForceSpell`) and the vampire ran its whole rat cycle three times, a fourth starting at
+  the end: rat form (copied `ForceSpell`), invisibility and the return to its natural form
+  when the rat form ran out (copied self-applies, answer 11). The glabrezu declined every
+  time ("script-below") and fought as SCS's.
+- **Script slots:** with the engine declining, the illithid's monster script asked 32 times
+  and its fighter AI below once, which declined as the lower script; while holding, only the
+  monster script asked (113 times), and the tanar'ri's fighter AI never asked. That fits the
+  slot order: the higher script asks first and usually ends the pass.
+- **Casters with the engine declining:** casts after SCS's round timer ran out came at the
+  same delays as without the component (6, 22, 38, 70 or 278 ticks; median 22 against 16,
+  21 casts against 15), so the declining hook adds no visible latency.
+
 ## Limits
 
-- No lab fight with a hooked monster yet; the arbitration has host tests only. The slot order
-  comes from SCRLEV.IDS and EEex's documentation; a creature's higher slot asking first has
-  not been seen in the lab yet.
+- One lab batch, five monsters, a lone protected PC. The engine only declined or held; no
+  real decision has run. The slot order comes from SCRLEV.IDS and EEex's documentation and
+  was consistent with one creature in the lab.
 - A monster script asks the engine up to about 17 times a pass (its copies and the hook).
   Only the first ask in a pass is evaluated, the rest get the stored answer, and the first one
   now also reads the creature's script slots. None of this is timed in game yet.
