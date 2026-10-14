@@ -100,6 +100,8 @@ files alone, whatever Spell Revisions, SCS or other mods changed?
 - Host tests run both on synthetic files through a fake EEex memory that flags any read
   outside a resource: the reader returns exactly the host parser's records, also with
   only `EEex_ReadU8` available, and the profile classifies like the host records.
+- `tools/reader_parity.py` runs the same reader over every SPL, ITM, EFF and PRO of a game
+  folder through a fake memory that maps only the resource being read. On both lab games and Christopher's two installs (up to 7,814 spells, 5,921 items, 1,933 EFF and 577 projectiles per folder) every record matches the host parser, the projectile maps match and no read leaves a resource.
 
 ## Limits
 
