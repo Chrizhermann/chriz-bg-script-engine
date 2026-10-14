@@ -1,6 +1,7 @@
 # Combat Intent on SCS — design
 
-**Status:** proposed for Christopher's review, 2026-10-14.
+**Status:** proposed for Christopher's review, 2026-10-14. His answers to the
+first-release questions are recorded under "To design with Christopher".
 **Replaces:** the delivery model of the August plan (stop/go gates, evidence grades,
 exact-hash activation, per-spell admission). The August goals stay: smarter, fairer,
 more dynamic fights first, scripted encounter phases next, quests (WorldFlow) later.
@@ -46,17 +47,20 @@ At runtime the work is split:
 
 | SCS keeps | The engine adds |
 |---|---|
-| Prebuffs and preparation, contingencies and sequencers | The in-combat action choice for mages, priests and fighters, informed by the group |
-| Named and encounter specials (Kruin, Sendai, Irenicus, …) | A fight director that makes the group act together |
+| Prebuffs and preparation, contingencies and sequencers | The in-combat action choice for mages, priests, fighters and monsters, informed by the group |
+| The special moves of named and encounter creatures (Kruin, Sendai, Irenicus, …) | A fight director that makes the group act together, named creatures included |
 | Monster specials (golems, dragons, beholders, vampires, …) | Keeping area spells off allies; reacting to how the fight is going |
 | Idle, non-hostile, panic and chase behaviour | Potion timing and target choice for fighters |
+
+Christopher decided on 2026-10-14 that the engine drives monsters and named creatures from
+the first release; their SCS specials stay (see "To design with Christopher").
 
 **Hook.** A small block at the top of a creature's SCS combat script asks the engine for
 a decision. If the engine has one, the creature performs it with a normal action; if not,
 SCS's own blocks run exactly as before. This handoff already works in the lab
 (`docs/research/BCS-01-lua-handoff.md`). Where exactly the block sits relative to SCS's
-setup and preparation blocks is the first implementation step: the engine must not
-starve SCS's bookkeeping or prebuffs.
+setup, preparation and special blocks is the first implementation step: the engine must
+not starve SCS's bookkeeping, prebuffs or specials.
 
 ## Read SCS's setup or recreate it?
 
@@ -85,11 +89,12 @@ Decision (proposed):
 ## Which creatures take part
 
 - **At install time** the component adds the hook to creatures whose scripts are SCS
-  mage, priest or general-AI scripts. The SCS script name only helps find them; the patch
-  checks the script really looks like SCS output first. A creature that doesn't match
-  keeps pure SCS or vanilla behaviour. No exact hashes anywhere.
+  mage, priest, general-AI or monster scripts. The SCS script name only helps find them;
+  the patch checks the script really looks like SCS output first. A creature that doesn't
+  match keeps pure SCS or vanilla behaviour. No exact hashes anywhere.
 - **Named SCS creatures** (SCS's own per-creature flags such as `IsKruin`, plus its named
-  special scripts) stay pure SCS in the first release and can be enrolled one by one later.
+  special scripts) take part from the first release (Christopher, 2026-10-14). Their
+  special moves stay SCS's; the engine takes over the rest of their fight where it can.
 - **Per-creature extras** come from SCS's own override tables in the installed game at
   our install time (for example DoNotPrebuff, NoContingency, NoSequencers, Indiscriminate).
   SCS uses them when it generates a creature's script, so they are not visible at runtime;
@@ -184,13 +189,26 @@ SCS has shouts and per-creature timers but no group plan. The director is new.
 
 ## To design with Christopher
 
-Short decisions for the first release:
+Short decisions for the first release, answered by Christopher on 2026-10-14:
 1. **Monsters:** in the first release, should golems, dragons, beholders and the like
    keep their SCS specials and only join the group plan (suggested), or should the engine
    drive them too?
+   **Answer: the engine drives them too.** The engine also picks monsters' combat actions;
+   their SCS specials stay.
 2. **Named SCS creatures:** stay pure SCS at first (suggested)?
+   **Answer: enroll them from the start.** The engine takes them over where it can; their
+   specials stay.
 3. **Difficulty:** follow SCS's own difficulty settings (suggested), or a separate slider?
+   **Answer, in Christopher's words:** "The sliders are parallel to what the game has... It
+   has the same difficulty steps usually, just leaving some out sometimes. I think we should
+   just do the same, but do know: I want to increase some in difficulty, especially on
+   insane and above (even though there should not be anything above) once we have taken
+   over everything." So the engine follows the same difficulty steps as SCS and the game;
+   raising the difficulty is later work (see the ideas list).
 4. **First lab fight:** is there a specific fight or group you'd like to see first?
+   **Answer: the mixed group (suggested).** Real installed SCS creatures in the quiet lab
+   room: two fighters with potions, a priest, a mage and a monster against a party of four
+   to six. The variant with two mages and two priests comes later.
 
 Christopher's ideas so far (living list; more will follow):
 - **Started casts don't fail when the target runs out of sight.** Reported in September:
@@ -205,6 +223,9 @@ Christopher's ideas so far (living list; more will follow):
   effects are the best candidates; homing projectiles can't be outrun.
 - **Smarter spell use, dispelling and breaching, scaled by how clever the enemy is.**
   Fits the personality and difficulty layer.
+- **Harder fights on the top difficulties, once the engine runs everything.** Oct 14: "I
+  want to increase some in difficulty, especially on insane and above (even though there
+  should not be anything above) once we have taken over everything."
 
 Bigger design topics, in a dedicated design session:
 - what the director should do in typical situations (which threats come first, when a
