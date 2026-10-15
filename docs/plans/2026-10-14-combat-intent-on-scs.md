@@ -398,6 +398,17 @@ Open after step 1 (2026-10-14):
    and design options to talk through. On the cheapest option, showing everything in the
    log and over the head: "Das müssen wir meiner Meinung nach aber nicht mit prio 1 jetzt
    machen, das wäre aber cool für später." **So:** later, not now.
+   Clarified the same day: the missing log line is not the main problem. Ascension's
+   abilities carry real spells' names but follow other rules: "du siehst ähm, deinen
+   Charakter der so starke Spell-Saving-Throws hat, dass er gegen Blade-Barrier niemals den
+   Saving-Throw verlieren könnte. Plötzlich wie er zerrissen wird von Blade-Barrier, von
+   Amelisan." The questions are whether we want such advantages at all, for example in the
+   last fights, and if so, "wie machen wir es klar, dass ein Spieler verstehen kann, was
+   gerade passiert oder er sich vielleicht sogar darauf vorbereiten kann?" Ascension's
+   concept stays valuable; long term it may be improved or replaced. The design is
+   Christopher's, proposals welcome. Checked in the files: the game's Blade Barrier does 8d8
+   with a save vs spell, SR's 1d8 per hit without a save, and Melissan's, under the same
+   name, 12d12 with a save vs death at −2 to −9 by caster level.
 10. **Scripted casts without a spellbook check** (`SpellNoDec`, `SpellNoDecRES`; found by the
     no-SR check): the hook rule leaves them below the hook, so they stop while the engine
     holds the creature. That matters for Melissan without Ascension (105 blocks, her whole

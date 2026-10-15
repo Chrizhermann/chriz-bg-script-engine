@@ -120,7 +120,7 @@ spells; Ascension's version already mixes `ForceSpell` and `SpellNoDec`).
 | FINMEL | Every 3–6 rounds by difficulty while few enemies are up | `ForceSpellRES("gate5")` | Gate: 2 cambions, a succubus, and an alu-fiend, a babau and nabassu, a marilith, a glabrezu or a balor | U I | Asc |
 | FINMEL | Insane, once | `ForceSpellRES("gate7")`, "Come to your mistress, minions of the Abyss!" | 2 Fallen Solars | U I | Asc |
 | FINMEL | Per target, every 10, 5, 3 or 2 rounds (Easy, Normal, Core, Hard and up), 40 % per pass | `ForceSpellRES("melis01")` | Bone Blades: 5d10 slashing + 5d10 piercing (save vs death −4), then the same again without a save; held 3 s, slowed, −2 DEX. The installed numbers are higher than the notes' 10d6 + 10d6. One display-string effect points at strref 3, an unrelated dialogue line in this install | U I R C | Asc |
-| FINMEL | An enemy within reach and no Carsomyr nearby | `ForceSpellRES("melis02")` | Blade Barrier: a contingency around her that fires 12d12 slashing (save vs death −2, bypasses Mirror Image) | U I R C | Asc |
+| FINMEL | An enemy within reach and no Carsomyr nearby | `ForceSpellRES("melis02")` | Blade Barrier: a contingency around her that fires 12d12 slashing (save vs death at −2 to −9 by caster level, bypasses Mirror Image). It carries the real spell's name; the game's own Blade Barrier does 8d8 with a save vs spell, SR's 1d8 per hit without a save | U I R C | Asc |
 | FINMEL | Every 5 rounds | `ForceSpellRES` or `SpellNoDecRES("mels545")` | Symbol of Slow: slow, AC −4, THAC0 −4, half movement for 2 rounds (save vs spell −4) | U, I half the time, R | Asc |
 | FINMEL | `malison_timer` | `ForceSpellRES` or `SpellNoDecRES("melspl07")` | Greater Malison: −4 to saves for 90 s; magic resistance applies | U, I half the time | Asc |
 | FINMEL | Melee range; every 3 rounds as area, at will as single target (notes) | `ForceSpellRES("melspl08")` with an attack animation | Unleash: 8d12 magic, knockback, 3 s unconscious (save vs death −4); costs her one attack, half movement and 3 STR for 2 rounds | U I R C | Asc |
@@ -288,6 +288,11 @@ mixed per boss. Gameplay decisions are Chris's.
    the creature's visible HP; hidden heals become visible heals.
 5. **Difficulty-scaled honesty.** Below Insane: options 1–4. On Insane, the old Ascension rules
    stay as an opt-in "legendary" mode, but announced as in option 1.
+
+Christopher's clarification (2026-10-15): the missing information is secondary. The main
+problem is abilities that carry a real spell's name but follow other rules, so players can
+neither understand nor prepare for them; the first question is whether such advantages are
+wanted at all. Option 1 alone does not solve that; options 3 and 4 aim at it.
 
 A cheap first step would be option 1, because it changes no balance and answers the "no
 information" complaint directly; options 2–4 are then chosen boss by boss.
