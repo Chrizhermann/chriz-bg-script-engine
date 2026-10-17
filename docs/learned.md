@@ -243,7 +243,7 @@ Credit: SCS is by DavidW, Spell Revisions by Demivrgvs and Gibberlings Three con
 - Licensing: the SCS readme allows code reuse with full credit and asks that SCS not be mirrored. No SCS-derived data is approved for outside release, and no SCS source or generated script is committed. (SCS-pilot-oracle)
 - Difficulty has no setting sweep and no fairness measure. (SCS-06)
 - Timing: SCS's delay from its round timer to the next cast was measured only with the hook installed. A run without the hook is still missing. (HOOK-01)
-- The director perceives a lying creature with a search run from where it lies. Whether that matches the engine's own sight (`See()`, object selection) is untested. Creatures in the flight and under lists are not perceived at all. (DIRECTOR-01)
+- The director perceives a lying creature with a search run from where it lies. In the lab, every sleeping-dummy sample (164) entered the group's picture that way. Whether that matches the engine's own sight (`See()`, object selection) is untested. Creatures in the flight and under lists are not perceived at all. (DIRECTOR-01)
 - Decoding a copy of a cast's object at its start is not proven to name the creature the engine picks later, when positions may have changed. A sleeping creature named that way may need `checkBackList` set. (DIRECTOR-01)
 
 ## 9. Spell and item data

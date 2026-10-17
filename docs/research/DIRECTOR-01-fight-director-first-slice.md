@@ -248,9 +248,40 @@ Casts at dummies over the 12 fights, area spells aimed at a creature included:
 
 Launch D checks this in game.
 
-### Launch D
+### Launch D: the fixes work in game
 
-To be filled in from the batch.
+The mid-level group again, 5 + 5 fights, with every sample also recording the director's
+picture. The lab was restored afterwards, as before.
+
+- **Sleepers:** dummies were asleep in 164 samples. Each one was in the director's picture,
+  seen within the round, and marked disabled. Before the fix: 0 of 56.
+- **Casts at a kind of creature:** 41 were decoded, and 20 of them got advice. Of those, 2
+  went to the focus, and 2 stayed because the focus was of another kind. "Original unseen" no
+  longer came up at all; before, it was the reason for every such cast.
+- **Focus:** one or two picks per fight. The first focus held for 475 to 1,081 ticks, and each
+  loss was logged ("unseen"). Before, there were up to three silent changes per fight.
+- **Errors:** none.
+- **Redirects:** 5 in 5 fights (before: 1 in 11):
+  - 4 damage casts went to the focus: two of them at a kind of creature, and two away from a
+    sleeping dummy;
+  - 1 disable went from a disabled target to a free one.
+- **Disables at an already disabled target:**
+
+  | | Director off | Director on |
+  |---|---|---|
+  | Wasted disables | 11 of 42 | 7 of 51 |
+  | Doubled within a round, per fight | 0.8 | 0.6 |
+
+  Every remaining waste had no free alternative in sight: Dire Charm or Charm Person on a
+  confused or panicked target. That case belongs to the engine's own spell choice
+  (Christopher's answer below).
+- **Fight outcome:** no measurable change. Damage was the same (717 against 720 per fight). On
+  average 2.6 dummies died with the director off and 2.0 with it on, and the one fight in
+  which all four died had the director on. With 5 redirected casts out of 186 starts, that is
+  SCS's randomness. The director changes too few casts to show in the result.
+
+So the first slice does what was agreed: the group keeps a shared picture and a focus, and
+coordinated casts go where they help. The bigger lever is the engine's own choices.
 
 ## Open for Christopher
 

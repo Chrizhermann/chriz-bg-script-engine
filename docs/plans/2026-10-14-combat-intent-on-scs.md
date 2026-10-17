@@ -345,8 +345,16 @@ cast SCS has already chosen.
   - lying creatures are perceived;
   - casts at a kind of creature are decoded, and redirected only to the same kind;
   - the focus is remembered for a round.
+- **Launch D, the fixes in game (5 + 5 fights):**
+  - all 164 sleeping-dummy samples were in the director's picture;
+  - 41 casts at a kind of creature were decoded, and none was left "unseen" any more;
+  - the first focus held for 475 to 1,081 ticks;
+  - 5 redirects in 5 fights, and no errors;
+  - wasted disables fell from 11 of 42 to 7 of 51. Every remaining one had no free
+    alternative.
 
-  Launch D checks the fixes in game.
+  The fights' outcome did not change measurably: the advisor alters too few casts. The next
+  lever is the engine's own spell and target choice.
 
 **Open for Christopher**, asked 2026-10-18:
 
