@@ -351,6 +351,14 @@ cast SCS has already chosen.
 **Open for Christopher**, asked 2026-10-18:
 
 1. Dire Charm on an already confused or panicked target: waste, or an upgrade?
+   **Answer: waste.** "Verschwendung. Aber sehr bescheuerte/unweise Magier könnten sowas
+   eventuell machen? Ich weiß nicht, ob es solche gibt." **So:** a confused or panicked
+   target counts as disabled, as the director already treats it. It redirects such a cast to
+   a free target it can see; with none, SCS's cast still goes ahead for now. Cancelling it
+   would cost the creature its round, because SCS's round timer is already running. The
+   clean fix belongs to the next step: when the engine chooses spells itself, it does not
+   pick such a cast. Unwise casters are an idea for the personality layer (see the ideas
+   list).
 2. Casts at a kind of creature: same kind only (now), or any creature?
 3. No alternative: keep SCS's cast (now), or cancel it so SCS picks something else?
 4. Area spells: aim them at the focus or at the biggest cluster without allies?
@@ -540,6 +548,17 @@ Christopher's ideas so far (living list; more will follow):
   ich hoffen, dass das schnell innerhalb des Games klappen könnte, ohne dass äh, die KI dann
   irgendwie super langsam werden würde." Fits the personality layer; a few numbers per
   creature in the scoring cost little at run time.
+  Oct 18, on Dire Charm at an already confused target: "Aber sehr bescheuerte/unweise Magier
+  könnten sowas eventuell machen? Ich weiß nicht, ob es solche gibt." Checked in the SR lab's
+  creature files:
+  - Of the casters with wizard spells, only duergar and a few dwarves have INT 8 or less, and
+    their one spell is an innate invisibility.
+  - Low WIS among priest-spell users is just as rare (Minsc, imps).
+  - The files' values are a weak guide: many important casters carry a default 9 in every
+    stat, Dracandros and drow mages among them.
+
+  So a "how clever" value would come from our own small table (by race, kind or kit) rather
+  than from the creature files.
 - **The group protects itself, not only dispels the party.** Oct 18, on "one dispeller per
   protection": "und im Falle von SR Dispelling Screen oder mit und ohne SR andere AOE oder
   Single target schutzspells. Aber eher natürlich die, die für fights gerecht sind und

@@ -256,6 +256,11 @@ To be filled in from the batch.
 
 1. Dire Charm (or another stronger disable) on a target that is already confused or panicked:
    waste, or an upgrade because the target then fights for the caster? (asked 2026-10-18)
+   **Answer: waste**, though "sehr bescheuerte/unweise Magier könnten sowas eventuell machen".
+   The director already treats such a target as disabled. With no free alternative the cast
+   still goes ahead, since cancelling it would cost the creature its round under SCS's running
+   round timer. The engine's own spell choice (the next step) will not pick it. Unwise
+   casters belong to the personality layer.
 2. Casts at a kind of creature now go only to another creature of the same kind. Should the
    director be allowed to pick any creature?
 3. With no alternative, the director keeps SCS's cast. Should it instead cancel the cast, so
