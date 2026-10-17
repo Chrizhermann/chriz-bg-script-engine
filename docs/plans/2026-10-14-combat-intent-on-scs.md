@@ -409,6 +409,15 @@ Open after step 1 (2026-10-14):
    Christopher's, proposals welcome. Checked in the files: the game's Blade Barrier does 8d8
    with a save vs spell, SR's 1d8 per hit without a save, and Melissan's, under the same
    name, 12d12 with a save vs death at −2 to −9 by caster level.
+   On the proposals (2026-10-18): "genau". **So, for later:** no hidden rule changes (an
+   ability named like a real spell follows that spell's rules); a boss that needs more gets
+   its own ability with its own name, description (damage, which save, what helps against
+   it) and look; strength comes from visible means (higher caster level, more spells,
+   faster casting, the engine's clever use, enemies working together, as Balthazar
+   already does); especially hard abilities are announced a round ahead and can be
+   countered (distance, a specific protection, interruption); hints in dialogue or the
+   journal let players prepare. Long term, Ascension's story and dialogue stay and its
+   fights are rebuilt boss by boss with the engine and encounter phases, from ASC-01.
 10. **Scripted casts without a spellbook check** (`SpellNoDec`, `SpellNoDecRES`; found by the
     no-SR check): the hook rule leaves them below the hook, so they stop while the engine
     holds the creature. That matters for Melissan without Ascension (105 blocks, her whole
@@ -480,6 +489,11 @@ Christopher's ideas so far (living list; more will follow):
   ich hoffen, dass das schnell innerhalb des Games klappen könnte, ohne dass äh, die KI dann
   irgendwie super langsam werden würde." Fits the personality layer; a few numbers per
   creature in the scoring cost little at run time.
+- **The group protects itself, not only dispels the party.** Oct 18, on "one dispeller per
+  protection": "und im Falle von SR Dispelling Screen oder mit und ohne SR andere AOE oder
+  Single target schutzspells. Aber eher natürlich die, die für fights gerecht sind und
+  schnell. Da müssen wir später mal schauen, was Sinn macht." A protector role in the
+  director, preferring fast protections that suit a fight; which spells, later.
 
 Bigger design topics, in a dedicated design session:
 - what the director should do in typical situations (which threats come first, when a
