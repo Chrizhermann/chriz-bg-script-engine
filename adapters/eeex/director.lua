@@ -4,7 +4,9 @@
 -- action at a creature starts, the director advises. To redirect it, this adapter reads the
 -- caster's frame afresh with details, checks the new target once more and changes the starting
 -- action's target, as EEex's own SpellToPoint listener changes a starting action: the cast
--- keeps its casting time, spell slot and interruption. Session-local; a load forgets it all.
+-- keeps its casting time, spell slot and interruption. A cast aimed at a kind of creature
+-- ([PC.0.0.MAGE]) has no target yet when it starts; a decoded copy of its object names the
+-- creature it would hit. Session-local; a load forgets it all.
 -- Errors never reach the engine: the cast then goes ahead as the creature's script chose it.
 local sense=require('adapters.eeex.sense')
 local resources=require('adapters.eeex.resources')
@@ -18,6 +20,11 @@ M.cacheLimit=512
 M.prefixes={'SPPR','SPWI','SPIN','SPCL'}
 
 local function text(value) return (value:match('^[^%z]*'):upper()) end
+-- The IDS values a creature-type object names, as plain numbers (0 for any).
+function M.kindOf(object)
+    return {ea=object.m_EnemyAlly,general=object.m_General,race=object.m_Race,class=object.m_Class,
+        specific=object.m_Specifics,gender=object.m_Gender,alignment=object.m_Alignment}
+end
 function M.resref(action)
     local name=text(action.m_string1.m_pchData:get())
     if name~='' then return name end
@@ -97,23 +104,40 @@ function M.new(g,options)
         counts.starts=counts.starts+1
         local resref=M.resref(action)
         local original=action.m_acteeID.m_Instance
+        local object
+        -- A cast at a kind of creature: the engine decodes the object as the cast runs; decode a
+        -- copy the same way (EEex evaluates a copy) to learn whom it names.
+        if type(original)~='number' or original<0 then
+            local ok,named=pcall(g.EEex_Object_EvalAsAIBase,action.m_acteeID,sprite,false)
+            if not ok then failed('decode',named)
+            elseif named and g.EEex_GameObject_IsSprite(named,false) then
+                original,object=named.m_id,M.kindOf(action.m_acteeID)
+            end
+        end
         local spell=resref and summary(sprite,resref)
         local member={id=id,family=memberFamily[id]}
-        local cast={spell=resref,role=targeting.role(spell),target=original,original=original,action=31}
+        local cast={spell=resref,role=targeting.role(spell),target=original,original=original,action=31,
+            typed=object~=nil or nil}
         local allowed=root and root.gate and member.family and root.gate:allows(member.family)
         if allowed and spell and targeting.kind(spell) and original~=id then
             local frame=sense.frame(g,sprite,tick,true)
             if frame then
                 d:checkIn(member,frame)
                 counts.advised=counts.advised+1
-                local advice=d:advise(member,frame,spell,original,tick)
+                local advice=d:advise(member,frame,spell,original,tick,object)
                 if advice.action=='redirect' then
                     -- The last check: the new target is still a living sprite the caster sees.
                     local target=g.EEex_GameObject_Get(advice.target)
                     local seen=false
                     for _,e in ipairs(frame.enemies) do if e.id==advice.target then seen=true end end
                     if target and seen and g.EEex_GameObject_IsSprite(target,false) then
-                        action.m_acteeID.m_Instance=advice.target
+                        if object then
+                            -- The object takes the new target's AI type, as the engine fills in
+                            -- an object it has decoded; its instance then names the target.
+                            action.m_acteeID:Set(target:virtual_GetAIType())
+                        else
+                            action.m_acteeID.m_Instance=advice.target
+                        end
                         if action.m_acteeID.m_Instance==advice.target then
                             cast.target=advice.target;cast.redirected=true
                             counts.redirected=counts.redirected+1

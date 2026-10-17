@@ -89,4 +89,18 @@ local unread=enemy();unread.protections=nil
 assert(legal(unread)=='protected')
 groups=groups+1
 
+-- 5. A cast at a kind of creature: another target only with the named creature's values in
+-- every IDS field the object names; MAGE_ALL is held to the named creature's own class.
+local named={id=2,ids={ea=2,general=1,race=1,class=1,specific=0,gender=1,alignment=0}}
+local function kin(ids) return {id=3,ids=ids} end
+local mageKind={ea=2,general=0,race=0,class=1,specific=0,gender=0,alignment=0}
+assert(targeting.sameKind(kin({ea=2,class=1,race=4}),named,mageKind))
+assert(not targeting.sameKind(kin({ea=2,class=7}),named,mageKind) and not targeting.sameKind(kin({ea=3,class=1}),named,mageKind))
+assert(not targeting.sameKind(kin({class=1}),named,mageKind) and not targeting.sameKind({id=3},named,mageKind))
+assert(targeting.sameKind(kin({ea=2,class=1}),named,{ea=2,class=202}))
+assert(not targeting.sameKind(kin({ea=2,class=13}),named,{ea=2,class=202}))
+assert(targeting.sameKind(kin({}),named,nil) and not targeting.sameKind(kin({ea=2,class=1}),named,'odd'))
+assert(not targeting.sameKind(kin({ea=2,class=1}),named,{ea=2,class='1'}))
+groups=groups+1
+
 return groups

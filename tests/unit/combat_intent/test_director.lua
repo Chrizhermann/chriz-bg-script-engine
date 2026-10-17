@@ -140,4 +140,47 @@ s=back:inspect()
 assert(s.members==0 and s.enemies==0 and s.focus==nil and s.log[#s.log].kind=='invalidated')
 groups=groups+1
 
+-- 7. A cast at a kind of creature: another target must be of the kind its object names, for a
+-- disable's alternative and for the focus alike.
+local function kinOf(id,class,fields) local e=enemy(id,fields);e.ids={ea=2,general=1,class=class};return e end
+local mageKind={ea=2,general=0,race=0,class=1,specific=0,gender=0,alignment=0}
+local kd=director.new({})
+f=frame(700,nil,{kinOf(11,1,{held=1}),kinOf(12,2),kinOf(13,1)})
+kd:checkIn(mage,f)
+-- 12 is nearer but no mage.
+a=kd:advise(mage,f,hold,11,700,mageKind)
+assert(a.action=='redirect' and a.target==13 and kd:inspect().log[#kd:inspect().log].typed==true)
+assert(kd:advise(mage,f,hold,11,700).target==12)
+f=frame(701,nil,{kinOf(11,1,{held=1}),kinOf(12,2)})
+assert(kd:advise(mage,f,hold,11,701,mageKind).reason=='disabled-no-alternative')
+local kf=director.new({})
+f=frame(702,nil,{kinOf(11,1),kinOf(12,2,{hp=5})})
+kf:checkIn(mage,f)
+assert(kf:advise(mage,f,bolt,11,702,mageKind).reason=='focus-other-kind')
+assert(kf:advise(mage,f,bolt,11,702).reason=='focus')
+kf:started(mage,{spell='TESTHOLD',role='disable',target=11,original=11,typed=true},703)
+assert(kf:inspect().log[#kf:inspect().log].typed==true and kf:inspect().reservations[1].target==11)
+-- The group's picture: when each enemy was last seen, by how many, whether disabled.
+local known=kd:inspect().known
+assert(#known==3 and known[1].id==11 and known[1].disabled==true and known[2].seenBy==1 and known[3].lastTick==700)
+groups=groups+1
+
+-- 8. The focus lapses a round after no member has seen it, or when it dies; the loss is logged.
+local lost={}
+local fl=director.new({sink=function(row) lost[#lost+1]=row end})
+fl:checkIn(mage,frame(10,nil,{enemy(11)}))
+assert(fl:focus(10)==11)
+fl:tick(100)
+assert(fl:inspect().focus==11)
+fl:tick(101)
+s=fl:inspect()
+assert(s.focus==nil and s.counts.focusLost==1 and lost[#lost].kind=='focus' and lost[#lost].previous==11)
+assert(lost[#lost].why=='unseen' and lost[#lost].target==nil)
+fl:checkIn(mage,frame(110,nil,{enemy(12)}))
+assert(fl:focus(110)==12)
+fl:checkIn(mage,frame(111,nil,{enemy(12,{hp=0,state=0x800})}))
+fl:tick(111)
+assert(lost[#lost].why=='dead' and lost[#lost].previous==12 and fl:inspect().counts.focusLost==2)
+groups=groups+1
+
 return groups

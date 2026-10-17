@@ -8,9 +8,11 @@ local targeting=require('combat-intent.targeting')
 local values=require('kernel.manifest')
 local M={}
 -- Game ticks, 15 a second. A member that has not checked in for memberTicks has left; what a
--- member saw is current for enemyTicks; a disable reservation lasts reserveTicks at most and
--- graceTicks after its cast ended, so the disable can show before another one is allowed.
-M.defaults={memberTicks=150,enemyTicks=45,reserveTicks=225,graceTicks=30,forgetTicks=450,
+-- member saw is current for enemyTicks, a round, since members check in only when their script
+-- reaches its hook and that pauses while they cast (gaps of 48 to 128 ticks in the lab, 16
+-- otherwise); a disable reservation lasts reserveTicks at most and graceTicks after its cast
+-- ended, so the disable can show before another one is allowed.
+M.defaults={memberTicks=150,enemyTicks=90,reserveTicks=225,graceTicks=30,forgetTicks=450,
     logCapacity=256,families={mage=true,priest=true}}
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
@@ -25,7 +27,7 @@ function M.new(config)
     local members,enemies,reservations,attempts={},{},{},{}
     local focus,lastTick=nil,nil
     local log,nextRow,size={},1,0
-    local counts={checkIns=0,advice=0,redirects=0,keeps=0,focusChanges=0,attempts=0,ended=0,
+    local counts={checkIns=0,advice=0,redirects=0,keeps=0,focusChanges=0,focusLost=0,attempts=0,ended=0,
         released=0,sinkErrors=0}
     local api={}
 
@@ -113,7 +115,9 @@ function M.new(config)
         return focus
     end
 
-    local function advise(member,frame,spell,original,tick)
+    -- object: for a cast aimed at a kind of creature, the IDS values its script named; another
+    -- target must be of that kind too (targeting.sameKind).
+    local function advise(member,frame,spell,original,tick,object)
         local family=members[member.id] and members[member.id].family or member.family
         if not o.families[family] then return {action='keep',reason='family'} end
         local kind,why=targeting.kind(spell)
@@ -130,7 +134,7 @@ function M.new(config)
             if not busy then return {action='keep',kind=kind,reason='free'} end
             local best,bestDistance
             for key,e in pairs(byId) do
-                if key~=original and not targeting.disabled(e) and
+                if key~=original and not targeting.disabled(e) and targeting.sameKind(e,first,object) and
                     (holder(key,tick)==nil or holder(key,tick)==member.id) and targeting.legal(caster,e,spell,first) then
                     local d=key==target and -1 or targeting.distance(caster,e)
                     if best==nil or d<bestDistance or (d==bestDistance and key<best) then best,bestDistance=key,d end
@@ -147,20 +151,22 @@ function M.new(config)
         if targeting.health(first)<targeting.health(chosen) then
             return {action='keep',kind=kind,reason='original-more-wounded'}
         end
+        if not targeting.sameKind(chosen,first,object) then return {action='keep',kind=kind,reason='focus-other-kind'} end
         local ok,blocked=targeting.legal(caster,chosen,spell,first)
         if not ok then return {action='keep',kind=kind,reason='focus-'..blocked} end
         return {action='redirect',kind=kind,target=target,reason='focus'}
     end
-    -- A member's own cast at original is starting: keep it, or take another target.
-    function api:advise(member,frame,spell,original,tick)
+    -- A member's own cast at original is starting: keep it, or take another target. object as
+    -- for advise above, nil for a cast at one creature.
+    function api:advise(member,frame,spell,original,tick,object)
         clock(tick);counts.advice=counts.advice+1
-        local ok,result=pcall(advise,member,frame,spell,original,tick)
+        local ok,result=pcall(advise,member,frame,spell,original,tick,object)
         local err
         if not ok then err=tostring(result):sub(1,200);result={action='keep',reason='error'} end
         if result.action=='redirect' then counts.redirects=counts.redirects+1 else counts.keeps=counts.keeps+1 end
         record({kind=result.action,tick=tick,member=member.id,family=member.family,
             spell=type(spell)=='table' and spell.resref or nil,castKind=result.kind,from=original,
-            to=result.target,reason=result.reason,focus=focus,error=err})
+            to=result.target,reason=result.reason,focus=focus,typed=object~=nil or nil,error=err})
         return result
     end
 
@@ -177,7 +183,8 @@ function M.new(config)
             reservations[cast.target]={owner=member.id,from=tick,untilTick=tick+o.reserveTicks}
         end
         record({kind='start',tick=tick,member=member.id,family=member.family,spell=cast.spell,
-            role=role,target=cast.target,original=cast.original,redirected=cast.redirected or nil})
+            role=role,target=cast.target,original=cast.original,redirected=cast.redirected or nil,
+            typed=cast.typed or nil})
     end
     -- A member started some other action: its cast, if any, is over.
     function api:action(member,tick) clock(tick);finish(member,tick,'next-action') end
@@ -193,7 +200,12 @@ function M.new(config)
         for key,r in pairs(reservations) do
             if r.untilTick<=tick or not members[r.owner] then reservations[key]=nil;counts.released=counts.released+1 end
         end
-        if focus and not fresh(enemies[focus],tick) then focus=nil end
+        if focus and not fresh(enemies[focus],tick) then
+            local e=enemies[focus]
+            counts.focusLost=counts.focusLost+1
+            record({kind='focus',tick=tick,previous=focus,why=e and not targeting.alive(e) and 'dead' or 'unseen'})
+            focus=nil
+        end
     end
     function api:invalidate(reason)
         members,enemies,reservations,attempts,focus,lastTick={},{},{},{},nil,nil
@@ -204,10 +216,19 @@ function M.new(config)
         for target,r in pairs(reservations) do held[#held+1]={target=target,owner=r.owner,untilTick=r.untilTick} end
         table.sort(held,function(a,b) return a.target<b.target end)
         local count=function(t) local n=0;for _ in pairs(t) do n=n+1 end;return n end
+        -- The group's picture of each enemy: when it was last seen, by how many members within
+        -- enemyTicks of that, and whether it was disabled then.
+        local known={}
+        for key,e in pairs(enemies) do
+            local seenBy=0
+            for member,at in pairs(e.seenBy) do if members[member] and e.lastTick-at<=o.enemyTicks then seenBy=seenBy+1 end end
+            known[#known+1]={id=key,lastTick=e.lastTick,seenBy=seenBy,disabled=targeting.disabled(e)}
+        end
+        table.sort(known,function(a,b) return a.id<b.id end)
         local rows,first={},(nextRow-size-1)%o.logCapacity+1
         for i=0,size-1 do rows[#rows+1]=values.copy(log[(first+i-1)%o.logCapacity+1]) end
         return {area=area,members=count(members),enemies=count(enemies),focus=focus,reservations=held,
-            counts=values.copy(counts),log=rows}
+            known=known,counts=values.copy(counts),log=rows}
     end
     return api
 end

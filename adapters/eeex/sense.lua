@@ -1,6 +1,9 @@
 -- What one creature perceives right now, as plain values: itself and the living creatures it
 -- can see, found with EEex's area search (sight range and line of sight, as the NumCreature()
--- trigger counts them) and minus the invisible ones unless it sees invisible creatures. Sides
+-- trigger counts them) and minus the invisible ones unless it sees invisible creatures. That
+-- search walks only the area's front list; creatures lying down (asleep, unconscious) are in
+-- the back list with the dead, and one counts as seen when the same search from where it lies
+-- finds this creature. Sides
 -- follow the engine's EA groups: for a creature on the evil side (EA 200 and up) the good side
 -- (EA 2 to 30) are enemies and the evil side are allies. With details, each enemy also carries
 -- its creature IDS values and the spell protections a script can test (SCS's triggers read the
@@ -20,6 +23,8 @@ for _,op in ipairs({83,101,102,197,198,199,200,201,202,203,204,205,206,207,223,2
 end
 -- Effects read per list at most, so a creature with a runaway effect list costs little.
 M.maxEffects=1024
+-- Searches from lying creatures per frame at most (each one is an area search).
+M.maxLying=32
 
 local function band(g,a,b) return g.EEex_BAnd(a,b) end
 local function stat(g,sprite,n)
@@ -65,6 +70,32 @@ function M.side(ea)
     if ea>=2 and ea<=M.GOOD_CUTOFF then return 'good' end
 end
 
+-- The living creatures lying in the area's back list that this creature sees: the area search
+-- from where each one lies, with this creature's terrain table for line of sight, finds it.
+-- consider(object) files a sprite as ally or enemy; seen holds the ids already filed.
+local function lying(g,sprite,self,seen,consider)
+    local area=sprite.m_pArea
+    local back=area and area.m_lVertSortBack
+    if not back then return end
+    local ids={}
+    g.EEex_Utility_IterateCPtrList(back,function(id) ids[#ids+1]=id end)
+    local ok,terrain=pcall(function() return sprite:virtual_GetVisibleTerrainTable() end)
+    if not ok then terrain=nil end
+    local searches=0
+    for _,id in ipairs(ids) do
+        if searches>=M.maxLying then return end
+        local object=not seen[id] and id~=self.id and g.EEex_GameObject_Get(id)
+        if object and g.EEex_GameObject_IsSprite(object,false) and M.side(object.m_typeAI.m_EnemyAlly)~=nil then
+            seen[id]=true
+            searches=searches+1
+            local found=false
+            g.EEex_Area_ForAllOfTypeStringInRange(area,object.m_pos.x,object.m_pos.y,'[ANYONE]',M.sightRange,
+                function(other) if other~=nil and other.m_id==self.id then found=true end end,1,0,terrain)
+            if found then consider(object) end
+        end
+    end
+end
+
 -- The creature's frame at tick, or nil when it is on no side. detailed adds IDS values and
 -- protections for each enemy. A blind creature perceives no one.
 function M.frame(g,sprite,tick,detailed)
@@ -76,10 +107,7 @@ function M.frame(g,sprite,tick,detailed)
     local frame={tick=tick,area=area and text(area.m_resref:get()) or '',self=self,enemies={},allies={}}
     if band(g,self.state,M.blind)~=0 then return frame end
     local seen={}
-    -- Numeric flags: EEex's wrapper turns a Lua false into its default.
-    g.EEex_Sprite_ForAllOfTypeStringInRange(sprite,'[ANYONE]',M.sightRange,function(object)
-        if object==nil or seen[object.m_id] or object.m_id==self.id or not g.EEex_GameObject_IsSprite(object,false) then return end
-        seen[object.m_id]=true
+    local function consider(object)
         local other=M.side(object.m_typeAI.m_EnemyAlly)
         if other==nil then return end
         if not self.seeInvisible and band(g,g.EEex_Sprite_GetState(object),M.unseen)~=0 then return end
@@ -89,7 +117,14 @@ function M.frame(g,sprite,tick,detailed)
             if detailed then M.details(g,object,entry) end
             frame.enemies[#frame.enemies+1]=entry
         end
+    end
+    -- Numeric flags: EEex's wrapper turns a Lua false into its default.
+    g.EEex_Sprite_ForAllOfTypeStringInRange(sprite,'[ANYONE]',M.sightRange,function(object)
+        if object==nil or seen[object.m_id] or object.m_id==self.id or not g.EEex_GameObject_IsSprite(object,false) then return end
+        seen[object.m_id]=true
+        consider(object)
     end,1,0)
+    lying(g,sprite,self,seen,consider)
     table.sort(frame.enemies,function(a,b) return a.id<b.id end)
     table.sort(frame.allies,function(a,b) return a.id<b.id end)
     return frame

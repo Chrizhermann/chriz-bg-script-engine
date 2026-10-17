@@ -921,6 +921,8 @@ for n=68,78 do M.builtinSingle[n]=true end
 M.rangeUnit=16
 -- IDS files a spell's creature filter can name (opcodes 175, 177, 283).
 M.IDS={[2]='ea',[3]='general',[4]='race',[5]='class',[6]='specific',[7]='gender',[8]='alignment'}
+-- The IDS fields of a creature-type object, as sense.lua reads a creature's.
+M.KIND_FIELDS={'ea','general','race','class','specific','gender','alignment'}
 -- Roles that tie a cast to its target for reasons the director does not judge (a dispel
 -- picks the protected enemy) or that are not attacks at all.
 local KEEP_ROLES={'removal','heal','raise','cure','summon'}
@@ -1019,6 +1021,26 @@ function M.protected(target,spell)
     return false
 end
 
+-- A cast aimed at a kind of creature ([PC.0.0.MAGE]) names its creature only when the engine
+-- decodes it; object holds the IDS values the script named (0 for any). Whether target is of
+-- that kind as surely as original, the creature the object named: the same value as original
+-- in every field the object names. Stricter than the engine's own matching (MAGE_ALL takes any
+-- mage), never looser. Without an object any target is.
+function M.sameKind(target,original,object)
+    if object==nil then return true end
+    if type(object)~='table' or type(target)~='table' or type(original)~='table' then return false end
+    for _,field in ipairs(M.KIND_FIELDS) do
+        local want=object[field]
+        if want~=nil and want~=0 then
+            if not number(want) then return false end
+            local a=type(target.ids)=='table' and target.ids[field]
+            local b=type(original.ids)=='table' and original.ids[field]
+            if a==nil or a==false or a~=b then return false end
+        end
+    end
+    return true
+end
+
 -- Whether target may take the cast instead of original, the enemy the creature's script chose
 -- (both entries of the caster's frame). Nothing here is stricter than "no worse than the
 -- original": range up to the farther of the spell's range and the original's distance, magic
@@ -1056,9 +1078,11 @@ local targeting=require('combat-intent.targeting')
 local values=require('kernel.manifest')
 local M={}
 -- Game ticks, 15 a second. A member that has not checked in for memberTicks has left; what a
--- member saw is current for enemyTicks; a disable reservation lasts reserveTicks at most and
--- graceTicks after its cast ended, so the disable can show before another one is allowed.
-M.defaults={memberTicks=150,enemyTicks=45,reserveTicks=225,graceTicks=30,forgetTicks=450,
+-- member saw is current for enemyTicks, a round, since members check in only when their script
+-- reaches its hook and that pauses while they cast (gaps of 48 to 128 ticks in the lab, 16
+-- otherwise); a disable reservation lasts reserveTicks at most and graceTicks after its cast
+-- ended, so the disable can show before another one is allowed.
+M.defaults={memberTicks=150,enemyTicks=90,reserveTicks=225,graceTicks=30,forgetTicks=450,
     logCapacity=256,families={mage=true,priest=true}}
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
@@ -1073,7 +1097,7 @@ function M.new(config)
     local members,enemies,reservations,attempts={},{},{},{}
     local focus,lastTick=nil,nil
     local log,nextRow,size={},1,0
-    local counts={checkIns=0,advice=0,redirects=0,keeps=0,focusChanges=0,attempts=0,ended=0,
+    local counts={checkIns=0,advice=0,redirects=0,keeps=0,focusChanges=0,focusLost=0,attempts=0,ended=0,
         released=0,sinkErrors=0}
     local api={}
 
@@ -1161,7 +1185,9 @@ function M.new(config)
         return focus
     end
 
-    local function advise(member,frame,spell,original,tick)
+    -- object: for a cast aimed at a kind of creature, the IDS values its script named; another
+    -- target must be of that kind too (targeting.sameKind).
+    local function advise(member,frame,spell,original,tick,object)
         local family=members[member.id] and members[member.id].family or member.family
         if not o.families[family] then return {action='keep',reason='family'} end
         local kind,why=targeting.kind(spell)
@@ -1178,7 +1204,7 @@ function M.new(config)
             if not busy then return {action='keep',kind=kind,reason='free'} end
             local best,bestDistance
             for key,e in pairs(byId) do
-                if key~=original and not targeting.disabled(e) and
+                if key~=original and not targeting.disabled(e) and targeting.sameKind(e,first,object) and
                     (holder(key,tick)==nil or holder(key,tick)==member.id) and targeting.legal(caster,e,spell,first) then
                     local d=key==target and -1 or targeting.distance(caster,e)
                     if best==nil or d<bestDistance or (d==bestDistance and key<best) then best,bestDistance=key,d end
@@ -1195,20 +1221,22 @@ function M.new(config)
         if targeting.health(first)<targeting.health(chosen) then
             return {action='keep',kind=kind,reason='original-more-wounded'}
         end
+        if not targeting.sameKind(chosen,first,object) then return {action='keep',kind=kind,reason='focus-other-kind'} end
         local ok,blocked=targeting.legal(caster,chosen,spell,first)
         if not ok then return {action='keep',kind=kind,reason='focus-'..blocked} end
         return {action='redirect',kind=kind,target=target,reason='focus'}
     end
-    -- A member's own cast at original is starting: keep it, or take another target.
-    function api:advise(member,frame,spell,original,tick)
+    -- A member's own cast at original is starting: keep it, or take another target. object as
+    -- for advise above, nil for a cast at one creature.
+    function api:advise(member,frame,spell,original,tick,object)
         clock(tick);counts.advice=counts.advice+1
-        local ok,result=pcall(advise,member,frame,spell,original,tick)
+        local ok,result=pcall(advise,member,frame,spell,original,tick,object)
         local err
         if not ok then err=tostring(result):sub(1,200);result={action='keep',reason='error'} end
         if result.action=='redirect' then counts.redirects=counts.redirects+1 else counts.keeps=counts.keeps+1 end
         record({kind=result.action,tick=tick,member=member.id,family=member.family,
             spell=type(spell)=='table' and spell.resref or nil,castKind=result.kind,from=original,
-            to=result.target,reason=result.reason,focus=focus,error=err})
+            to=result.target,reason=result.reason,focus=focus,typed=object~=nil or nil,error=err})
         return result
     end
 
@@ -1225,7 +1253,8 @@ function M.new(config)
             reservations[cast.target]={owner=member.id,from=tick,untilTick=tick+o.reserveTicks}
         end
         record({kind='start',tick=tick,member=member.id,family=member.family,spell=cast.spell,
-            role=role,target=cast.target,original=cast.original,redirected=cast.redirected or nil})
+            role=role,target=cast.target,original=cast.original,redirected=cast.redirected or nil,
+            typed=cast.typed or nil})
     end
     -- A member started some other action: its cast, if any, is over.
     function api:action(member,tick) clock(tick);finish(member,tick,'next-action') end
@@ -1241,7 +1270,12 @@ function M.new(config)
         for key,r in pairs(reservations) do
             if r.untilTick<=tick or not members[r.owner] then reservations[key]=nil;counts.released=counts.released+1 end
         end
-        if focus and not fresh(enemies[focus],tick) then focus=nil end
+        if focus and not fresh(enemies[focus],tick) then
+            local e=enemies[focus]
+            counts.focusLost=counts.focusLost+1
+            record({kind='focus',tick=tick,previous=focus,why=e and not targeting.alive(e) and 'dead' or 'unseen'})
+            focus=nil
+        end
     end
     function api:invalidate(reason)
         members,enemies,reservations,attempts,focus,lastTick={},{},{},{},nil,nil
@@ -1252,10 +1286,19 @@ function M.new(config)
         for target,r in pairs(reservations) do held[#held+1]={target=target,owner=r.owner,untilTick=r.untilTick} end
         table.sort(held,function(a,b) return a.target<b.target end)
         local count=function(t) local n=0;for _ in pairs(t) do n=n+1 end;return n end
+        -- The group's picture of each enemy: when it was last seen, by how many members within
+        -- enemyTicks of that, and whether it was disabled then.
+        local known={}
+        for key,e in pairs(enemies) do
+            local seenBy=0
+            for member,at in pairs(e.seenBy) do if members[member] and e.lastTick-at<=o.enemyTicks then seenBy=seenBy+1 end end
+            known[#known+1]={id=key,lastTick=e.lastTick,seenBy=seenBy,disabled=targeting.disabled(e)}
+        end
+        table.sort(known,function(a,b) return a.id<b.id end)
         local rows,first={},(nextRow-size-1)%o.logCapacity+1
         for i=0,size-1 do rows[#rows+1]=values.copy(log[(first+i-1)%o.logCapacity+1]) end
         return {area=area,members=count(members),enemies=count(enemies),focus=focus,reservations=held,
-            counts=values.copy(counts),log=rows}
+            known=known,counts=values.copy(counts),log=rows}
     end
     return api
 end
@@ -1471,7 +1514,10 @@ end
 factories["adapters.eeex.sense"]=function(require)
 -- What one creature perceives right now, as plain values: itself and the living creatures it
 -- can see, found with EEex's area search (sight range and line of sight, as the NumCreature()
--- trigger counts them) and minus the invisible ones unless it sees invisible creatures. Sides
+-- trigger counts them) and minus the invisible ones unless it sees invisible creatures. That
+-- search walks only the area's front list; creatures lying down (asleep, unconscious) are in
+-- the back list with the dead, and one counts as seen when the same search from where it lies
+-- finds this creature. Sides
 -- follow the engine's EA groups: for a creature on the evil side (EA 200 and up) the good side
 -- (EA 2 to 30) are enemies and the evil side are allies. With details, each enemy also carries
 -- its creature IDS values and the spell protections a script can test (SCS's triggers read the
@@ -1491,6 +1537,8 @@ for _,op in ipairs({83,101,102,197,198,199,200,201,202,203,204,205,206,207,223,2
 end
 -- Effects read per list at most, so a creature with a runaway effect list costs little.
 M.maxEffects=1024
+-- Searches from lying creatures per frame at most (each one is an area search).
+M.maxLying=32
 
 local function band(g,a,b) return g.EEex_BAnd(a,b) end
 local function stat(g,sprite,n)
@@ -1536,6 +1584,32 @@ function M.side(ea)
     if ea>=2 and ea<=M.GOOD_CUTOFF then return 'good' end
 end
 
+-- The living creatures lying in the area's back list that this creature sees: the area search
+-- from where each one lies, with this creature's terrain table for line of sight, finds it.
+-- consider(object) files a sprite as ally or enemy; seen holds the ids already filed.
+local function lying(g,sprite,self,seen,consider)
+    local area=sprite.m_pArea
+    local back=area and area.m_lVertSortBack
+    if not back then return end
+    local ids={}
+    g.EEex_Utility_IterateCPtrList(back,function(id) ids[#ids+1]=id end)
+    local ok,terrain=pcall(function() return sprite:virtual_GetVisibleTerrainTable() end)
+    if not ok then terrain=nil end
+    local searches=0
+    for _,id in ipairs(ids) do
+        if searches>=M.maxLying then return end
+        local object=not seen[id] and id~=self.id and g.EEex_GameObject_Get(id)
+        if object and g.EEex_GameObject_IsSprite(object,false) and M.side(object.m_typeAI.m_EnemyAlly)~=nil then
+            seen[id]=true
+            searches=searches+1
+            local found=false
+            g.EEex_Area_ForAllOfTypeStringInRange(area,object.m_pos.x,object.m_pos.y,'[ANYONE]',M.sightRange,
+                function(other) if other~=nil and other.m_id==self.id then found=true end end,1,0,terrain)
+            if found then consider(object) end
+        end
+    end
+end
+
 -- The creature's frame at tick, or nil when it is on no side. detailed adds IDS values and
 -- protections for each enemy. A blind creature perceives no one.
 function M.frame(g,sprite,tick,detailed)
@@ -1547,10 +1621,7 @@ function M.frame(g,sprite,tick,detailed)
     local frame={tick=tick,area=area and text(area.m_resref:get()) or '',self=self,enemies={},allies={}}
     if band(g,self.state,M.blind)~=0 then return frame end
     local seen={}
-    -- Numeric flags: EEex's wrapper turns a Lua false into its default.
-    g.EEex_Sprite_ForAllOfTypeStringInRange(sprite,'[ANYONE]',M.sightRange,function(object)
-        if object==nil or seen[object.m_id] or object.m_id==self.id or not g.EEex_GameObject_IsSprite(object,false) then return end
-        seen[object.m_id]=true
+    local function consider(object)
         local other=M.side(object.m_typeAI.m_EnemyAlly)
         if other==nil then return end
         if not self.seeInvisible and band(g,g.EEex_Sprite_GetState(object),M.unseen)~=0 then return end
@@ -1560,7 +1631,14 @@ function M.frame(g,sprite,tick,detailed)
             if detailed then M.details(g,object,entry) end
             frame.enemies[#frame.enemies+1]=entry
         end
+    end
+    -- Numeric flags: EEex's wrapper turns a Lua false into its default.
+    g.EEex_Sprite_ForAllOfTypeStringInRange(sprite,'[ANYONE]',M.sightRange,function(object)
+        if object==nil or seen[object.m_id] or object.m_id==self.id or not g.EEex_GameObject_IsSprite(object,false) then return end
+        seen[object.m_id]=true
+        consider(object)
     end,1,0)
+    lying(g,sprite,self,seen,consider)
     table.sort(frame.enemies,function(a,b) return a.id<b.id end)
     table.sort(frame.allies,function(a,b) return a.id<b.id end)
     return frame
@@ -1574,7 +1652,9 @@ factories["adapters.eeex.director"]=function(require)
 -- action at a creature starts, the director advises. To redirect it, this adapter reads the
 -- caster's frame afresh with details, checks the new target once more and changes the starting
 -- action's target, as EEex's own SpellToPoint listener changes a starting action: the cast
--- keeps its casting time, spell slot and interruption. Session-local; a load forgets it all.
+-- keeps its casting time, spell slot and interruption. A cast aimed at a kind of creature
+-- ([PC.0.0.MAGE]) has no target yet when it starts; a decoded copy of its object names the
+-- creature it would hit. Session-local; a load forgets it all.
 -- Errors never reach the engine: the cast then goes ahead as the creature's script chose it.
 local sense=require('adapters.eeex.sense')
 local resources=require('adapters.eeex.resources')
@@ -1588,6 +1668,11 @@ M.cacheLimit=512
 M.prefixes={'SPPR','SPWI','SPIN','SPCL'}
 
 local function text(value) return (value:match('^[^%z]*'):upper()) end
+-- The IDS values a creature-type object names, as plain numbers (0 for any).
+function M.kindOf(object)
+    return {ea=object.m_EnemyAlly,general=object.m_General,race=object.m_Race,class=object.m_Class,
+        specific=object.m_Specifics,gender=object.m_Gender,alignment=object.m_Alignment}
+end
 function M.resref(action)
     local name=text(action.m_string1.m_pchData:get())
     if name~='' then return name end
@@ -1667,23 +1752,40 @@ function M.new(g,options)
         counts.starts=counts.starts+1
         local resref=M.resref(action)
         local original=action.m_acteeID.m_Instance
+        local object
+        -- A cast at a kind of creature: the engine decodes the object as the cast runs; decode a
+        -- copy the same way (EEex evaluates a copy) to learn whom it names.
+        if type(original)~='number' or original<0 then
+            local ok,named=pcall(g.EEex_Object_EvalAsAIBase,action.m_acteeID,sprite,false)
+            if not ok then failed('decode',named)
+            elseif named and g.EEex_GameObject_IsSprite(named,false) then
+                original,object=named.m_id,M.kindOf(action.m_acteeID)
+            end
+        end
         local spell=resref and summary(sprite,resref)
         local member={id=id,family=memberFamily[id]}
-        local cast={spell=resref,role=targeting.role(spell),target=original,original=original,action=31}
+        local cast={spell=resref,role=targeting.role(spell),target=original,original=original,action=31,
+            typed=object~=nil or nil}
         local allowed=root and root.gate and member.family and root.gate:allows(member.family)
         if allowed and spell and targeting.kind(spell) and original~=id then
             local frame=sense.frame(g,sprite,tick,true)
             if frame then
                 d:checkIn(member,frame)
                 counts.advised=counts.advised+1
-                local advice=d:advise(member,frame,spell,original,tick)
+                local advice=d:advise(member,frame,spell,original,tick,object)
                 if advice.action=='redirect' then
                     -- The last check: the new target is still a living sprite the caster sees.
                     local target=g.EEex_GameObject_Get(advice.target)
                     local seen=false
                     for _,e in ipairs(frame.enemies) do if e.id==advice.target then seen=true end end
                     if target and seen and g.EEex_GameObject_IsSprite(target,false) then
-                        action.m_acteeID.m_Instance=advice.target
+                        if object then
+                            -- The object takes the new target's AI type, as the engine fills in
+                            -- an object it has decoded; its instance then names the target.
+                            action.m_acteeID:Set(target:virtual_GetAIType())
+                        else
+                            action.m_acteeID.m_Instance=advice.target
+                        end
                         if action.m_acteeID.m_Instance==advice.target then
                             cast.target=advice.target;cast.redirected=true
                             counts.redirected=counts.redirected+1

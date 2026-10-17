@@ -17,12 +17,20 @@ local function band(a,b)
 end
 local function str(v) return {get=function() return v end} end
 local function list(t) return t or {} end
+-- One area; its back list holds the ids of the creatures lying down (asleep or dead).
+local AREA={m_resref=str('AR0001'),m_lVertSortBack={}}
+-- The AI type a sprite would give an object: its IDS values and its instance.
+local function aiType(s)
+    local t={m_Instance=s.m_id}
+    for k,v in pairs(s.m_typeAI) do t[k]=v end
+    return t
+end
 -- A sprite at (x, y) with EA ea; stats by STATS.IDS number.
 local function sprite(id,x,y,ea,fields)
     local s={m_id=id,m_pos={x=x,y=y},m_typeAI={m_EnemyAlly=ea,m_General=1,m_Race=1,m_Class=1,m_Specifics=0,
         m_Gender=1,m_Alignment=0},m_baseStats={m_hitPoints=20,m_generalState=0},m_curAction={m_actionID=0},
-        m_pArea={m_resref=str('AR0001')},m_timedEffectList=list(),m_equipedEffectList=list(),
-        state=0,stats={[1]=20},levels={[7]='S1'}}
+        m_pArea=AREA,m_timedEffectList=list(),m_equipedEffectList=list(),
+        state=0,stats={[1]=20},levels={[7]='S1'},virtual_GetAIType=aiType}
     for k,v in pairs(fields or {}) do s[k]=v end
     return s
 end
@@ -39,13 +47,29 @@ local function world()
     g.EEex_Sprite_GetCasterLevelForSpell=function() return 10 end
     g.EEex_Utility_IterateCPtrList=function(t,fn) for _,x in ipairs(t) do if fn(x) then break end end end
     g.EEex_AIBase_GetScriptLevelResRef=function(o,level) return o.levels[level] or '' end
-    g.EEex_Sprite_ForAllOfTypeStringInRange=function(s,what,range,fn,los,nonSprites)
-        assert(what=='[ANYONE]' and range==448 and los==1 and nonSprites==0)
+    -- The area searches walk the front list only: creatures lying down are not in it.
+    local function search(x,y,range,fn)
         for _,id in ipairs(g.order) do
             local o=g.objects[id]
-            local dx,dy=o.m_pos.x-s.m_pos.x,o.m_pos.y-s.m_pos.y
-            if dx*dx+dy*dy<=range*range and not o.blocked then fn(o) end
+            local dx,dy=o.m_pos.x-x,o.m_pos.y-y
+            if dx*dx+dy*dy<=range*range and not o.blocked and not o.lying then fn(o) end
         end
+    end
+    g.EEex_Sprite_ForAllOfTypeStringInRange=function(s,what,range,fn,los,nonSprites)
+        assert(what=='[ANYONE]' and range==448 and los==1 and nonSprites==0)
+        search(s.m_pos.x,s.m_pos.y,range,fn)
+    end
+    -- g.wall: no line of sight from where the searching creature lies.
+    g.EEex_Area_ForAllOfTypeStringInRange=function(area,x,y,what,range,fn,los,nonSprites)
+        assert(area==AREA and what=='[ANYONE]' and range==448 and los==1 and nonSprites==0)
+        g.searchesFromLying=(g.searchesFromLying or 0)+1
+        if not g.wall then search(x,y,range,fn) end
+    end
+    -- An object names g.named; EEex evaluates a copy of it.
+    g.EEex_Object_EvalAsAIBase=function(object,caller,checkBackList)
+        assert(checkBackList==false and caller~=nil)
+        if g.decodeError then error(g.decodeError) end
+        return g.named and g.objects[g.named]
     end
     g.EEex_GameState_AddDestroyedListener=function(fn) table.insert(g.listeners.destroyed,fn) end
     g.EEex_Action_AddSpriteStartedActionListener=function(fn) table.insert(g.listeners.started,fn) end
@@ -73,6 +97,14 @@ local reader={problems={},get=function(kind,resref) if kind=='SPL' then return r
 local function action(id,resref,target)
     return {m_actionID=id,m_string1={m_pchData=str(resref or '')},m_specificID=0,m_acteeID={m_Instance=target}}
 end
+-- A Spell action at a kind of creature: no instance yet, the class named.
+local function typed(resref,class)
+    local a=action(31,resref,-1)
+    local t=a.m_acteeID
+    t.m_EnemyAlly,t.m_General,t.m_Race,t.m_Class,t.m_Specifics,t.m_Gender,t.m_Alignment=2,0,0,class,0,0,0
+    function t:Set(other) for k,v in pairs(other) do self[k]=v end end
+    return a
+end
 
 -- The scene: mages 1 and 2 (EA 255) near enemies 11-13 (EA 2); 12 is wounded.
 local g=world()
@@ -96,6 +128,18 @@ assert(f.area=='AR0001' and f.self.id==1 and #f.allies==1 and f.allies[1].id==2)
 assert(#f.enemies==3 and f.enemies[1].id==11 and f.enemies[3].id==13)
 assert(#f.enemies[3].protections==1 and f.enemies[3].protections[1].p2==175 and f.enemies[1].ids.general==1)
 assert(f.enemies[2].hp==5 and f.enemies[2].maxHp==20 and sense.frame(g,m1,100,false).enemies[1].ids==nil)
+-- Lying down (15 asleep, 16 dead) means the back list, which the area search leaves out: a
+-- living one counts as seen when the search from where it lies finds the observer.
+g.add(sprite(15,120,0,2,{lying=true,state=0x1}))
+g.add(sprite(16,130,0,2,{lying=true,state=0x800}))
+AREA.m_lVertSortBack={16,15}
+f=sense.frame(g,m1,100,true)
+assert(#f.enemies==4 and f.enemies[4].id==15 and f.enemies[4].state==0x1 and f.enemies[4].ids.class==1)
+assert(g.searchesFromLying==1)
+g.wall=true
+assert(#sense.frame(g,m1,100,false).enemies==3)
+g.wall=nil
+AREA.m_lVertSortBack={}
 m1.stats[81]=1
 assert(#sense.frame(g,m1,100,false).enemies==4)
 m1.stats[81]=nil
@@ -177,6 +221,33 @@ g.listeners.destroyed[1]()
 state=root.inspect().director
 assert(next(state.areas)==nil)
 assert(start(m1,action(31,'SPWI112',11)).m_acteeID.m_Instance==11)
+groups=groups+1
+
+-- 7. A cast at a kind of creature has no instance when it starts: a decoded copy of its object
+-- names the target, which a disable then reserves; another member's hold at the same kind
+-- goes to another creature of that kind (13, not the nearer fighter 12), taking its AI type.
+g.ticks=400
+g.objects[12].m_typeAI.m_Class=2
+g.objects[13].m_timedEffectList={}
+assert(g.BGSE_Claim(m1,'mage','s1')==false and g.BGSE_Claim(m2,'priest','s2')==false)
+g.named=11
+a=start(m1,typed('TESTHOLD',1))
+assert(a.m_acteeID.m_Instance==-1)
+state=root.inspect().director
+assert(state.areas.AR0001.reservations[1].target==11 and state.areas.AR0001.reservations[1].owner==1)
+local redirected=state.counts.redirected
+a=start(m2,typed('TESTHOLD',1))
+assert(a.m_acteeID.m_Instance==13 and a.m_acteeID.m_Class==1)
+local typedRows=0
+for _,row in ipairs(rows) do if row.typed then typedRows=typedRows+1 end end
+assert(root.inspect().director.counts.redirected==redirected+1 and typedRows>=3)
+-- Nothing named: the cast stays as its script chose it; a failing decode is named, not raised.
+g.named=nil
+assert(start(m1,typed('TESTHOLD',1)).m_acteeID.m_Instance==-1)
+g.decodeError='bad object'
+assert(start(m1,typed('TESTHOLD',1)).m_acteeID.m_Instance==-1)
+state=root.inspect().director
+assert(state.counts.errors==3 and state.lastError:find('^decode: ')~=nil)
 groups=groups+1
 
 return groups
