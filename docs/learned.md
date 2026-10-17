@@ -32,6 +32,9 @@ Credit: SCS is by DavidW, Spell Revisions by Demivrgvs and Gibberlings Three con
 - **[lab]** If our handler, or all our modules, are missing, EEex keeps our data in a fallback store on the actor. Nothing was migrated or classified meanwhile. A save made without the handler brought all four records back once the handler returned. That test loaded a clean baseline first. Adding a handler onto an already-loaded fallback was not shown to be safe. (EEEX-06)
 - **[lab]** `Infinity_GetINIValue` returns numbers. A value set with `Infinity_SetINIValue` reads back at once and was in the profile's `Baldur.lua`, as a string, after the game was stopped by force, so it is not written only at a clean exit. (HOOK-01)
 - **[rule]** Do not read sprite fields inside the "sprite loaded" callback. A first draft read a name mid-load. Safety was unproved, so the probe now ignores the argument and samples later. (EEEX-03)
+- **[lab]** An area keeps its creatures in render lists. `m_lVertSort` (front) holds the standing ones, held, stunned and confused included. Sleeping creatures lie in `m_lVertSortBack` with the dead. `m_lVertSortFlight` and `m_lVertSortUnder` exist too. EEex's area search (`GetAllInRange`, behind `EEex_Sprite_ForAllOfTypeStringInRange`) walks the front list only: in the step-3 lab it found none of 56 sleeping-dummy samples and no corpse. (DIRECTOR-01)
+- **[lab]** Effect fields read in game: `m_effectId`, `m_effectAmount`, `m_dWFlags`, `m_durationType` and `m_res:get()`. (DIRECTOR-01)
+- **[lab]** Opcode 72 with parameter 1 set to 128 sets both `m_typeAI.m_EnemyAlly` and `m_liveTypeAI.m_EnemyAlly` to 128 (NEUTRAL). SCS still cast at the neutral PC once in ten fights. (DIRECTOR-01)
 
 ## 2. Actions and casting
 
@@ -55,6 +58,9 @@ Credit: SCS is by DavidW, Spell Revisions by Demivrgvs and Gibberlings Three con
 - **[lab]** Shield leaves an opcode-328 effect (state 126). Mirror Image leaves opcodes 159 and 206 and no 328. A generic Haste state test stayed false on visible Haste (older stack). Test each buff by its own effect source. (mage-prebuff-shadow-results, scs-effective-mage-pilot, scs-aoe-prebuff-delivery)
 - **[lab]** In these tests SPWI212 is Mirror Image, SPWI214 is Strength and SPWI112 is Magic Missile. That is this stack's installed files, not a vanilla guess. Do not generalize to other actors, spells, stacks or contested queues. (ACT-02, COMBAT-01)
 - **[rule]** Decisions use ordinary queued casts (`SpellRES`). Never use forced casts or injected effects for them. `ReallyForceSpellRES` is documented as instant and uninterruptible, and it does not spend the memorized spell. (active-combat-soak, scs-aoe-prebuff-delivery)
+- **[src]** EEex's started-action listener runs right after the engine sets the action (`CGameSprite::SetCurrAction`), never for NoAction, and runs its listeners in registration order. (DIRECTOR-01)
+- **[lab]** A starting cast can take another target. In that listener, setting `action.m_acteeID.m_Instance` made a Spell (31) cast land on the new target, with its normal casting time and one memorized copy spent (Magic Missile, Acid Arrow). (DIRECTOR-01)
+- **[lab]** A cast at a kind of creature (`SpellRES("…",[PC.0.0.MAGE])`) starts with `m_Instance` -1, because the engine decodes the object only as the cast runs. `EEex_Object_EvalAsAIBase(action.m_acteeID, sprite, false)` decodes a copy and names the creature. `action.m_acteeID:Set(target:virtual_GetAIType())` changes the target: `m_Instance` then reads the new id, and the cast landed there. (DIRECTOR-01)
 
 ## 3. The BCS to Lua bridge
 
@@ -72,6 +78,7 @@ Credit: SCS is by DavidW, Spell Revisions by Demivrgvs and Gibberlings Three con
 - **[src]** The step-1 rule's specials are `ForceSpell`-family casts without a spellbook check. Scripted bosses also act through `SpellNoDec` without a spellbook check, summons and `ActionOverride`. Without Ascension, SCS scripts the original Melissan (`meliss01`–`03`) with its general-AI settings, so she is hooked, and under the step-1 rule her spell list, summons and undead kill stayed below the hook; with Ascension only one Illasera self-heal is affected. The monster-hook rule also copies blocks whose actions go beyond a combat round, such as summons. Since Christopher's answer 10, `SpellNoDec` and `SpellNoDecRES` casts without a spellbook check are specials too, unless the block removes the spell: in the SR lab that adds 130 copies in 37 scripts (fiends, two dragons, Ascension's bosses, one general AI) and 207 target picks, 3,003 copies in all; WeiDU still matches the Python rule on all 1,148 scripts. (HOOK-01, HOOK-02)
 - **[lab]** Six installed SCS creatures (two mages, a priest, two fighters, a clay golem): with the hook declining, SCS's fight ran as usual; with the engine holding every round, round casts and attacks stopped while prebuffs, the first-round sequencer and the golem's copied haste still ran; the family and global switches handed creatures back to SCS at once. (HOOK-01)
 - **[lab]** The claim is answered once per creature and tick. In one 60-second fight the copies and the hook asked 149 more times in the same pass and got the cached answer. (HOOK-01)
+- **[lab]** In fights, a mid-level SCS caster's script reached the hook about every 16 ticks, with gaps of 48 to 128 ticks while the creature cast. Anything that learns from hook passes sees nothing new from a creature during its casts. (DIRECTOR-01)
 - **[lab]** A declining hook costs no tick: it is a false condition, so SCS's next block runs in the same script pass. With the hook declining, SCS's casters started their next cast 5–9 ticks after the round timer ran out whenever they had something to cast. No run without the hook has been timed yet. (HOOK-01)
 - **[host]** One declined check costs about 2.4 µs on host LuaJIT, including compiling the trigger text as EEex does on every call; a tick is about 67 ms. When the engine claims a round and then fails to act, that script pass is lost, and after an error the creature goes back to SCS for 150 ticks. (HOOK-01, `kernel/hook.lua`)
 - **[lab]** With the engine holding, SCS's Energy Blades bookkeeping ran from its guarded copy above the hook: twice, each time swapping the blade item for SCS's helper item and setting `eneblade` to 10. It waited until the mage's Time Stop cast ended; a claimed hook does not cut into a started cast. (HOOK-01, ACT-04)
@@ -131,6 +138,19 @@ Credit: SCS is by DavidW, Spell Revisions by Demivrgvs and Gibberlings Three con
 - **[host]** The installer at scale: on copies of the lab game's 1,196 SCS-marked scripts it hooked 1,148 (585 mage, 307 priest, 136 general AI, 120 monster) with 2,666 guarded copies in about 4 minutes, and WeiDU's result matched `tools/hook_rule.py` for every one. Monster copies are mostly innate powers cast without a spellbook check (1,192) and their target picks (476). (HOOK-02)
 - **[src]** The installed neutral priest was not treated as ordinary. An earlier `NoAction` block and unresolved encounter control stand in the way. (priest-turn-shadow-results)
 - **[src]** SCS's per-component difficulty (its in-game menu, `m_dw_did.lua`) lives in the player's Baldur.lua under `[Script]` as `DMWW_<component>_difficulty`: 0 or absent follows the game's slider, 1–7 are BASIC, IMPROVED, TACTICAL, HARDCORE, INSANE, INSANE PLUS and LEGACY OF BHAAL; each component offers its own subset. The game slider (1–5) is `[Game Options] Difficulty Level`, but a loaded save brings its own (section 6); Legacy of Bhaal mode is separate. (plan, answer 8)
+- **[src]** Where SCS aims single-target spells (BCS of `dw#pr183`, `dw#mg256`, `dw#mg268` and `dw#pr177`):
+  - `LastSeenBy(Myself)`;
+  - `NearestEnemyOf(Myself)` and the second and third nearest enemy;
+  - `[PC]` and its second and third nearest;
+  - `[PC.0.0.class]` for classes 1, 2, 3, 4, 5, 6, 9, 12, 13, 202, 204, 205 and 208.
+
+  The class form is a cast at a kind of creature (section 2). (DIRECTOR-01)
+- **[lab]** How SCS's casters fight on Insane:
+  - The level-18 casters prebuff with `ReallyForceSpell` helper copies and cast self-buffs with `Spell`. They fight mostly with area spells cast at creatures (SPWI820, SPWI312, SPWI426, SPWI521, SPWI308).
+  - The mid-level group aimed about 40% of its disables and 60% of its damage at a kind of creature rather than at one creature.
+  - Most of the mid-level group's disables at an already disabled target were Dire Charm on a confused or panicked one.
+
+  (DIRECTOR-01)
 
 ## 5. Space: coordinates, line of sight, projectiles and areas
 
@@ -147,6 +167,7 @@ Credit: SCS is by DavidW, Spell Revisions by Demivrgvs and Gibberlings Three con
 - **[src]** Both area projectile files are 768 bytes, type 3, with proximity size 256. Glitterdust's explosion size is 110 and Slow's is 256. These are fields, not a proved hit shape. Documentation says a horizontal radius, a 3/4 vertical scale and an enemy filter. We have not tested that. (SPACE-02, COMBAT-01)
 - **[host]** Our area check accepts only declared circles. An unknown shape or radius, or stale actor facts, mean unsafe. Self, allies and neutrals inside radius plus padding count as risk. On the lab layout radius 110 hit one friendly mage and 256 hit all three, so both were rejected. This is cautious, not proof that the spells hurt allies. (SPACE-02)
 - **[rule]** Cones, lines, rays, clouds, repeated bursts and moving recipients are unsupported. We do not approximate them as circles. (SPACE-02)
+- **[lab]** In BG2602, sight-range searches with line of sight missed healthy creatures 21–29% of the time. Misses were almost absent below about 190 pixels, more common with distance, and total beyond 448. They clustered on particular pairs of positions, as line of sight would. The distances were measured as straight pixels; the engine's own range rule is not settled. (DIRECTOR-01)
 - **[lab]** Slow and Glitterdust copies were spent in research casts, but no control effect showed on the target in the last sample. Landing, saves and resistance are unknown. (mage-prebuff-shadow-results)
 
 ## 6. The lab: how fights are run safely and in batches
@@ -173,6 +194,7 @@ Credit: SCS is by DavidW, Spell Revisions by Demivrgvs and Gibberlings Three con
 - **[lab]** A no-SR lab exists for step 2: plain BG2:EE 2.7.3.0 from the Steam install with EEex 1.2.0 (core and main) and SCS 35.21 with CEBG's BG2 components. Its SCS install took about 30 minutes. No profile and no save yet. (HOOK-01)
 - **[host]** This PC's system git config sets `core.autocrlf=true`, so fresh checkouts get CRLF text files. Files that ship byte for byte need an `eol=lf` rule in `.gitattributes`, as `bgse/lua/*.lua` and the fixture JSON have. (HOOK-01)
 - **[host]** Host tools: Windows, PowerShell 7, CPython 3.11, pytest 8.4 (`python -X utf8 -m pytest`) and Lupa 2.8 with Lua 5.1 and LuaJIT 2.1. These are not the game's LuaJIT. LuaJIT under CPython on Windows prints handled-exception diagnostics even when tests pass. (host-runtime-toolchain-decision, EEEX-01)
+- **[host]** The bridge-installer test needs a WeiDU executable. WeiDU 24900 sits at the tests' default path `.work/task6/effective-pilot-20260927/weidu.exe`, which git ignores. The `ff18` worktree path that older instructions name is gone. (DIRECTOR-01)
 - **[host]** `Resolve-Path` and `GetFullPath` do not prove two paths are different places: junctions, 8.3 short names and hard links defeat them. Our guard walks each path part with no-follow handles, compares volume and file IDs, and rejects hard-linked or reparse targets before any write. (host-runtime-toolchain-decision)
 - **[src]** WeiDU can exit 0 after a FATAL error (seen with forward slashes in `--game` on Windows). Check logs and outputs, and use native paths. (scs-high-mage-dispel)
 - **[src]** Decompile then recompile gave byte-identical files for the mage, Kruin and priest scripts. The priest decompile still printed 179 missing-ID messages, so a decompile is a reading aid, not a clean translation. (scs-effective-mage-pilot, SCS-05, priest-turn-shadow-results)
@@ -221,6 +243,8 @@ Credit: SCS is by DavidW, Spell Revisions by Demivrgvs and Gibberlings Three con
 - Licensing: the SCS readme allows code reuse with full credit and asks that SCS not be mirrored. No SCS-derived data is approved for outside release, and no SCS source or generated script is committed. (SCS-pilot-oracle)
 - Difficulty has no setting sweep and no fairness measure. (SCS-06)
 - Timing: SCS's delay from its round timer to the next cast was measured only with the hook installed. A run without the hook is still missing. (HOOK-01)
+- The director perceives a lying creature with a search run from where it lies. Whether that matches the engine's own sight (`See()`, object selection) is untested. Creatures in the flight and under lists are not perceived at all. (DIRECTOR-01)
+- Decoding a copy of a cast's object at its start is not proven to name the creature the engine picks later, when positions may have changed. A sleeping creature named that way may need `checkBackList` set. (DIRECTOR-01)
 
 ## 9. Spell and item data
 

@@ -192,6 +192,8 @@ SCS has shouts and per-creature timers but no group plan. The director is new.
    and the creature profile work in the lab game (2026-10-15). **Done 2026-10-15,** see
    "Step 2 lab batch".
 3. **Fight director and per-creature decisions** for mages, priests, fighters and monsters.
+   **First slice in the lab 2026-10-18** (an advisor on SCS's own casts: shared focus, one
+   disabler per target), see "Step 3, first slice".
 4. **The lab fight scenario, batch runner and engine-on versus SCS comparison logs,** on
    Insane (answer 8), with a run without the hook to time SCS against.
 5. **Iterate on fight quality,** then the experimental CEBG component.
@@ -304,6 +306,55 @@ launches, the lab restored afterwards (all 1,196 SCS scripts byte-identical).
   ([HOOK-02](../research/HOOK-02-monster-scripts-and-script-slots.md))
 - **Lab lesson:** a save brings its own difficulty; the batch now sets Insane in game after
   every load. The first baseline ran on Normal and was redone.
+
+## Step 3, first slice (2026-10-18)
+
+Agreed with Christopher: first the technical base, then one small visible behaviour, a
+shared focus target and no double disables for mages and priests, shown in the lab.
+([DIRECTOR-01](../research/DIRECTOR-01-fight-director-first-slice.md))
+
+**What it is.** SCS still chooses every spell; the director only advises on the target of a
+cast SCS has already chosen.
+
+- **Group picture:** hooked creatures check in when their script asks the gate, at most every
+  15 ticks each, with what they perceive. One director per area keeps the picture: enemies,
+  health, disables, a focus target, disable reservations.
+- **Advice:** when a member's ordinary Spell cast at a creature starts, the director advises
+  through EEex's started-action listener:
+  - damage goes to the focus;
+  - a disable at an already disabled or reserved enemy goes to a free one;
+  - each change is re-checked against legality (range, magic resistance, visible protections,
+    the spell's creature filters) and fair play.
+- **What stays the creature's own:** the cast keeps its casting time, spell slot and
+  interruption.
+- **Fail soft:** errors and the switches leave the cast as SCS chose it.
+
+**Lab, three launches.**
+
+- **Redirects work.** Changing a starting cast's target works, for casts at one creature and
+  for casts at a kind of creature (`[PC.0.0.MAGE]`). In four probes the casts landed on the
+  new target, with normal casting and the memorized copy spent.
+- **In mixed fights the director acted almost never:** one redirect in 11 director-on fights,
+  and no errors. The diagnosis:
+  - SCS aims many casts at a kind of creature, which have no target yet when they start;
+  - sleeping enemies lie in a render list that EEex's area search skips;
+  - the focus lapsed between a member's casts;
+  - most of the "double disables" left were Dire Charm on confused or panicked targets with no
+    free alternative.
+- **Fixed the same day, technical only:**
+  - lying creatures are perceived;
+  - casts at a kind of creature are decoded, and redirected only to the same kind;
+  - the focus is remembered for a round.
+
+  Launch D checks the fixes in game.
+
+**Open for Christopher**, asked 2026-10-18:
+
+1. Dire Charm on an already confused or panicked target: waste, or an upgrade?
+2. Casts at a kind of creature: same kind only (now), or any creature?
+3. No alternative: keep SCS's cast (now), or cancel it so SCS picks something else?
+4. Area spells: aim them at the focus or at the biggest cluster without allies?
+5. Next: the engine's own spell and target choice, with the director's plan in the scoring.
 
 ## To design with Christopher
 
