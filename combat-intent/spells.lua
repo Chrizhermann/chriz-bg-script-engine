@@ -508,6 +508,8 @@ walk=function(c,state,effects,where,depth,p,key,owner)
                 local who=receiver(e,where)
                 local q=p*chance(e)
                 if who and q>0 then
+                    -- What reaches others, for matching a target's opcode immunities.
+                    if who~='self' then c.opcodes[e.opcode]=true end
                     if DELIVERY[e.opcode] then deliver(c,state,e,where,depth,q)
                     elseif H[e.opcode] then H[e.opcode](c,e,who,q)
                     elseif not NEUTRAL[e.opcode] then tally(c.unknown,e.opcode,1) end
@@ -526,7 +528,7 @@ local HARMS_ALLIES={everyone=true,nonparty=true,casterGroup=true}
 -- used for spells cast through other spells.
 function M.classify(record,index,lookup,options)
     options=options or {}
-    local c={roles={},unknown={},reasons={}}
+    local c={roles={},unknown={},reasons={},opcodes={}}
     if type(record)~='table' or type(record.abilities)~='table' then c.partial=true;c.reasons['no-record']=true;return c end
     local ability=record.abilities[index]
     if type(ability)~='table' then c.partial=true;c.reasons['no-ability']=true;return c end

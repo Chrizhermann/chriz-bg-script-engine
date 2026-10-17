@@ -181,7 +181,8 @@ function M.new(config)
     for family in pairs(known) do
         families[family]=not(type(config.families)=='table' and config.families[family]==false)
     end
-    local decide,perform=config.decide,config.perform
+    local decide,perform,observe=config.decide,config.perform,config.observe
+    assert(observe==nil or type(observe)=='function')
     -- hooked: script resref (lower case) -> family, from the install. below(id, script): the
     -- creature's non-empty script resrefs in the slots after script, or nil when script is not
     -- in its stack.
@@ -198,7 +199,7 @@ function M.new(config)
     below=config.below
     assert(below==nil or type(below)=='function')
     local pending,blocked,answers={},{},{}
-    local counts={reached=0,repeats=0,claimed=0,acted=0,held=0,stale=0,errors=0}
+    local counts={reached=0,repeats=0,claimed=0,acted=0,held=0,stale=0,errors=0,observeErrors=0}
     local declines={}
     local log=trace.new(config.traceCapacity or 64)
     local api={}
@@ -228,6 +229,12 @@ function M.new(config)
         -- A load restarts the tick count, so a backoff from before it no longer applies.
         if blocked[id] and tick<blocked[id] and blocked[id]-tick<=backoff then return decline('backoff') end
         blocked[id]=nil
+        -- An observer (the fight director's check-in) sees every creature the gate would ask
+        -- the decider about; its errors never change the answer.
+        if observe and not pcall(function()
+            local view=values.copy(actor);view.script=script
+            observe(view,family)
+        end) then bump(counts,'observeErrors') end
         if not decide then return decline('no-decider') end
         local ok,decision=pcall(function()
             local view=values.copy(actor);view.script=script
@@ -285,6 +292,8 @@ function M.new(config)
         log:record({kind='act',actorKey=tostring(id),family=p.family,reason='performed',tick=tick})
         return true
     end
+    -- Whether the gate is on for a family right now (for helpers that act outside a claim).
+    function api:allows(family) return enabled and known[family]==true and families[family]==true end
     function api:setEnabled(value)
         assert(type(value)=='boolean');enabled=value;answers={}
         if not value then pending={} end
@@ -308,6 +317,1399 @@ function M.new(config)
 end
 return M
 end
+factories["combat-intent.spells"]=function(require)
+-- What a spell or item ability does, read from its real effects (design step 2). Records are
+-- plain tables with the fields of tools/ie_resources.py (in game: adapters/eeex/resources.lua).
+-- lookup(kind, key) returns another record: 'SPL', 'ITM' or 'EFF' by resref, 'PRO' by the
+-- ability's projectile number. Spells delivered through other spells or EFF files are followed
+-- with depth, cycle and size limits. Nothing here raises: odd or missing data is reported in
+-- the result (partial, reasons, unknown opcodes), and the caller skips what it cannot use.
+local M={}
+-- SCS's troll chains and SR's Greater Command go more than eight deliveries deep.
+M.limits={depth=12,effects=2048}
+
+local DAMAGE={[0]='crushing',[1]='acid',[2]='cold',[4]='electricity',[8]='fire',[16]='piercing',
+    [32]='poison',[64]='magic',[128]='missile',[256]='slashing',[512]='magicfire',[1024]='magiccold',
+    [2048]='stunning'}
+local SAVES={{1,'spell'},{2,'breath'},{4,'death'},{8,'wand'},{16,'poly'}}
+local RESIST={[27]='acid',[28]='cold',[29]='electricity',[30]='fire',[31]='magic',[84]='magicfire',
+    [85]='magiccold',[86]='slashing',[87]='crushing',[88]='piercing',[89]='missile',[173]='poison'}
+local STATS={[6]='charisma',[10]='constitution',[15]='dexterity',[19]='intelligence',[44]='strength',
+    [49]='wisdom',[97]='strength'}
+local TOHIT={[54]=true,[167]=true,[278]=true,[284]=true,[288]=true,[305]=true,[306]=true}
+local WEAPON_DAMAGE={[73]=true,[285]=true,[286]=true,[289]=true}
+local SAVE_MODS={[33]=true,[34]=true,[35]=true,[36]=true,[37]=true,[325]=true,[346]=true}
+-- Opcodes that use the dice fields for an amount; elsewhere they are a level range.
+local DICE_AMOUNT={[12]=true,[17]=true,[18]=true,[25]=true,[98]=true,[218]=true}
+-- Graphics, sounds, text, scripting state and bookkeeping: no role.
+local NEUTRAL={}
+for _,op in ipairs({7,8,9,23,41,50,51,52,53,56,57,61,63,64,66,71,72,82,94,95,96,99,103,104,105,
+    106,107,108,112,114,115,117,122,123,125,138,139,140,141,142,144,147,149,150,152,155,156,164,
+    169,170,172,174,180,181,182,183,184,186,187,190,192,194,195,196,215,225,237,239,240,243,
+    244,245,251,252,253,254,255,262,263,265,267,268,269,271,275,276,277,279,281,282,287,290,291,
+    293,294,295,296,298,300,302,307,308,309,311,312,313,315,319,320,323,327,328,330,336,338,339,
+    340,341,342,347,348,349,350,351,352,353,354,355,356,357,358,359,360,361,362,363,364,365,367,
+    21,59,90,91,92,171,233,266,321}) do NEUTRAL[op]=true end
+-- 321 and 266 remove the effects or protections of one named resource: SCS and SR use them
+-- to refresh their own helpers, so they are bookkeeping, not dispelling.
+M.neutral=NEUTRAL
+
+local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
+-- Readers may return a dword unsigned; some opcodes store a signed amount in it.
+local function s32(v) if v>=2^31 then return v-2^32 end return v end
+local function chance(e)
+    local hi,lo=math.min(e.prob1,100),math.max(e.prob2,0)
+    if hi<lo then return 0 end
+    return (hi-lo+1)/101
+end
+local function seconds(e)
+    local timing=e.timing%256
+    if timing==1 or timing==4 or timing==7 or timing==9 then return 'permanent' end
+    if timing==2 or timing==5 or timing==8 then return 'equipped' end
+    if timing==10 then return e.duration/15 end
+    return e.duration
+end
+local function average(dice,sides) if dice>0 and sides>0 then return dice*(sides+1)/2 end return 0 end
+local function saveNames(bits)
+    local names
+    for _,pair in ipairs(SAVES) do
+        if math.floor(bits/pair[1])%2==1 then names=names or {};names[pair[2]]=true end
+    end
+    return names
+end
+local function longer(a,b)
+    if a==nil then return b end
+    if b==nil then return a end
+    if a=='permanent' or b=='permanent' then return 'permanent' end
+    if a=='equipped' or b=='equipped' then return 'equipped' end
+    return math.max(a,b)
+end
+
+-- One effect's contribution to a role: who gets it, how likely, saves, level range, duration.
+local function add(c,name,who,e,p)
+    local r=c.roles[name]
+    if not r then r={who={},kinds={},chance=0,power=0};c.roles[name]=r end
+    r.who[who]=true
+    r.chance=math.max(r.chance,p)
+    r.power=math.max(r.power,e.power)
+    local saves=saveNames(e.save)
+    if saves then
+        r.save=r.save or {}
+        for s in pairs(saves) do r.save[s]=true end
+        if r.saveBonus==nil or e.saveBonus<r.saveBonus then r.saveBonus=e.saveBonus end
+    end
+    if not DICE_AMOUNT[e.opcode] then
+        if e.dice>0 then r.maxLevel=math.min(r.maxLevel or e.dice,e.dice) end
+        if e.sides>0 then r.minLevel=math.max(r.minLevel or e.sides,e.sides) end
+    end
+    r.duration=longer(r.duration,seconds(e))
+    return r
+end
+local function kind(c,name,label,who,e,p)
+    local r=add(c,name,who,e,p);r.kinds[label]=true;return r
+end
+local function tally(t,key,value) t[key]=(t[key] or 0)+value end
+local function set(r,field) r[field]=r[field] or {};return r[field] end
+
+-- A stat change helps or hurts by its sign; percentage modes compare against 100.
+local function modifier(c,e,who,p,label,good,bad,amount)
+    local mode=e.p2%65536
+    local delta=e.p1
+    if mode==2 then delta=e.p1-100 end
+    if delta==0 then return end
+    local r=kind(c,delta>0 and good or bad,label,who,e,p)
+    tally(set(r,'amounts'),label,math.abs(amount or delta)*p)
+end
+
+-- A bonus or penalty by sign, for opcodes whose parameter 2 is not a modifier type.
+local function signed(c,e,who,p,value,label,good,bad)
+    if value==0 then return end
+    local r=kind(c,value>0 and good or bad,label,who,e,p)
+    tally(set(r,'amounts'),label,math.abs(value)*p)
+end
+
+local H={}
+local function damage(c,e,who,p,amount,label)
+    local r=add(c,'damage',who,e,p)
+    r.kinds[label]=true
+    tally(set(r,'types'),label,amount*p*(c.times or 1))
+    r.amount=(r.amount or 0)+amount*p*(c.times or 1)
+    if e.save>0 and math.floor(e.special/256)%2==1 then r.saveForHalf=true end
+end
+H[12]=function(c,e,who,p)
+    local mode=e.p2%65536
+    local label=DAMAGE[math.floor(e.p2/65536)] or 'other'
+    if mode==0 then damage(c,e,who,p,math.max(e.p1,0)+average(e.dice,e.sides),label)
+    else
+        local r=add(c,'damage',who,e,p);r.kinds[label]=true;r.percent=math.max(r.percent or 0,e.p1)
+    end
+end
+H[25]=function(c,e,who,p)
+    local s=seconds(e);local span=number(s) and s or 0
+    local mode=e.p2%65536
+    local rate=({[0]=1,[1]=e.p1,[2]=e.p1>0 and 1/e.p1 or 0,[3]=e.p1})[mode] or 1
+    damage(c,e,who,p,rate*span,'poison')
+    kind(c,'debuff','poison',who,e,p)
+end
+H[17]=function(c,e,who,p)
+    local mode=e.p2%65536
+    if math.floor(e.p2/65536)%2==1 then kind(c,'raise','raise',who,e,p) end
+    if mode==2 then
+        if e.p1>0 then local r=kind(c,'heal','percent',who,e,p);r.percent=math.max(r.percent or 0,e.p1) end
+    elseif mode==1 then
+        if e.p1>0 then kind(c,'heal','set',who,e,p) end
+    else
+        local amount=e.p1+average(e.dice,e.sides)
+        if amount>0 then local r=kind(c,'heal','hp',who,e,p);r.amount=(r.amount or 0)+amount*p
+        elseif amount<0 then damage(c,e,who,p,-amount,'other') end
+    end
+end
+H[32]=function(c,e,who,p) kind(c,'raise','raise',who,e,p) end
+H[304]=H[32]
+H[316]=function(c,e,who,p) kind(c,'heal','rest',who,e,p) end
+local CURES={[2]='sleep',[4]='berserk',[11]='poison',[26]='curse',[43]='petrify',[46]='stun',
+    [48]='silence',[75]='blind',[77]='feeblemind',[79]='disease',[81]='deaf',[161]='panic',
+    [162]='hold',[212]='freedom',[224]='drain',[242]='confusion',[270]='pause',[329]='poison'}
+for op,label in pairs(CURES) do H[op]=function(c,e,who,p) kind(c,'cure',label,who,e,p) end end
+
+local DISABLES={[24]='panic',[38]='silence',[45]='stun',[76]='feeblemind',[128]='confusion',
+    [134]='petrify',[154]='entangle',[157]='web',[165]='pause',[210]='stun',
+    [211]='imprison',[213]='maze',[217]='sleep',[241]='charm',[247]='berserk',
+    [264]='panic',[13]='death',[55]='death',[209]='death',[238]='death'}
+for op,label in pairs(DISABLES) do H[op]=function(c,e,who,p) kind(c,'disable',label,who,e,p) end end
+H[5]=function(c,e,who,p) kind(c,'disable','charm',who,e,p) end
+H[135]=function(c,e,who,p)
+    if who=='self' then kind(c,'buff','shapechange',who,e,p) else kind(c,'disable','polymorph',who,e,p) end
+end
+-- The creature that holds the time stop is immune to it; everyone else stops, allies too.
+H[231]=function(c,e,who,p) kind(c,'disable','timestop',who=='self' and 'everyone' or who,e,p) end
+H[39]=function(c,e,who,p)
+    local r=kind(c,'disable','sleep',who,e,p)
+    -- Parameter 2 is 0 when the sleeper wakes on damage (EE).
+    if e.p2==0 then r.wakesOnDamage=true else r.staysAsleep=true end
+end
+local function hold(c,e,who,p)
+    local r=kind(c,'disable','hold',who,e,p)
+    if e.p2~=0 then set(r,'filters')[#r.filters+1]={ids=e.p2,entry=e.p1} end
+end
+H[109]=hold;H[175]=hold;H[185]=hold
+H[145]=function(c,e,who,p) kind(c,'disable','nocast',who,e,p) end
+local function berserk(c,e,who,p)
+    if who=='self' then kind(c,'buff','berserk',who,e,p) else kind(c,'disable','berserk',who,e,p) end
+end
+H[3]=berserk;H[246]=berserk
+
+local DEBUFFS={[40]='slow',[60]='miscast',[74]='blind',[78]='disease',[80]='deaf',[137]='chant',
+    [158]='grease',[235]='knockback'}
+for op,label in pairs(DEBUFFS) do H[op]=function(c,e,who,p) kind(c,'debuff',label,who,e,p) end end
+H[216]=function(c,e,who,p) local r=kind(c,'debuff','drain',who,e,p);tally(set(r,'amounts'),'drain',math.abs(e.p1)*p) end
+
+for op,label in pairs(STATS) do
+    H[op]=function(c,e,who,p)
+        local mode=e.p2%65536
+        if (op==15 or op==44) and mode==3 then kind(c,'buff',label,who,e,p);return end
+        if mode==1 then
+            if e.p1>=15 then kind(c,'buff',label,who,e,p) elseif e.p1<=8 then kind(c,'debuff',label,who,e,p) end
+            return
+        end
+        modifier(c,e,who,p,label,'buff','debuff')
+    end
+end
+for op in pairs(TOHIT) do H[op]=function(c,e,who,p) modifier(c,e,who,p,'thac0','buff','debuff') end end
+for op in pairs(WEAPON_DAMAGE) do H[op]=function(c,e,who,p) modifier(c,e,who,p,'damage','buff','debuff') end end
+H[250]=function(c,e,who,p) modifier(c,e,who,p,'damage','buff','debuff') end
+H[1]=function(c,e,who,p) modifier(c,e,who,p,'attacks','buff','debuff') end
+H[18]=function(c,e,who,p) if e.p1>0 then kind(c,'buff','hp',who,e,p) elseif e.p1<0 then kind(c,'debuff','hp',who,e,p) end end
+H[22]=function(c,e,who,p) modifier(c,e,who,p,'luck','buff','debuff') end
+H[133]=H[22]
+H[98]=function(c,e,who,p) kind(c,'buff','regeneration',who,e,p) end
+H[191]=function(c,e,who,p) modifier(c,e,who,p,'castingLevel','buff','debuff') end
+H[189]=function(c,e,who,p)
+    local mode=e.p2%65536
+    if mode==2 or (mode==1 and e.p1<5) then kind(c,'buff','castingSpeed',who,e,p)
+    elseif mode==1 then kind(c,'debuff','castingSpeed',who,e,p)
+    else signed(c,e,who,p,e.p1,'castingSpeed','buff','debuff') end
+end
+H[188]=function(c,e,who,p) kind(c,'buff','castingSpeed',who,e,p) end
+H[301]=function(c,e,who,p) modifier(c,e,who,p,'critical','buff','debuff') end
+H[344]=function(c,e,who,p) kind(c,'buff','enchantment',who,e,p) end
+H[345]=H[344]
+H[111]=function(c,e,who,p) kind(c,'buff','weapon',who,e,p) end
+H[248]=function(c,e,who,p) kind(c,'buff','onHit',who,e,p) end
+H[249]=H[248]
+H[303]=function(c,e,who,p) kind(c,'buff','backstab',who,e,p) end
+H[42]=function(c,e,who,p) if e.p1>0 then kind(c,'buff','slots',who,e,p) end end
+H[62]=H[42]
+H[261]=function(c,e,who,p) kind(c,'buff','restore',who,e,p) end
+H[193]=function(c,e,who,p) kind(c,'buff','seeInvisible',who,e,p) end
+H[16]=function(c,e,who,p)
+    local r=kind(c,'buff','haste',who,e,p)
+    if e.p2==1 then r.kinds.improvedHaste=true end
+end
+H[317]=H[16]
+local GROUP_BUFFS={[129]='aid',[130]='bless',[131]='chant',[132]='raise'}
+for op,label in pairs(GROUP_BUFFS) do H[op]=function(c,e,who,p) kind(c,'buff',label,who,e,p) end end
+local function movement(c,e,who,p)
+    local mode=e.p2%65536
+    if mode==1 then
+        if e.p1==0 then kind(c,'disable','root',who,e,p) end
+        return
+    end
+    modifier(c,e,who,p,'movement','buff','debuff')
+end
+H[126]=movement;H[176]=movement
+-- More fatigue is worse; setting it to 0 rests the target.
+H[93]=function(c,e,who,p)
+    if e.p2%65536==1 then
+        if e.p1==0 then kind(c,'cure','fatigue',who,e,p) else kind(c,'debuff','fatigue',who,e,p) end
+        return
+    end
+    modifier(c,e,who,p,'fatigue','debuff','buff')
+end
+-- Item in a slot (SLOTS.IDS): weapon slots 34-38 and the fist, armour and shield, ammunition.
+H[143]=function(c,e,who,p)
+    local slot=e.p1
+    local label=(slot==10 or (slot>=34 and slot<=38)) and 'weapon' or (slot==1 or slot==9) and 'armor'
+        or (slot>=11 and slot<=14) and 'ammo' or 'item'
+    local r=kind(c,'buff',label,who,e,p)
+    if e.res~='' then set(r,'items')[e.res]=slot end
+end
+-- Against one creature type (IDS entry and file); 178 and 179 keep the amount in special.
+H[178]=function(c,e,who,p) signed(c,e,who,p,s32(e.special),'thac0VsType','buff','debuff') end
+H[179]=function(c,e,who,p) signed(c,e,who,p,s32(e.special),'damageVsType','buff','debuff') end
+H[219]=function(c,e,who,p) kind(c,'protection','armorVsType',who,e,p) end
+-- Percent more (or less) damage dealt; parameter 2 is the damage type.
+H[332]=function(c,e,who,p) signed(c,e,who,p,e.p1,'damagePercent','buff','debuff') end
+H[222]=function(c,e,who,p) kind(c,'debuff','teleportField',who,e,p) end
+-- Wild magic makes the receiver's own spells surge.
+H[280]=function(c,e,who,p) if who~='self' then kind(c,'debuff','wildSurge',who,e,p) end end
+-- The receiver turns undead like the modal action, so the undead around it are hit.
+H[334]=function(c,e,who,p) kind(c,'disable','turnUndead',who=='self' and 'area' or who,e,p) end
+-- Removes the receiver from the game (Banishment's last step).
+H[168]=function(c,e,who,p) if who~='self' then kind(c,'removal','destroy',who,e,p) end end
+H[214]=function(c,e,who,p) c.choice=true end
+
+-- Protections.
+for op,label in pairs(RESIST) do
+    H[op]=function(c,e,who,p)
+        if e.p2%65536==2 then return end
+        if e.p1>0 then local r=kind(c,'protection','resist',who,e,p);tally(set(r,'resist'),label,e.p1*p)
+        elseif e.p1<0 then local r=kind(c,'debuff','resist',who,e,p);tally(set(r,'resist'),label,-e.p1*p) end
+    end
+end
+for op in pairs(SAVE_MODS) do H[op]=function(c,e,who,p) modifier(c,e,who,p,'saves','protection','debuff') end end
+H[166]=function(c,e,who,p) modifier(c,e,who,p,'magicResistance','protection','debuff') end
+H[0]=function(c,e,who,p)
+    if e.p2==16 then kind(c,'protection','armor',who,e,p);return end
+    signed(c,e,who,p,e.p1,'armor','protection','debuff')
+end
+H[218]=function(c,e,who,p)
+    local r=kind(c,'protection','stoneskin',who,e,p)
+    local skins=e.p2==1 and average(e.dice,e.sides) or e.p1
+    r.stoneskin=math.max(r.stoneskin or 0,skins)
+end
+H[314]=function(c,e,who,p) local r=kind(c,'protection','stoneskin',who,e,p);r.stoneskin=math.max(r.stoneskin or 0,e.p1) end
+H[119]=function(c,e,who,p) kind(c,'protection','mirror',who,e,p) end
+H[159]=function(c,e,who,p) local r=kind(c,'protection','mirror',who,e,p);r.mirror=math.max(r.mirror or 0,e.p1) end
+local PROTECTION_KINDS={[20]='invisible',[65]='blur',[69]='nondetection',[100]='creatureType',
+    [153]='sanctuary',[163]='freeAction',[208]='minimumHp',[292]='backstab',
+    [297]='turnUndead',[299]='chaosShield',[310]='timestop',[322]='evasion',[335]='sevenEyes'}
+for op,label in pairs(PROTECTION_KINDS) do H[op]=function(c,e,who,p) kind(c,'protection',label,who,e,p) end end
+local function blocks(c,e,who,p,how,field,key,count)
+    local r=kind(c,'protection',how,who,e,p)
+    local t=set(set(r,how..'By'),field)
+    t[key]=math.max(t[key] or 0,count or 1)
+end
+H[83]=function(c,e,who,p) blocks(c,e,who,p,'immune','projectiles',e.p2) end
+H[120]=function(c,e,who,p)
+    local r=kind(c,'protection','weapons',who,e,p)
+    set(r,'weapons')[e.p2]=e.p2==0 and e.p1 or true
+end
+H[101]=function(c,e,who,p) blocks(c,e,who,p,'immune','opcodes',e.p2) end
+H[102]=function(c,e,who,p) blocks(c,e,who,p,'immune','levels',e.p1) end
+H[197]=function(c,e,who,p) blocks(c,e,who,p,'bounce','projectiles',e.p2) end
+H[198]=function(c,e,who,p) blocks(c,e,who,p,'bounce','opcodes',e.p2) end
+H[199]=function(c,e,who,p) blocks(c,e,who,p,'bounce','levels',e.p2) end
+H[200]=function(c,e,who,p) blocks(c,e,who,p,'bounce','levels',e.p2,e.p1) end
+H[201]=function(c,e,who,p) blocks(c,e,who,p,'immune','levels',e.p2,e.p1) end
+H[259]=function(c,e,who,p) blocks(c,e,who,p,'trap','levels',e.p2,e.p1) end
+H[202]=function(c,e,who,p) blocks(c,e,who,p,'bounce','schools',e.p2) end
+H[203]=function(c,e,who,p) blocks(c,e,who,p,'bounce','secondaries',e.p2) end
+H[204]=function(c,e,who,p) blocks(c,e,who,p,'immune','schools',e.p2) end
+H[205]=function(c,e,who,p) blocks(c,e,who,p,'immune','secondaries',e.p2) end
+H[223]=function(c,e,who,p) blocks(c,e,who,p,'immune','schools',e.p2,e.p1) end
+H[226]=function(c,e,who,p) blocks(c,e,who,p,'immune','secondaries',e.p2,e.p1) end
+H[227]=function(c,e,who,p) blocks(c,e,who,p,'bounce','schools',e.p2,e.p1) end
+H[228]=function(c,e,who,p) blocks(c,e,who,p,'bounce','secondaries',e.p2,e.p1) end
+-- Protection from a named resource. Naming the spell itself is SCS's and SR's guard against
+-- stacking, not a protection.
+local function fromSpell(how)
+    return function(c,e,who,p)
+        if e.res=='' or e.res==c.self or e.res==c.owner then return end
+        blocks(c,e,who,p,how,'spells',e.res)
+    end
+end
+H[206]=fromSpell('immune');H[207]=fromSpell('bounce');H[318]=fromSpell('immune');H[324]=fromSpell('immune')
+
+-- Removal of protections and states.
+H[58]=function(c,e,who,p)
+    local r=kind(c,'removal','dispel',who,e,p)
+    local mode=e.p2%65536
+    r.dispel={mode=mode==0 and 'always' or mode==1 and 'caster' or 'fixed',level=e.p1}
+end
+local function strip(field)
+    return function(c,e,who,p)
+        local r=kind(c,'removal',field,who,e,p)
+        local t=set(r,field);t[e.p2]=math.max(t[e.p2] or 0,e.p1)
+    end
+end
+H[220]=strip('schools');H[229]=strip('schools');H[221]=strip('secondaries');H[230]=strip('secondaries')
+H[337]=function(c,e,who,p) local r=kind(c,'removal','opcodes',who,e,p);set(r,'opcodes')[e.p2]=true end
+local REMOVES={[47]='invisibility',[68]='summons',[70]='nondetection',[116]='invisibility',
+    [136]='invisibility',[160]='sanctuary',[273]='cloud'}
+for op,label in pairs(REMOVES) do H[op]=function(c,e,who,p) kind(c,'removal',label,who,e,p) end end
+
+-- Summons and movement.
+local function summon(c,e,who,p)
+    local r=kind(c,'summon','creature',who,e,p)
+    if e.res~='' then tally(set(r,'creatures'),e.res,p) end
+    r.count=(r.count or 0)+p
+    return r
+end
+-- Mode 5 aligns the summons against the receiver, so a summons cast on oneself is hostile.
+H[67]=function(c,e,who,p) local r=summon(c,e,who,p);if e.p2==5 and who=='self' then r.hostile=true end end
+-- Types 0-2 remove or kill the creature that is replaced.
+H[151]=function(c,e,who,p)
+    summon(c,e,who,p)
+    if e.p2<=2 and who~='self' then kind(c,'removal','replace',who,e,p) end
+end
+-- Types 5-9 summon from the hostile tables.
+H[127]=function(c,e,who,p)
+    local r=kind(c,'summon','monsters',who,e,p);r.count=(r.count or 0)+math.max(e.p1,1)*p
+    if e.p2>=5 and e.p2<=9 then r.hostile=true end
+end
+H[331]=function(c,e,who,p) local r=kind(c,'summon','monsters',who,e,p);r.count=(r.count or 0)+math.max(e.p1,1)*p end
+H[236]=function(c,e,who,p) kind(c,'summon','image',who,e,p) end
+H[124]=function(c,e,who,p) kind(c,'move','teleport',who,e,p) end
+H[274]=H[124]
+H[232]=function(c,e,who,p) kind(c,'prepare','contingency',who,e,p) end
+H[234]=H[232]
+for _,op in ipairs({256,257,258,260}) do H[op]=function(c,e,who,p) kind(c,'prepare','sequencer',who,e,p) end end
+
+-- Who receives an effect, from its target field and where its delivery lands.
+local function receiver(e,where)
+    local t=e.target
+    if t==1 or t==9 then return 'self' end
+    if t==2 then return where end
+    if t==3 then return 'party' end
+    if t==4 or t==8 then return 'everyone' end
+    if t==5 then return 'nonparty' end
+    if t==6 then return 'casterGroup' end
+    if t==7 then return 'targetGroup' end
+end
+
+function M.abilityForLevel(record,level)
+    local abilities=type(record)=='table' and record.abilities
+    if type(abilities)~='table' or #abilities==0 then return nil end
+    local chosen=1
+    for i,ability in ipairs(abilities) do
+        if type(ability.minLevel)=='number' and level>=ability.minLevel then chosen=i
+        elseif i>1 then break end
+    end
+    return chosen
+end
+
+local function area(projectile)
+    if type(projectile)~='table' or projectile.type~=3 then return nil end
+    local flags=projectile.areaFlags or 0
+    local function bit(v,n) return math.floor(v/2^n)%2==1 end
+    local a={radius=projectile.radius or 0,trigger=projectile.trigger or 0}
+    a.filter='all'
+    if bit(flags,6) then a.filter=bit(flags,7) and 'allies' or 'enemies' end
+    if bit(flags,11) then a.cone=projectile.coneWidth or 0 end
+    if bit(projectile.flags or 0,4) then a.skipsCenter=true end
+    local ext=projectile.extFlags or 0
+    if bit(ext,30) then a.conditions=true end
+    if bit(ext,31) then a.casterAffected=true end
+    if bit(ext,14) then a.line=true end
+    if bit(ext,15) then a.rectangle=true end
+    if bit(flags,15) then a.maxTargets=average(projectile.targetDice or 0,projectile.targetSides or 0) end
+    return a
+end
+
+local function valid(e)
+    for _,f in ipairs({'opcode','target','power','p1','p2','timing','duration','prob1','prob2',
+        'dice','sides','save','saveBonus','special'}) do
+        if not number(e[f]) then return false end
+    end
+    return type(e.res)=='string'
+end
+
+local walk
+local function deliver(c,state,e,where,depth,p)
+    local op=e.opcode
+    -- With a non-zero IDS entry, 177 and 283 apply only to creatures of that type (entry 0
+    -- matches anyone: bard songs and most SR spells use EA 0).
+    if (op==177 or op==283) and e.p1~=0 then
+        c.conditional=true
+        c.filters=c.filters or {}
+        c.filters[#c.filters+1]={ids=e.p2,entry=e.p1}
+    end
+    if op==177 or op==283 then
+        local eff=state.lookup('EFF',e.res)
+        if type(eff)~='table' or type(eff.effect)~='table' then return state.miss(c,'EFF',e.res) end
+        local inner={}
+        for k,v in pairs(eff.effect) do inner[k]=v end
+        inner.target=2
+        return walk(c,state,{inner},receiver(e,where),depth+1,p,'EFF:'..e.res,c.owner)
+    end
+    if op==272 then
+        local eff=state.lookup('EFF',e.res)
+        if type(eff)~='table' or type(eff.effect)~='table' then return state.miss(c,'EFF',e.res) end
+        local inner={}
+        for k,v in pairs(eff.effect) do inner[k]=v end
+        inner.target=2
+        local span=seconds(e)
+        -- Type 0 once a second, 2 p1 times a second, 3 once every p1 seconds, 4 a number of
+        -- times (EFF parameter 3) every p1 rounds.
+        local times=number(span) and math.max(span,1) or 1
+        local every=math.max(e.p1,1)
+        if e.p2==2 then times=times*every elseif e.p2==3 then times=times/every
+        elseif e.p2==4 then times=times/(6*every) end
+        local saved=c.times;c.times=(saved or 1)*times;c.approximate=true
+        walk(c,state,{inner},receiver(e,where),depth+1,p,'EFF:'..e.res,c.owner)
+        c.times=saved;return
+    end
+    -- 146 casts at a creature, 148 at a point, 326 applies a spell's effects directly, 333
+    -- casts repeatedly, 366 casts when the target moves.
+    -- 333 casts the holder's resref plus B when it names none.
+    local res=e.res
+    -- A resref holds eight characters, so an eight-character holder names itself.
+    if op==333 and res=='' and c.owner then res=(c.owner..'B'):sub(1,8) end
+    local sub=state.lookup('SPL',res)
+    if type(sub)~='table' then return state.miss(c,'SPL',res) end
+    -- Casting level: 146 and 148 use parameter 1 (0 or instant type 1: the caster's level);
+    -- 333 uses parameter 2, else level 1.
+    local level=state.level
+    if (op==146 or op==148) and e.p2~=1 and e.p1>0 then level=e.p1 end
+    if op==333 then level=e.p2>0 and e.p2 or 1 end
+    local index=M.abilityForLevel(sub,level)
+    local ability=index and sub.abilities[index]
+    if type(ability)~='table' then return state.miss(c,'SPL',res) end
+    local to=receiver(e,where)
+    if op==148 then to='point' end
+    local saved=c.times
+    if op==333 then c.times=(saved or 1)*math.max(e.p1,1);c.approximate=true end
+    if op==326 or op==366 then c.conditional=true end
+    local subArea=op~=326 and area(state.lookup('PRO',ability.projectile)) or nil
+    if subArea then
+        c.area=c.area or subArea
+        to='area'
+    end
+    walk(c,state,ability.effects,to,depth+1,p,'SPL:'..res,res)
+    c.times=saved
+end
+local DELIVERY={[146]=true,[148]=true,[177]=true,[272]=true,[283]=true,[326]=true,[333]=true,[366]=true}
+
+walk=function(c,state,effects,where,depth,p,key,owner)
+    if key then
+        if state.path[key] then c.approximate=true;c.reasons['cycle:'..key]=true;return end
+        if depth>M.limits.depth then c.partial=true;c.reasons['depth:'..key]=true;return end
+        state.path[key]=true
+    end
+    local outer=c.owner
+    c.owner=owner
+    if type(effects)=='table' then
+        for _,e in ipairs(effects) do
+            state.count=state.count+1
+            if state.count>M.limits.effects then c.partial=true;c.reasons['too-many-effects']=true;break end
+            if type(e)~='table' or not valid(e) then c.partial=true;c.reasons['bad-effect']=true
+            else
+                local who=receiver(e,where)
+                local q=p*chance(e)
+                if who and q>0 then
+                    -- What reaches others, for matching a target's opcode immunities.
+                    if who~='self' then c.opcodes[e.opcode]=true end
+                    if DELIVERY[e.opcode] then deliver(c,state,e,where,depth,q)
+                    elseif H[e.opcode] then H[e.opcode](c,e,who,q)
+                    elseif not NEUTRAL[e.opcode] then tally(c.unknown,e.opcode,1) end
+                end
+            end
+        end
+    end
+    c.owner=outer
+    if key then state.path[key]=nil end
+end
+
+local OFFENSIVE={damage=true,disable=true,debuff=true,removal=true}
+local HARMS_ALLIES={everyone=true,nonparty=true,casterGroup=true}
+
+-- Classify ability `index` (1-based) of a SPL or ITM record. options.level is the caster level
+-- used for spells cast through other spells.
+function M.classify(record,index,lookup,options)
+    options=options or {}
+    local c={roles={},unknown={},reasons={},opcodes={}}
+    if type(record)~='table' or type(record.abilities)~='table' then c.partial=true;c.reasons['no-record']=true;return c end
+    local ability=record.abilities[index]
+    if type(ability)~='table' then c.partial=true;c.reasons['no-ability']=true;return c end
+    c.resref=record.resref;c.kind=record.kind;c.ability=index;c.self=record.resref
+    c.level=record.level;c.spellType=record.spellType;c.itemType=record.itemType
+    c.school=record.school or ability.school;c.secondary=record.secondary or ability.secondary
+    c.range=ability.range;c.speed=ability.speed;c.projectile=ability.projectile
+    local hostile=record.kind=='ITM' and ability.flags or record.flags
+    c.hostile=number(hostile) and math.floor(hostile/1024)%2==1 or false
+    local targets={[1]='creature',[2]='item',[3]='dead',[4]='point',[5]='self',[7]='self'}
+    c.target=targets[ability.target] or 'none'
+    -- lookup may be any callable (a host function arrives as userdata).
+    local state={lookup=function(kind,key)
+            if lookup==nil then return nil end
+            local ok,value=pcall(lookup,kind,key)
+            if ok and type(value)=='table' then return value end
+        end,path={},count=0,level=options.level or 1}
+    function state.miss(cl,kind,res) cl.partial=true;cl.reasons['missing:'..kind..':'..tostring(res)]=true end
+    -- Projectiles 0 and 1 are none. Others without a PRO file are built into the engine (in
+    -- MISSILE.IDS, not PROJECTL.IDS), so their shape is unknown here.
+    local pro=state.lookup('PRO',ability.projectile)
+    if pro==nil and number(ability.projectile) and ability.projectile>1 then c.projectileUnknown=true end
+    c.area=area(pro)
+    local where=c.area and 'area' or (c.target=='self' and 'self') or (c.target=='point' and 'point') or 'target'
+    -- The record itself is on the path, so a sub-spell that casts it again is a cycle.
+    local key=tostring(record.kind)..':'..tostring(record.resref)
+    walk(c,state,ability.effects,where,0,1,key,record.resref)
+    if record.kind=='SPL' then walk(c,state,record.casting,'self',0,1,key,record.resref) end
+    c.times=nil;c.owner=nil
+    local names={}
+    for name,r in pairs(c.roles) do
+        names[#names+1]=name
+        if OFFENSIVE[name] then
+            c.offensive=c.offensive or (r.who.target or r.who.area or r.who.point or r.who.party
+                or r.who.everyone) and true or nil
+            for who in pairs(r.who) do if HARMS_ALLIES[who] then c.friendlyFire=true end end
+            if r.who.area and c.area and c.area.filter~='enemies' then c.friendlyFire=true end
+            if r.who.self and name~='removal' then c.selfHarm=true end
+        else c.beneficial=true end
+    end
+    table.sort(names);c.kinds=names
+    return c
+end
+
+return M
+end
+factories["combat-intent.targeting"]=function(require)
+-- Which casts the fight director may redirect, and whether another enemy is as fair and legal
+-- a target as the one the creature's own script chose. Inputs are plain values: the caster's
+-- perception frame (adapters/eeex/sense.lua) and the spell's classification
+-- (combat-intent/spells.lua). Nothing here touches the engine or raises on odd data; an
+-- answer it cannot give is a reason to leave the cast as it is.
+local M={}
+
+-- STATE.IDS bits (engine constants).
+M.STATE={sleeping=0x1,panic=0x4,stunned=0x8,invisible=0x10,helpless=0x20,reallyDead=0xFC0,
+    charmed=0x2000,feebleminded=0x100000,improvedInvisible=0x400000,confused=0x80000000}
+-- STATE_DISABLED as the installed STATE.IDS defines it: sleeping, panic, stunned, helpless,
+-- charmed, feebleminded, confused. Holds set the HELD stat instead (see sense.lua).
+M.DISABLED=0x8010202D
+local UNSEEN=M.STATE.invisible+M.STATE.improvedInvisible
+-- Actions that cast: Spell, SpellPoint, ForceSpell, ForceSpellPoint, ReallyForceSpell,
+-- SpellNoDec, SpellPointNoDec, ReallyForceSpellPoint.
+M.CASTS={[31]=true,[95]=true,[113]=true,[114]=true,[181]=true,[191]=true,[192]=true,[337]=true}
+-- Projectiles built into the engine (no PRO file) that hit one creature: Magic Missile's.
+M.builtinSingle={}
+for n=68,78 do M.builtinSingle[n]=true end
+-- Distance as the engine's search map measures it: cells are 16 by 12 world units, so y
+-- counts 4/3. SPL range values are taken as cells of 16 (to be confirmed in the lab).
+M.rangeUnit=16
+-- IDS files a spell's creature filter can name (opcodes 175, 177, 283).
+M.IDS={[2]='ea',[3]='general',[4]='race',[5]='class',[6]='specific',[7]='gender',[8]='alignment'}
+-- Roles that tie a cast to its target for reasons the director does not judge (a dispel
+-- picks the protected enemy) or that are not attacks at all.
+local KEEP_ROLES={'removal','heal','raise','cure','summon'}
+
+local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
+local function bits(v) if not number(v) then return 0 end return math.floor(v)%4294967296 end
+-- True when value and mask share a bit (plain Lua 5.1 has no bit library).
+function M.has(value,mask)
+    local a,b=bits(value),bits(mask)
+    while a>0 and b>0 do
+        local x,y=a%2,b%2
+        if x==1 and y==1 then return true end
+        a,b=(a-x)/2,(b-y)/2
+    end
+    return false
+end
+
+function M.alive(actor)
+    return type(actor)=='table' and not M.has(actor.state,M.STATE.reallyDead) and
+        not (number(actor.hp) and actor.hp<=0)
+end
+function M.disabled(actor)
+    return type(actor)=='table' and (M.has(actor.state,M.DISABLED) or (number(actor.held) and actor.held>0))
+end
+function M.casting(actor) return type(actor)=='table' and M.CASTS[actor.action]==true end
+function M.health(actor)
+    if type(actor)~='table' or not number(actor.hp) or not number(actor.maxHp) or actor.maxHp<=0 then return 1 end
+    return math.max(0,math.min(1,actor.hp/actor.maxHp))
+end
+function M.distance(a,b)
+    if type(a)~='table' or type(b)~='table' or not number(a.x) or not number(a.y) or
+        not number(b.x) or not number(b.y) then return math.huge end
+    local dx,dy=a.x-b.x,(a.y-b.y)*4/3
+    return math.sqrt(dx*dx+dy*dy)
+end
+
+local function reaches(role) return type(role)=='table' and type(role.who)=='table' and (role.who.target or role.who.area) end
+-- What a cast does to the creature it is aimed at, for the group picture: 'disable', 'damage'
+-- or nil. Any cast counts here, also one the director would not redirect.
+function M.role(spell)
+    if type(spell)~='table' or type(spell.roles)~='table' then return nil end
+    if reaches(spell.roles.disable) then return 'disable' end
+    if reaches(spell.roles.damage) then return 'damage' end
+end
+-- 'disable' or 'damage' when the director may redirect this cast, else nil and why.
+function M.kind(spell)
+    if type(spell)~='table' or type(spell.roles)~='table' then return nil,'unclassified' end
+    if spell.partial then return nil,'partial' end
+    if spell.target~='creature' then return nil,'not-creature-target' end
+    if spell.friendlyFire then return nil,'friendly-fire' end
+    if spell.selfHarm then return nil,'self-harm' end
+    if spell.projectileUnknown and not M.builtinSingle[spell.projectile] then return nil,'unknown-projectile' end
+    for _,name in ipairs(KEEP_ROLES) do
+        if reaches(spell.roles[name]) then return nil,'role-'..name end
+    end
+    if reaches(spell.roles.disable) then return 'disable' end
+    if reaches(spell.roles.damage) then return 'damage' end
+    return nil,'not-damage-or-disable'
+end
+
+-- Every creature filter of the spell, from conditional deliveries and from holds.
+local function filters(spell)
+    local all={}
+    for _,f in ipairs(type(spell.filters)=='table' and spell.filters or {}) do all[#all+1]=f end
+    local disable=spell.roles.disable
+    for _,f in ipairs(type(disable)=='table' and type(disable.filters)=='table' and disable.filters or {}) do
+        all[#all+1]=f
+    end
+    return all
+end
+
+-- Spell protections that would stop this spell: turning, deflection, traps and globes by
+-- level, school or secondary type; immunity or bounce by opcode or projectile; protection
+-- from this very spell. protections holds {opcode, p1, p2, res} rows.
+local BY_LEVEL={[199]=true,[200]=true,[201]=true,[259]=true}
+local BY_SCHOOL={[202]=true,[204]=true,[223]=true,[227]=true}
+local BY_SECONDARY={[203]=true,[205]=true,[226]=true,[228]=true}
+local BY_RESOURCE={[206]=true,[207]=true,[318]=true,[324]=true}
+local function stops(p,spell)
+    local op=p.opcode
+    local opcodes=type(spell.opcodes)=='table' and spell.opcodes or {}
+    if op==101 or op==198 then return opcodes[p.p2]==true end
+    if op==83 or op==197 then return number(spell.projectile) and (p.p2==spell.projectile or p.p2+1==spell.projectile) end
+    if op==102 then return p.p1==spell.level end
+    if BY_LEVEL[op] then return p.p2==spell.level end
+    if BY_SCHOOL[op] then return number(spell.school) and spell.school>0 and p.p2==spell.school end
+    if BY_SECONDARY[op] then return number(spell.secondary) and spell.secondary>0 and p.p2==spell.secondary end
+    if BY_RESOURCE[op] then return type(p.res)=='string' and p.res~='' and p.res==spell.resref end
+    return false
+end
+function M.protected(target,spell)
+    if type(target.protections)~='table' then return true end
+    for _,p in ipairs(target.protections) do
+        if type(p)=='table' and stops(p,spell) then return true end
+    end
+    return false
+end
+
+-- Whether target may take the cast instead of original, the enemy the creature's script chose
+-- (both entries of the caster's frame). Nothing here is stricter than "no worse than the
+-- original": range up to the farther of the spell's range and the original's distance, magic
+-- resistance up to the original's, the same values in every IDS file the spell filters on.
+function M.legal(caster,target,spell,original)
+    if type(target)~='table' or type(original)~='table' or type(caster)~='table' then return false,'missing' end
+    if not M.alive(target) then return false,'dead' end
+    if number(target.sanctuary) and target.sanctuary>0 then return false,'sanctuary' end
+    if M.has(target.state,UNSEEN) and not caster.seeInvisible then return false,'invisible' end
+    local away,before=M.distance(caster,target),M.distance(caster,original)
+    if away==math.huge or before==math.huge then return false,'no-position' end
+    if away>math.max(before,(number(spell.range) and spell.range or 0)*M.rangeUnit) then return false,'out-of-range' end
+    if (number(target.mr) and target.mr or 0)>(number(original.mr) and original.mr or 0) then
+        return false,'magic-resistance'
+    end
+    for _,f in ipairs(filters(spell)) do
+        local field=type(f)=='table' and M.IDS[f.ids]
+        if not field then return false,'unknown-filter' end
+        local a,b=type(target.ids)=='table' and target.ids[field],type(original.ids)=='table' and original.ids[field]
+        if a==nil or a~=b then return false,'filter' end
+    end
+    if M.protected(target,spell) then return false,'protected' end
+    return true
+end
+return M
+end
+factories["combat-intent.director"]=function(require)
+-- The fight director of one hostile group (for now: the hooked creatures of one area).
+-- Members check in with what they perceive (frames from adapters/eeex/sense.lua); the director
+-- keeps the shared picture (where the enemies are, how wounded, who is disabled), picks a focus
+-- target and keeps one disabler per target with short reservations. It never acts. When a
+-- member's own cast starts, it advises keeping the target or taking another one, and the
+-- adapter re-checks before it changes anything. Plain values only; nothing survives a load.
+local targeting=require('combat-intent.targeting')
+local values=require('kernel.manifest')
+local M={}
+-- Game ticks, 15 a second. A member that has not checked in for memberTicks has left; what a
+-- member saw is current for enemyTicks; a disable reservation lasts reserveTicks at most and
+-- graceTicks after its cast ended, so the disable can show before another one is allowed.
+M.defaults={memberTicks=150,enemyTicks=45,reserveTicks=225,graceTicks=30,forgetTicks=450,
+    logCapacity=256,families={mage=true,priest=true}}
+
+local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
+local function id(v) return number(v) and v>=0 and v%1==0 end
+
+function M.new(config)
+    config=config or {}
+    local o={}
+    for k,v in pairs(M.defaults) do if config[k]==nil then o[k]=v else o[k]=config[k] end end
+    local area=type(config.area)=='string' and config.area or ''
+    local sink=type(config.sink)=='function' and config.sink or nil
+    local members,enemies,reservations,attempts={},{},{},{}
+    local focus,lastTick=nil,nil
+    local log,nextRow,size={},1,0
+    local counts={checkIns=0,advice=0,redirects=0,keeps=0,focusChanges=0,attempts=0,ended=0,
+        released=0,sinkErrors=0}
+    local api={}
+
+    local function record(row)
+        row.area=area
+        local ok,copy=pcall(values.copy,row)
+        if not ok then return end
+        log[nextRow]=copy;nextRow=nextRow%o.logCapacity+1;size=math.min(size+1,o.logCapacity)
+        if sink and not pcall(sink,values.copy(copy)) then counts.sinkErrors=counts.sinkErrors+1 end
+    end
+    local function fresh(e,tick) return e~=nil and tick-e.lastTick<=o.enemyTicks and targeting.alive(e) end
+    local function holder(target,tick)
+        local r=reservations[target]
+        if r and r.untilTick>tick and members[r.owner] then return r.owner end
+    end
+    local function finish(member,tick,why)
+        local a=attempts[member]
+        if not a or a.ended then return end
+        a.ended=tick;counts.ended=counts.ended+1
+        local r=reservations[a.target]
+        if r and r.owner==member then r.untilTick=math.min(r.untilTick,tick+o.graceTicks) end
+        local e=enemies[a.target]
+        record({kind='end',tick=tick,member=member,spell=a.spell,role=a.role,target=a.target,
+            why=why,ticks=tick-a.startedAt,targetDisabled=e and targeting.disabled(e) or nil,
+            targetHealth=e and targeting.health(e) or nil})
+    end
+    -- After a load or a jump back in time nothing here is valid any more.
+    local function clock(tick)
+        if lastTick and tick<lastTick then api:invalidate('clock') end
+        lastTick=tick
+    end
+
+    function api:isMember(member) return members[member]~=nil end
+    -- member = {id, family}; frame = the member's plain perception frame.
+    function api:checkIn(member,frame)
+        if type(member)~='table' or not id(member.id) or type(frame)~='table' or not number(frame.tick) or
+            type(frame.self)~='table' then return false end
+        local tick=frame.tick;clock(tick)
+        local m=members[member.id] or {}
+        m.family=member.family;m.lastTick=tick;m.x=frame.self.x;m.y=frame.self.y
+        members[member.id]=m;counts.checkIns=counts.checkIns+1
+        for _,e in ipairs(type(frame.enemies)=='table' and frame.enemies or {}) do
+            if id(e.id) then
+                local seen=enemies[e.id] or {seenBy={}}
+                seen.lastTick=tick;seen.x,seen.y,seen.hp,seen.maxHp=e.x,e.y,e.hp,e.maxHp
+                seen.state,seen.held=e.state,e.held
+                seen.seenBy[member.id]=tick
+                enemies[e.id]=seen
+            end
+        end
+        -- A member no longer busy with its cast has finished it.
+        local a=attempts[member.id]
+        if a and not a.ended and frame.self.action~=a.action then finish(member.id,tick,'action-changed') end
+        return true
+    end
+
+    -- The focus target: kept while it lives and someone sees it; otherwise the enemy seen by
+    -- the most members, then the most wounded, then the nearest to the members who see it.
+    function api:focus(tick)
+        if focus and fresh(enemies[focus],tick) then return focus end
+        local best,bestKey
+        for key,e in pairs(enemies) do
+            if fresh(e,tick) then
+                local seen,far=0,0
+                for member,at in pairs(e.seenBy) do
+                    local m=members[member]
+                    if m and tick-at<=o.enemyTicks then seen=seen+1;far=far+targeting.distance(m,e) end
+                end
+                if seen>0 then
+                    local k={seen,-targeting.health(e),-far/seen,-key}
+                    local better=bestKey==nil
+                    for i=1,#k do
+                        if better or k[i]~=bestKey[i] then better=better or k[i]>bestKey[i];break end
+                    end
+                    if better then best,bestKey=key,k end
+                end
+            end
+        end
+        if best~=focus then
+            counts.focusChanges=counts.focusChanges+1
+            record({kind='focus',tick=tick,target=best,previous=focus,seenBy=bestKey and bestKey[1],
+                health=bestKey and -bestKey[2]})
+            focus=best
+        end
+        return focus
+    end
+
+    local function advise(member,frame,spell,original,tick)
+        local family=members[member.id] and members[member.id].family or member.family
+        if not o.families[family] then return {action='keep',reason='family'} end
+        local kind,why=targeting.kind(spell)
+        if not kind then return {action='keep',reason=why} end
+        local byId={}
+        for _,e in ipairs(type(frame.enemies)=='table' and frame.enemies or {}) do if id(e.id) then byId[e.id]=e end end
+        local first=byId[original]
+        if not first then return {action='keep',kind=kind,reason='original-unseen'} end
+        local caster=frame.self
+        local target=api:focus(tick)
+        if kind=='disable' then
+            local busy=targeting.disabled(first) and 'disabled' or
+                (holder(original,tick) and holder(original,tick)~=member.id and 'reserved') or nil
+            if not busy then return {action='keep',kind=kind,reason='free'} end
+            local best,bestDistance
+            for key,e in pairs(byId) do
+                if key~=original and not targeting.disabled(e) and
+                    (holder(key,tick)==nil or holder(key,tick)==member.id) and targeting.legal(caster,e,spell,first) then
+                    local d=key==target and -1 or targeting.distance(caster,e)
+                    if best==nil or d<bestDistance or (d==bestDistance and key<best) then best,bestDistance=key,d end
+                end
+            end
+            if best==nil then return {action='keep',kind=kind,reason=busy..'-no-alternative'} end
+            return {action='redirect',kind=kind,target=best,reason=busy}
+        end
+        if target==nil then return {action='keep',kind=kind,reason='no-focus'} end
+        if target==original then return {action='keep',kind=kind,reason='on-focus'} end
+        local chosen=byId[target]
+        if not chosen then return {action='keep',kind=kind,reason='focus-unseen'} end
+        if targeting.casting(first) then return {action='keep',kind=kind,reason='original-casting'} end
+        if targeting.health(first)<targeting.health(chosen) then
+            return {action='keep',kind=kind,reason='original-more-wounded'}
+        end
+        local ok,blocked=targeting.legal(caster,chosen,spell,first)
+        if not ok then return {action='keep',kind=kind,reason='focus-'..blocked} end
+        return {action='redirect',kind=kind,target=target,reason='focus'}
+    end
+    -- A member's own cast at original is starting: keep it, or take another target.
+    function api:advise(member,frame,spell,original,tick)
+        clock(tick);counts.advice=counts.advice+1
+        local ok,result=pcall(advise,member,frame,spell,original,tick)
+        local err
+        if not ok then err=tostring(result):sub(1,200);result={action='keep',reason='error'} end
+        if result.action=='redirect' then counts.redirects=counts.redirects+1 else counts.keeps=counts.keeps+1 end
+        record({kind=result.action,tick=tick,member=member.id,family=member.family,
+            spell=type(spell)=='table' and spell.resref or nil,castKind=result.kind,from=original,
+            to=result.target,reason=result.reason,focus=focus,error=err})
+        return result
+    end
+
+    -- A member's cast has started at target (after any redirect). Any cast counts for the
+    -- picture; a disable reserves its target.
+    function api:started(member,cast,tick)
+        clock(tick)
+        finish(member.id,tick,'replaced')
+        local role=cast.role
+        attempts[member.id]={spell=cast.spell,role=role,target=cast.target,action=cast.action or 31,
+            startedAt=tick}
+        counts.attempts=counts.attempts+1
+        if role=='disable' and id(cast.target) and cast.target~=member.id then
+            reservations[cast.target]={owner=member.id,from=tick,untilTick=tick+o.reserveTicks}
+        end
+        record({kind='start',tick=tick,member=member.id,family=member.family,spell=cast.spell,
+            role=role,target=cast.target,original=cast.original,redirected=cast.redirected or nil})
+    end
+    -- A member started some other action: its cast, if any, is over.
+    function api:action(member,tick) clock(tick);finish(member,tick,'next-action') end
+
+    function api:tick(tick)
+        clock(tick)
+        for key,m in pairs(members) do
+            if tick-m.lastTick>o.memberTicks then
+                finish(key,tick,'member-left');members[key]=nil;attempts[key]=nil
+            end
+        end
+        for key,e in pairs(enemies) do if tick-e.lastTick>o.forgetTicks then enemies[key]=nil end end
+        for key,r in pairs(reservations) do
+            if r.untilTick<=tick or not members[r.owner] then reservations[key]=nil;counts.released=counts.released+1 end
+        end
+        if focus and not fresh(enemies[focus],tick) then focus=nil end
+    end
+    function api:invalidate(reason)
+        members,enemies,reservations,attempts,focus,lastTick={},{},{},{},nil,nil
+        record({kind='invalidated',reason=reason})
+    end
+    function api:inspect()
+        local held={}
+        for target,r in pairs(reservations) do held[#held+1]={target=target,owner=r.owner,untilTick=r.untilTick} end
+        table.sort(held,function(a,b) return a.target<b.target end)
+        local count=function(t) local n=0;for _ in pairs(t) do n=n+1 end;return n end
+        local rows,first={},(nextRow-size-1)%o.logCapacity+1
+        for i=0,size-1 do rows[#rows+1]=values.copy(log[(first+i-1)%o.logCapacity+1]) end
+        return {area=area,members=count(members),enemies=count(enemies),focus=focus,reservations=held,
+            counts=values.copy(counts),log=rows}
+    end
+    return api
+end
+return M
+end
+factories["adapters.eeex.resources"]=function(require)
+-- In-game twin of tools/ie_resources.py: the same SPL, ITM, EFF and PRO records, read from the
+-- engine's resource table through EEex (Fetch, then Demand, as EEex_Resource_Demand does; CRes
+-- has no Release, so each resource is demanded once and cached). A raw read past a resource's
+-- end would crash the game instead of raising, so every read is checked against the size the
+-- engine loaded first. A missing resource is nil; a malformed one is nil plus a problem.
+-- Nothing here raises, and the cache holds plain records only (treat them as read-only).
+local M={}
+M.maxProblems=50
+
+local function upper(text) return (text:gsub('[a-z]',function(c) return string.char(c:byte()-32) end)) end
+local function clean(text) return upper((text:match('^[^%z]*'):gsub(' +$',''))) end
+
+-- InfinityLoader exposes all of these; the wider ones are composed from bytes if one is absent.
+local function natives(g)
+    local u8=rawget(g,'EEex_ReadU8')
+    if type(u8)~='function' then return nil end
+    local function native(name) local f=rawget(g,name);if type(f)=='function' then return f end end
+    local r={u8=u8}
+    r.u16=native('EEex_ReadU16') or function(a) return u8(a)+u8(a+1)*256 end
+    r.u32=native('EEex_ReadU32') or function(a) return r.u16(a)+r.u16(a+2)*65536 end
+    r.i16=native('EEex_Read16') or function(a) local v=r.u16(a);return v>=32768 and v-65536 or v end
+    r.i32=native('EEex_Read32') or function(a) local v=r.u32(a);return v>=2147483648 and v-4294967296 or v end
+    -- Reads at most n bytes and stops at the first NUL, like the native one.
+    r.str=native('EEex_ReadLString') or function(a,n)
+        local t={}
+        for i=0,n-1 do local b=u8(a+i);if b==0 then break end;t[#t+1]=string.char(b) end
+        return table.concat(t)
+    end
+    return r
+end
+
+local function fail(message) error({format=message},0) end
+
+local function view(read,base,size)
+    local function at(offset,width)
+        if offset<0 or offset+width>size then fail(string.format('truncated data at 0x%X',offset)) end
+        return base+offset
+    end
+    return {size=size,
+        u8=function(o) return read.u8(at(o,1)) end,
+        u16=function(o) return read.u16(at(o,2)) end,
+        u32=function(o) return read.u32(at(o,4)) end,
+        i16=function(o) return read.i16(at(o,2)) end,
+        i32=function(o) return read.i32(at(o,4)) end,
+        resref=function(o) return clean(read.str(at(o,8),8)) end,
+        text=function(o,n) return read.str(at(o,n),n) end}
+end
+
+local function check(v,signature,minimum)
+    if v.size<8 or v.text(0,8)~=signature then fail('expected signature '..signature) end
+    if v.size<minimum then fail(string.format('header truncated: %d bytes, need %d',v.size,minimum)) end
+end
+local function tableEnd(v,offset,stride,count,what)
+    -- An empty table reads nothing, wherever its offset points.
+    if count>0 and offset+stride*count>v.size then fail(what..' table runs past the end of the data') end
+end
+
+local function effect(v,o)
+    return {opcode=v.u16(o),target=v.u8(o+2),power=v.u8(o+3),p1=v.i32(o+4),p2=v.u32(o+8),
+        timing=v.u8(o+12),resist=v.u8(o+13),duration=v.u32(o+14),prob1=v.u8(o+18),prob2=v.u8(o+19),
+        res=v.resref(o+20),dice=v.i32(o+28),sides=v.i32(o+32),save=v.u32(o+36),saveBonus=v.i32(o+40),
+        special=v.u32(o+44)}
+end
+-- The count effect blocks starting at block index of the shared table.
+local function effects(v,offset,index,count)
+    local start=offset+48*index
+    if count>0 and start+48*count>v.size then fail('effects run past the end of the data') end
+    local list={}
+    for i=0,count-1 do list[i+1]=effect(v,start+48*i) end
+    return list
+end
+
+local function spl(v,resref)
+    check(v,'SPL V1  ',0x72)
+    local abOff,abCount,fxOff=v.u32(0x64),v.u16(0x68),v.u32(0x6A)
+    tableEnd(v,abOff,40,abCount,'ability')
+    local abilities={}
+    for i=0,abCount-1 do
+        local at=abOff+40*i
+        abilities[i+1]={form=v.u8(at),flags=v.u8(at+1),location=v.u16(at+2),target=v.u8(at+0x0C),
+            targetCount=v.u8(at+0x0D),range=v.u16(at+0x0E),minLevel=v.u16(at+0x10),
+            speed=v.u16(at+0x12),projectile=v.u16(at+0x26),
+            effects=effects(v,fxOff,v.u16(at+0x20),v.u16(at+0x1E))}
+    end
+    return {kind='SPL',resref=resref,name=v.u32(0x08),flags=v.u32(0x18),spellType=v.u16(0x1C),
+        exclusion=v.u32(0x1E),school=v.u8(0x25),secondary=v.u8(0x27),level=v.u32(0x34),
+        abilities=abilities,casting=effects(v,fxOff,v.u16(0x6E),v.u16(0x70))}
+end
+
+local function itm(v,resref)
+    check(v,'ITM V1  ',0x72)
+    local abOff,abCount,fxOff=v.u32(0x64),v.u16(0x68),v.u32(0x6A)
+    tableEnd(v,abOff,56,abCount,'ability')
+    local abilities={}
+    for i=0,abCount-1 do
+        local at=abOff+56*i
+        abilities[i+1]={attackType=v.u8(at),idRequired=v.u8(at+1),location=v.u8(at+2),
+            target=v.u8(at+0x0C),targetCount=v.u8(at+0x0D),range=v.u16(at+0x0E),
+            launcher=v.u8(at+0x10),speed=v.u8(at+0x12),thac0=v.i16(at+0x14),sides=v.u8(at+0x16),
+            school=v.u8(at+0x17),dice=v.u8(at+0x18),secondary=v.u8(at+0x19),
+            damageBonus=v.i16(at+0x1A),damageType=v.u16(at+0x1C),charges=v.u16(at+0x22),
+            depletion=v.u16(at+0x24),flags=v.u32(at+0x26),projectile=v.u16(at+0x2A),
+            isArrow=v.u16(at+0x32),isBolt=v.u16(at+0x34),isBullet=v.u16(at+0x36),
+            effects=effects(v,fxOff,v.u16(at+0x20),v.u16(at+0x1E))}
+    end
+    return {kind='ITM',resref=resref,name=v.u32(0x08),identifiedName=v.u32(0x0C),
+        flags=v.u32(0x18),itemType=v.u16(0x1C),proficiency=v.u8(0x31),stack=v.u16(0x38),
+        enchantment=v.u32(0x60),abilities=abilities,equipping=effects(v,fxOff,v.u16(0x6E),v.u16(0x70))}
+end
+
+local function eff(v,resref)
+    check(v,'EFF V2.0',0xD4)
+    return {kind='EFF',resref=resref,effect={opcode=v.u32(0x10),target=v.u32(0x14),
+        power=v.u32(0x18),p1=v.i32(0x1C),p2=v.u32(0x20),timing=v.u16(0x24),resist=v.u32(0x5C),
+        duration=v.u32(0x28),prob1=v.u16(0x2C),prob2=v.u16(0x2E),res=v.resref(0x30),
+        dice=v.i32(0x38),sides=v.i32(0x3C),save=v.u32(0x40),saveBonus=v.i32(0x44),
+        special=v.u32(0x48),school=v.u32(0x4C),secondary=v.u32(0xD0),res2=v.resref(0x70),
+        res3=v.resref(0x78)}}
+end
+
+-- Area-of-effect keys only for type 3.
+local function pro(v,resref)
+    check(v,'PRO V1.0',0x100)
+    local kind=v.u16(0x08)
+    local r={kind='PRO',resref=resref,type=kind,speed=v.u16(0x0A),flags=v.u32(0x0C),
+        width=v.u16(0x2A),extFlags=v.u32(0x2C),creatureValue1=v.u16(0x3C),
+        creatureType1=v.u16(0x3E),creatureValue2=v.u16(0x40),creatureType2=v.u16(0x42),
+        defaultSpell=v.resref(0x44),successSpell=v.resref(0x4C)}
+    if kind==3 then
+        if v.size<0x24C then fail('area projectile truncated') end
+        r.areaFlags=v.u16(0x200);r.rayCount=v.u16(0x202);r.trigger=v.u16(0x204)
+        r.radius=v.u16(0x206);r.secondary=v.u16(0x214);r.repeats=v.u8(0x216)
+        r.explosionProjectile=v.u16(0x21A);r.coneWidth=v.u16(0x224)
+        r.extAreaFlags=v.u32(0x240);r.targetDice=v.u16(0x244);r.targetSides=v.u16(0x246)
+    end
+    return r
+end
+
+local PARSERS={SPL=spl,ITM=itm,EFF=eff,PRO=pro}
+
+-- reader.get(kind, resref), reader.projectile(field value) and reader.lookup(kind, key), the
+-- callable spells.classify takes (PRO by projectile field value, the rest by resref).
+function M.new(g)
+    local read=natives(g)
+    local reader={problems={}}
+    local cache,projectiles,seen={},nil,{}
+    local function problem(text)
+        if seen[text] or #reader.problems>=M.maxProblems then return end
+        seen[text]=true;reader.problems[#reader.problems+1]=text
+    end
+    local function load(kind,resref)
+        local fetch,toPtr=rawget(g,'EEex_Resource_Fetch'),rawget(g,'EEex_UDToPtr')
+        if not read or type(fetch)~='function' or type(toPtr)~='function' then
+            problem('EEex resource access unavailable');return nil
+        end
+        local res=fetch(resref,kind)
+        if res==nil then return nil end
+        local data=res:Demand()
+        local base,size=data~=nil and toPtr(data),res.nSize
+        if type(base)~='number' or base<=0 or type(size)~='number' or size<0 then
+            problem(resref..'.'..kind..' could not be loaded');return nil
+        end
+        return PARSERS[kind](view(read,base,size),resref)
+    end
+    function reader.get(kind,resref)
+        if PARSERS[kind]==nil or type(resref)~='string' then return nil end
+        resref=upper(resref)
+        if #resref==0 or #resref>8 then return nil end
+        local key=kind..':'..resref
+        if cache[key]~=nil then return cache[key] or nil end
+        local ok,value=pcall(load,kind,resref)
+        if not ok then
+            problem(resref..'.'..kind..': '..(type(value)=='table' and value.format or tostring(value)))
+            value=nil
+        end
+        cache[key]=value or false
+        return value
+    end
+    -- Field value N is PROJECTL.IDS entry N-1; the first entry for a number wins.
+    function reader.projectile(number)
+        if type(number)~='number' then return nil end
+        if projectiles==nil then
+            projectiles={}
+            local ok,err=pcall(function()
+                local ids=g.EEex_Resource_LoadIDS('PROJECTL')
+                g.EEex_Resource_IterateUnpackedIDSEntries(ids,function(id,line,start)
+                    local name=type(start)=='string' and start:match('^%s*(%S+)') or
+                        type(line)=='string' and line:match('^%s*(%S+)')
+                    if type(id)=='number' and name and #name<=8 and not name:find('^//')
+                        and projectiles[id+1]==nil then projectiles[id+1]=upper(name) end
+                end)
+            end)
+            if not ok then problem('PROJECTL.IDS unreadable: '..tostring(err)) end
+        end
+        local resref=projectiles[number]
+        return resref and reader.get('PRO',resref) or nil
+    end
+    function reader.lookup(kind,key)
+        if kind=='PRO' and type(key)=='number' then return reader.projectile(key) end
+        return reader.get(kind,key)
+    end
+    function reader.reset() cache,projectiles,seen={},nil,{};reader.problems={} end
+    return reader
+end
+return M
+end
+factories["adapters.eeex.sense"]=function(require)
+-- What one creature perceives right now, as plain values: itself and the living creatures it
+-- can see, found with EEex's area search (sight range and line of sight, as the NumCreature()
+-- trigger counts them) and minus the invisible ones unless it sees invisible creatures. Sides
+-- follow the engine's EA groups: for a creature on the evil side (EA 200 and up) the good side
+-- (EA 2 to 30) are enemies and the evil side are allies. With details, each enemy also carries
+-- its creature IDS values and the spell protections a script can test (SCS's triggers read the
+-- same). Only plain values leave this module; no engine object is kept.
+local M={}
+-- A sprite's default visual range in EEex's area search.
+M.sightRange=448
+M.GOOD_CUTOFF,M.EVIL_CUTOFF=30,200
+-- STATS.IDS: MAXHITPOINTS, RESISTMAGIC, HELD, SANCTUARY, SEEINVISIBLE, TRUE_SIGHT.
+M.stats={maxHp=1,mr=18,held=58,sanctuary=63,seeInvisible=81,trueSight=118}
+-- STATE_INVISIBLE and STATE_IMPROVEDINVISIBILITY; STATE_BLIND.
+M.unseen,M.blind=0x400010,0x40000
+-- Effect opcodes that protect against spells (combat-intent/targeting.lua matches them).
+M.protections={}
+for _,op in ipairs({83,101,102,197,198,199,200,201,202,203,204,205,206,207,223,226,227,228,259,318,324}) do
+    M.protections[op]=true
+end
+-- Effects read per list at most, so a creature with a runaway effect list costs little.
+M.maxEffects=1024
+
+local function band(g,a,b) return g.EEex_BAnd(a,b) end
+local function stat(g,sprite,n)
+    local value=g.EEex_Sprite_GetStat(sprite,n)
+    if type(value)=='number' then return value end
+    return 0
+end
+local function text(value) return (value:match('^[^%z]*'):upper()) end
+
+-- The plain facts every frame carries for one creature.
+function M.actor(g,sprite)
+    local state=g.EEex_Sprite_GetState(sprite)
+    return {id=sprite.m_id,x=sprite.m_pos.x,y=sprite.m_pos.y,ea=sprite.m_typeAI.m_EnemyAlly,
+        state=state,held=stat(g,sprite,M.stats.held),sanctuary=stat(g,sprite,M.stats.sanctuary),
+        hp=sprite.m_baseStats.m_hitPoints,maxHp=stat(g,sprite,M.stats.maxHp),
+        mr=stat(g,sprite,M.stats.mr),action=sprite.m_curAction.m_actionID}
+end
+
+-- Creature IDS values and the spell protections in both effect lists.
+function M.details(g,sprite,entry)
+    local t=sprite.m_typeAI
+    entry.ids={ea=t.m_EnemyAlly,general=t.m_General,race=t.m_Race,class=t.m_Class,
+        specific=t.m_Specifics,gender=t.m_Gender,alignment=t.m_Alignment}
+    local found={}
+    for _,list in ipairs({sprite.m_timedEffectList,sprite.m_equipedEffectList}) do
+        local seen=0
+        g.EEex_Utility_IterateCPtrList(list,function(effect)
+            seen=seen+1
+            if seen>M.maxEffects then return true end
+            if M.protections[effect.m_effectId] then
+                found[#found+1]={opcode=effect.m_effectId,p1=effect.m_effectAmount,p2=effect.m_dWFlags,
+                    res=text(effect.m_res:get())}
+            end
+        end)
+    end
+    entry.protections=found
+    return entry
+end
+
+function M.side(ea)
+    if type(ea)~='number' then return nil end
+    if ea>=M.EVIL_CUTOFF then return 'evil' end
+    if ea>=2 and ea<=M.GOOD_CUTOFF then return 'good' end
+end
+
+-- The creature's frame at tick, or nil when it is on no side. detailed adds IDS values and
+-- protections for each enemy. A blind creature perceives no one.
+function M.frame(g,sprite,tick,detailed)
+    local self=M.actor(g,sprite)
+    local side=M.side(self.ea)
+    if side==nil then return nil end
+    self.seeInvisible=stat(g,sprite,M.stats.seeInvisible)>0 or stat(g,sprite,M.stats.trueSight)>0
+    local area=sprite.m_pArea
+    local frame={tick=tick,area=area and text(area.m_resref:get()) or '',self=self,enemies={},allies={}}
+    if band(g,self.state,M.blind)~=0 then return frame end
+    local seen={}
+    -- Numeric flags: EEex's wrapper turns a Lua false into its default.
+    g.EEex_Sprite_ForAllOfTypeStringInRange(sprite,'[ANYONE]',M.sightRange,function(object)
+        if object==nil or seen[object.m_id] or object.m_id==self.id or not g.EEex_GameObject_IsSprite(object,false) then return end
+        seen[object.m_id]=true
+        local other=M.side(object.m_typeAI.m_EnemyAlly)
+        if other==nil then return end
+        if not self.seeInvisible and band(g,g.EEex_Sprite_GetState(object),M.unseen)~=0 then return end
+        local entry=M.actor(g,object)
+        if other==side then frame.allies[#frame.allies+1]=entry
+        else
+            if detailed then M.details(g,object,entry) end
+            frame.enemies[#frame.enemies+1]=entry
+        end
+    end,1,0)
+    table.sort(frame.enemies,function(a,b) return a.id<b.id end)
+    table.sort(frame.allies,function(a,b) return a.id<b.id end)
+    return frame
+end
+return M
+end
+factories["adapters.eeex.director"]=function(require)
+-- EEex side of the fight director. Hooked creatures check in when their hook is reached (the
+-- gate's observe callback), each at most every checkTicks, with a plain perception frame
+-- (sense.lua); one director per area keeps the group's picture. When a member's ordinary Spell
+-- action at a creature starts, the director advises. To redirect it, this adapter reads the
+-- caster's frame afresh with details, checks the new target once more and changes the starting
+-- action's target, as EEex's own SpellToPoint listener changes a starting action: the cast
+-- keeps its casting time, spell slot and interruption. Session-local; a load forgets it all.
+-- Errors never reach the engine: the cast then goes ahead as the creature's script chose it.
+local sense=require('adapters.eeex.sense')
+local resources=require('adapters.eeex.resources')
+local spells=require('combat-intent.spells')
+local targeting=require('combat-intent.targeting')
+local core=require('combat-intent.director')
+local M={}
+M.checkTicks=15
+M.cacheLimit=512
+-- SPELL.IDS numbers name their resref by thousands: 1 priest, 2 wizard, 3 innate, 4 class.
+M.prefixes={'SPPR','SPWI','SPIN','SPCL'}
+
+local function text(value) return (value:match('^[^%z]*'):upper()) end
+function M.resref(action)
+    local name=text(action.m_string1.m_pchData:get())
+    if name~='' then return name end
+    local number=action.m_specificID
+    if type(number)~='number' or number<1000 or number>=5000 or number%1~=0 then return nil end
+    return M.prefixes[math.floor(number/1000)]..string.format('%03d',number%1000)
+end
+
+function M.new(g,options)
+    options=options or {}
+    local reader=options.reader or resources.new(g)
+    local directors,memberArea,memberFamily,lastCheck={},{},{},{}
+    local cache,cached={},0
+    local root,sink
+    local counts={checkIns=0,starts=0,advised=0,redirected=0,errors=0}
+    local adapter={}
+    local function now() return root and root.now and root.now() end
+    local function director(area)
+        local d=directors[area]
+        if not d then
+            d=core.new({area=area,families=options.families,sink=function(row) if sink then sink(row) end end})
+            directors[area]=d
+        end
+        return d
+    end
+    local function failed(where,err)
+        counts.errors=counts.errors+1
+        if sink then pcall(sink,{kind='error',where=where,error=tostring(err):sub(1,200)}) end
+    end
+    -- The classification of resref at the caster's level for it, cached per level.
+    local function summary(sprite,resref)
+        local ok,level=pcall(g.EEex_Sprite_GetCasterLevelForSpell,sprite,resref,false)
+        if not ok or type(level)~='number' or level<1 then level=1 end
+        local key=resref..':'..level
+        if cache[key]==nil then
+            if cached>=M.cacheLimit then cache,cached={},0 end
+            local record=reader.get('SPL',resref)
+            local index=record and spells.abilityForLevel(record,level)
+            cache[key]=index and spells.classify(record,index,reader.lookup,{level=level}) or false
+            cached=cached+1
+        end
+        return cache[key] or nil
+    end
+
+    -- From the gate, each time a hooked script asks and passes the gate's own checks.
+    function adapter:observe(view,family)
+        local tick=now()
+        if type(tick)~='number' then return end
+        local id=view.id
+        if lastCheck[id] and tick>=lastCheck[id] and tick-lastCheck[id]<M.checkTicks then return end
+        lastCheck[id]=tick
+        local sprite=g.EEex_GameObject_Get(id)
+        if not sprite or not g.EEex_GameObject_IsSprite(sprite,false) then return end
+        local frame=sense.frame(g,sprite,tick,false)
+        if not frame or sense.side(frame.self.ea)~='evil' then memberArea[id]=nil;return end
+        local d=director(frame.area)
+        if d:checkIn({id=id,family=family},frame) then
+            memberArea[id],memberFamily[id]=frame.area,family;counts.checkIns=counts.checkIns+1
+        end
+        d:tick(tick)
+    end
+
+    local function started(sprite,action)
+        local id=sprite.m_id
+        local area=memberArea[id]
+        if not area then return end
+        local d=directors[area]
+        local tick=now()
+        if not d or type(tick)~='number' or not d:isMember(id) then return end
+        if action.m_actionID~=31 then d:action(id,tick);return end
+        counts.starts=counts.starts+1
+        local resref=M.resref(action)
+        local original=action.m_acteeID.m_Instance
+        local spell=resref and summary(sprite,resref)
+        local member={id=id,family=memberFamily[id]}
+        local cast={spell=resref,role=targeting.role(spell),target=original,original=original,action=31}
+        local allowed=root and root.gate and member.family and root.gate:allows(member.family)
+        if allowed and spell and targeting.kind(spell) and original~=id then
+            local frame=sense.frame(g,sprite,tick,true)
+            if frame then
+                d:checkIn(member,frame)
+                counts.advised=counts.advised+1
+                local advice=d:advise(member,frame,spell,original,tick)
+                if advice.action=='redirect' then
+                    -- The last check: the new target is still a living sprite the caster sees.
+                    local target=g.EEex_GameObject_Get(advice.target)
+                    local seen=false
+                    for _,e in ipairs(frame.enemies) do if e.id==advice.target then seen=true end end
+                    if target and seen and g.EEex_GameObject_IsSprite(target,false) then
+                        action.m_acteeID.m_Instance=advice.target
+                        if action.m_acteeID.m_Instance==advice.target then
+                            cast.target=advice.target;cast.redirected=true
+                            counts.redirected=counts.redirected+1
+                        end
+                    end
+                end
+            end
+        end
+        d:started(member,cast,tick)
+    end
+    -- From EEex's started-action listener, for every sprite's every action.
+    function adapter:onStarted(sprite,action)
+        local ok,err=pcall(started,sprite,action)
+        if not ok then failed('started',err) end
+    end
+
+    function adapter:attach(r) root=r end
+    function adapter:setSink(fn) assert(fn==nil or type(fn)=='function');sink=fn end
+    function adapter:invalidate()
+        for _,d in pairs(directors) do d:invalidate('session') end
+        directors,memberArea,memberFamily,lastCheck={},{},{},{}
+    end
+    function adapter:inspect()
+        local areas={}
+        for area,d in pairs(directors) do areas[area]=d:inspect() end
+        local copy={};for k,v in pairs(counts) do copy[k]=v end
+        return {counts=copy,areas=areas,problems=reader.problems}
+    end
+    return adapter
+end
+return M
+end
 factories["adapters.eeex.hook"]=function(require)
 -- EEex side of the BCS handoff. A hook block's trigger calls BGSE_Claim(object, family, script)
 -- and its response calls BGSE_Act(object); guarded copies of SCS blocks above the hook call
@@ -316,6 +1718,8 @@ factories["adapters.eeex.hook"]=function(require)
 -- Monsters; all on unless set to 0). The install also writes M_BGSEHK.lua, which sets
 -- BGSE_HOOKED (hooked script -> family); the gate reads it on first use. Errors never escape
 -- into the creature's script: a failure is a decline, and the script's own blocks run on.
+-- options.director (adapters/eeex/director.lua) gets the gate's check-ins and EEex's
+-- started-action events; it acts only while the gate is on for the creature's family.
 local hook=require('kernel.hook')
 local M={}
 M.keys={mage='Mages',priest='Priests',fighter='Fighters',monster='Monsters'}
@@ -380,8 +1784,11 @@ end
 function M.install(g,options)
     options=options or {}
     local settings=M.settings(g)
+    local clock=options.now or function() return M.gameTime(g) end
+    local director=options.director
     local gate=hook.new({
-        now=options.now or function() return M.gameTime(g) end,
+        now=clock,
+        observe=director and function(view,family) director:observe(view,family) end,
         enabled=settings.enabled,families=settings.families,
         backoffTicks=options.backoffTicks,maxDecisionAgeTicks=options.maxDecisionAgeTicks,
         decide=options.decide,
@@ -398,8 +1805,14 @@ function M.install(g,options)
         end,
     })
     local previous=rawget(g,'BGSE')
-    local root={gate=gate,version=options.version or 'dev',
-        listening=type(previous)=='table' and previous.listening or false}
+    local root={gate=gate,version=options.version or 'dev',director=director,
+        listening=type(previous)=='table' and previous.listening or false,
+        watching=type(previous)=='table' and previous.watching or false}
+    -- Game time for helpers, or nil when it cannot be read.
+    function root.now()
+        local ok,tick=pcall(clock)
+        if ok and type(tick)=='number' then return tick end
+    end
     function root.setEnabled(value,persist)
         gate:setEnabled(value);if persist then store(g,'Enabled',value) end
     end
@@ -408,7 +1821,11 @@ function M.install(g,options)
     end
     -- Experiments install a decider here: function(actor, family) -> nil | {response=...} | {hold=true}.
     function root.setDecider(fn) gate:setDecider(fn) end
-    function root.inspect() return gate:inspect() end
+    function root.inspect()
+        local state=gate:inspect()
+        if director then state.director=director:inspect() end
+        return state
+    end
     g.BGSE=root
     local registered=options.hooked~=nil
     g.BGSE_Claim=function(object,family,script)
@@ -430,12 +1847,39 @@ function M.install(g,options)
         g.EEex_GameState_AddDestroyedListener(function()
             local current=rawget(g,'BGSE')
             if type(current)=='table' and current.gate then current.gate:invalidate() end
+            if type(current)=='table' and current.director then pcall(current.director.invalidate,current.director) end
         end)
         root.listening=true
     end
+    -- Every sprite's action start reaches the current director; EEex keeps listeners for the
+    -- whole session, so this one is added once and finds the current root each time.
+    if director and not root.watching and type(rawget(g,'EEex_Action_AddSpriteStartedActionListener'))=='function' then
+        g.EEex_Action_AddSpriteStartedActionListener(function(sprite,action)
+            local current=rawget(g,'BGSE')
+            if type(current)=='table' and current.director then current.director:onStarted(sprite,action) end
+        end)
+        root.watching=true
+    end
+    if director then director:attach(root) end
     return root
 end
 return M
 end
-local ok,err=pcall(require('adapters.eeex.hook').install,_G,{version="0.1.0-dev"})
+factories["adapters.eeex.runtime"]=function(require)
+-- The installed runtime: the BCS handoff gate with the fight director attached. Without the
+-- director (it failed to start) the gate still installs and SCS runs as before.
+local hook=require('adapters.eeex.hook')
+local director=require('adapters.eeex.director')
+local M={}
+function M.install(g,options)
+    options=options or {}
+    if options.director==nil then
+        local ok,value=pcall(director.new,g)
+        if ok then options.director=value end
+    end
+    return hook.install(g,options)
+end
+return M
+end
+local ok,err=pcall(require('adapters.eeex.runtime').install,_G,{version="0.1.0-dev"})
 if not ok then print('[BGSE] runtime not installed: '..tostring(err)) end

@@ -302,4 +302,12 @@ c=one(fx(12,{p1=1,save=2^24+2^10}))
 assert(c.roles.damage.save==nil)
 groups=groups+1
 
+-- The opcodes that reach others, sub-spells included; what stays on the caster is left out.
+local holdSub=spl('TESTHLDB',{ability({fx(175,{p2=3,p1=2}),fx(142,{p2=13})})})
+c=classify(spl('TESTHLD',{ability({fx(146,{res='TESTHLDB'}),fx(18,{p1=5,target=1})})}),
+    world({['SPL:TESTHLDB']=holdSub}))
+assert(c.opcodes[146] and c.opcodes[175] and c.opcodes[142] and not c.opcodes[18])
+assert(next(one(fx(18,{p1=5,target=1}),{target=5}).opcodes)==nil)
+groups=groups+1
+
 return groups

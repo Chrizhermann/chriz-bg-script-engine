@@ -25,7 +25,8 @@ function M.new(config)
     for family in pairs(known) do
         families[family]=not(type(config.families)=='table' and config.families[family]==false)
     end
-    local decide,perform=config.decide,config.perform
+    local decide,perform,observe=config.decide,config.perform,config.observe
+    assert(observe==nil or type(observe)=='function')
     -- hooked: script resref (lower case) -> family, from the install. below(id, script): the
     -- creature's non-empty script resrefs in the slots after script, or nil when script is not
     -- in its stack.
@@ -42,7 +43,7 @@ function M.new(config)
     below=config.below
     assert(below==nil or type(below)=='function')
     local pending,blocked,answers={},{},{}
-    local counts={reached=0,repeats=0,claimed=0,acted=0,held=0,stale=0,errors=0}
+    local counts={reached=0,repeats=0,claimed=0,acted=0,held=0,stale=0,errors=0,observeErrors=0}
     local declines={}
     local log=trace.new(config.traceCapacity or 64)
     local api={}
@@ -72,6 +73,12 @@ function M.new(config)
         -- A load restarts the tick count, so a backoff from before it no longer applies.
         if blocked[id] and tick<blocked[id] and blocked[id]-tick<=backoff then return decline('backoff') end
         blocked[id]=nil
+        -- An observer (the fight director's check-in) sees every creature the gate would ask
+        -- the decider about; its errors never change the answer.
+        if observe and not pcall(function()
+            local view=values.copy(actor);view.script=script
+            observe(view,family)
+        end) then bump(counts,'observeErrors') end
         if not decide then return decline('no-decider') end
         local ok,decision=pcall(function()
             local view=values.copy(actor);view.script=script
@@ -129,6 +136,8 @@ function M.new(config)
         log:record({kind='act',actorKey=tostring(id),family=p.family,reason='performed',tick=tick})
         return true
     end
+    -- Whether the gate is on for a family right now (for helpers that act outside a claim).
+    function api:allows(family) return enabled and known[family]==true and families[family]==true end
     function api:setEnabled(value)
         assert(type(value)=='boolean');enabled=value;answers={}
         if not value then pending={} end

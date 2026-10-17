@@ -189,4 +189,25 @@ g=raw.new({now=clock,hooked={s1='mage'},decide=function() return {hold=true} end
 assert(g:claim(actor,'mage')==false and g:inspect().declines['no-stack']==1)
 rejects(function() raw.new({now=clock,below=1}) end)
 rejects(function() g:setHooked('s1') end)
-return 14
+
+-- 15. An observer (the director's check-in) sees each fresh question that passes the gate's
+-- checks, with or without a decider; its errors are counted and change no answer. allows()
+-- reports the switches.
+local seen={}
+g=hook.new({now=clock,observe=function(a,family)
+    seen[#seen+1]=a.id..':'..a.script..':'..family
+    if a.id==9 then error('observer broke') end
+end})
+pass()
+assert(g:claim(actor,'mage')==false and g:claim(actor,'mage')==false)
+assert(#seen==1 and seen[1]=='7:s1:mage' and g:inspect().declines['no-decider']==1)
+assert(g:claim({id=9,script='s1'},'mage')==false and g:inspect().counts.observeErrors==1)
+assert(g:inspect().counts.errors==0)
+g:setFamily('mage',false);pass()
+assert(g:claim(actor,'mage')==false and #seen==2 and g:allows('priest') and not g:allows('mage'))
+g:setDecider(function() return {hold=true} end);g:setFamily('mage',true);pass()
+assert(g:claim(actor,'mage')==true and #seen==3 and g:allows('mage') and not g:allows('dragon'))
+g:setEnabled(false)
+assert(not g:allows('mage'))
+rejects(function() raw.new({now=clock,observe=1}) end)
+return 15

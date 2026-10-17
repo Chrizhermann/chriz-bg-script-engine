@@ -5,6 +5,8 @@
 -- Monsters; all on unless set to 0). The install also writes M_BGSEHK.lua, which sets
 -- BGSE_HOOKED (hooked script -> family); the gate reads it on first use. Errors never escape
 -- into the creature's script: a failure is a decline, and the script's own blocks run on.
+-- options.director (adapters/eeex/director.lua) gets the gate's check-ins and EEex's
+-- started-action events; it acts only while the gate is on for the creature's family.
 local hook=require('kernel.hook')
 local M={}
 M.keys={mage='Mages',priest='Priests',fighter='Fighters',monster='Monsters'}
@@ -69,8 +71,11 @@ end
 function M.install(g,options)
     options=options or {}
     local settings=M.settings(g)
+    local clock=options.now or function() return M.gameTime(g) end
+    local director=options.director
     local gate=hook.new({
-        now=options.now or function() return M.gameTime(g) end,
+        now=clock,
+        observe=director and function(view,family) director:observe(view,family) end,
         enabled=settings.enabled,families=settings.families,
         backoffTicks=options.backoffTicks,maxDecisionAgeTicks=options.maxDecisionAgeTicks,
         decide=options.decide,
@@ -87,8 +92,14 @@ function M.install(g,options)
         end,
     })
     local previous=rawget(g,'BGSE')
-    local root={gate=gate,version=options.version or 'dev',
-        listening=type(previous)=='table' and previous.listening or false}
+    local root={gate=gate,version=options.version or 'dev',director=director,
+        listening=type(previous)=='table' and previous.listening or false,
+        watching=type(previous)=='table' and previous.watching or false}
+    -- Game time for helpers, or nil when it cannot be read.
+    function root.now()
+        local ok,tick=pcall(clock)
+        if ok and type(tick)=='number' then return tick end
+    end
     function root.setEnabled(value,persist)
         gate:setEnabled(value);if persist then store(g,'Enabled',value) end
     end
@@ -97,7 +108,11 @@ function M.install(g,options)
     end
     -- Experiments install a decider here: function(actor, family) -> nil | {response=...} | {hold=true}.
     function root.setDecider(fn) gate:setDecider(fn) end
-    function root.inspect() return gate:inspect() end
+    function root.inspect()
+        local state=gate:inspect()
+        if director then state.director=director:inspect() end
+        return state
+    end
     g.BGSE=root
     local registered=options.hooked~=nil
     g.BGSE_Claim=function(object,family,script)
@@ -119,9 +134,20 @@ function M.install(g,options)
         g.EEex_GameState_AddDestroyedListener(function()
             local current=rawget(g,'BGSE')
             if type(current)=='table' and current.gate then current.gate:invalidate() end
+            if type(current)=='table' and current.director then pcall(current.director.invalidate,current.director) end
         end)
         root.listening=true
     end
+    -- Every sprite's action start reaches the current director; EEex keeps listeners for the
+    -- whole session, so this one is added once and finds the current root each time.
+    if director and not root.watching and type(rawget(g,'EEex_Action_AddSpriteStartedActionListener'))=='function' then
+        g.EEex_Action_AddSpriteStartedActionListener(function(sprite,action)
+            local current=rawget(g,'BGSE')
+            if type(current)=='table' and current.director then current.director:onStarted(sprite,action) end
+        end)
+        root.watching=true
+    end
+    if director then director:attach(root) end
     return root
 end
 return M

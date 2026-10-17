@@ -5,7 +5,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 TARGET = ROOT / 'bgse/lua/M_BGSE.lua'
-MODULES = ('kernel.manifest', 'kernel.trace', 'kernel.hook', 'adapters.eeex.hook')
+MODULES = ('kernel.manifest', 'kernel.trace', 'kernel.hook', 'combat-intent.spells', 'combat-intent.targeting',
+           'combat-intent.director', 'adapters.eeex.resources', 'adapters.eeex.sense', 'adapters.eeex.director',
+           'adapters.eeex.hook', 'adapters.eeex.runtime')
 VERSION = '0.1.0-dev'
 
 
@@ -21,7 +23,7 @@ def build() -> str:
     for name in MODULES:
         source = (ROOT / (name.replace('.', '/') + '.lua')).read_text(encoding='utf-8')
         lines.extend((f'factories[{json.dumps(name)}]=function(require)', source.rstrip('\n'), 'end'))
-    lines += ["local ok,err=pcall(require('adapters.eeex.hook').install,_G,{version=" + json.dumps(VERSION) + '})',
+    lines += ["local ok,err=pcall(require('adapters.eeex.runtime').install,_G,{version=" + json.dumps(VERSION) + '})',
               "if not ok then print('[BGSE] runtime not installed: '..tostring(err)) end"]
     return '\n'.join(lines) + '\n'
 
