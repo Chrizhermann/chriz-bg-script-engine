@@ -7,7 +7,7 @@ Short names: `scs-effective-mage-pilot` and `scs-high-mage-dispel` are the 2026-
 Tags: **[lab]** seen while the game ran in the disposable lab. **[src]** read from source, game files or generated scripts; nothing ran. **[host]** tested with plain Lua on the PC, not in the game. **[rule]** a rule we chose, not a measured fact.
 Words: *registered* means we listed the actor on purpose. *Claim* means the new code takes one decision from the old script. *Shadow* means decide and record, never act. *Quarantined* means a saved record was set aside, not loaded. BCS is a compiled game script, BAF is its text form, SSL is the source language SCS compiles from.
 
-Scope: every [lab] result comes from one stack: BG2:EE 2.7.3.0, EET 14.0, EEex 1.2.0 (LuaJIT), SCS 35.21, Spell Revisions (SR) 4.21-chriz.5 and Bubb's Spell Menu 5.2. The exceptions are marked "older stack" and "no-SR lab" (plain BG2:EE 2.7.3.0 with EEex 1.2.0 and SCS 35.21, install only).
+Scope: every [lab] result comes from one stack: BG2:EE 2.7.3.0, EET 14.0, EEex 1.2.0 (LuaJIT), SCS 35.21, Spell Revisions (SR) 4.21-chriz.5 and Bubb's Spell Menu 5.2. The exceptions are marked "older stack" (BG2:EE 2.6.6.0: historical, re-check on 2.7.3.0 before relying on it) and "no-SR lab" (plain BG2:EE 2.7.3.0 with EEex 1.2.0 and SCS 35.21, install only).
 Spell numbers and effects below are that stack's installed files. Read the effective files on any other stack. Nothing here is a support claim.
 Credit: SCS is by DavidW, Spell Revisions by Demivrgvs and Gibberlings Three contributors, EEex by Bubb.
 

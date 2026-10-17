@@ -2,6 +2,10 @@
 
 **Snapshot date:** 2026-09-06
 
+**Historical.** This snapshot predates the retired gated process. The target is the newest
+official game release, BG2:EE / EET 2.7.3.0 as of 2026-10-17 (Christopher's decision); the
+2.6.6.0 profile below is history, not a target.
+
 **Canonical source state:** local branch `codex/task1-g0-adrs`, commit `b2b5aaf`
 
 **Public status label:** Research and planned — not released
