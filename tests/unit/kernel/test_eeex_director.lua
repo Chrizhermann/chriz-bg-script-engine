@@ -166,6 +166,13 @@ assert(start(m2,action(31,'SPWI112',11)).m_acteeID.m_Instance==12)
 local hostile=setmetatable({},{__index=function() error('freed object') end})
 g.listeners.started[1](m1,hostile)
 assert(root.inspect().director.counts.errors==1)
+-- A check-in that cannot read its creature is the director's error, named, not the gate's.
+local before=root.inspect().counts.observeErrors
+g.objects[4]=setmetatable({m_id=4},{__index=function() error('unreadable') end})
+dir:observe({id=4},'mage')
+state=root.inspect()
+assert(state.director.counts.errors==2 and state.director.lastError:find('^observe: ')~=nil)
+assert(state.counts.observeErrors==before)
 g.listeners.destroyed[1]()
 state=root.inspect().director
 assert(next(state.areas)==nil)

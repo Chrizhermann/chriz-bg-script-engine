@@ -43,8 +43,10 @@ function M.new(g,options)
         end
         return d
     end
+    local lastError
     local function failed(where,err)
         counts.errors=counts.errors+1
+        lastError=where..': '..tostring(err):sub(1,200)
         if sink then pcall(sink,{kind='error',where=where,error=tostring(err):sub(1,200)}) end
     end
     -- The classification of resref at the caster's level for it, cached per level.
@@ -62,8 +64,7 @@ function M.new(g,options)
         return cache[key] or nil
     end
 
-    -- From the gate, each time a hooked script asks and passes the gate's own checks.
-    function adapter:observe(view,family)
+    local function observe(view,family)
         local tick=now()
         if type(tick)~='number' then return end
         local id=view.id
@@ -78,6 +79,11 @@ function M.new(g,options)
             memberArea[id],memberFamily[id]=frame.area,family;counts.checkIns=counts.checkIns+1
         end
         d:tick(tick)
+    end
+    -- From the gate, each time a hooked script asks and passes the gate's own checks.
+    function adapter:observe(view,family)
+        local ok,err=pcall(observe,view,family)
+        if not ok then failed('observe',err) end
     end
 
     local function started(sprite,action)
@@ -134,7 +140,7 @@ function M.new(g,options)
         local areas={}
         for area,d in pairs(directors) do areas[area]=d:inspect() end
         local copy={};for k,v in pairs(counts) do copy[k]=v end
-        return {counts=copy,areas=areas,problems=reader.problems}
+        return {counts=copy,areas=areas,problems=reader.problems,lastError=lastError or false}
     end
     return adapter
 end

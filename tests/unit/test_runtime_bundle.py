@@ -35,10 +35,11 @@ def test_runtime_installs_the_handoff(backend):
         assert(package.loaded['kernel.hook'] == nil and package.loaded['adapters.eeex.hook'] == nil)
         assert(package.loaded['combat-intent.director'] == nil and BGSE.director ~= nil)
         -- No decider yet: every script pass falls through to SCS. The director's check-in
-        -- cannot read this fake engine; that is counted and changes nothing.
+        -- cannot read this fake engine; the director counts and names that, nothing changes.
         assert(BGSE_Claim(creature, 'mage', 'dw#mg1') == false)
         local state = BGSE.inspect()
-        assert(state.counts.observeErrors == 1 and state.counts.errors == 0 and state.director.counts.checkIns == 0)
+        assert(state.counts.observeErrors == 0 and state.counts.errors == 0 and state.director.counts.checkIns == 0)
+        assert(state.director.counts.errors == 1 and state.director.lastError:find('^observe: ') ~= nil)
         BGSE.setDecider(function(actor, family)
             if family == 'mage' and actor.script == 'dw#mg1' then return {response = 'NoAction()'} end
         end)
