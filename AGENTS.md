@@ -55,6 +55,8 @@ It will ship as an optional, experimental CEBG component.
   (`%USERPROFILE%\.codex\artifacts\next-batch-20261013\lab-tools\`): hidden desktop, muted,
   windowed, with a pointer guard. `prepare` the profile, then `run`. Launch only when no
   Baldur/InfinityLoader process is running, and not while Chris is working or streaming.
+  Up to five parallel labs are decided (2026-10-18) but not active yet; the runbook says when
+  that changes.
 - Run many fights per launch and log decisions and outcomes. Use small reproductions only to
   diagnose failures.
 
