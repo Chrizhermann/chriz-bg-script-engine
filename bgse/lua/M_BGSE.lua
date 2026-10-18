@@ -2680,8 +2680,9 @@ factories["adapters.eeex.choice"]=function(require)
 -- do, so SCS's filler runs between casts. Right before the response is queued the target is
 -- checked again and named through EEex's EEex_Target object, which reads the caster's own
 -- table, so no other creature's choice can change it. A cast that never starts is given up;
--- one that ends with no effect on its target is remembered as a miss. No answer, an error or
--- a switch leaves the round to SCS. Session-local; a load forgets it all.
+-- one that ends with no effect on its target is remembered as a miss, judged only once the
+-- target could react (not while another creature's Time Stop freezes it). No answer, an error
+-- or a switch leaves the round to SCS. Session-local; a load forgets it all.
 local sense=require('adapters.eeex.sense')
 local creature=require('adapters.eeex.creature')
 local resources=require('adapters.eeex.resources')
@@ -2694,7 +2695,8 @@ local M={}
 M.families={mage=true,priest=true}
 -- Game ticks (15 a second). A queued cast that has not started pendingTicks after it was
 -- queued, or after the creature's casting aura was last seen busy, is given up; outcomeTicks
--- after a cast ends, its effect on the target is judged.
+-- after a cast ends, or after time resumes if a Time Stop froze the target, its effect on the
+-- target is judged.
 M.pendingTicks=45
 M.outcomeTicks=30
 -- A started cast that ends this much before its casting time was interrupted.
@@ -2764,7 +2766,7 @@ function M.new(g,options)
     local cache,cached,items,itemCount={},0,{},0
     local pending,running,judging,memory={},{},{},{}
     local counts={decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
-        hits=0,misses=0,errors=0,holds=0}
+        hits=0,misses=0,errors=0,holds=0,frozen=0}
     local reasons={}
     local log,nextRow,size={},1,0
     local root,sink,lastError
@@ -2843,6 +2845,41 @@ function M.new(g,options)
         return rows,carried
     end
 
+    -- Time Stop: while one runs, every creature but its caster is frozen, and what reaches a
+    -- frozen creature takes effect only when time resumes (lab, CHOICE-01). stop is the running
+    -- one's caster (true if unknown); resumed the tick time was last seen running again or
+    -- changing hands. Every judgement and every start of a casting member looks.
+    local stop,resumed
+    local function timeStop()
+        local ok,n,c=pcall(function()
+            local chitin=rawget(g,'EEex_EngineGlobal_CBaldurChitin')
+            local engine=rawget(g,'EngineGlobals')
+            if not chitin and engine then chitin=engine.g_pBaldurChitin end
+            local game=chitin.m_pObjectGame
+            return game.m_nTimeStop,game.m_nTimeStopCaster
+        end)
+        if ok and type(n)=='number' and n>0 then return type(c)=='number' and c or true end
+    end
+    local function watch(tick)
+        local caster=timeStop()
+        if stop~=nil and caster~=stop then resumed=tick end
+        stop=caster
+    end
+    local function frozen(id)
+        if stop==nil or id==stop then return false end
+        local target=get(id)
+        if not target then return false end
+        local ok,immune=pcall(function() return target.m_derivedStats.m_bImmuneToTimeStop end)
+        return not (ok and type(immune)=='number' and immune~=0)
+    end
+    -- A finished cast whose target is frozen now waits for time to resume.
+    local function wait(a,tick)
+        if a.target and frozen(a.target) then
+            if not a.frozen then counts.frozen=counts.frozen+1 end
+            a.frozen=tick
+        end
+    end
+
     -- The effect of finished casts on their targets: a target that lost hit points, became
     -- disabled by a disable, or carries an effect of the spell was hit. An effect a spell lands
     -- through a sub-spell or an EFF file names that as its source (the classifier's sources).
@@ -2875,19 +2912,28 @@ function M.new(g,options)
         record({kind='outcome',tick=a.ended,member=a.caster,spell=a.resref,target=a.target,hit=hit,misses=mine[key]})
     end
     local function judge(tick)
+        watch(tick)
         for id,a in pairs(running) do
             local sprite=get(id)
             local action=sprite and sprite.m_curAction
             local ours=action and M.CASTS[action.m_actionID] and text(action.m_string1.m_pchData:get())==a.resref
             if not ours then
-                a.ended=tick;running[id]=nil
+                a.ended=tick;running[id]=nil;wait(a,tick)
                 if #judging<M.judgeLimit then judging[#judging+1]=a end
             end
         end
         local keep={}
         for _,a in ipairs(judging) do
+            wait(a,tick)
+            -- outcomeTicks count from the cast's end, or from when time resumed for a target a
+            -- Time Stop froze.
+            local from=a.ended
+            if a.frozen then
+                from=math.max(from,a.frozen)
+                if resumed and resumed>=a.frozen then from=math.max(from,resumed) end
+            end
             if tick<a.ended then
-            elseif tick-a.ended>=M.outcomeTicks then outcome(a)
+            elseif tick-from>=M.outcomeTicks then outcome(a)
             else keep[#keep+1]=a end
         end
         judging=keep
@@ -3024,6 +3070,7 @@ function M.new(g,options)
         if not p and not r then return nil end
         if r then
             r.ended=tick;running[id]=nil
+            watch(tick);wait(r,tick)
             if #judging<M.judgeLimit then judging[#judging+1]=r end
         end
         if p and M.CASTS[action.m_actionID] and text(action.m_string1.m_pchData:get())==p.resref then
@@ -3047,7 +3094,7 @@ function M.new(g,options)
     function api:attach(r) root=r end
     function api:setSink(fn) assert(fn==nil or type(fn)=='function');sink=fn end
     function api:setTrace(value) assert(type(value)=='boolean');trace=value end
-    function api:invalidate() pending,running,judging,memory={},{},{},{} end
+    function api:invalidate() pending,running,judging,memory,stop,resumed={},{},{},{},nil,nil end
     function api:inspect()
         local copy=function(t) local c={};for k,v in pairs(t) do c[k]=v end;return c end
         local rows,first={},(nextRow-size-1)%M.logCapacity+1

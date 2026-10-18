@@ -409,4 +409,53 @@ g4.ticks=226
 assert(g4.BGSE_Claim(w,'mage','s1')==true and root4.inspect().choice.counts.lost==1)
 groups=groups+1
 
+-- 14. Time Stop: a cast that ends while another creature's Time Stop freezes its target is
+-- judged only outcomeTicks after time resumes, when what reached the target takes effect. A
+-- target immune to Time Stop is judged as usual.
+local g5=world()
+local game5=g5.EngineGlobals.g_pBaldurChitin.m_pObjectGame
+local z=g5.add(sprite(1,0,0,255))
+learn(z,2,'TESTBOLT',3)
+local t11=g5.add(sprite(11,100,0,2))
+local dir5=directors.new(g5,{reader=reader})
+local ch5=choices.new(g5,{reader=reader,director=dir5,seed=5})
+local root5=runtime.install(g5,{director=dir5,choice=ch5,version='test'})
+local function cast5(tick)
+    g5.ticks=tick;z.locals.castspell=0
+    assert(g5.BGSE_Claim(z,'mage','s1')==true)
+    g5.BGSE_Act(z)
+    assert(z.aux.EEex_Target.BGSE==11)
+    g5.listeners.started[1](z,action(31,'TESTBOLT',-1))
+    -- From here SCS's round timer runs, so each pass only judges.
+    z.m_curAction=action(31,'TESTBOLT',11);z.locals.castspell=100000
+end
+local function pass5(tick) g5.ticks=tick;assert(g5.BGSE_Claim(z,'mage','s1')==false);return root5.inspect().choice end
+cast5(100)
+-- The mage stops time; its bolt ends with its next action while 11 is frozen.
+game5.m_nTimeStop,game5.m_nTimeStopCaster=539,1
+g5.ticks=150
+z.m_curAction={m_actionID=0}
+g5.listeners.started[1](z,action(63,'',-1))
+local s5=pass5(200)
+assert(s5.judging==1 and s5.counts.frozen==1 and s5.counts.hits==0 and s5.counts.misses==0)
+s5=pass5(400)
+assert(s5.judging==1 and s5.counts.hits==0 and s5.counts.misses==0)
+-- Time resumes and the damage lands; the judgement comes outcomeTicks after time was seen
+-- running again.
+game5.m_nTimeStop,game5.m_nTimeStopCaster=0,-1
+t11.m_baseStats.m_hitPoints=20
+s5=pass5(450);assert(s5.judging==1 and s5.counts.hits==0)
+s5=pass5(479);assert(s5.judging==1 and s5.counts.hits==0)
+s5=pass5(480);assert(s5.judging==0 and s5.counts.hits==1 and s5.counts.misses==0 and s5.counts.frozen==1)
+-- An immune target is judged as usual, Time Stop or not: here the bolt left it untouched.
+t11.m_derivedStats={m_bImmuneToTimeStop=1}
+cast5(600)
+game5.m_nTimeStop,game5.m_nTimeStopCaster=539,1
+g5.ticks=650
+z.m_curAction={m_actionID=0}
+g5.listeners.started[1](z,action(63,'',-1))
+s5=pass5(679);assert(s5.judging==1)
+s5=pass5(680);assert(s5.judging==0 and s5.counts.misses==1 and s5.counts.frozen==1)
+groups=groups+1
+
 return groups
