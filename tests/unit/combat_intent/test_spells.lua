@@ -419,4 +419,43 @@ c=classify(spl('TESTAPP0',{ability({fx(326,{res='TESTXTRA'})})}),world({['SPL:TE
 assert(c.conditions==nil and c.roles.damage.amount==10)
 groups=groups+1
 
+-- The defence slice's reads. Improved Invisibility is invisibility attacks do not break; Spell
+-- Deflection (201) takes single-target spells and wears down, globes (102) keep out every spell
+-- of their levels. Effects that come long after the cast are kept apart: Spell Revisions' Haste
+-- casts its fatigue on its receivers when it ends, which is not what Haste does now.
+c=one(fx(20,{target=1,p2=1,duration=60}),{target=5})
+assert(c.roles.protection.kinds.invisible and c.roles.protection.kinds.improvedInvisible)
+c=one(fx(20,{target=1,duration=60}),{target=5})
+assert(c.roles.protection.kinds.invisible and not c.roles.protection.kinds.improvedInvisible)
+c=classify(spl('TESTDEFL',{ability({fx(201,{target=1,p1=9,p2=6,duration=60}),fx(102,{target=1,p1=3,duration=60})},
+    {target=5})}),world({}))
+local prot=c.roles.protection
+assert(prot.kinds.deflect and prot.deflectBy.levels[6]==9 and prot.kinds.immune and prot.immuneBy.levels[3]==1)
+assert(prot.immuneBy.levels[6]==nil)
+local fatigue=spl('TESTHASD',{ability({fx(0,{p1=-2,duration=18}),fx(54,{p1=-2,duration=18})})})
+local haste=spl('TESTHAST',{ability({fx(1,{p1=1,duration=144}),fx(176,{p1=6,duration=144}),
+    fx(146,{res='TESTHASD',p2=1,timing=4,duration=144}),fx(206,{res='TESTHAST',duration=144})},{target=4,projectile=99})})
+c=classify(haste,world({['SPL:TESTHASD']=fatigue,['PRO:99']=pro({areaFlags=64+128})}))
+assert(c.roles.buff.kinds.attacks and c.roles.buff.kinds.movement and c.roles.debuff==nil and c.roles.protection==nil)
+assert(c.later.debuff.kinds.armor and c.later.debuff.amounts.armor==2 and c.later.debuff.kinds.thac0 and not c.partial)
+assert(c.opcodes[0]==nil and c.opcodes[54]==nil and c.opcodes[1] and c.beneficial and not c.offensive)
+-- A short wait is still now: a cast two seconds in counts with the spell.
+haste.abilities[1].effects[3].duration=2
+c=classify(haste,world({['SPL:TESTHASD']=fatigue,['PRO:99']=pro({areaFlags=64+128})}))
+assert(c.later==nil and c.roles.debuff.kinds.thac0)
+groups=groups+1
+
+-- Spell Revisions' Recitation: the caster casts two sub-spells, the blessing through an
+-- allies-only area, the curse through an enemies-only one. Each area role names its side.
+local bless=spl('TESTRECG',{ability({fx(54,{p1=2,duration=120})},{target=4,projectile=337})})
+local curse=spl('TESTRECB',{ability({fx(54,{p1=-2,duration=120})},{target=4,projectile=338})})
+c=classify(spl('TESTRECI',{ability({fx(146,{target=1,res='TESTRECG',p2=1}),fx(146,{target=1,res='TESTRECB',p2=1})},
+    {target=5})}),world({['SPL:TESTRECG']=bless,['SPL:TESTRECB']=curse,
+    ['PRO:337']=pro({areaFlags=192,radius=512}),['PRO:338']=pro({areaFlags=64,radius=426})}))
+assert(c.roles.buff.who.area and c.roles.buff.filters.allies and not c.roles.buff.filters.enemies)
+assert(c.roles.debuff.who.area and c.roles.debuff.filters.enemies and not c.roles.debuff.filters.allies)
+c=classify(fireball,world({['PRO:99']=pro({radius=480})}))
+assert(c.roles.damage.filters.all)
+groups=groups+1
+
 return groups

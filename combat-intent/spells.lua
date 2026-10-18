@@ -65,6 +65,12 @@ local function saveNames(bits)
     end
     return names
 end
+-- Timings that apply an effect after its duration: delayed limited, permanent, while equipped.
+local DELAYED={[3]=true,[4]=true,[5]=true}
+-- Effects that come more than this many seconds after the cast (Spell Revisions' Haste casts its
+-- fatigue when it ends) are kept apart in c.later: they are not what the spell does now.
+M.laterThan=6
+local function delay(e) return DELAYED[e.timing%256] and math.max(e.duration,0) or 0 end
 local function longer(a,b)
     if a==nil then return b end
     if b==nil then return a end
@@ -74,10 +80,16 @@ local function longer(a,b)
 end
 
 -- One effect's contribution to a role: who gets it, how likely, saves, level range, duration.
+-- An area role also names the side filters of the areas it came through: 'allies', 'enemies' or
+-- 'all' (the delivering area's, else the spell's own).
 local function add(c,name,who,e,p)
     local r=c.roles[name]
     if not r then r={who={},kinds={},chance=0,power=0};c.roles[name]=r end
     r.who[who]=true
+    if who=='area' then
+        r.filters=r.filters or {}
+        r.filters[c.filter or (c.area and c.area.filter) or 'all']=true
+    end
     r.chance=math.max(r.chance,p)
     r.power=math.max(r.power,e.power)
     local saves=saveNames(e.save)
@@ -308,10 +320,15 @@ end
 H[314]=function(c,e,who,p) local r=kind(c,'protection','stoneskin',who,e,p);r.stoneskin=math.max(r.stoneskin or 0,e.p1) end
 H[119]=function(c,e,who,p) kind(c,'protection','mirror',who,e,p) end
 H[159]=function(c,e,who,p) local r=kind(c,'protection','mirror',who,e,p);r.mirror=math.max(r.mirror or 0,e.p1) end
-local PROTECTION_KINDS={[20]='invisible',[65]='blur',[69]='nondetection',[100]='creatureType',
+local PROTECTION_KINDS={[65]='blur',[69]='nondetection',[100]='creatureType',
     [153]='sanctuary',[163]='freeAction',[208]='minimumHp',[292]='backstab',
     [297]='turnUndead',[299]='chaosShield',[310]='timestop',[322]='evasion',[335]='sevenEyes'}
 for op,label in pairs(PROTECTION_KINDS) do H[op]=function(c,e,who,p) kind(c,'protection',label,who,e,p) end end
+-- Invisibility; parameter 2 = 1 is Improved Invisibility, which attacks do not break.
+H[20]=function(c,e,who,p)
+    local r=kind(c,'protection','invisible',who,e,p)
+    if e.p2==1 then r.kinds.improvedInvisible=true end
+end
 local function blocks(c,e,who,p,how,field,key,count)
     local r=kind(c,'protection',how,who,e,p)
     local t=set(set(r,how..'By'),field)
@@ -328,7 +345,7 @@ H[197]=function(c,e,who,p) blocks(c,e,who,p,'bounce','projectiles',e.p2) end
 H[198]=function(c,e,who,p) blocks(c,e,who,p,'bounce','opcodes',e.p2) end
 H[199]=function(c,e,who,p) blocks(c,e,who,p,'bounce','levels',e.p2) end
 H[200]=function(c,e,who,p) blocks(c,e,who,p,'bounce','levels',e.p2,e.p1) end
-H[201]=function(c,e,who,p) blocks(c,e,who,p,'immune','levels',e.p2,e.p1) end
+H[201]=function(c,e,who,p) blocks(c,e,who,p,'deflect','levels',e.p2,e.p1) end
 H[259]=function(c,e,who,p) blocks(c,e,who,p,'trap','levels',e.p2,e.p1) end
 H[202]=function(c,e,who,p) blocks(c,e,who,p,'bounce','schools',e.p2) end
 H[203]=function(c,e,who,p) blocks(c,e,who,p,'bounce','secondaries',e.p2) end
@@ -562,9 +579,11 @@ local function send(c,state,e,where,depth,p)
     if op==333 then c.times=(saved or 1)*math.max(e.p1,1);c.approximate=true end
     if op==326 or op==366 then c.conditional=true end
     local subArea=op~=326 and area(state.lookup('PRO',ability.projectile)) or nil
+    local filter=c.filter
     if subArea then
         c.area=c.area or subArea
         to='area'
+        c.filter=subArea.filter
     end
     -- 326 applies the spell only to creatures that meet its SPLPROT row (parameter 2, value in
     -- parameter 1; row 0 is anyone). EEex swaps the row's source and target with special bit 0.
@@ -573,15 +592,16 @@ local function send(c,state,e,where,depth,p)
         c.when=within(when,condition(c,{row=e.p2,value=e.p1,flip=e.special%2==1 or nil}))
     end
     walk(c,state,ability.effects,to,depth+1,p,'SPL:'..res,res)
-    c.times=saved;c.when=when
+    c.times=saved;c.when=when;c.filter=filter
 end
 -- What a delivery brings shares its saving throw: an effect without one of its own saves as the
 -- delivery does (Spell Revisions' Charm Person saves on its 177s, not on the charm).
 local function deliver(c,state,e,where,depth,p)
-    local inherit=c.inherit
+    local inherit,wait=c.inherit,c.delay
     if saveNames(e.save) then c.inherit={save=e.save,saveBonus=e.saveBonus} end
+    c.delay=(wait or 0)+delay(e)
     send(c,state,e,where,depth,p)
-    c.inherit=inherit
+    c.inherit,c.delay=inherit,wait
 end
 local DELIVERY={[146]=true,[148]=true,[177]=true,[272]=true,[283]=true,[326]=true,[333]=true,[366]=true}
 
@@ -608,10 +628,20 @@ walk=function(c,state,effects,where,depth,p,key,owner)
                 local q=p*chance(e)
                 if who and q>0 then
                     if c.inherit and not saveNames(e.save) then e=inherited(e,c.inherit) end
+                    local late=not DELIVERY[e.opcode] and (c.delay or 0)+delay(e)>M.laterThan
                     -- What reaches others, for matching a target's opcode immunities.
-                    if who~='self' then c.opcodes[e.opcode]=true end
-                    local cut=not DELIVERY[e.opcode] and who~='self' and exclusion(c,e)
+                    if who~='self' and not late then c.opcodes[e.opcode]=true end
+                    local cut=not DELIVERY[e.opcode] and not late and who~='self' and exclusion(c,e)
                     if DELIVERY[e.opcode] then deliver(c,state,e,where,depth,q)
+                    elseif late then
+                        -- Late effects get roles of their own and no log: views are of now.
+                        if H[e.opcode] then
+                            local now=c.roles
+                            c.later=c.later or {}
+                            c.roles=c.later
+                            H[e.opcode](c,e,who,q)
+                            c.roles=now
+                        end
                     elseif cut then
                         cut.cut=true;cut.p=q
                         c.log[#c.log+1]=cut
@@ -672,7 +702,7 @@ function M.classify(record,index,lookup,options)
     local key=tostring(record.kind)..':'..tostring(record.resref)
     walk(c,state,ability.effects,where,0,1,key,record.resref)
     if record.kind=='SPL' then walk(c,state,record.casting,'self',0,1,key,record.resref) end
-    c.times=nil;c.owner=nil;c.node=nil;c.when=nil;c.inherit=nil;c.conditionAt=nil
+    c.times=nil;c.owner=nil;c.node=nil;c.when=nil;c.inherit=nil;c.conditionAt=nil;c.delay=nil;c.filter=nil
     -- Without conditions every creature gets the same roles, and no view needs the log.
     if #c.conditions==0 then c.conditions=nil;c.log=nil;c.nodes=nil end
     local names={}
