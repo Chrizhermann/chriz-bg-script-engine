@@ -1446,12 +1446,35 @@ M.default={
     -- them: a silenced caster; a priest with healing ready who is below selfHealth itself or
     -- sees an ally below allyHealth (SCS's priests heal at 50% and 75%).
     defer={silenced=true,selfHealth=0.5,allyHealth=0.75},
+    -- Defences (step 3, third slice; Christopher, 2026-10-19: weigh them against attacks every
+    -- round). Weight of what protections and buffs save against what attacks take.
+    caution=1,
+    -- Seconds of a fight a protection or buff counts for at most.
+    horizon=18,
+    -- Seconds after a defence before the next one, like SCS's redefend timer (7 or 8), so the
+    -- caster attacks in between, unless it is in acute danger: it would lose this share of its
+    -- hit points left in a round, with what protects it now.
+    redefend=7,
+    acute=0.5,
+    -- Cost of each second of casting time.
+    castCost=0.02,
+    -- Single-target defences cast on allies too, by resref (exceptions agreed with Christopher;
+    -- none yet). Others are cast on the caster itself or as areas around it.
+    allySpells={},
 }
 
 local function share(v) return type(v)=='number' and v==v and v>=0 and v<=1 end
 local function amount(v) return type(v)=='number' and v==v and v>=0 and v<=1000 end
+local function resrefs(v)
+    if type(v)~='table' then return false end
+    for k,x in pairs(v) do
+        if type(k)~='string' or not k:match('^[%w#_%-]+$') or #k>8 or x~=true then return false end
+    end
+    return true
+end
 local CHECKS={coordination=share,best=share,band=share,economy=amount,minValue=amount,
-    focusBonus=amount,killBonus=amount,
+    focusBonus=amount,killBonus=amount,caution=amount,horizon=amount,redefend=amount,acute=share,
+    castCost=amount,allySpells=resrefs,
     memory=function(v) return type(v)=='boolean' end,
     knowledge=function(v) return v=='scs' end}
 

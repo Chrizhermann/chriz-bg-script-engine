@@ -1,0 +1,284 @@
+-- The engine's own defences (combat-intent/defence.lua) and the threat picture behind them
+-- (combat-intent/threat.lua), on synthetic spells classified by combat-intent/spells.lua and
+-- plain frames. No game data.
+local defence=require('combat-intent.defence')
+local threat=require('combat-intent.threat')
+local choice=require('combat-intent.choice')
+local mind=require('combat-intent.mind')
+local spells=require('combat-intent.spells')
+local groups=0
+
+local function fx(op,fields)
+    local e={opcode=op,target=1,power=0,p1=0,p2=0,timing=0,resist=0,duration=60,prob1=100,prob2=0,
+        res='',dice=0,sides=0,save=0,saveBonus=0,special=0}
+    for k,v in pairs(fields or {}) do e[k]=v end
+    return e
+end
+local function area(radius,flags)
+    return {kind='PRO',resref='AREA',type=3,speed=20,flags=0,extFlags=0,areaFlags=flags or 0,trigger=30,radius=radius,coneWidth=0}
+end
+local SINGLE={kind='PRO',resref='SINGLE',type=2,speed=20,flags=0,extFlags=0}
+-- A spell of one ability; pros maps projectile numbers to PRO records, subs names sub-spells.
+local function spell(resref,level,effects,ability,pros,subs)
+    local a={form=1,flags=0,location=2,target=5,targetCount=0,range=30,minLevel=1,speed=1,projectile=1,effects=effects}
+    for k,v in pairs(ability or {}) do a[k]=v end
+    local r={kind='SPL',resref=resref,name=0,flags=0,spellType=1,exclusion=0,school=0,secondary=0,
+        level=level,abilities={a},casting={}}
+    local function lookup(kind,key)
+        if kind=='PRO' then return (pros or {})[key] or (key==2 and SINGLE or nil) end
+        if kind=='SPL' then return (subs or {})[key] end
+    end
+    return spells.classify(r,1,lookup,{level=10})
+end
+local function sub(resref,effects,projectile)
+    return {kind='SPL',resref=resref,name=0,flags=0,spellType=1,exclusion=0,school=0,secondary=0,level=1,
+        abilities={{form=1,flags=0,location=2,target=4,targetCount=0,range=30,minLevel=1,speed=1,
+        projectile=projectile,effects=effects}},casting={}}
+end
+
+local pfmw=spell('TESTPFMW',6,{fx(120,{p1=6,duration=24})})
+local slowPfmw=spell('TESTSLOW',6,{fx(120,{p1=6,duration=24})},{speed=9})
+local stoneskin=spell('TESTSTON',4,{fx(218,{p1=8,duration=600})})
+local mirror=spell('TESTMIRR',2,{fx(159,{p1=6,duration=300})})
+local armour=spell('TESTARMR',1,{fx(0,{p1=4,duration=600})})
+local resistance=spell('TESTRESI',5,{fx(166,{p1=50,duration=120})})
+local globe=spell('TESTGLOB',4,{fx(102,{p1=1,duration=120}),fx(102,{p1=2,duration=120}),fx(102,{p1=3,duration=120})})
+local deflection=spell('TESTDEFL',5,{fx(201,{p1=9,p2=6,duration=120})})
+local improved=spell('TESTIINV',4,{fx(20,{p2=1,duration=60,target=2})},{target=1})
+local free=spell('TESTFREE',4,{fx(101,{p2=109,target=2,duration=1200}),fx(101,{p2=175,target=2,duration=1200}),
+    fx(101,{p2=185,target=2,duration=1200}),fx(101,{p2=40,target=2,duration=1200})},{target=1})
+local chaos=spell('TESTCHAO',5,{fx(101,{p2=5,target=2,duration=1200}),fx(101,{p2=128,target=2,duration=1200}),
+    fx(101,{p2=39,target=2,duration=1200})},{target=1})
+-- Spell Revisions' Recitation: a blessing through an allies-only area, a curse through an
+-- enemies-only one, both cast by the caster on itself.
+local recitation=spell('TESTRECI',4,{fx(146,{res='TESTRECG',p2=1,duration=0,timing=1}),
+    fx(146,{res='TESTRECB',p2=1,duration=0,timing=1})},{speed=7},
+    {[337]=area(512,192),[338]=area(426,64)},
+    {TESTRECG=sub('TESTRECG',{fx(54,{p1=2,target=2,duration=120})},337),
+     TESTRECB=sub('TESTRECB',{fx(54,{p1=-2,target=2,duration=120})},338)})
+-- Spell Revisions' Haste: half an attack for allies in an area at a point; the fatigue comes
+-- when it ends.
+local haste=spell('TESTHAST',3,{fx(1,{p1=6,target=2,duration=144}),fx(176,{p1=6,target=2,duration=144}),
+    fx(146,{res='TESTHASD',p2=1,timing=4,duration=144,target=2})},{target=4,projectile=99,speed=3},
+    {[99]=area(256,192)},{TESTHASD=sub('TESTHASD',{fx(0,{p1=-2,target=2,duration=18}),fx(54,{p1=-2,target=2,duration=18})},1)})
+-- Armour for the caster and blades around it that cut everyone near it.
+local blades=spell('TESTBLAD',6,{fx(0,{p1=4,target=1,duration=60}),fx(12,{p1=10,target=2,duration=0})},
+    {projectile=98},{[98]=area(128,0)})
+local bolt=spell('TESTBOLT',3,{fx(12,{p2=8*65536,dice=6,sides=6,target=2,duration=0})},{target=1,projectile=2})
+
+local function fighter(id,x,fields)
+    local e={id=id,x=x,y=100,hp=60,maxHp=60,state=0,held=0,sanctuary=0,mr=0,action=3,actee=1,ac=4,
+        ids={ea=2,general=1,race=1,class=2,specific=0,gender=1,alignment=0x11},protections={},
+        saves={spell=14,breath=14,death=14,wand=14,poly=14},resist={},level=8,
+        attack={apr=2,thac0=10,damage=10,magical=true}}
+    for k,v in pairs(fields or {}) do e[k]=v end
+    return e
+end
+local function mage(id,x,fields)
+    local e=fighter(id,x,{ids={ea=2,general=1,race=1,class=1,specific=0,gender=1,alignment=0x11},level=10,
+        action=0,actee=-1,attack={apr=1,thac0=17,damage=3,magical=false}})
+    for k,v in pairs(fields or {}) do e[k]=v end
+    return e
+end
+local function row(resref,s,level,fields)
+    local r={resref=resref,level=level,ready=1,memorized=1,usable=true,list='mage',spell=s}
+    for k,v in pairs(fields or {}) do r[k]=v end
+    return r
+end
+local function input(enemies,list,fields)
+    local i={tick=1000,family='mage',frame={self={id=1,x=100,y=100,hp=40,maxHp=40,state=0,ac=8,mr=0,guard={}},
+        enemies=enemies or {},allies={}},spells=list or {},plan={},memory={},mind=mind.new()}
+    for k,v in pairs(fields or {}) do i[k]=v end
+    return i
+end
+local function find(options,resref)
+    for _,o in ipairs(options) do if o.resref==resref then return o end end
+end
+local function near(a,b) return math.abs(a-b)<1e-6 end
+
+-- 1. The threat picture: an enemy hits the friend it attacks, else the nearest one it reaches;
+-- hidden friends are safe from weapons and aimed spells of enemies that do not see invisible
+-- creatures; a caster's spells spread over the friends it sees.
+local i=input({fighter(11,130),fighter(12,135,{actee=-1})})
+i.frame.allies={{id=2,x=60,y=100,hp=80,maxHp=80,state=0,ac=2}}
+local t=threat.picture(i.frame)
+assert(near(t[1].weapon.attacks,4) and near(t[1].weapon.hits,3.8) and near(t[1].weapon.hp,38))
+assert(t[2].weapon.attacks==0 and #t[1].attackers==2)
+assert(near(threat.hitChance(10,8),0.95) and near(threat.hitChance(20,0),0.05) and near(threat.hitChance(12,5),0.7))
+i.frame.self.state=0x400000
+t=threat.picture(i.frame)
+assert(t[1].weapon.attacks==0 and t[2].weapon.attacks==4)
+i.frame.enemies[1].seeInvisible=true
+t=threat.picture(i.frame)
+assert(t[1].weapon.attacks==2 and t[2].weapon.attacks==2)
+i=input({mage(21,300)})
+i.frame.allies={{id=2,x=120,y=100,hp=80,maxHp=80,state=0,ac=2}}
+t=threat.picture(i.frame)
+assert(near(t[1].spell.hp,6) and near(t[2].spell.hp,6) and near(t[1].spell.personal,3.6) and near(t[1].spell.disable,0.075))
+assert(t[1].spell.level==5 and t[1].weapon.attacks==0)
+i.frame.enemies[1].action=31;i.frame.enemies[1].actee=2
+t=threat.picture(i.frame)
+assert(t[1].spell.hp==0 and near(t[2].spell.hp,12))
+-- A held enemy threatens no one; one too far for a round's walk neither.
+i=input({fighter(11,130,{held=1}),fighter(12,1000,{actee=-1})})
+t=threat.picture(i.frame)
+assert(t[1].weapon.attacks==0)
+groups=groups+1
+
+-- 2. Shields and what they block. Protection from Magical Weapons stops magical weapons while
+-- it holds; Stoneskin's skins and Mirror Images absorb hits one by one first; globes keep out
+-- every spell of their levels, deflections only aimed ones; Free Action keeps holds out.
+-- Independent ways compound; globes and deflections count by the levels they cover together.
+local s=defence.shield(pfmw.roles)
+assert(s.magicalUpTo==6 and not s.nonmagical)
+local w={weapon={hp=38,hits=3.8,attacks=4,magicalAttacks=4},spell={hp=12,personal=7.2,area=4.8,disable=0.15,casters=1,level=5}}
+local b=defence.blocks(s,w,3)
+assert(near(b.rate,1) and b.pool==0)
+local mundane={weapon={hp=38,hits=3.8,attacks=4,magicalAttacks=0},spell=w.spell}
+assert(near(defence.blocks(s,mundane,3).rate,0))
+b=defence.blocks(defence.shield(stoneskin.roles),w,3)
+assert(b.rate==0 and b.pool==8)
+assert(near(defence.blocks(defence.shield(mirror.roles),w,3).pool,6*0.95))
+b=defence.blocks(defence.shield(globe.roles),w,3)
+assert(near(b.spell,7.2*0.6+4.8*0.6) and near(b.disable,0.6))
+b=defence.blocks(defence.shield(deflection.roles),w,3)
+assert(near(b.spell,7.2) and b.rate==0 and near(b.personal,1))
+b=defence.blocks(defence.shield(free.roles),w,3)
+assert(near(b.disable,0.3) and b.spell==0)
+b=defence.blocks(defence.shield(chaos.roles),w,3)
+assert(near(b.disable,0.15+0.1+0.05))
+b=defence.blocks(defence.shield(improved.roles),w,3)
+assert(near(b.rate,0.9) and near(b.spell,7.2*0.9+4.8*0))
+-- Half the attacks magical: Protection from Magical Weapons stops half, armour lowers the rest.
+local mixed={weapon={hp=38,hits=3.8,attacks=4,magicalAttacks=2},spell=w.spell}
+local plated=defence.union(defence.shield(armour.roles),defence.shield(pfmw.roles))
+assert(near(defence.blocks(defence.shield(pfmw.roles),mixed,3).rate,0.5))
+assert(near(defence.blocks(defence.shield(armour.roles),mixed,3).rate,1-0.75/0.95))
+assert(near(defence.blocks(plated,mixed,3).rate,1-0.5*0.75/0.95))
+-- Magic resistance and a globe compound; a globe and a deflection cover levels together.
+b=defence.blocks(defence.union(defence.shield(resistance.roles),defence.shield(globe.roles)),w,3)
+assert(near(b.spell,12*(1-0.5*0.4)) and near(b.disable,1-0.4*0.5))
+b=defence.blocks(defence.union(defence.shield(globe.roles),defence.shield(deflection.roles)),w,3)
+assert(near(b.spell,7.2+4.8*0.6))
+assert(defence.attacks(6)==0.5 and defence.attacks(7)==1.5 and defence.attacks(1)==1 and defence.attacks(-1)==0)
+-- What protects a friend now: its guard's roles, the engine's counts, its invisibility; its
+-- armour class already holds its armour bonuses.
+local held=defence.held({state=0x400010,mr=30,guard={roles={protection={kinds={armor=true},amounts={armor=4}}},stoneskins=5,mirror=2}})
+assert(held.armor==0 and held.stoneskin==5 and held.mirror==2 and held.invisible and held.improved and held.mr==30)
+local both=defence.union(defence.shield(stoneskin.roles),defence.shield(pfmw.roles))
+assert(both.stoneskin==8 and both.magicalUpTo==6)
+groups=groups+1
+
+-- 3. Harm over time. Two fighters kill an unprotected caster of 40 hit points in about a round;
+-- Stoneskin's eight skins hold two rounds, so the caster lives through three. A friend out of
+-- the fight loses a round of disable's worth for each round of the horizon it is dead.
+local f={hp=40,maxHp=40}
+local melee={weapon={hp=38,hits=3.8,attacks=4,magicalAttacks=4},spell={hp=0,personal=0,area=0,disable=0,casters=0,level=0}}
+local harm,death=defence.course(defence.held({}),f,melee,3)
+assert(near(harm,114) and near(death,40/38))
+harm,death=defence.course(defence.shield(stoneskin.roles),f,melee,3)
+assert(near(harm,34) and near(death,8/3.8+40/38))
+harm,death=defence.course(defence.shield(pfmw.roles),f,melee,3)
+assert(harm==0 and death==math.huge)
+local bare=defence.loss(defence.held({}),f,melee,3,0.5)
+assert(near(bare,1.5+(3-40/38)/3))
+assert(near(defence.loss(defence.shield(stoneskin.roles),f,melee,3,0.5),0.85+0.5*0.7))
+assert(near(defence.loss(defence.shield(mirror.roles),f,melee,3,0.5),1.5+(3-1.5-40/38)/3))
+-- Temporary hit points go first; spell harm runs alongside absorbed hits.
+local burned={weapon=melee.weapon,spell={hp=10,personal=6,area=4,disable=0,casters=1,level=5}}
+harm,death=defence.course(defence.shield(stoneskin.roles),f,burned,3)
+assert(near(harm,30+34) and near(death,8/3.8+(40-10*8/3.8)/48))
+local padded=defence.shield(stoneskin.roles);padded.hp=20
+harm=defence.course(padded,f,burned,3)
+assert(near(harm,44))
+groups=groups+1
+
+-- 4. Weighing: two fighters at a caster with no protection make Protection from Magical
+-- Weapons worth more than Stoneskin, Stoneskin more than Mirror Image (SCS's order); no worth
+-- when no one threatens; a caster already protected gains nothing from a second protection of
+-- the same kind.
+local list={row('TESTPFMW',pfmw,6),row('TESTSTON',stoneskin,4),row('TESTMIRR',mirror,2),row('TESTBOLT',bolt,3)}
+i=input({fighter(11,130),fighter(12,135)},list)
+local rejected={}
+local opts=defence.options(i,rejected)
+local o=find(opts,'TESTPFMW')
+assert(o and o.kind=='defence' and o.self and o.mode=='self' and o.hits[1]==1)
+assert(near(o.worth,bare*math.exp(-0.38)) and near(o.cost,0.18+0.02*0.6))
+assert(find(opts,'TESTSTON').worth<o.worth and find(opts,'TESTMIRR').worth<find(opts,'TESTSTON').worth)
+-- Held enemies threaten no one.
+i=input({fighter(11,130,{held=1}),fighter(12,135,{held=1})},list)
+rejected={}
+assert(#defence.options(i,rejected)==0 and rejected['no-worth']==3)
+-- Protection from Magical Weapons up already: Stoneskin adds nothing. Skins left that hold
+-- through the horizon leave little to gain from new ones.
+i=input({fighter(11,130),fighter(12,135)},list)
+i.frame.self.guard={roles=pfmw.roles}
+opts=defence.options(i,{})
+assert(find(opts,'TESTSTON')==nil)
+i.frame.self.guard={stoneskins=12}
+assert(find(defence.options(i,{}),'TESTSTON')==nil)
+-- A spell running on the friend, or one it is guarded against, is not cast again.
+i.frame.self.guard={sources={TESTPFMW=true}}
+assert(find(defence.options(i,{}),'TESTPFMW')==nil)
+i.frame.self.guard={recast={TESTPFMW=true}}
+assert(find(defence.options(i,{}),'TESTPFMW')==nil)
+-- A long cast under attack is often interrupted: worth less than a quick one. Skins up keep
+-- hits from breaking the cast.
+i=input({fighter(11,130),fighter(12,135)},{row('TESTPFMW',pfmw,6),row('TESTSLOW',slowPfmw,6)})
+opts=defence.options(i,{})
+assert(find(opts,'TESTSLOW').worth<find(opts,'TESTPFMW').worth)
+local ct=threat.picture(i.frame)[1]
+assert(near(defence.through(i,ct,0.6),math.exp(-0.38)) and near(defence.through(i,ct,5.4),math.exp(-3.42)))
+i.frame.self.guard={stoneskins=8}
+assert(defence.through(i,ct,0.6)==1 and defence.through(i,ct,5.4)==1)
+groups=groups+1
+
+-- 5. The pause after a defence, like SCS's redefend timer, unless the caster is in acute danger.
+local light={fighter(11,130,{attack={apr=1,thac0=10,damage=6,magical=true}})}
+i=input(light,{row('TESTPFMW',pfmw,6)},{lastDefence=1000-30})
+rejected={}
+assert(#defence.options(i,rejected)==0 and rejected.redefend==1)
+i.lastDefence=1000-120
+assert(#defence.options(i,{})==1)
+i=input({fighter(11,130),fighter(12,135)},{row('TESTPFMW',pfmw,6)},{lastDefence=1000-30})
+assert(#defence.options(i,{})==1)
+groups=groups+1
+
+-- 6. Areas around the caster: a blessing counts for allies that fight (attack data, an enemy
+-- within a round's walk), not for the casting caster; an area that cuts allies is no defence;
+-- Haste's fatigue later does not count against it now.
+local ally={id=2,x=140,y=100,hp=80,maxHp=80,state=0,ac=2,attack={apr=2,thac0=8,damage=12},guard={}}
+local far={id=3,x=2000,y=100,hp=80,maxHp=80,state=0,ac=2,attack={apr=2,thac0=8,damage=12},guard={}}
+i=input({fighter(11,200,{actee=2,held=1})},{row('TESTRECI',recitation,4)})
+i.frame.allies={ally,far}
+opts=defence.options(i,{})
+o=find(opts,'TESTRECI')
+assert(o and o.self and #o.hits==1 and o.hits[1]==2)
+assert(near(o.worth,2*(0.95-0.85)*12*3/60))
+i.frame.allies={far}
+rejected={}
+assert(#defence.options(i,rejected)==0 and rejected['no-worth']==1)
+rejected={}
+assert(#defence.options(input({fighter(11,130)},{row('TESTBLAD',blades,6)}),rejected)==0 and rejected['harms-friends']==1)
+local given=defence.defence(haste)
+assert(given and given.buff and given.buff.kinds.attacks and haste.later.debuff)
+i=input({fighter(11,200,{actee=2,held=1})},{row('TESTHAST',haste,3)})
+i.frame.allies={ally}
+o=find(defence.options(i,{}),'TESTHAST')
+assert(o and o.point and o.hits[1]==2 and near(o.worth,0.5*0.85*12*3/60))
+groups=groups+1
+
+-- 7. Single-target spells go on the caster only, unless the profile names them as exceptions
+-- for allies (Christopher, 2026-10-19: most such casts on allies take too long).
+local m=mage(21,300,{action=31,actee=2})
+i=input({m},{row('TESTFREE',free,4)})
+i.frame.allies={{id=2,x=120,y=100,hp=80,maxHp=80,state=0,ac=2,guard={}}}
+rejected={}
+assert(#defence.options(i,rejected)==0 and rejected['no-worth']==1)
+i.mind=mind.new({allySpells={TESTFREE=true}})
+o=find(defence.options(i,{}),'TESTFREE')
+assert(o and o.mode=='ally' and o.target==2 and near(o.worth,0.15*0.3*3/3))
+assert(mind.new({allySpells={['bad name!']=true}})==nil and mind.new({caution=-1})==nil)
+groups=groups+1
+
+return groups
