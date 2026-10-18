@@ -435,6 +435,7 @@ local function deliver(c,state,e,where,depth,p)
         c.filters=c.filters or {}
         c.filters[#c.filters+1]={ids=e.p2,entry=e.p1}
     end
+    if op==177 or op==283 or op==272 then c.sources[e.res]=true end
     if op==177 or op==283 then
         local eff=state.lookup('EFF',e.res)
         if type(eff)~='table' or type(eff.effect)~='table' then return state.miss(c,'EFF',e.res) end
@@ -468,6 +469,7 @@ local function deliver(c,state,e,where,depth,p)
     if op==333 and res=='' and c.owner then res=(c.owner..'B'):sub(1,8) end
     local sub=state.lookup('SPL',res)
     if type(sub)~='table' then return state.miss(c,'SPL',res) end
+    c.sources[res]=true
     -- Casting level: 146 and 148 use parameter 1 (0 or instant type 1: the caster's level);
     -- 333 uses parameter 2, else level 1.
     local level=state.level
@@ -525,14 +527,16 @@ local OFFENSIVE={damage=true,disable=true,debuff=true,removal=true}
 local HARMS_ALLIES={everyone=true,nonparty=true,casterGroup=true}
 
 -- Classify ability `index` (1-based) of a SPL or ITM record. options.level is the caster level
--- used for spells cast through other spells.
+-- used for spells cast through other spells. c.sources names the record and every spell and EFF
+-- file it delivers through: an effect it lands carries one of them as its source.
 function M.classify(record,index,lookup,options)
     options=options or {}
-    local c={roles={},unknown={},reasons={},opcodes={}}
+    local c={roles={},unknown={},reasons={},opcodes={},sources={}}
     if type(record)~='table' or type(record.abilities)~='table' then c.partial=true;c.reasons['no-record']=true;return c end
     local ability=record.abilities[index]
     if type(ability)~='table' then c.partial=true;c.reasons['no-ability']=true;return c end
     c.resref=record.resref;c.kind=record.kind;c.ability=index;c.self=record.resref
+    if type(record.resref)=='string' then c.sources[record.resref]=true end
     c.level=record.level;c.spellType=record.spellType;c.itemType=record.itemType
     c.school=record.school or ability.school;c.secondary=record.secondary or ability.secondary
     c.range=ability.range;c.speed=ability.speed;c.projectile=ability.projectile

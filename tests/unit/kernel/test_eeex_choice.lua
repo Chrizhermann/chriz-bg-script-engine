@@ -134,9 +134,9 @@ local function last(kind) for i=#rows,1,-1 do if rows[i].kind==kind then return 
 -- 1. Formats and the timer: SCS's round timer is set before the cast; the target is named by
 -- EEex_Target; a game timer runs while it holds a later game time.
 assert(choices.response({resref='SPWI304',target=12})==
-    'SetGlobalTimer("castspell","LOCALS",ONE_ROUND) SpellRES("SPWI304",EEex_Target("BGSE"))')
+    'SetGlobalTimer("castspell","LOCALS",ONE_ROUND)\nSpellRES("SPWI304",EEex_Target("BGSE"))')
 assert(choices.response({resref='SPWI304',point={x=430,y=107}})==
-    'SetGlobalTimer("castspell","LOCALS",ONE_ROUND) SpellPointRES("SPWI304",[430.107])')
+    'SetGlobalTimer("castspell","LOCALS",ONE_ROUND)\nSpellPointRES("SPWI304",[430.107])')
 assert(choices.response({resref='SPPR502',self=true}):find('SpellRES%("SPPR502",Myself%)')~=nil)
 assert(choices.response({resref='BAD"X',target=1})==nil and choices.response({resref='SPWI304',point={x=-1,y=2}})==nil)
 assert(choices.response({resref='SPWI304'})==nil)
@@ -297,6 +297,33 @@ assert(root.inspect().choice.pending>=1)
 g.listeners.destroyed[1]()
 state=root.inspect().choice
 assert(state.pending==0 and state.running==0 and state.remembered==0)
+groups=groups+1
+
+-- 10. A spell that lands its effects through a sub-spell: they name the sub-spell as their
+-- source, so a target that kept its hit points but carries them was still hit, not immune.
+records.TESTACID=spl('TESTACID',3,{fx(146,{res='TESTACDB'})})
+records.TESTACDB=spl('TESTACDB',3,{fx(12,{p2=8*65536,dice=6,sides=6}),fx(142,{p2=102,duration=30})})
+local g2=world()
+local caster=g2.add(sprite(1,0,0,255))
+learn(caster,2,'TESTACID')
+local victim=g2.add(sprite(11,100,0,2))
+local dir2=directors.new(g2,{reader=reader})
+local ch2=choices.new(g2,{reader=reader,director=dir2,seed=3})
+local root2=runtime.install(g2,{director=dir2,choice=ch2,version='test'})
+g2.ticks=100
+assert(g2.BGSE_Claim(caster,'mage','s1')==true)
+g2.BGSE_Act(caster)
+assert(caster.aux.EEex_Target.BGSE==11)
+g2.listeners.started[1](caster,action(31,'TESTACID',-1))
+caster.m_curAction=action(31,'TESTACID',11);caster.locals.castspell=190
+g2.ticks=120;assert(g2.BGSE_Claim(caster,'mage','s1')==false)
+caster.m_curAction={m_actionID=0}
+victim.m_timedEffectList={{m_effectId=142,m_sourceRes=str('TESTACDB')}}
+g2.ticks=130;assert(g2.BGSE_Claim(caster,'mage','s1')==false)
+caster.locals.castspell=0
+g2.ticks=165;assert(g2.BGSE_Claim(caster,'mage','s1')==true)
+state=root2.inspect().choice
+assert(state.counts.hits==1 and state.counts.misses==0 and state.remembered==0)
 groups=groups+1
 
 return groups

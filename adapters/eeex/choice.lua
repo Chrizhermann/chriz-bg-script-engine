@@ -61,12 +61,12 @@ function M.response(decision)
     if decision.point then
         local p=decision.point
         if not whole(p.x) or not whole(p.y) then return nil end
-        return M.setTimer..' SpellPointRES("'..decision.resref..'",['..p.x..'.'..p.y..'])'
+        return M.setTimer..'\nSpellPointRES("'..decision.resref..'",['..p.x..'.'..p.y..'])'
     end
-    if decision.self then return M.setTimer..' SpellRES("'..decision.resref..'",Myself)' end
+    if decision.self then return M.setTimer..'\nSpellRES("'..decision.resref..'",Myself)' end
     local t=decision.target
     if type(t)=='number' and t>=0 and t%1==0 then
-        return M.setTimer..' SpellRES("'..decision.resref..'",EEex_Target("'..M.targetName..'"))'
+        return M.setTimer..'\nSpellRES("'..decision.resref..'",EEex_Target("'..M.targetName..'"))'
     end
 end
 
@@ -167,7 +167,8 @@ function M.new(g,options)
     end
 
     -- The effect of finished casts on their targets: a target that lost hit points, became
-    -- disabled by a disable, or carries an effect of the spell was hit.
+    -- disabled by a disable, or carries an effect of the spell was hit. An effect a spell lands
+    -- through a sub-spell or an EFF file names that as its source (the classifier's sources).
     local function outcome(a)
         if not a.target or a.mode~='creature' then return end
         if a.castTicks and a.ended-a.started<a.castTicks-M.interruptSlack then
@@ -178,12 +179,13 @@ function M.new(g,options)
         local hit=a.hp~=nil and target.m_baseStats.m_hitPoints<a.hp
         if not hit and a.kind=='disable' then hit=targeting.disabled(sense.actor(g,target)) end
         if not hit then
+            local names=type(a.sources)=='table' and a.sources or {[a.resref]=true}
             for _,list in ipairs({target.m_timedEffectList,target.m_equipedEffectList}) do
                 local n=0
                 g.EEex_Utility_IterateCPtrList(list,function(effect)
                     n=n+1
                     if n>sense.maxEffects then return true end
-                    if text(effect.m_sourceRes:get())==a.resref then hit=true;return true end
+                    if names[text(effect.m_sourceRes:get())] then hit=true;return true end
                 end)
                 if hit then break end
             end
@@ -260,7 +262,8 @@ function M.new(g,options)
         local spell
         for _,row in ipairs(rows) do if row.resref==d.resref then spell=row.spell end end
         return {own=true,response=response,spell=d.resref,kind=d.kind,mode=d.mode,target=d.target,point=d.point,
-            self=d.self,castTicks=spell and type(spell.speed)=='number' and spell.speed*9 or nil}
+            self=d.self,castTicks=spell and type(spell.speed)=='number' and spell.speed*9 or nil,
+            sources=spell and spell.sources or nil}
     end
     -- From the gate, each time a hooked script asks: nil (SCS's round), {hold=true} while the
     -- engine's queued cast has not started, or the decision.
@@ -299,7 +302,8 @@ function M.new(g,options)
             hp=seen.hp
         end
         pending[object.m_id]={caster=object.m_id,resref=decision.spell,kind=decision.kind,mode=decision.mode,
-            target=decision.target,point=decision.point,tick=tick,hp=hp,castTicks=decision.castTicks}
+            target=decision.target,point=decision.point,tick=tick,hp=hp,castTicks=decision.castTicks,
+            sources=decision.sources}
         counts.performed=counts.performed+1
         return true
     end

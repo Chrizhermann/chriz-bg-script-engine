@@ -107,6 +107,9 @@ assert(classify(parent,subs,{level=3}).roles.damage.amount==5)
 parent.abilities[1].effects[1].p1=0;parent.abilities[1].effects[1].p2=0
 assert(classify(parent,subs,{level=14}).roles.damage.amount==50)
 assert(classify(parent,subs).roles.damage.amount==5)
+-- The effects it lands carry the sub-spell as their source, so both names are kept.
+c=classify(parent,subs)
+assert(c.sources.TESTPAR and c.sources.TESTSUB and not c.sources.NOPE)
 groups=groups+1
 
 -- A cycle back to the classified spell repeats effects already seen (amounts become a lower
@@ -133,6 +136,7 @@ local effs=world({['EFF:TESTEFF']=eff})
 local carrier=spl('TESTCAR',{ability({fx(177,{res='TESTEFF',p2=2})})})
 c=classify(carrier,effs)
 assert(c.roles.damage.amount==4 and c.roles.damage.who.target and not c.conditional)
+assert(c.sources.TESTCAR and c.sources.TESTEFF)
 carrier.abilities[1].effects[1].p1=4;carrier.abilities[1].effects[1].p2=4
 c=classify(carrier,effs)
 assert(c.conditional and c.filters[1].ids==4 and c.filters[1].entry==4 and c.roles.damage.amount==4)
