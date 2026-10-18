@@ -244,4 +244,21 @@ i.frame.self.seeInvisible=true;assert(choice.decide(i).target==12)
 i.frame.enemies[2].state=0x800;assert(select(2,choice.decide(i))=='no-option')
 groups=groups+1
 
+-- 14. Aims of one spell that hit the same enemies are one option: the one centred on a
+-- creature the spell counts, then the one holding its enemies furthest inside. An area hold
+-- at a held enemy beside a free one goes to the free one.
+local holdArea=spell('TESTHLDA',2,{fx(175,{p2=3,p1=1,duration=30,save=1})},nil,area(64))
+i=enemies(input({spells={row('TESTHLDA',holdArea,2)}}),{enemy(11,{x=400,state=0x20,held=1}),enemy(12,{x=430})})
+local opts=choice.options(i)
+assert(#opts==1 and opts[1].mode=='creature-area' and opts[1].target==12 and #opts[1].hits==1 and opts[1].hits[1]==12)
+-- Two enemies close together: every point that catches both is the same option, the one
+-- between them.
+i=enemies(input({spells={row('TESTBALL',ball,3)}}),{enemy(11,{x=400,y=100}),enemy(12,{x=410,y=100})})
+opts=choice.options(i)
+assert(#opts==1 and #opts[1].hits==2 and opts[1].point.x==405 and opts[1].point.y==100)
+-- Different enemies hit stay different options.
+i=enemies(input({spells={row('TESTBALL',ball,3)}}),{enemy(11,{x=400,y=100}),enemy(12,{x=530,y=100})})
+assert(#choice.options(i)==2)
+groups=groups+1
+
 return groups

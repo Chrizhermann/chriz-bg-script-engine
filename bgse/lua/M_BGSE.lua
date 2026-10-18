@@ -1588,8 +1588,25 @@ local function better(a,b)
     return pa.y<pb.y
 end
 
--- Every option the caster has, best first. rejected (a table, optional) counts why the ready
--- attack spells gave none: out-of-reach (no enemy in range), or evaluate's reason per aim.
+-- Whether an option is aimed at a creature it counts. An area aimed at an enemy the spell can
+-- take no further (one already held, for a hold) only reaches the enemies around it.
+local function centred(o)
+    if not o.target then return false end
+    for _,h in ipairs(o.hits) do if h==o.target then return true end end
+    return false
+end
+-- Of two aims of one spell that hit the same enemies: the one centred on a creature it counts,
+-- then the one holding its enemies furthest inside.
+local function preferred(a,b)
+    local ca,cb=centred(a),centred(b)
+    if ca~=cb then return ca end
+    return better(a,b)
+end
+
+-- Every option the caster has, best first. Aims of one spell that hit the same enemies are one
+-- option, so a draw among near-best options weighs each choice once. rejected (a table,
+-- optional) counts why the ready attack spells gave none: out-of-reach (no enemy in range), or
+-- evaluate's reason per aim.
 function M.options(input,rejected)
     local out={}
     local function reject(why) if rejected then rejected[why]=(rejected[why] or 0)+1 end end
@@ -1598,14 +1615,23 @@ function M.options(input,rejected)
             local spell=row.spell
             local kind,mode=M.attack(spell)
             if kind then
-                local seen={}
+                local seen,same={},{}
                 local list=aims(input,spell,mode)
                 if #list==0 then reject('out-of-reach') end
                 for _,aim in ipairs(list) do
                     local option,why=evaluate(input,row,spell,kind,mode,aim)
                     if option then
                         local key=tostring(option.target)..':'..(option.point and option.point.x..','..option.point.y or '')
-                        if not seen[key] then seen[key]=true;out[#out+1]=option end
+                        if not seen[key] then
+                            seen[key]=true
+                            local ids={}
+                            for n,h in ipairs(option.hits) do ids[n]=tostring(h) end
+                            table.sort(ids)
+                            local set=table.concat(ids,',')
+                            local at=same[set]
+                            if not at then out[#out+1]=option;same[set]=#out
+                            elseif preferred(option,out[at]) then out[at]=option end
+                        end
                     else reject(why or 'unknown') end
                 end
             end
