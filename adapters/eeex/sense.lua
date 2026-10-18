@@ -7,8 +7,9 @@
 -- follow the engine's EA groups: for a creature on the evil side (EA 200 and up) the good side
 -- (EA 2 to 30) are enemies and the evil side are allies. With details, each enemy also carries
 -- its creature IDS values, saves, resistances, level and the spell protections a script can
--- test (SCS's triggers read the same). Only plain values leave this module; no engine object
--- is kept.
+-- test (SCS's triggers read the same); M.splprot adds the engine's own answers to the SPLPROT
+-- checks of the spells in question. Only plain values leave this module; no engine object is
+-- kept.
 local M={}
 -- A sprite's default visual range in EEex's area search.
 M.sightRange=448
@@ -76,6 +77,46 @@ function M.details(g,sprite,entry)
     end
     entry.protections=found
     return entry
+end
+
+-- The engine's own SPLPROT check, CRuleTables::IsProtectedFromSpell(row, stats, mine, value) as
+-- EEex's LuaBindings expose it: whether stats meets the row, with mine as the other creature for
+-- rows that compare two. The engine's opcode 326 passes the creature that receives the effect
+-- as stats and the effect's source as mine.
+local function ruleTables(g)
+    local chitin=rawget(g,'EEex_EngineGlobal_CBaldurChitin')
+    local engine=rawget(g,'EngineGlobals')
+    if not chitin and engine then chitin=engine.g_pBaldurChitin end
+    return chitin.m_pObjectGame.m_ruleTables
+end
+-- Marks which of rows ({key={row,value,flip}}, the SPLPROT conditions of the spells in question)
+-- each enemy of the frame meets as the target of this caster's spell: entry.splprot[key]=true
+-- or false. flip swaps the two creatures, as EEex's 326 does with special bit 0. A row the
+-- engine does not answer stays unmarked, and nothing that depends on it is judged. Returns the
+-- marks read, the checks that failed and the last failure.
+function M.splprot(g,sprite,frame,rows)
+    if next(rows)==nil or #frame.enemies==0 then return 0,0 end
+    local ok,rt=pcall(ruleTables,g)
+    if not ok or rt==nil then return 0,1,tostring(rt) end
+    local read,failed,last=0,0,nil
+    for _,entry in ipairs(frame.enemies) do
+        local enemy=g.EEex_GameObject_Get(entry.id)
+        if enemy and g.EEex_GameObject_IsSprite(enemy,false) then
+            local marks=entry.splprot or {}
+            entry.splprot=marks
+            for key,f in pairs(rows) do
+                if marks[key]==nil then
+                    local stats,mine=enemy,sprite
+                    if f.flip then stats,mine=sprite,enemy end
+                    local done,v=pcall(function() return rt:IsProtectedFromSpell(f.row,stats,mine,f.value) end)
+                    if done and type(v)=='number' then marks[key]=v~=0;read=read+1
+                    elseif done and type(v)=='boolean' then marks[key]=v;read=read+1
+                    else failed=failed+1;last=done and 'answer '..type(v) or tostring(v) end
+                end
+            end
+        end
+    end
+    return read,failed,last
 end
 
 function M.side(ea)

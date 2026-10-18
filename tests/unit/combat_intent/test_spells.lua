@@ -389,4 +389,34 @@ c=one(fx(12,{p1=1}))
 assert(c.conditions==nil and c.log==nil and spells.view(c,no)==c.roles and select(2,spells.view(c,no))=='')
 groups=groups+1
 
+-- A spell's own immunity check: a 318 or 324 that names the spell, or a spell it comes through,
+-- with a SPLPROT row keeps creatures that meet the row out of what follows (Spell Revisions
+-- starts most spells with one; its charms check spell state 41). Row 0 without a condition is
+-- the guard against stacking. 326 applies its spell only to creatures that meet its row, and
+-- EEex swaps the row's source and target with special bit 0.
+local function rows(...)
+    local wanted={...}
+    return function(f)
+        for _,x in ipairs(wanted) do if spells.conditionKey(f)==spells.conditionKey(x) then return true end end
+        return false
+    end
+end
+c=classify(spl('TESTSRCH',{ability({fx(324,{res='TESTSRCH',p2=110,p1=41,duration=1}),fx(5,{duration=60,save=1}),
+    fx(318,{res='TESTSRCH',duration=6})})}),world({}))
+assert(#c.conditions==1 and spells.conditionKey(c.conditions[1])=='row:110:41')
+assert(spells.common(c).disable.kinds.charm and spells.view(c,rows({row=110,value=41})).disable==nil)
+assert(not c.roles.protection and not c.beneficial)
+-- The check in a sub-spell that names its parent (Spell Revisions' Fireball, row 186).
+local fireSub=spl('TESTFIRD',{ability({fx(324,{res='TESTFIRE',p2=186,duration=1}),fx(12,{p2=8*65536,dice=5,sides=6})})})
+c=classify(spl('TESTFIRE',{ability({fx(146,{res='TESTFIRD',p2=1})})}),world({['SPL:TESTFIRD']=fireSub}))
+assert(near(spells.common(c).damage.amount,17.5) and spells.view(c,rows({row=186,value=0})).damage==nil)
+local extra=spl('TESTXTRA',{ability({fx(12,{p1=10})})})
+c=classify(spl('TESTAPPL',{ability({fx(12,{p1=5}),fx(326,{res='TESTXTRA',p2=104,p1=2,special=1})})}),
+    world({['SPL:TESTXTRA']=extra}))
+assert(c.conditional and spells.conditionKey(c.conditions[1])=='row:104:2:flip')
+assert(spells.common(c).damage.amount==5 and spells.view(c,rows({row=104,value=2,flip=true})).damage.amount==15)
+c=classify(spl('TESTAPP0',{ability({fx(326,{res='TESTXTRA'})})}),world({['SPL:TESTXTRA']=extra}))
+assert(c.conditions==nil and c.roles.damage.amount==10)
+groups=groups+1
+
 return groups

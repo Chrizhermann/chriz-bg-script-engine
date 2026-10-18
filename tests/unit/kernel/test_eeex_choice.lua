@@ -458,4 +458,44 @@ s5=pass5(679);assert(s5.judging==1)
 s5=pass5(680);assert(s5.judging==0 and s5.counts.misses==1 and s5.counts.frozen==1)
 groups=groups+1
 
+-- 15. The ready spells' own SPLPROT checks, answered by the engine for each enemy it sees (row,
+-- enemy, caster, value): an enemy the engine marks immune is no target. When the engine gives
+-- no answer, the check is not judged, the spell stays an option and the first failure is
+-- recorded once.
+records.TESTSRBO=spl('TESTSRBO',3,{fx(324,{res='TESTSRBO',p2=110,p1=41,duration=1}),fx(12,{p2=8*65536,dice=6,sides=6})})
+local g6=world()
+local calls={}
+g6.EngineGlobals.g_pBaldurChitin.m_pObjectGame.m_ruleTables={IsProtectedFromSpell=function(_,row,stats,mine,value)
+    calls[#calls+1]={row,stats.m_id,mine.m_id,value}
+    if g6.splprotError then error(g6.splprotError) end
+    return (row==110 and value==41 and stats.state41) and 1 or 0
+end}
+local c6=g6.add(sprite(1,0,0,255))
+learn(c6,2,'TESTSRBO',3)
+g6.add(sprite(11,100,0,2,{state41=true}))
+g6.add(sprite(12,200,0,2))
+local dir6=directors.new(g6,{reader=reader})
+local ch6=choices.new(g6,{reader=reader,director=dir6,seed=3})
+local root6=runtime.install(g6,{director=dir6,choice=ch6,version='test'})
+local traced6={}
+ch6:setSink(function(row) traced6[#traced6+1]=row end)
+g6.ticks=100
+assert(g6.BGSE_Claim(c6,'mage','s1')==true)
+g6.BGSE_Act(c6)
+assert(c6.aux.EEex_Target.BGSE==12)
+assert(#calls==2 and calls[1][1]==110 and calls[1][2]==11 and calls[1][3]==1 and calls[1][4]==41 and calls[2][2]==12)
+local s6=root6.inspect().choice
+assert(s6.counts.marks==2 and s6.counts.markFailures==0 and s6.markError==false)
+g6.splprotError='no binding'
+for _,tick in ipairs({300,500}) do
+    g6.ticks=tick;c6.locals.castspell=0;c6.m_curAction={m_actionID=0}
+    assert(g6.BGSE_Claim(c6,'mage','s1')==true)
+end
+s6=root6.inspect().choice
+assert(s6.counts.claims==3 and s6.counts.markFailures==4 and s6.markError:find('no binding')~=nil)
+local failures=0
+for _,row in ipairs(traced6) do if row.kind=='error' and row.where=='splprot' then failures=failures+1 end end
+assert(failures==1 and s6.counts.errors==0)
+groups=groups+1
+
 return groups

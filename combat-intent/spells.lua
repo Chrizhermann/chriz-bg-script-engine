@@ -6,10 +6,12 @@
 -- the result (partial, reasons, unknown opcodes), and the caller skips what it cannot use.
 --
 -- roles is everything the spell can do to anyone. Some effects reach only one kind of
--- creature: what 177 or 283 deliver with an IDS entry, a hold that names a creature type. Those
--- kinds are the spell's conditions, and M.view gives the roles for one creature by which of
--- them it meets: an extra for trolls counts only on trolls, and a conditional immunity (Spell
--- Revisions spares elves its charms and the undead its fear) takes out what follows it.
+-- creature: what 177 or 283 deliver with an IDS entry, a hold that names a creature type, what
+-- 326 applies to creatures that meet a SPLPROT row. Those kinds are the spell's conditions, and
+-- M.view gives the roles for one creature by which of them it meets: an extra for trolls counts
+-- only on trolls, and a conditional immunity (Spell Revisions spares elves its charms and the
+-- undead its fear; most of its spells first make creatures in a given spell state immune) takes
+-- out what follows it.
 local M={}
 -- SCS's troll chains and SR's Greater Command go more than eight deliveries deep.
 M.limits={depth=12,effects=2048}
@@ -440,13 +442,18 @@ local function valid(e)
     return type(e.res)=='string'
 end
 
--- Creature conditions: c.conditions lists each IDS file and entry once, and c.when holds the
--- positions of those the effects being walked depend on (all of them must hold).
-local function condition(c,ids,entry)
-    local key=ids..':'..entry
+-- Creature conditions: an IDS file and entry ({ids,entry}), or a SPLPROT row and value
+-- ({row,value}; flip when the check swaps source and target). c.conditions lists each once, and
+-- c.when holds the positions of those the effects being walked depend on (all must hold).
+function M.conditionKey(f)
+    if f.row~=nil then return 'row:'..tostring(f.row)..':'..tostring(f.value)..(f.flip and ':flip' or '') end
+    return 'ids:'..tostring(f.ids)..':'..tostring(f.entry)
+end
+local function condition(c,f)
+    local key=M.conditionKey(f)
     local n=c.conditionAt[key]
     if not n then
-        c.conditions[#c.conditions+1]={ids=ids,entry=entry}
+        c.conditions[#c.conditions+1]=f
         n=#c.conditions;c.conditionAt[key]=n
     end
     return n
@@ -461,19 +468,29 @@ local function within(when,n)
     return out
 end
 
--- Under a creature condition, an immunity to an opcode, or a protection from the spell itself or
--- a spell it comes through, keeps creatures of that kind out of what follows. Returns what it
--- cuts: an opcode, or the walk node of that spell.
-local function exclusion(c,e)
-    if e.opcode==101 then return {opcode=e.p2} end
-    -- 318 and 324 name a SPLPROT row in parameter 2; row 0 matches anyone.
-    local named=e.opcode==206 or ((e.opcode==318 or e.opcode==324) and e.p2==0)
-    if not named or e.res=='' then return nil end
+-- The walk node of a spell on the current path (the spell itself or one it comes through).
+local function ancestor(c,res)
     local node=c.node
     while node do
-        if c.nodes[node].res==e.res then return {node=node} end
+        if c.nodes[node].res==res then return node end
         node=c.nodes[node].parent
     end
+end
+-- An immunity that keeps creatures of a kind out of what follows. Returns what it cuts (an
+-- opcode, or the walk node of the spell it names) with the conditions it needs (when), or nil:
+-- - under a creature condition, an immunity to an opcode, or a protection from the spell
+--   itself or a spell it comes through (206; 318 and 324 with SPLPROT row 0, anyone);
+-- - anywhere, a 318 or 324 that names the spell or a spell it comes through with another
+--   SPLPROT row (row in parameter 2, value in parameter 1): the spell's own immunity check.
+--   Without a condition, row 0 is SCS's and SR's guard against stacking, not an immunity.
+local function exclusion(c,e)
+    local op=e.opcode
+    if op==101 then return c.when and {opcode=e.p2,when=c.when} or nil end
+    if e.res=='' or not (op==206 or op==318 or op==324) then return nil end
+    local node=ancestor(c,e.res)
+    if not node then return nil end
+    if op~=206 and e.p2~=0 then return {node=node,when=within(c.when,condition(c,{row=e.p2,value=e.p1}))} end
+    return c.when and {node=node,when=c.when} or nil
 end
 
 -- An effect without a saving throw of its own, given the one of the delivery that brings it.
@@ -500,7 +517,7 @@ local function send(c,state,e,where,depth,p)
         -- what they deliver, not of the whole spell: SCS's troll extras ride on fire and acid
         -- spells that hurt everyone.
         local when=c.when
-        if e.p1~=0 then c.conditional=true;c.when=within(when,condition(c,e.p2,e.p1)) end
+        if e.p1~=0 then c.conditional=true;c.when=within(when,condition(c,{ids=e.p2,entry=e.p1})) end
         walk(c,state,{inner},receiver(e,where),depth+1,p,'EFF:'..e.res,c.owner)
         c.when=when
         return
@@ -549,8 +566,14 @@ local function send(c,state,e,where,depth,p)
         c.area=c.area or subArea
         to='area'
     end
+    -- 326 applies the spell only to creatures that meet its SPLPROT row (parameter 2, value in
+    -- parameter 1; row 0 is anyone). EEex swaps the row's source and target with special bit 0.
+    local when=c.when
+    if op==326 and e.p2~=0 then
+        c.when=within(when,condition(c,{row=e.p2,value=e.p1,flip=e.special%2==1 or nil}))
+    end
     walk(c,state,ability.effects,to,depth+1,p,'SPL:'..res,res)
-    c.times=saved
+    c.times=saved;c.when=when
 end
 -- What a delivery brings shares its saving throw: an effect without one of its own saves as the
 -- delivery does (Spell Revisions' Charm Person saves on its 177s, not on the charm).
@@ -587,17 +610,19 @@ walk=function(c,state,effects,where,depth,p,key,owner)
                     if c.inherit and not saveNames(e.save) then e=inherited(e,c.inherit) end
                     -- What reaches others, for matching a target's opcode immunities.
                     if who~='self' then c.opcodes[e.opcode]=true end
-                    local cut=not DELIVERY[e.opcode] and c.when and who~='self' and exclusion(c,e)
+                    local cut=not DELIVERY[e.opcode] and who~='self' and exclusion(c,e)
                     if DELIVERY[e.opcode] then deliver(c,state,e,where,depth,q)
                     elseif cut then
-                        cut.cut=true;cut.when=c.when;cut.p=q
+                        cut.cut=true;cut.p=q
                         c.log[#c.log+1]=cut
                     elseif H[e.opcode] then
                         H[e.opcode](c,e,who,q)
                         -- The log replays what reaches others for one creature (M.view).
                         if who~='self' then
                             local when=c.when
-                            if TYPED[e.opcode] and e.p2~=0 and e.p1~=0 then when=within(when,condition(c,e.p2,e.p1)) end
+                            if TYPED[e.opcode] and e.p2~=0 and e.p1~=0 then
+                                when=within(when,condition(c,{ids=e.p2,entry=e.p1}))
+                            end
                             c.log[#c.log+1]={e=e,who=who,p=q,times=c.times,owner=c.owner,node=c.node,when=when}
                         end
                     elseif not NEUTRAL[e.opcode] then tally(c.unknown,e.opcode,1) end
@@ -714,5 +739,16 @@ end
 local function never() return false end
 -- The roles for a creature that meets none of the spell's conditions.
 function M.common(c) return (M.view(c,never)) end
+-- The SPLPROT rows among the spell's conditions, added to rows by key: what the adapter asks
+-- the engine about each enemy.
+function M.rows(c,rows)
+    rows=rows or {}
+    if type(c)=='table' and type(c.conditions)=='table' then
+        for _,f in ipairs(c.conditions) do
+            if type(f)=='table' and f.row~=nil then rows[M.conditionKey(f)]=f end
+        end
+    end
+    return rows
+end
 
 return M

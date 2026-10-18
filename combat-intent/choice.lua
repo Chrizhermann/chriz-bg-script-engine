@@ -95,7 +95,7 @@ end
 -- What the spell does to e, or nil and why it does not work on e: its roles for e's kind of
 -- creature (spells.view) must hold the attack, and e's spell protections must not stop it.
 local function affects(spell,e,kind)
-    local roles,key=spells.view(spell,function(f) return ids.matches(f,e) end)
+    local roles,key=spells.view(spell,targeting.holds(e))
     if type(roles)~='table' or not reaches(roles[kind]) then
         return nil,type(key)=='string' and key:find('?',1,true) and 'unknown-filter' or 'filter'
     end

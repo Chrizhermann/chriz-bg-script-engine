@@ -88,6 +88,14 @@ assert(legal(enemy({ids={general=4}}),hold)=='ok' and legal(enemy({ids={general=
 assert(legal(enemy({ids={}}),hold)=='unknown-filter')
 -- The troll extra: an elf takes the bolt as the human original does; a troll would take more.
 assert(legal(enemy(),trollBolt)=='ok' and legal(enemy({ids={general=1,race=129}}),trollBolt)=='filter')
+-- A spell's own immunity check: the replacement must meet it as the original does, by the
+-- engine's marks; without marks it is no replacement.
+local srHold=spell('TESTSRHL',{fx(324,{res='TESTSRHL',p2=110,p1=29,duration=1}),fx(175,{p2=3,p1=1,duration=30})})
+local freeAction=spells.conditionKey({row=110,value=29})
+local function marked(v,fields) local e=enemy(fields);e.splprot={[freeAction]=v};return e end
+local held=marked(false,{id=2,x=100})
+assert(legal(marked(false),srHold,caster,held)=='ok' and legal(marked(true),srHold,caster,held)=='filter')
+assert(legal(enemy(),srHold,caster,held)=='unknown-filter')
 groups=groups+1
 
 -- 4. Protections by opcode, projectile, level, school, secondary type and resource.

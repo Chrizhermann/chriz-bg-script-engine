@@ -337,15 +337,37 @@ clean.
   casters; dummies cannot show that. How much a charm is worth against damage is part of the
   value model, which Christopher designs.
 
+## Spells' own immunity checks
+
+- **What they are.** Most Spell Revisions spells begin with an opcode 324 that names the spell
+  and a SPLPROT row (row in parameter 2, value in parameter 1): a creature that meets the row
+  is immune to the spell. Row 110 tests a spell state: 41 for Charm Person, Dire Charm and
+  Mental Domination, 29 for Hold Person, 106 for Horror. SR's Fireball checks row 186 (fire
+  resistance 100 to 127) in its sub-spell, which names the parent. Opcode 326 applies a spell
+  only to creatures that meet its row. Of the lab's attack spells, 111 of 182 with Spell
+  Revisions carry such checks, 43 of 150 without.
+- **The classifier** turns them into creature conditions. A 318 or 324 with a row other than 0
+  that names the spell, or a spell it comes through, cuts what follows for creatures that meet
+  the row. What a 326 applies depends on its row; EEex swaps the two creatures with special
+  bit 0. Row 0 without a creature condition stays SCS's and SR's guard against stacking.
+- **The engine answers each row.** Rows test stats, spell states, IDS values, two creatures'
+  relation and combinations of rows, so the engine's own check evaluates them:
+  `CRuleTables::IsProtectedFromSpell(row, stats, mine, value)`, as EEex's Lua bindings expose
+  it. The engine's opcode 326 passes the receiving creature as stats and the effect's source
+  as mine. The adapter does the same for each enemy the caster sees and each row of the spells
+  in question: the caster's ready spells for its own choice, the cast's spell for a redirect.
+- **Without an answer** a row stays unknown. The choice still counts the spell (the check's cut
+  is not applied); the director does not redirect, because it cannot tell whether the new
+  target meets the check as the original does. The first failure is recorded as an error row,
+  the rest are counted.
+- **Knowledge.** This reads only what the spell itself tests, which a caster's memory of
+  failed casts would learn too. Whether every row is plausible knowledge belongs to the later
+  knowledge refinement.
+
 ## Limits and next steps
 
-- **Spells' own immunity checks.** Most Spell Revisions spells begin with an opcode 324 that
-  names the spell and a SPLPROT row. Row 110 makes a creature in a given spell state immune:
-  state 41 for Charm Person, Dire Charm and Mental Domination, 29 for Hold Person, 106 for
-  Horror. SR's Fireball uses row 186 (fire resistance 100 to 127). The engine reads none of
-  these yet, nor the rows of opcode 326. It may cast at a creature they make immune, and only
-  the outcome memory learns from that. Next technical step: read the rows and the creature
-  stats and spell states they test.
+- **Immunity checks in game.** The engine's answers to the SPLPROT rows are unit-tested against
+  a fake engine only; the next lab batch checks them.
 - **One kind per spell.** A spell that damages and disables counts as a disable only. Debuffs
   (slow, blindness) and dispels are no attacks yet; they come with later slices.
 - **Area casts teach nothing.** Only single-target casts are judged.

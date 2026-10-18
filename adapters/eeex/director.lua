@@ -6,8 +6,10 @@
 -- action's target, as EEex's own SpellToPoint listener changes a starting action: the cast
 -- keeps its casting time, spell slot and interruption. A cast aimed at a kind of creature
 -- ([PC.0.0.MAGE]) has no target yet when it starts; a decoded copy of its object names the
--- creature it would hit. The engine's own casts (adapters/eeex/choice.lua) are recorded for
--- the picture and the reservations but never advised. Session-local; a load forgets it all.
+-- creature it would hit. The spell's own SPLPROT checks are answered by the engine for each
+-- enemy (sense.splprot), so a new target meets them as the original does. The engine's own
+-- casts (adapters/eeex/choice.lua) are recorded for the picture and the reservations but never
+-- advised. Session-local; a load forgets it all.
 -- Errors never reach the engine: the cast then goes ahead as the creature's script chose it.
 local sense=require('adapters.eeex.sense')
 local resources=require('adapters.eeex.resources')
@@ -35,7 +37,7 @@ function M.new(g,options)
     local directors,memberArea,memberFamily,lastCheck={},{},{},{}
     local cache,cached={},0
     local root,sink,choice
-    local counts={checkIns=0,starts=0,advised=0,redirected=0,own=0,errors=0}
+    local counts={checkIns=0,starts=0,advised=0,redirected=0,own=0,errors=0,marks=0,markFailures=0}
     local adapter={}
     local function now() return root and root.now and root.now() end
     local function director(area)
@@ -46,7 +48,7 @@ function M.new(g,options)
         end
         return d
     end
-    local lastError
+    local lastError,markError
     local function failed(where,err)
         counts.errors=counts.errors+1
         lastError=where..': '..tostring(err):sub(1,200)
@@ -126,6 +128,15 @@ function M.new(g,options)
         if allowed and spell and targeting.kind(spell) and original~=id then
             local frame=sense.frame(g,sprite,tick,true)
             if frame then
+                local read,bad,last=sense.splprot(g,sprite,frame,spells.rows(spell))
+                counts.marks=counts.marks+read
+                if bad>0 then
+                    counts.markFailures=counts.markFailures+bad
+                    if not markError then
+                        markError=tostring(last):sub(1,200)
+                        if sink then pcall(sink,{kind='error',where='splprot',error=markError}) end
+                    end
+                end
                 d:checkIn(member,frame)
                 counts.advised=counts.advised+1
                 local advice=d:advise(member,frame,spell,original,tick,typed)
@@ -198,7 +209,8 @@ function M.new(g,options)
         local areas={}
         for area,d in pairs(directors) do areas[area]=d:inspect() end
         local copy={};for k,v in pairs(counts) do copy[k]=v end
-        return {counts=copy,areas=areas,problems=reader.problems,lastError=lastError or false}
+        return {counts=copy,areas=areas,problems=reader.problems,lastError=lastError or false,
+            markError=markError or false}
     end
     return adapter
 end

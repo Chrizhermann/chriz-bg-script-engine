@@ -250,4 +250,31 @@ state=root.inspect().director
 assert(state.counts.errors==3 and state.lastError:find('^decode: ')~=nil)
 groups=groups+1
 
+-- 8. A spell's own SPLPROT check, answered by the engine for each enemy (row, enemy, caster,
+-- value): the focus takes the cast when it meets the check as the original does, not when the
+-- engine marks only the focus immune; without the engine's answer neither is judged and the
+-- cast stays where its script aimed it.
+records.TESTSRDM=spl('TESTSRDM',{fx(324,{res='TESTSRDM',p2=110,p1=41,duration=1}),fx(12,{dice=6,sides=6})})
+local calls,immune={},{}
+g.EngineGlobals.g_pBaldurChitin.m_pObjectGame.m_ruleTables={IsProtectedFromSpell=function(_,row,stats,mine,value)
+    calls[#calls+1]={row,stats.m_id,mine.m_id,value}
+    if g.splprotError then error(g.splprotError) end
+    return (row==110 and value==41 and immune[stats.m_id]) and 1 or 0
+end}
+local function kept()
+    for i=#rows,1,-1 do if rows[i].kind=='keep' and rows[i].member==1 then return rows[i].reason end end
+end
+g.ticks=500
+assert(g.BGSE_Claim(m1,'mage','s1')==false)
+assert(start(m1,action(31,'TESTSRDM',11)).m_acteeID.m_Instance==12)
+assert(#calls==3 and calls[1][1]==110 and calls[1][2]==11 and calls[1][3]==1 and calls[1][4]==41)
+immune[12]=true
+assert(start(m1,action(31,'TESTSRDM',11)).m_acteeID.m_Instance==11 and kept()=='focus-filter')
+g.splprotError='no binding'
+assert(start(m1,action(31,'TESTSRDM',11)).m_acteeID.m_Instance==11 and kept()=='focus-unknown-filter')
+state=root.inspect().director
+assert(state.counts.marks==6 and state.counts.markFailures==3 and state.markError:find('no binding')~=nil)
+assert(state.counts.errors==3)
+groups=groups+1
+
 return groups

@@ -1,7 +1,8 @@
 -- EEex side of the engine's own choice (step 3, second slice). When a hooked mage's or
 -- priest's script asks the gate and SCS's round timer has run out, this reads what the
 -- creature perceives (sense.lua, with the details SCS's scripts read), what it has ready
--- (creature.lua, classified by combat-intent/spells.lua) and the director's plan, and asks
+-- (creature.lua, classified by combat-intent/spells.lua), the engine's answers to those spells'
+-- own SPLPROT checks for each enemy (sense.splprot) and the director's plan, and asks
 -- combat-intent/choice.lua for an attack. A chosen attack becomes the gate's decision: a
 -- normal SpellRES or SpellPointRES that first sets SCS's round timer as SCS's own cast blocks
 -- do, so SCS's filler runs between casts. Right before the response is queued the target is
@@ -93,10 +94,10 @@ function M.new(g,options)
     local cache,cached,items,itemCount={},0,{},0
     local pending,running,judging,memory={},{},{},{}
     local counts={decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
-        hits=0,misses=0,errors=0,holds=0,frozen=0}
+        hits=0,misses=0,errors=0,holds=0,frozen=0,marks=0,markFailures=0}
     local reasons={}
     local log,nextRow,size={},1,0
-    local root,sink,lastError
+    local root,sink,lastError,markError
     -- trace: labs see every decline as a 'declined' row in the sink (never in the log).
     local trace,lastReason,lastDetail=false,nil,nil
     local api={}
@@ -170,6 +171,25 @@ function M.new(g,options)
             end
         end
         return rows,carried
+    end
+
+    -- The engine's answers to the SPLPROT checks of the spells the creature has ready, for each
+    -- enemy it sees. A check the engine does not answer stays unknown; the first such failure is
+    -- recorded, the rest counted.
+    local function mark(sprite,frame,rows)
+        local wanted={}
+        for _,row in ipairs(rows) do
+            if row.spell and type(row.ready)=='number' and row.ready>0 and row.usable then spells.rows(row.spell,wanted) end
+        end
+        local read,bad,last=sense.splprot(g,sprite,frame,wanted)
+        counts.marks=counts.marks+read
+        if bad>0 then
+            counts.markFailures=counts.markFailures+bad
+            if not markError then
+                markError=tostring(last):sub(1,200)
+                record({kind='error',where='splprot',error=markError})
+            end
+        end
     end
 
     -- Time Stop: while one runs, every creature but its caster is frozen, and what reaches a
@@ -299,6 +319,7 @@ function M.new(g,options)
         if #frame.enemies==0 then return decline('no-enemy') end
         local rows,carried=book(sprite)
         if not rows then failed('book',carried);return nil end
+        mark(sprite,frame,rows)
         counts.decisions=counts.decisions+1
         local input={tick=tick,family=family,frame=frame,spells=rows,items=carried,
             plan=director and director:plan(id,tick) or {},memory=memory[id] or {},mind=mindFor(sprite,family),rng=rng}
@@ -431,7 +452,8 @@ function M.new(g,options)
         for _ in pairs(running) do busy=busy+1 end
         for _,mine in pairs(memory) do for _ in pairs(mine) do remembered=remembered+1 end end
         return {enabled=enabled,missing=missing or false,trace=trace,counts=copy(counts),reasons=copy(reasons),
-            pending=open,running=busy,judging=#judging,remembered=remembered,log=rows,lastError=lastError or false}
+            pending=open,running=busy,judging=#judging,remembered=remembered,log=rows,lastError=lastError or false,
+            markError=markError or false}
     end
     return api
 end

@@ -93,9 +93,25 @@ function M.kind(spell)
     return nil,'not-damage-or-disable'
 end
 
--- Which of the spell's creature conditions e meets: spells.view's key, one mark each.
+-- Whether e meets one of a spell's conditions (combat-intent/spells.lua): an IDS file and entry
+-- by e's own values, a SPLPROT row by the marks the adapter read through the engine's own check
+-- (e.splprot, keyed by spells.conditionKey). true, false or nil (cannot judge).
+function M.holds(e)
+    return function(f)
+        if type(f)~='table' then return nil end
+        if f.row~=nil then
+            local marks=type(e)=='table' and e.splprot or nil
+            if type(marks)~='table' then return nil end
+            local v=marks[spells.conditionKey(f)]
+            if v==true or v==false then return v end
+            return nil
+        end
+        return ids.matches(f,e)
+    end
+end
+-- Which of the spell's conditions e meets: spells.view's key, one mark each.
 local function met(spell,e)
-    local _,key=spells.view(spell,function(f) return ids.matches(f,e) end)
+    local _,key=spells.view(spell,M.holds(e))
     return key
 end
 

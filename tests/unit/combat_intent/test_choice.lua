@@ -265,6 +265,17 @@ i=enemies(input({spells={row('TESTHOLD',hold,2)}}),{enemy(11,{ids={ea=2,general=
 assert(#choice.options(i,rejected)==0 and rejected.filter==1)
 groups=groups+1
 
+-- 16. A spell's own immunity check, read through the engine for each enemy (e.splprot): an
+-- enemy in the spell state it checks is no target; one whose mark is unknown still is.
+local srCharm=classified('TESTSRCH',3,{fx(324,{res='TESTSRCH',p2=110,p1=41,duration=1}),fx(5,{duration=60})},{})
+local state41=spells.conditionKey({row=110,value=41})
+i=enemies(input({spells={row('TESTSRCH',srCharm,3)}}),
+    {enemy(11,{splprot={[state41]=true}}),enemy(12,{splprot={[state41]=false}}),enemy(13)})
+rejected={}
+opts=choice.options(i,rejected)
+assert(#opts==2 and opts[1].target==12 and opts[2].target==13 and rejected.filter==1)
+groups=groups+1
+
 -- 13. Who can be aimed at: in range, no sanctuary, seen, alive.
 i=enemies(input({spells={row('TESTBOLT',bolt,3)}}),{enemy(11,{x=700}),enemy(12,{x=300})})
 assert(choice.decide(i).target==12)
