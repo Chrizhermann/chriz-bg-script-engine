@@ -2735,6 +2735,8 @@ function M.new(g,options)
     local reasons={}
     local log,nextRow,size={},1,0
     local root,sink,lastError
+    -- trace: labs see every decline as a 'declined' row in the sink (never in the log).
+    local trace,lastReason=false,nil
     local api={}
 
     local function now() return root and root.now and root.now() end
@@ -2750,6 +2752,7 @@ function M.new(g,options)
     local function decline(why)
         counts.declines=counts.declines+1
         reasons[why]=(reasons[why] or 0)+1
+        lastReason=why
         return nil
     end
     local function get(id)
@@ -2915,7 +2918,12 @@ function M.new(g,options)
     -- From the gate, each time a hooked script asks: nil (SCS's round), {hold=true} while the
     -- engine's queued cast has not started, or the decision.
     function api:decide(view,family)
+        lastReason=nil
         local ok,result=pcall(decide,view,family)
+        if trace and sink and lastReason then
+            pcall(sink,{kind='declined',tick=now(),member=type(view)=='table' and view.id or nil,family=family,
+                reason=lastReason})
+        end
         if ok then return result end
         failed('decide',result)
     end
@@ -2996,6 +3004,7 @@ function M.new(g,options)
     end
     function api:attach(r) root=r end
     function api:setSink(fn) assert(fn==nil or type(fn)=='function');sink=fn end
+    function api:setTrace(value) assert(type(value)=='boolean');trace=value end
     function api:invalidate() pending,running,judging,memory={},{},{},{} end
     function api:inspect()
         local copy=function(t) local c={};for k,v in pairs(t) do c[k]=v end;return c end
@@ -3005,7 +3014,7 @@ function M.new(g,options)
         for _ in pairs(pending) do open=open+1 end
         for _ in pairs(running) do busy=busy+1 end
         for _,mine in pairs(memory) do for _ in pairs(mine) do remembered=remembered+1 end end
-        return {enabled=enabled,missing=missing or false,counts=copy(counts),reasons=copy(reasons),
+        return {enabled=enabled,missing=missing or false,trace=trace,counts=copy(counts),reasons=copy(reasons),
             pending=open,running=busy,judging=#judging,remembered=remembered,log=rows,lastError=lastError or false}
     end
     return api

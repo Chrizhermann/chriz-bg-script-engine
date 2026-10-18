@@ -360,4 +360,23 @@ held=root3.inspect().director.areas.AR0001.reservations
 assert(#held==1 and held[1].owner==1 and root3.inspect().choice.counts.skipped==1)
 groups=groups+1
 
+-- 12. Labs can trace every decline: each reaches the sink as a 'declined' row with its reason,
+-- never the log.
+local traced={}
+ch3:setSink(function(row) traced[#traced+1]=row end)
+ch3:setTrace(true)
+q1.locals.castspell=500
+g3.ticks=200
+assert(g3.BGSE_Claim(q1,'priest','s2')==false)
+local t=traced[#traced]
+assert(t.kind=='declined' and t.reason=='timer' and t.member==1 and t.family=='priest' and t.tick==200)
+local logged=false
+for _,row in ipairs(root3.inspect().choice.log) do if row.kind=='declined' then logged=true end end
+assert(not logged and root3.inspect().choice.trace==true)
+ch3:setTrace(false)
+local n=#traced
+g3.ticks=201
+assert(g3.BGSE_Claim(q1,'priest','s2')==false and #traced==n)
+groups=groups+1
+
 return groups
