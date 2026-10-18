@@ -96,7 +96,7 @@ function M.new(g,options)
     local log,nextRow,size={},1,0
     local root,sink,lastError
     -- trace: labs see every decline as a 'declined' row in the sink (never in the log).
-    local trace,lastReason=false,nil
+    local trace,lastReason,lastDetail=false,nil,nil
     local api={}
 
     local function now() return root and root.now and root.now() end
@@ -256,7 +256,8 @@ function M.new(g,options)
         counts.decisions=counts.decisions+1
         local input={tick=tick,family=family,frame=frame,spells=rows,items=carried,
             plan=director and director:plan(id,tick) or {},memory=memory[id] or {},mind=mindFor(sprite,family),rng=rng}
-        local d,why,options=choice.decide(input)
+        local d,why,options,rejected=choice.decide(input)
+        lastDetail=rejected
         local top={}
         for i=1,math.min(3,#options) do
             local o=options[i]
@@ -286,11 +287,11 @@ function M.new(g,options)
     -- From the gate, each time a hooked script asks: nil (SCS's round), {hold=true} while the
     -- engine's queued cast has not started, or the decision.
     function api:decide(view,family)
-        lastReason=nil
+        lastReason,lastDetail=nil,nil
         local ok,result=pcall(decide,view,family)
         if trace and sink and lastReason then
             pcall(sink,{kind='declined',tick=now(),member=type(view)=='table' and view.id or nil,family=family,
-                reason=lastReason})
+                reason=lastReason,rejected=lastReason=='no-option' and lastDetail or nil})
         end
         if ok then return result end
         failed('decide',result)

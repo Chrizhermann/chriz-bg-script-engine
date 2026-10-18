@@ -374,6 +374,12 @@ assert(t.kind=='declined' and t.reason=='timer' and t.member==1 and t.family=='p
 local logged=false
 for _,row in ipairs(root3.inspect().choice.log) do if row.kind=='declined' then logged=true end end
 assert(not logged and root3.inspect().choice.trace==true)
+-- With no option at all, the row counts why: the second priest's only enemy left is held
+-- by the first one's reservation.
+g3.ticks=202
+assert(g3.BGSE_Claim(q2,'priest','s2')==false)
+t=traced[#traced]
+assert(t.reason=='no-option' and t.member==2 and t.rejected['no-worth']==1)
 ch3:setTrace(false)
 local n=#traced
 g3.ticks=201

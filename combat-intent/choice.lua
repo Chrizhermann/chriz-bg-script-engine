@@ -323,21 +323,25 @@ local function better(a,b)
     return pa.y<pb.y
 end
 
--- Every option the caster has, best first.
-function M.options(input)
+-- Every option the caster has, best first. rejected (a table, optional) counts why the ready
+-- attack spells gave none: out-of-reach (no enemy in range), or evaluate's reason per aim.
+function M.options(input,rejected)
     local out={}
+    local function reject(why) if rejected then rejected[why]=(rejected[why] or 0)+1 end end
     for _,row in ipairs(type(input.spells)=='table' and input.spells or {}) do
         if type(row)=='table' and number(row.ready) and row.ready>0 and row.usable then
             local spell=row.spell
             local kind,mode=M.attack(spell)
             if kind then
                 local seen={}
-                for _,aim in ipairs(aims(input,spell,mode)) do
-                    local option=evaluate(input,row,spell,kind,mode,aim)
+                local list=aims(input,spell,mode)
+                if #list==0 then reject('out-of-reach') end
+                for _,aim in ipairs(list) do
+                    local option,why=evaluate(input,row,spell,kind,mode,aim)
                     if option then
                         local key=tostring(option.target)..':'..(option.point and option.point.x..','..option.point.y or '')
                         if not seen[key] then seen[key]=true;out[#out+1]=option end
-                    end
+                    else reject(why or 'unknown') end
                 end
             end
         end
@@ -383,14 +387,16 @@ function M.urgent(input)
     end
 end
 
--- The attack to cast now, or nil and why; the options come along for the log.
+-- The attack to cast now, or nil and why; the options come along for the log, and with
+-- 'no-option' the count of reasons the attack spells gave none.
 function M.decide(input)
     if type(input)~='table' or type(input.frame)~='table' or type(input.frame.self)~='table' or
         type(input.frame.enemies)~='table' or type(input.mind)~='table' then return nil,'bad-input',{} end
     local why=M.urgent(input)
     if why then return nil,'urgent-'..why,{} end
-    local options=M.options(input)
-    if #options==0 then return nil,'no-option',options end
+    local rejected={}
+    local options=M.options(input,rejected)
+    if #options==0 then return nil,'no-option',options,rejected end
     local mind=input.mind
     local best=options[1]
     if best.score<mind.minValue then return nil,'nothing-good',options end

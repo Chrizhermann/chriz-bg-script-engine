@@ -127,7 +127,8 @@ d=choice.decide(i);assert(d.resref=='TESTFOD')
 assert(math.abs(d.worth-1.5*0.95)<1e-9)
 -- A spell not ready or not usable is no option.
 i=enemies(input({spells={row('TESTFOD',finger,7,{ready=0}),row('TESTBOLT',bolt,3,{usable=false})}}),{enemy(11)})
-assert(select(2,choice.decide(i))=='no-option')
+local _,why,_,rejected=choice.decide(i)
+assert(why=='no-option' and next(rejected)==nil)
 groups=groups+1
 
 -- 6. Disables: never at an enemy already disabled, nor at one another member reserved
@@ -137,7 +138,9 @@ i=enemies(input({spells={row('TESTHOLD',hold,2)}}),{enemy(11,{x=150,state=0x8000
 d=choice.decide(i);assert(d.target==12 and d.kind=='disable' and #d.hits==1)
 assert(math.abs(d.worth-0.95)<1e-9)
 i=enemies(input({spells={row('TESTHOLD',hold,2)},plan={reserved={[12]=5}}}),{enemy(11,{state=0x80000000}),enemy(12)})
-assert(select(2,choice.decide(i))=='no-option')
+_,why,_,rejected=choice.decide(i)
+-- The reasons come along: 11 is held already, 12 reserved by member 5 (worth nothing).
+assert(why=='no-option' and rejected.disabled==1 and rejected['no-worth']==1)
 i.plan.reserved[12]=1;assert(choice.decide(i).target==12)
 i.plan.reserved[12]=5;i.mind=mind.new({coordination=0});assert(choice.decide(i).target==12)
 i=enemies(input({spells={row('TESTHOLD',hold,2)}}),{enemy(11,{ids={ea=2,general=2,class=2}})})
