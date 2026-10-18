@@ -101,7 +101,7 @@ function M.new(g,options)
         if own then
             counts.own=counts.own+1
             d:started({id=id,family=memberFamily[id]},{spell=own.spell,role=own.role,target=own.target,
-                original=own.target,action=action.m_actionID,own=true},tick)
+                hits=own.hits,original=own.target,action=action.m_actionID,own=true},tick)
             return
         end
         if action.m_actionID~=31 then d:action(id,tick);return end
@@ -166,6 +166,26 @@ function M.new(g,options)
         local ok,plan=pcall(d.plan,d,tick)
         if ok then return plan end
         failed('plan',plan)
+    end
+    -- The engine's own disable for member id claims its targets in the group as soon as it is
+    -- chosen; release gives them back when the decision is dropped before its cast started.
+    function adapter:reserve(id,targets,tick)
+        local area=memberArea[id]
+        local d=area and directors[area]
+        if not d or not d:isMember(id) then return 0 end
+        local ok,n=pcall(d.reserve,d,{id=id,family=memberFamily[id]},targets,tick)
+        if ok then return n end
+        failed('reserve',n)
+        return 0
+    end
+    function adapter:release(id,tick)
+        local area=memberArea[id]
+        local d=area and directors[area]
+        if not d then return 0 end
+        local ok,n=pcall(d.release,d,id,tick)
+        if ok then return n end
+        failed('release',n)
+        return 0
     end
     function adapter:setChoice(c) choice=c end
     function adapter:attach(r) root=r end

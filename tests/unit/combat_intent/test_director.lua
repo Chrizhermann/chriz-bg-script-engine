@@ -180,4 +180,68 @@ fl:tick(111)
 assert(lost[#lost].why=='dead' and lost[#lost].previous==12 and fl:inspect().counts.focusLost==2)
 groups=groups+1
 
+-- 9. The engine's own disable claims its targets once chosen, before its cast is queued: the
+-- claim keeps other members off for claimTicks at most and gives way to the cast's start,
+-- which reserves every enemy its area hits until the cast ends (and graceTicks after); a
+-- decision given up releases its claims. Nobody takes a target another member holds.
+local function three() return {enemy(11),enemy(12),enemy(13)} end
+local cd=director.new({})
+cd:checkIn(mage,frame(10,nil,three()))
+cd:checkIn(priest,frame(10,{x=300},three()))
+assert(cd:reserve(mage,{11,12},10)==2)
+local plan=cd:plan(10)
+assert(plan.reserved[11]==1 and plan.reserved[12]==1 and plan.reserved[13]==nil)
+s=cd:inspect()
+local reserve
+for _,row in ipairs(s.log) do if row.kind=='reserve' then reserve=row end end
+assert(#s.reservations==2 and s.reservations[1].claim==true and reserve.member==1 and #reserve.targets==2)
+-- The priest's own cast at 11 gives way to the free 13.
+p=frame(12,{x=300},three())
+cd:checkIn(priest,p)
+a=cd:advise(priest,p,hold,11,12)
+assert(a.action=='redirect' and a.target==13 and a.reason=='reserved')
+-- The priest cannot claim what the mage holds; claims lapse after claimTicks.
+assert(cd:reserve(priest,{11,13},12)==1 and cd:plan(12).reserved[13]==2 and cd:plan(12).reserved[11]==1)
+assert(cd:plan(69).reserved[11]==1 and cd:plan(70).reserved[11]==nil and cd:plan(70).reserved[13]==2)
+-- The mage's area disable starts: it reserves both enemies it hits, as a cast, not a claim.
+assert(cd:reserve(mage,{11},80)==1)
+cd:started(mage,{spell='TESTHOLD',role='disable',target=11,hits={11,12},original=11,own=true},85)
+plan=cd:plan(85)
+assert(plan.reserved[11]==1 and plan.reserved[12]==1)
+for _,r in ipairs(cd:inspect().reservations) do
+    if r.owner==1 then assert(r.claim==nil and r.untilTick==85+225) end
+end
+-- Its end frees both graceTicks later.
+cd:action(1,100)
+assert(cd:plan(129).reserved[12]==1 and cd:plan(130).reserved[11]==nil and cd:plan(130).reserved[12]==nil)
+-- A decision given up releases its claims, never the member's cast reservations; a claim does
+-- not shorten them either; a started cast replaces the member's claims.
+cd:started(mage,{spell='TESTHOLD',role='disable',target=12,original=12,own=true},150)
+assert(cd:reserve(mage,{11,12},151)==2 and cd:release(mage,152)==1)
+plan=cd:plan(152)
+local released
+for _,row in ipairs(cd:inspect().log) do if row.kind=='release' then released=row end end
+assert(plan.reserved[12]==1 and plan.reserved[11]==nil and released.member==1 and released.count==1)
+for _,r in ipairs(cd:inspect().reservations) do
+    if r.target==12 then assert(r.claim==nil and r.untilTick==150+225) end
+end
+assert(cd:release(mage,153)==0)
+-- A new claim replaces the member's earlier ones.
+assert(cd:reserve(mage,{11},155)==1 and cd:reserve(mage,{13},156)==1)
+plan=cd:plan(156)
+assert(plan.reserved[11]==nil and plan.reserved[13]==1 and plan.reserved[12]==1)
+assert(cd:reserve(mage,{13},160)==1)
+cd:started(mage,{spell='TESTBOLT',role='damage',target=13,original=13,own=true},161)
+assert(cd:plan(161).reserved[13]==nil)
+-- A started disable leaves an enemy another member holds to it.
+local ns=director.new({})
+ns:checkIn(mage,frame(10,nil,three()))
+ns:checkIn(priest,frame(10,{x=300},three()))
+ns:started(priest,{spell='TESTHOLD',role='disable',target=11,original=11},10)
+ns:started(mage,{spell='TESTHOLD',role='disable',target=11,hits={11,12},original=11,own=true},11)
+plan=ns:plan(11)
+assert(plan.reserved[11]==2 and plan.reserved[12]==1)
+assert(cd:reserve({id=-1},{11},170)==0 and cd:reserve(mage,nil,170)==0 and cd:release(nil,170)==0)
+groups=groups+1
+
 return groups

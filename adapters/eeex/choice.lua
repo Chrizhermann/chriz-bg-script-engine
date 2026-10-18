@@ -230,6 +230,7 @@ function M.new(g,options)
             if tick>=p.tick and tick-p.tick<=M.pendingTicks then counts.holds=counts.holds+1;return {hold=true} end
             pending[id]=nil;counts.lost=counts.lost+1
             record({kind='lost',tick=tick,member=id,spell=p.resref,target=p.target,queued=p.tick})
+            if director then director:release(id,tick) end
         end
         if M.timerRunning(g,sprite,tick) then return decline('timer') end
         if g.EEex_Sprite_GetCastTimer(sprite)~=-1 then return decline('aura') end
@@ -259,10 +260,15 @@ function M.new(g,options)
         record({kind='choice',tick=tick,member=id,family=family,spell=d.resref,castKind=d.kind,mode=d.mode,
             target=d.target,point=d.point,score=d.score,worth=d.worth,hits=d.hits,how=why,top=top,
             focus=input.plan.focus})
+        -- A disable claims its targets in the group at once, so that another member deciding
+        -- before this cast starts leaves them alone; any other decision gives earlier claims back.
+        if director then
+            if d.kind=='disable' then director:reserve(id,d.hits,tick) else director:release(id,tick) end
+        end
         local spell
         for _,row in ipairs(rows) do if row.resref==d.resref then spell=row.spell end end
         return {own=true,response=response,spell=d.resref,kind=d.kind,mode=d.mode,target=d.target,point=d.point,
-            self=d.self,castTicks=spell and type(spell.speed)=='number' and spell.speed*9 or nil,
+            self=d.self,hits=d.hits,castTicks=spell and type(spell.speed)=='number' and spell.speed*9 or nil,
             sources=spell and spell.sources or nil}
     end
     -- From the gate, each time a hooked script asks: nil (SCS's round), {hold=true} while the
@@ -302,19 +308,20 @@ function M.new(g,options)
             hp=seen.hp
         end
         pending[object.m_id]={caster=object.m_id,resref=decision.spell,kind=decision.kind,mode=decision.mode,
-            target=decision.target,point=decision.point,tick=tick,hp=hp,castTicks=decision.castTicks,
-            sources=decision.sources}
+            target=decision.target,point=decision.point,hits=decision.hits,tick=tick,hp=hp,
+            castTicks=decision.castTicks,sources=decision.sources}
         counts.performed=counts.performed+1
         return true
     end
+    -- A decision that is not queued gives its claims in the group back.
     function api:prepare(object,decision)
         local ok,result=pcall(prepare,object,decision)
-        if ok then
-            if result=='skipped' then counts.skipped=counts.skipped+1 end
-            return result
+        if ok and result~='skipped' then return result end
+        if ok then counts.skipped=counts.skipped+1 else failed('prepare',result) end
+        if director and type(decision)=='table' and decision.own then
+            pcall(function() director:release(object.m_id,now()) end)
         end
-        failed('prepare',result)
-        return false
+        return ok and result or false
     end
 
     -- From the director's started-action listener, for every sprite's every action: the
@@ -333,7 +340,7 @@ function M.new(g,options)
             counts.started=counts.started+1
             record({kind='start',tick=tick,member=id,spell=p.resref,target=p.target,point=p.point,
                 waited=tick-p.tick})
-            return {spell=p.resref,role=p.kind,target=p.target}
+            return {spell=p.resref,role=p.kind,target=p.target,hits=p.hits}
         end
     end
     function api:started(sprite,action,tick)

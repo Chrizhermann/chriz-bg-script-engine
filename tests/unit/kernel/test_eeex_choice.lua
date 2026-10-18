@@ -326,4 +326,38 @@ state=root2.inspect().choice
 assert(state.counts.hits==1 and state.counts.misses==0 and state.remembered==0)
 groups=groups+1
 
+-- 11. A disable the engine chose claims its target in the group at once: a second priest
+-- deciding before the first one's hold is even queued takes the other enemy. The start turns
+-- the claim into the cast's reservation; a cast given up before it is queued releases it.
+records.TESTHOLD=spl('TESTHOLD',2,{fx(175,{duration=30})})
+local g3=world()
+local q1=g3.add(sprite(1,0,0,255,{levels={[7]='S2'}}))
+local q2=g3.add(sprite(2,0,40,255,{levels={[7]='S2'}}))
+learn(q1,1,'TESTHOLD');learn(q2,1,'TESTHOLD')
+g3.add(sprite(31,100,0,2))
+local e32=g3.add(sprite(32,100,60,2,{m_baseStats={m_hitPoints=20,m_generalState=0}}))
+local dir3=directors.new(g3,{reader=reader})
+local ch3=choices.new(g3,{reader=reader,director=dir3,seed=5})
+local rows3={}
+ch3:setSink(function(row) rows3[#rows3+1]=row end)
+local root3=runtime.install(g3,{director=dir3,choice=ch3,version='test'})
+local function choiceOf(member) for i=#rows3,1,-1 do if rows3[i].kind=='choice' and rows3[i].member==member then return rows3[i] end end end
+g3.ticks=100
+assert(g3.BGSE_Claim(q1,'priest','s2')==true)
+assert(choiceOf(1).target==31 and choiceOf(1).castKind=='disable')
+g3.ticks=102
+assert(g3.BGSE_Claim(q2,'priest','s2')==true)
+assert(choiceOf(2).target==32)
+local held=root3.inspect().director.areas.AR0001.reservations
+assert(#held==2 and held[1].target==31 and held[1].owner==1 and held[1].claim==true and held[2].owner==2)
+g3.BGSE_Act(q1)
+g3.listeners.started[1](q1,action(31,'TESTHOLD',-1))
+held=root3.inspect().director.areas.AR0001.reservations
+assert(#held==2 and held[1].target==31 and held[1].owner==1 and held[1].claim==nil)
+e32.state=0x800
+g3.BGSE_Act(q2)
+held=root3.inspect().director.areas.AR0001.reservations
+assert(#held==1 and held[1].owner==1 and root3.inspect().choice.counts.skipped==1)
+groups=groups+1
+
 return groups

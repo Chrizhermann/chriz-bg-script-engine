@@ -11,8 +11,10 @@ local M={}
 -- member saw is current for enemyTicks, a round, since members check in only when their script
 -- reaches its hook and that pauses while they cast (gaps of 48 to 128 ticks in the lab, 16
 -- otherwise); a disable reservation lasts reserveTicks at most and graceTicks after its cast
--- ended, so the disable can show before another one is allowed.
-M.defaults={memberTicks=150,enemyTicks=90,reserveTicks=225,graceTicks=30,forgetTicks=450,
+-- ended, so the disable can show before another one is allowed. The engine's own disables
+-- reserve their targets as soon as they are chosen, before the cast is queued: such a claim
+-- lasts claimTicks at most, until the cast starts.
+M.defaults={memberTicks=150,enemyTicks=90,reserveTicks=225,graceTicks=30,claimTicks=60,forgetTicks=450,
     logCapacity=256,families={mage=true,priest=true}}
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
@@ -43,12 +45,32 @@ function M.new(config)
         local r=reservations[target]
         if r and r.untilTick>tick and members[r.owner] then return r.owner end
     end
+    -- Reserve target for member for ticks, unless another member holds it; a claim never
+    -- shortens the member's own cast reservation.
+    local function take(member,target,tick,ticks,claim)
+        if not id(target) or target==member then return false end
+        local owner=holder(target,tick)
+        if owner~=nil and owner~=member then return false end
+        if claim and owner==member and not reservations[target].claim then return true end
+        reservations[target]={owner=member,from=tick,untilTick=tick+ticks,claim=claim}
+        return true
+    end
+    -- Drop member's claims.
+    local function drop(member)
+        local n=0
+        for target,r in pairs(reservations) do
+            if r.owner==member and r.claim then reservations[target]=nil;n=n+1 end
+        end
+        return n
+    end
     local function finish(member,tick,why)
         local a=attempts[member]
         if not a or a.ended then return end
         a.ended=tick;counts.ended=counts.ended+1
-        local r=reservations[a.target]
-        if r and r.owner==member then r.untilTick=math.min(r.untilTick,tick+o.graceTicks) end
+        for _,target in ipairs(a.reserved) do
+            local r=reservations[target]
+            if r and r.owner==member then r.untilTick=math.min(r.untilTick,tick+o.graceTicks) end
+        end
         local e=enemies[a.target]
         record({kind='end',tick=tick,member=member,spell=a.spell,role=a.role,target=a.target,
             why=why,ticks=tick-a.startedAt,targetDisabled=e and targeting.disabled(e) or nil,
@@ -180,23 +202,54 @@ function M.new(config)
     end
 
     -- A member's cast has started at target (after any redirect). Any cast counts for the
-    -- picture; a disable reserves its target. own: the engine chose the cast itself.
+    -- picture and replaces the member's claims. A disable reserves its target, or every enemy
+    -- its area hits (cast.hits, known for the engine's own casts), except those another member
+    -- holds. own: the engine chose the cast itself.
     function api:started(member,cast,tick)
         clock(tick)
         finish(member.id,tick,'replaced')
+        drop(member.id)
         local role=cast.role
-        attempts[member.id]={spell=cast.spell,role=role,target=cast.target,action=cast.action or 31,
-            startedAt=tick}
-        counts.attempts=counts.attempts+1
-        if role=='disable' and id(cast.target) and cast.target~=member.id then
-            reservations[cast.target]={owner=member.id,from=tick,untilTick=tick+o.reserveTicks}
+        local reserved={}
+        if role=='disable' then
+            local list=type(cast.hits)=='table' and #cast.hits>0 and cast.hits or {cast.target}
+            for _,target in ipairs(list) do
+                if take(member.id,target,tick,o.reserveTicks,nil) then reserved[#reserved+1]=target end
+            end
         end
+        attempts[member.id]={spell=cast.spell,role=role,target=cast.target,action=cast.action or 31,
+            startedAt=tick,reserved=reserved}
+        counts.attempts=counts.attempts+1
         record({kind='start',tick=tick,member=member.id,family=member.family,spell=cast.spell,
             role=role,target=cast.target,original=cast.original,redirected=cast.redirected or nil,
             typed=cast.typed or nil,own=cast.own or nil})
     end
     -- A member started some other action: its cast, if any, is over.
     function api:action(member,tick) clock(tick);finish(member,tick,'next-action') end
+    -- The engine's own disable for member, just chosen and not yet queued, claims its targets
+    -- (an area's every hit enemy) so that other members deciding meanwhile leave them alone. It
+    -- replaces the member's earlier claims. Returns how many it holds.
+    function api:reserve(member,targets,tick)
+        if type(member)~='table' or not id(member.id) or type(targets)~='table' or not number(tick) then return 0 end
+        clock(tick)
+        drop(member.id)
+        local held={}
+        for _,target in ipairs(targets) do
+            if take(member.id,target,tick,o.claimTicks,true) then held[#held+1]=target end
+        end
+        if #held>0 then record({kind='reserve',tick=tick,member=member.id,family=member.family,targets=held}) end
+        return #held
+    end
+    -- The member's decision was given up before its cast started: its claims go. member: the
+    -- member or its id.
+    function api:release(member,tick)
+        local key=type(member)=='table' and member.id or member
+        if not id(key) then return 0 end
+        if number(tick) then clock(tick) end
+        local n=drop(key)
+        if n>0 then record({kind='release',tick=tick,member=key,count=n}) end
+        return n
+    end
 
     function api:tick(tick)
         clock(tick)
@@ -222,7 +275,9 @@ function M.new(config)
     end
     function api:inspect()
         local held={}
-        for target,r in pairs(reservations) do held[#held+1]={target=target,owner=r.owner,untilTick=r.untilTick} end
+        for target,r in pairs(reservations) do
+            held[#held+1]={target=target,owner=r.owner,untilTick=r.untilTick,claim=r.claim}
+        end
         table.sort(held,function(a,b) return a.target<b.target end)
         local count=function(t) local n=0;for _ in pairs(t) do n=n+1 end;return n end
         -- The group's picture of each enemy: when it was last seen, by how many members within
