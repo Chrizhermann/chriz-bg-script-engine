@@ -459,9 +459,12 @@ against dummies):
   filters on the whole spell. Fixed. In E5 the filter declines are gone, and Flame Strike,
   Melf's Acid Arrow, Sleep, Charm Person, Dire Charm and Horror come.
 - No engine disable has gone to a disabled target since E4.
+- The spells' own immunity checks (SPLPROT rows of opcodes 318, 324 and 326) are answered by
+  the engine's own check for each enemy. In E7 the engine sent no Hold Person to a dummy with
+  Free Action and no charm to one with Chaotic Commands. A director fault found on the way is
+  fixed: it would not move a cast away from a creature immune to it.
 
-**Next, technical:** the spells' own immunity checks (SPLPROT rows of opcodes 318, 324 and
-326), answered by the engine's own check for each enemy. Then defences.
+**Next, technical:** defences, after Christopher's answers below.
 
 **Open for Christopher**, asked with the report:
 
@@ -469,6 +472,8 @@ against dummies):
    whenever SCS's timer runs out. Leave SCS's opener first, or attack first as now, until the
    engine weighs such spells itself in the defence slice?
 2. What a caster does when no attack is an option: SCS's round (now), wait, or a profile knob?
+3. Should the director also move SCS's disables away from a free enemy immune to them? Now it
+   moves them only from disabled or reserved enemies.
 
 ## To design with Christopher
 

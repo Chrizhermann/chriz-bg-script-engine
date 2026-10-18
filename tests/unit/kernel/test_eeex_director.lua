@@ -251,15 +251,16 @@ assert(state.counts.errors==3 and state.lastError:find('^decode: ')~=nil)
 groups=groups+1
 
 -- 8. A spell's own SPLPROT check, answered by the engine for each enemy (row, enemy, caster,
--- value): the focus takes the cast when it meets the check as the original does, not when the
--- engine marks only the focus immune; without the engine's answer neither is judged and the
--- cast stays where its script aimed it.
+-- value; here row 110, a spell state): the focus takes the cast unless the engine marks it
+-- immune where the original is not; without the engine's answer neither is judged and the cast
+-- stays where its script aimed it. A hold at a reserved enemy that is immune to it moves to one
+-- it works on.
 records.TESTSRDM=spl('TESTSRDM',{fx(324,{res='TESTSRDM',p2=110,p1=41,duration=1}),fx(12,{dice=6,sides=6})})
 local calls,immune={},{}
 g.EngineGlobals.g_pBaldurChitin.m_pObjectGame.m_ruleTables={IsProtectedFromSpell=function(_,row,stats,mine,value)
     calls[#calls+1]={row,stats.m_id,mine.m_id,value}
     if g.splprotError then error(g.splprotError) end
-    return (row==110 and value==41 and immune[stats.m_id]) and 1 or 0
+    return (row==110 and immune[stats.m_id]==value) and 1 or 0
 end}
 local function kept()
     for i=#rows,1,-1 do if rows[i].kind=='keep' and rows[i].member==1 then return rows[i].reason end end
@@ -268,13 +269,21 @@ g.ticks=500
 assert(g.BGSE_Claim(m1,'mage','s1')==false)
 assert(start(m1,action(31,'TESTSRDM',11)).m_acteeID.m_Instance==12)
 assert(#calls==3 and calls[1][1]==110 and calls[1][2]==11 and calls[1][3]==1 and calls[1][4]==41)
-immune[12]=true
+immune[12]=41
 assert(start(m1,action(31,'TESTSRDM',11)).m_acteeID.m_Instance==11 and kept()=='focus-filter')
 g.splprotError='no binding'
 assert(start(m1,action(31,'TESTSRDM',11)).m_acteeID.m_Instance==11 and kept()=='focus-unknown-filter')
 state=root.inspect().director
 assert(state.counts.marks==6 and state.counts.markFailures==3 and state.markError:find('no binding')~=nil)
 assert(state.counts.errors==3)
+records.TESTSRHD=spl('TESTSRHD',{fx(324,{res='TESTSRHD',p2=110,p1=29,duration=1}),fx(175,{duration=30})})
+g.splprotError=nil
+immune={[11]=29}
+g.ticks=1000
+assert(g.BGSE_Claim(m1,'mage','s1')==false and g.BGSE_Claim(m2,'priest','s2')==false)
+assert(start(m2,action(31,'TESTSRHD',11)).m_acteeID.m_Instance==11)
+assert(root.inspect().director.areas.AR0001.reservations[1].target==11)
+assert(start(m1,action(31,'TESTSRHD',11)).m_acteeID.m_Instance==12)
 groups=groups+1
 
 return groups

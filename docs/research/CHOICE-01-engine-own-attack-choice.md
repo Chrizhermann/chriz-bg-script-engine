@@ -364,17 +364,39 @@ clean.
   failed casts would learn too. Whether every row is plausible knowledge belongs to the later
   knowledge refinement.
 
+## Batches E6 and E7: the checks in game
+
+Each batch first probed the engine's check on two dummies, then ran E5's twelve fights. In the
+fights, two dummies got a spell state that Spell Revisions spells check: B3DUMF Free Action
+(29, Hold Person) and B3DUMT Chaotic Commands (41, Charm Person, Dire Charm, Mental
+Domination). In E6 the states did not take: opcode 328 was applied with special 0. E7 set them
+with special 1, as Spell Revisions does. Cleanup was clean both times.
+
+- **The engine's check answers.** Called with each dummy and the probe caster, it answered 0 or
+  1 as the creatures' values say: EA, general, race, current hit points and, in E7, the spell
+  state. SOURCE held only with the same creature on both sides; ALLIES and ENEMIES were judged
+  from the second creature's side.
+- **No failures.** The adapters read 3,685 marks in E6 and 3,950 in E7, and no check failed.
+- **The checks steer the engine.** In E7 the engine cast Hold Person 18 times, none at the Free
+  Action dummy; in E6, without the state, 6 of its 9 went there. It cast charms 28 times, none
+  at the Chaotic Commands dummy. SCS still aimed two Hold Persons at the Free Action dummy.
+- **A director fault.** The director left both of those holds on the immune dummy. Another
+  member's hold had reserved it, and the director found no alternative: its legality wanted the
+  new target to meet the spell's conditions exactly as the original did, and a free dummy the
+  hold works on met them differently. Fixed: a new target must take no less damage and no lower
+  disable chance than the original, by each creature's own view of the conditions. A cast now
+  moves away from a creature immune to it, and a fire bolt with a troll extra stays on trolls.
+
 ## Limits and next steps
 
-- **Immunity checks in game.** The engine's answers to the SPLPROT rows are unit-tested against
-  a fake engine only; the next lab batch checks them.
 - **One kind per spell.** A spell that damages and disables counts as a disable only. Debuffs
   (slow, blindness) and dispels are no attacks yet; they come with later slices.
 - **Area casts teach nothing.** Only single-target casts are judged.
 - **Dummies.** All fights so far are against dummies that do not fight back. Single-target
   spells rarely reach the minimum worth (0.2 of an enemy) against their 250 hit points.
 - **For Christopher:** whether the engine should leave SCS's Time Stop opener and other strong
-  non-attack spells first; what a caster does when no attack is an option; and the minimum
-  worth.
+  non-attack spells first; what a caster does when no attack is an option; whether the director
+  should also move SCS's disables away from a free enemy immune to them (now only from disabled
+  or reserved ones); and the minimum worth.
 - **Knowledge.** Creatures that another creature's Time Stop freezes still decide, with what
   happens meanwhile. A later knowledge refinement may limit that.

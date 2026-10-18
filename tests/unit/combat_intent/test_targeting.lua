@@ -62,7 +62,8 @@ assert(trollBolt.roles.disable.kinds.death and targeting.kind(trollBolt)=='damag
 groups=groups+1
 
 -- 3. A legal replacement: alive, no sanctuary, seen, in reach, no more magic resistance than
--- the original, the same creature conditions met, and no protection that stops this spell.
+-- the original, no less of what the spell does by its creature conditions, and no protection
+-- that stops this spell.
 local caster={id=1,x=0,y=0}
 local original={id=2,x=100,y=0,state=0,hp=10,maxHp=10,mr=0,ids={general=1,race=1},protections={}}
 local function enemy(fields)
@@ -79,27 +80,35 @@ assert(legal(enemy({x=0,y=361}))=='out-of-range' and legal(enemy({x=600}),bolt,c
 local lost=enemy();lost.x=nil
 assert(legal(lost)=='no-position')
 assert(legal(enemy({mr=10}))=='magic-resistance' and legal(enemy({mr=10}),bolt,caster,enemy({id=2,x=100,mr=50}))=='ok')
--- A hold of animals (GENERAL 2): aimed at an animal it may move to another animal, not to a
--- humanoid; aimed at a humanoid, to any creature but an animal. An unknown type is no
+-- A hold of animals (GENERAL 2) takes only animals: aimed at an animal it may move to another
+-- animal, not to a humanoid; aimed at a humanoid, where it does nothing, it may move to an
+-- animal, not to an undead, where it would do nothing either. An unknown type is no
 -- replacement.
 local animal={id=2,x=100,y=0,state=0,hp=10,maxHp=10,mr=0,ids={general=2,race=1},protections={}}
 assert(legal(enemy({ids={general=2}}),hold,caster,animal)=='ok' and legal(enemy({ids={general=1}}),hold,caster,animal)=='filter')
-assert(legal(enemy({ids={general=4}}),hold)=='ok' and legal(enemy({ids={general=2}}),hold)=='filter')
+assert(legal(enemy({ids={general=2}}),hold)=='ok' and legal(enemy({ids={general=4}}),hold)=='filter')
 assert(legal(enemy({ids={}}),hold)=='unknown-filter')
--- The troll extra: an elf takes the bolt as the human original does; a troll would take more.
-assert(legal(enemy(),trollBolt)=='ok' and legal(enemy({ids={general=1,race=129}}),trollBolt)=='filter')
--- A spell's own immunity check: the replacement must meet it as the original does, by the
--- engine's marks; without marks it is no replacement.
+-- The troll extra: an elf takes the bolt as the human original does, a troll takes more; aimed
+-- at a troll, the bolt does not leave trolls.
+local troll={id=2,x=100,y=0,state=0,hp=10,maxHp=10,mr=0,ids={general=1,race=129},protections={}}
+assert(legal(enemy(),trollBolt)=='ok' and legal(enemy({ids={general=1,race=129}}),trollBolt)=='ok')
+assert(legal(enemy(),trollBolt,caster,troll)=='filter' and legal(enemy({ids={general=1,race=129}}),trollBolt,caster,troll)=='ok')
+-- A spell's own immunity check, by the engine's marks: a free original's hold does not move to
+-- an immune creature, an immune original's moves to a free one; without marks it does not
+-- move.
 local srHold=spell('TESTSRHL',{fx(324,{res='TESTSRHL',p2=110,p1=29,duration=1}),fx(175,{p2=3,p1=1,duration=30})})
 local freeAction=spells.conditionKey({row=110,value=29})
 local function marked(v,fields) local e=enemy(fields);e.splprot={[freeAction]=v};return e end
 local held=marked(false,{id=2,x=100})
 assert(legal(marked(false),srHold,caster,held)=='ok' and legal(marked(true),srHold,caster,held)=='filter')
+assert(legal(marked(false),srHold,caster,marked(true,{id=2,x=100}))=='ok')
 assert(legal(enemy(),srHold,caster,held)=='unknown-filter')
 groups=groups+1
 
--- 4. Protections by opcode, projectile, level, school, secondary type and resource.
-local function shielded(p) return legal(enemy({protections={p}}),hold) end
+-- 4. Protections by opcode, projectile, level, school, secondary type and resource, against a
+-- hold of any creature.
+local anyHold=spell('TESTHOLD',{fx(175,{duration=30})},nil,{school=5})
+local function shielded(p) return legal(enemy({protections={p}}),anyHold) end
 assert(shielded({opcode=101,p2=175})=='protected' and shielded({opcode=101,p2=12})=='ok')
 assert(shielded({opcode=102,p1=3})=='protected' and shielded({opcode=102,p1=4})=='ok')
 assert(shielded({opcode=200,p1=10,p2=3})=='protected' and shielded({opcode=259,p1=8,p2=2})=='ok')
@@ -107,7 +116,7 @@ assert(shielded({opcode=204,p2=5})=='protected' and shielded({opcode=204,p2=8})=
 assert(shielded({opcode=206,res='TESTHOLD'})=='protected' and shielded({opcode=206,res='OTHER'})=='ok')
 assert(shielded({opcode=83,p2=1})=='protected' and shielded({opcode=197,p2=2})=='protected')
 assert(legal(enemy({protections={{opcode=205,p2=10}}}),bolt)=='protected')
-assert(legal(enemy({protections={{opcode=205,p2=10}}}),hold)=='ok')
+assert(legal(enemy({protections={{opcode=205,p2=10}}}),anyHold)=='ok')
 -- Unknown protections: not a replacement.
 local unread=enemy();unread.protections=nil
 assert(legal(unread)=='protected')

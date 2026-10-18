@@ -1235,11 +1235,17 @@ function M.holds(e)
         return ids.matches(f,e)
     end
 end
--- Which of the spell's conditions e meets: spells.view's key, one mark each.
-local function met(spell,e)
-    local _,key=spells.view(spell,M.holds(e))
-    return key
+-- What the spell does to e, by e's own view of the spell's conditions: its damage and its
+-- disable chance. nil when a condition cannot be judged for e.
+local function effect(spell,e)
+    local roles,key=spells.view(spell,M.holds(e))
+    if type(roles)~='table' or type(key)~='string' or key:find('?',1,true) then return nil end
+    local d,x=roles.damage,roles.disable
+    return {damage=reaches(d) and number(d.amount) and d.amount or 0,
+        disable=reaches(x) and number(x.chance) and x.chance or 0}
 end
+-- Amounts that differ by less than this are equal (they come from the same arithmetic).
+local EPSILON=1e-9
 
 -- Spell protections that would stop this spell: turning, deflection, traps and globes by
 -- level, school or secondary type; immunity or bounce by opcode or projectile; protection
@@ -1271,8 +1277,10 @@ end
 -- Whether target may take the cast instead of original, the enemy the creature's script chose
 -- (both entries of the caster's frame). Nothing here is stricter than "no worse than the
 -- original": range up to the farther of the spell's range and the original's distance, magic
--- resistance up to the original's, the same creature conditions of the spell met, so it does to
--- target what it would do to the original.
+-- resistance up to the original's, and by each creature's own view of the spell's conditions,
+-- the spell's kind of attack reaches target with no less damage and no lower disable chance
+-- than on the original. A cast the original is immune to may so move to a creature it works on;
+-- a fire bolt with a troll extra stays on trolls.
 function M.legal(caster,target,spell,original)
     if type(target)~='table' or type(original)~='table' or type(caster)~='table' then return false,'missing' end
     if not M.alive(target) then return false,'dead' end
@@ -1284,11 +1292,12 @@ function M.legal(caster,target,spell,original)
     if (number(target.mr) and target.mr or 0)>(number(original.mr) and original.mr or 0) then
         return false,'magic-resistance'
     end
-    local a,b=met(spell,target),met(spell,original)
-    if type(a)~='string' or type(b)~='string' or a:find('?',1,true) or b:find('?',1,true) then
-        return false,'unknown-filter'
+    local a,b=effect(spell,target),effect(spell,original)
+    if not a or not b then return false,'unknown-filter' end
+    local kind=M.role(spell)
+    if not kind or a[kind]<=0 or a.damage+EPSILON<b.damage or a.disable+EPSILON<b.disable then
+        return false,'filter'
     end
-    if a~=b then return false,'filter' end
     if M.protected(target,spell) then return false,'protected' end
     return true
 end
