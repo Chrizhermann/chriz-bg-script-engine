@@ -97,6 +97,11 @@ k,mode=choice.attack(missile);assert(k=='damage' and mode=='creature')
 assert(select(2,choice.attack(heal))=='role-heal' and select(2,choice.attack(breach))=='role-removal')
 assert(select(2,choice.attack(odd))=='unknown-projectile' and select(2,choice.attack(storm))=='global')
 assert(select(2,choice.attack(nil))=='unclassified')
+-- A cone that pauses its caster for two seconds is still an attack; a long self-pause is not.
+local paused=spell('TESTSHOU',4,{fx(165,{target=1,duration=2}),fx(12,{p2=FIRE,dice=4,sides=6})},{target=4},area(200,2048,30))
+k,mode=choice.attack(paused);assert(k=='damage' and mode=='point-area' and paused.pause==2)
+local frozen=spell('TESTFRZ',4,{fx(165,{target=1,duration=60}),fx(12,{p2=FIRE,dice=4,sides=6})})
+assert(select(2,choice.attack(frozen))=='self-harm')
 groups=groups+1
 
 -- 4. Damage goes to the group's focus, unless another target is clearly better: a kill.

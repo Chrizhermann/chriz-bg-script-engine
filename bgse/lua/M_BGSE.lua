@@ -527,6 +527,15 @@ local DISABLES={[24]='panic',[38]='silence',[45]='stun',[76]='feeblemind',[128]=
     [211]='imprison',[213]='maze',[217]='sleep',[241]='charm',[247]='berserk',
     [264]='panic',[13]='death',[55]='death',[209]='death',[238]='death'}
 for op,label in pairs(DISABLES) do H[op]=function(c,e,who,p) kind(c,'disable',label,who,e,p) end end
+-- A short pause of the caster itself (two seconds after Spell Revisions' Shout and Cone of
+-- Cold) is a cost of casting, not harm: it is kept as c.pause, in seconds. A longer one stays a
+-- disable on the caster.
+M.castingPause=6
+H[165]=function(c,e,who,p)
+    local span=seconds(e)
+    if who=='self' and number(span) and span<=M.castingPause then c.pause=math.max(c.pause or 0,span);return end
+    kind(c,'disable','pause',who,e,p)
+end
 H[5]=function(c,e,who,p) kind(c,'disable','charm',who,e,p) end
 H[135]=function(c,e,who,p)
     if who=='self' then kind(c,'buff','shapechange',who,e,p) else kind(c,'disable','polymorph',who,e,p) end

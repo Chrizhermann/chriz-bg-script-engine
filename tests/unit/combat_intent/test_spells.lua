@@ -314,4 +314,15 @@ assert(c.opcodes[146] and c.opcodes[175] and c.opcodes[142] and not c.opcodes[18
 assert(next(one(fx(18,{p1=5,target=1}),{target=5}).opcodes)==nil)
 groups=groups+1
 
+-- A short pause of the caster (a cone's two seconds) is a casting cost, not self-harm; a long
+-- one still harms the caster.
+c=classify(spl('TESTCONE',{ability({fx(165,{target=1,duration=2}),fx(12,{p1=10})},{target=4,projectile=97})}),
+    world({['PRO:97']=pro({areaFlags=2048,coneWidth=60})}))
+assert(c.pause==2 and not c.selfHarm and c.offensive and not c.roles.disable and c.area.cone==60)
+c=classify(spl('TESTLONG',{ability({fx(165,{target=1,duration=30}),fx(12,{p1=10})})}),world({}))
+assert(c.selfHarm and c.roles.disable.kinds.pause and c.pause==nil)
+c=one(fx(165,{duration=2}))
+assert(c.roles.disable.kinds.pause and c.roles.disable.who.target and c.pause==nil)
+groups=groups+1
+
 return groups
