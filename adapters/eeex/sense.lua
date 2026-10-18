@@ -6,8 +6,9 @@
 -- finds this creature. Sides
 -- follow the engine's EA groups: for a creature on the evil side (EA 200 and up) the good side
 -- (EA 2 to 30) are enemies and the evil side are allies. With details, each enemy also carries
--- its creature IDS values and the spell protections a script can test (SCS's triggers read the
--- same). Only plain values leave this module; no engine object is kept.
+-- its creature IDS values, saves, resistances, level and the spell protections a script can
+-- test (SCS's triggers read the same). Only plain values leave this module; no engine object
+-- is kept.
 local M={}
 -- A sprite's default visual range in EEex's area search.
 M.sightRange=448
@@ -16,6 +17,12 @@ M.GOOD_CUTOFF,M.EVIL_CUTOFF=30,200
 M.stats={maxHp=1,mr=18,held=58,sanctuary=63,seeInvisible=81,trueSight=118}
 -- STATE_INVISIBLE and STATE_IMPROVEDINVISIBILITY; STATE_BLIND.
 M.unseen,M.blind=0x400010,0x40000
+-- STATS.IDS: the saving throws, resistances and levels SCS's attack blocks read about their
+-- targets; the engine's own choice reads the same (Christopher, 2026-10-18: as much as SCS).
+M.saves={death=9,wand=10,poly=11,breath=12,spell=13}
+M.resists={fire=14,cold=15,electricity=16,acid=17,magicfire=19,magiccold=20,slashing=21,crushing=22,
+    piercing=23,missile=24,magic=73,poison=74}
+M.levels={34,68,69}
 -- Effect opcodes that protect against spells (combat-intent/targeting.lua matches them).
 M.protections={}
 for _,op in ipairs({83,101,102,197,198,199,200,201,202,203,204,205,206,207,223,226,227,228,259,318,324}) do
@@ -43,11 +50,18 @@ function M.actor(g,sprite)
         mr=stat(g,sprite,M.stats.mr),action=sprite.m_curAction.m_actionID}
 end
 
--- Creature IDS values and the spell protections in both effect lists.
+-- Creature IDS values, saving throws, resistances, level and the spell protections in both
+-- effect lists.
 function M.details(g,sprite,entry)
     local t=sprite.m_typeAI
     entry.ids={ea=t.m_EnemyAlly,general=t.m_General,race=t.m_Race,class=t.m_Class,
         specific=t.m_Specifics,gender=t.m_Gender,alignment=t.m_Alignment}
+    entry.saves,entry.resist={},{}
+    for name,n in pairs(M.saves) do entry.saves[name]=stat(g,sprite,n) end
+    for name,n in pairs(M.resists) do entry.resist[name]=stat(g,sprite,n) end
+    local level=0
+    for _,n in ipairs(M.levels) do level=math.max(level,stat(g,sprite,n)) end
+    entry.level=level
     local found={}
     for _,list in ipairs({sprite.m_timedEffectList,sprite.m_equipedEffectList}) do
         local seen=0

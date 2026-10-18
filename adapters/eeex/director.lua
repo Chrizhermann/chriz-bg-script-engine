@@ -6,7 +6,8 @@
 -- action's target, as EEex's own SpellToPoint listener changes a starting action: the cast
 -- keeps its casting time, spell slot and interruption. A cast aimed at a kind of creature
 -- ([PC.0.0.MAGE]) has no target yet when it starts; a decoded copy of its object names the
--- creature it would hit. Session-local; a load forgets it all.
+-- creature it would hit. The engine's own casts (adapters/eeex/choice.lua) are recorded for
+-- the picture and the reservations but never advised. Session-local; a load forgets it all.
 -- Errors never reach the engine: the cast then goes ahead as the creature's script chose it.
 local sense=require('adapters.eeex.sense')
 local resources=require('adapters.eeex.resources')
@@ -33,8 +34,8 @@ function M.new(g,options)
     local reader=options.reader or resources.new(g)
     local directors,memberArea,memberFamily,lastCheck={},{},{},{}
     local cache,cached={},0
-    local root,sink
-    local counts={checkIns=0,starts=0,advised=0,redirected=0,errors=0}
+    local root,sink,choice
+    local counts={checkIns=0,starts=0,advised=0,redirected=0,own=0,errors=0}
     local adapter={}
     local function now() return root and root.now and root.now() end
     local function director(area)
@@ -89,12 +90,20 @@ function M.new(g,options)
     end
 
     local function started(sprite,action)
+        local tick=now()
+        -- The engine's own cast starting, or an action ending one (every sprite comes here).
+        local own=choice and type(tick)=='number' and choice:started(sprite,action,tick)
         local id=sprite.m_id
         local area=memberArea[id]
         if not area then return end
         local d=directors[area]
-        local tick=now()
         if not d or type(tick)~='number' or not d:isMember(id) then return end
+        if own then
+            counts.own=counts.own+1
+            d:started({id=id,family=memberFamily[id]},{spell=own.spell,role=own.role,target=own.target,
+                original=own.target,action=action.m_actionID,own=true},tick)
+            return
+        end
         if action.m_actionID~=31 then d:action(id,tick);return end
         counts.starts=counts.starts+1
         local resref=M.resref(action)
@@ -149,6 +158,16 @@ function M.new(g,options)
         if not ok then failed('started',err) end
     end
 
+    -- The group's plan for a member at tick (focus, reservations), or nil outside a group.
+    function adapter:plan(id,tick)
+        local area=memberArea[id]
+        local d=area and directors[area]
+        if not d then return nil end
+        local ok,plan=pcall(d.plan,d,tick)
+        if ok then return plan end
+        failed('plan',plan)
+    end
+    function adapter:setChoice(c) choice=c end
     function adapter:attach(r) root=r end
     function adapter:setSink(fn) assert(fn==nil or type(fn)=='function');sink=fn end
     function adapter:invalidate()

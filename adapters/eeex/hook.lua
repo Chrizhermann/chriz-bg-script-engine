@@ -7,6 +7,9 @@
 -- into the creature's script: a failure is a decline, and the script's own blocks run on.
 -- options.director (adapters/eeex/director.lua) gets the gate's check-ins and EEex's
 -- started-action events; it acts only while the gate is on for the creature's family.
+-- options.choice (adapters/eeex/choice.lua) is the engine's own choice; options.prepare runs
+-- right before a decision's response is queued and may skip it ('skipped'): a target gone by
+-- then is no error.
 local hook=require('kernel.hook')
 local M={}
 M.keys={mage='Mages',priest='Priests',fighter='Fighters',monster='Monsters'}
@@ -17,6 +20,7 @@ local function ini(g,key)
     if ok and type(value)=='number' then return value end
     return 1
 end
+M.ini=ini
 function M.settings(g)
     local families={}
     for family,key in pairs(M.keys) do families[family]=ini(g,key)~=0 end
@@ -72,7 +76,7 @@ function M.install(g,options)
     options=options or {}
     local settings=M.settings(g)
     local clock=options.now or function() return M.gameTime(g) end
-    local director=options.director
+    local director,choice,prepare=options.director,options.choice,options.prepare
     local gate=hook.new({
         now=clock,
         observe=director and function(view,family) director:observe(view,family) end,
@@ -87,12 +91,17 @@ function M.install(g,options)
         perform=function(a,decision)
             local object=sprite(g,a.id)
             if not object or type(decision.response)~='string' or #decision.response==0 then return false end
+            if prepare then
+                local ready=prepare(object,decision)
+                if ready=='skipped' then return 'skipped' end
+                if ready~=true then return false end
+            end
             g.EEex_Action_QueueResponseStringOnAIBase(decision.response,object)
             return true
         end,
     })
     local previous=rawget(g,'BGSE')
-    local root={gate=gate,version=options.version or 'dev',director=director,
+    local root={gate=gate,version=options.version or 'dev',director=director,choice=choice,
         listening=type(previous)=='table' and previous.listening or false,
         watching=type(previous)=='table' and previous.watching or false}
     -- Game time for helpers, or nil when it cannot be read.
@@ -106,11 +115,18 @@ function M.install(g,options)
     function root.setFamily(family,value,persist)
         gate:setFamily(family,value);if persist then store(g,M.keys[family],value) end
     end
+    -- The engine's own choice on or off (Baldur.lua [BGSE] Choice); off leaves the rounds to
+    -- SCS, with the director's advice.
+    function root.setChoice(value,persist)
+        if choice then choice:setEnabled(value) end
+        if persist then store(g,'Choice',value) end
+    end
     -- Experiments install a decider here: function(actor, family) -> nil | {response=...} | {hold=true}.
     function root.setDecider(fn) gate:setDecider(fn) end
     function root.inspect()
         local state=gate:inspect()
         if director then state.director=director:inspect() end
+        if choice then state.choice=choice:inspect() end
         return state
     end
     g.BGSE=root
@@ -135,6 +151,7 @@ function M.install(g,options)
             local current=rawget(g,'BGSE')
             if type(current)=='table' and current.gate then current.gate:invalidate() end
             if type(current)=='table' and current.director then pcall(current.director.invalidate,current.director) end
+            if type(current)=='table' and current.choice then pcall(current.choice.invalidate,current.choice) end
         end)
         root.listening=true
     end
@@ -148,6 +165,7 @@ function M.install(g,options)
         root.watching=true
     end
     if director then director:attach(root) end
+    if choice then choice:attach(root) end
     return root
 end
 return M

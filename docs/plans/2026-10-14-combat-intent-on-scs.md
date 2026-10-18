@@ -193,7 +193,11 @@ SCS has shouts and per-creature timers but no group plan. The director is new.
    "Step 2 lab batch".
 3. **Fight director and per-creature decisions** for mages, priests, fighters and monsters.
    **First slice in the lab 2026-10-18** (an advisor on SCS's own casts: shared focus, one
-   disabler per target), see "Step 3, first slice".
+   disabler per target), see "Step 3, first slice". **Second slice:** the engine's own
+   attack spells and targets for mages and priests, taking the round (answer B), with
+   per-creature profiles; see "Step 3, second slice". Then defences, dispels and protection
+   removal, healing and buffs, then fighters and monsters with items, potions and movement,
+   until the whole framework stands. Christopher designs the personalities on top of it.
 4. **The lab fight scenario, batch runner and engine-on versus SCS comparison logs,** on
    Insane (answer 8), with a run without the hook to time SCS against.
 5. **Iterate on fight quality,** then the experimental CEBG component.
@@ -380,6 +384,50 @@ cast SCS has already chosen.
    spell at the focus or at the best cluster without allies, whichever scores better.
 5. Next: the engine's own spell and target choice, with the director's plan in the scoring.
    **Answer: yes.** It starts with mages and priests.
+
+## Step 3, second slice: the engine's own choice (design, 2026-10-18)
+
+SCS's round, read from the installed scripts: below the hook comes a priority list. While
+the `castspell` round timer runs, SCS fills the round (waiting, stepping away, melee or
+ranged attacks). Once it has run out, the first matching block casts: breaking silence,
+True Sight, dispels, defences and potions, protection removal and, for priests, healing come
+first; summons and attacks follow. Attacks aim roughly (nearest, farthest, a class) and roll
+dice between blocks (80/20 and the like). SCS's attack blocks read enemy stats directly:
+magic resistance, resistances, saves, level, holds and spell protections.
+
+Christopher's answers, 2026-10-18:
+1. Who decides when to attack: SCS, with the engine swapping its attack casts (A), or the
+   engine taking the whole round once SCS's round timer has run out and it has a good attack
+   (B)? Suggested A first.
+   **Answer: B.** So the engine takes the round with its own cast and sets SCS's round timer
+   as SCS does, so that SCS's filler runs between casts. Until the engine does defence,
+   dispels and healing itself, it leaves the round to SCS when something urgent comes first
+   in SCS's own order: the caster is silenced, or a priest with healing ready is badly hurt
+   itself or sees an ally who is.
+2. Rules besides the two agreed ones (no disable on an already disabled target; no allies in
+   an area spell): damage on the group's focus unless another target is clearly better;
+   economical casting (a small spell finishes a nearly dead enemy, strong spells are kept for
+   strong enemies); remembering where a spell had no effect.
+   **Answer: all three,** with a note for everything that follows: "Es sei aber gesagt, dass
+   dies und andere Taktiken (die wir noch gemeinsam später besprechen können) definitiv nicht
+   überall gleich sein darf. Gruppen und einzelne Kreaturen müssen verschiedene Intelligenzen
+   haben. Das macht das Ganze ja so cool. Beispiel: Manche Gruppen sollten komplett
+   unkoordiniert sein und sind deshalb nicht ganz so gefährlich. Der Fighter haut einfach auf
+   das erstbeste Ziel. Der Magier zaubert einfach Feuerbälle drauf los. Sowas. Aber wie
+   gesagt, ich hab richtig Bock mir sowas dazu auszudenken, aber das kommt, sobald wir das
+   GESAMTE Grundgerüst komplett fertig haben :)." **So:** every rule is a knob in a
+   per-creature profile (coordination, how often the best option is taken, economy, memory,
+   knowledge); one default profile for now, the profiles themselves later with him.
+3. Always the best attack, or a random pick among nearly equal ones?
+   **Answer: random,** "aber wenn ein Charakter besonders strategisch intelligent ist (z.B.
+   Irenicus), sollte er FAST (nicht immer) immer das beste machen. Was genau das beste ist,
+   kannst du mich oder SCS auch noch fragen. SCS wird aber auch für SR nicht immer das beste
+   wissen."
+4. How much may the engine know about enemies?
+   **Answer: as much as SCS,** "aber Dinge, die keinen Sinn ergeben würden, dass die
+   Charaktere das wissen, sollten wir weglassen. Aber das können wir auch in einem späteren
+   Ausbauschritt noch verbessern? Weil das ja individuelle Arbeit wäre." **So:** SCS's
+   knowledge now; implausible knowledge is removed in a later refinement step.
 
 ## To design with Christopher
 

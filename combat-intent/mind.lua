@@ -1,0 +1,73 @@
+-- How a creature thinks: the knobs that may differ between groups and single creatures
+-- (Christopher, 2026-10-18: "Gruppen und einzelne Kreaturen müssen verschiedene Intelligenzen
+-- haben"). Only the default profile exists so far; which creature or group gets which profile
+-- is designed later with him. Plain values; nothing here touches the engine.
+local M={}
+M.default={
+    -- 0 to 1: how much the group's plan counts (its focus target, one disabler per target).
+    coordination=1,
+    -- Chance to take the best option outright; otherwise a random near-best one. A strategic
+    -- mind such as Irenicus would sit close to 1, never at it.
+    best=0.6,
+    -- Near-best: within this share below the best score.
+    band=0.2,
+    -- Weight of a spell's level against what it does: small spells for small jobs, strong
+    -- spells kept for strong enemies.
+    economy=1,
+    -- Leaves a target out for a spell that had no effect on it before.
+    memory=true,
+    -- What it knows about enemies. 'scs': what SCS's scripts read (magic resistance,
+    -- resistances, saves, level, spell protections). Knowledge a creature could not have
+    -- goes in a later step.
+    knowledge='scs',
+    -- An attack must be worth at least this much (about a share of one enemy taken out of
+    -- the fight), or SCS keeps the round.
+    minValue=0.2,
+    -- Extra weight of damage on the group's focus, times coordination.
+    focusBonus=0.5,
+    -- Worth of killing an enemy beyond the hit points taken.
+    killBonus=0.5,
+    -- Urgent things that come first in SCS's own order, left to SCS until the engine does
+    -- them: a silenced caster; a priest with healing ready who is below selfHealth itself or
+    -- sees an ally below allyHealth (SCS's priests heal at 50% and 75%).
+    defer={silenced=true,selfHealth=0.5,allyHealth=0.75},
+}
+
+local function share(v) return type(v)=='number' and v==v and v>=0 and v<=1 end
+local function amount(v) return type(v)=='number' and v==v and v>=0 and v<=1000 end
+local CHECKS={coordination=share,best=share,band=share,economy=amount,minValue=amount,
+    focusBonus=amount,killBonus=amount,
+    memory=function(v) return type(v)=='boolean' end,
+    knowledge=function(v) return v=='scs' end}
+
+local function copy(t)
+    local c={}
+    for k,v in pairs(t) do c[k]=type(v)=='table' and copy(v) or v end
+    return c
+end
+
+-- The default profile with the given changes, or nil and the first bad field.
+function M.new(changes)
+    local mind=copy(M.default)
+    if changes==nil then return mind end
+    if type(changes)~='table' then return nil,'changes' end
+    for k,v in pairs(changes) do
+        if k=='defer' then
+            if type(v)~='table' then return nil,'defer' end
+            for name,value in pairs(v) do
+                if name=='silenced' then
+                    if type(value)~='boolean' then return nil,'defer.silenced' end
+                elseif name=='selfHealth' or name=='allyHealth' then
+                    if not share(value) then return nil,'defer.'..tostring(name) end
+                else return nil,'defer.'..tostring(name) end
+                mind.defer[name]=value
+            end
+        else
+            local check=CHECKS[k]
+            if not check or not check(v) then return nil,tostring(k) end
+            mind[k]=v
+        end
+    end
+    return mind
+end
+return M

@@ -43,7 +43,7 @@ function M.new(config)
     below=config.below
     assert(below==nil or type(below)=='function')
     local pending,blocked,answers={},{},{}
-    local counts={reached=0,repeats=0,claimed=0,acted=0,held=0,stale=0,errors=0,observeErrors=0}
+    local counts={reached=0,repeats=0,claimed=0,acted=0,held=0,skipped=0,stale=0,errors=0,observeErrors=0}
     local declines={}
     local log=trace.new(config.traceCapacity or 64)
     local api={}
@@ -131,6 +131,12 @@ function M.new(config)
         end
         if not perform then failed(id,p.family,'no-performer',tick);return false,'no-performer' end
         local ok,done=pcall(function() return perform(values.copy(actor),values.copy(p.decision)) end)
+        -- 'skipped': the decision no longer fits (its target died meanwhile); no error, no backoff.
+        if ok and done=='skipped' then
+            bump(counts,'skipped')
+            log:record({kind='act',actorKey=tostring(id),family=p.family,reason='skipped',tick=tick})
+            return false,'skipped'
+        end
         if not ok or done~=true then failed(id,p.family,ok and 'not-performed' or 'perform-error',tick);return false,'error' end
         bump(counts,'acted')
         log:record({kind='act',actorKey=tostring(id),family=p.family,reason='performed',tick=tick})

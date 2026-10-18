@@ -199,7 +199,7 @@ function M.new(config)
     below=config.below
     assert(below==nil or type(below)=='function')
     local pending,blocked,answers={},{},{}
-    local counts={reached=0,repeats=0,claimed=0,acted=0,held=0,stale=0,errors=0,observeErrors=0}
+    local counts={reached=0,repeats=0,claimed=0,acted=0,held=0,skipped=0,stale=0,errors=0,observeErrors=0}
     local declines={}
     local log=trace.new(config.traceCapacity or 64)
     local api={}
@@ -287,6 +287,12 @@ function M.new(config)
         end
         if not perform then failed(id,p.family,'no-performer',tick);return false,'no-performer' end
         local ok,done=pcall(function() return perform(values.copy(actor),values.copy(p.decision)) end)
+        -- 'skipped': the decision no longer fits (its target died meanwhile); no error, no backoff.
+        if ok and done=='skipped' then
+            bump(counts,'skipped')
+            log:record({kind='act',actorKey=tostring(id),family=p.family,reason='skipped',tick=tick})
+            return false,'skipped'
+        end
         if not ok or done~=true then failed(id,p.family,ok and 'not-performed' or 'perform-error',tick);return false,'error' end
         bump(counts,'acted')
         log:record({kind='act',actorKey=tostring(id),family=p.family,reason='performed',tick=tick})
@@ -315,6 +321,50 @@ function M.new(config)
     end
     return api
 end
+return M
+end
+factories["kernel.rng"]=function(require)
+-- Independent Park-Miller streams for reproducible host simulations.
+local M = {}
+local MODULUS = 2147483647
+local MULTIPLIER = 16807
+local SAMPLE_COUNT = MODULUS - 1
+local MAX_EXACT_INTEGER = 9007199254740991
+
+local function integer(value)
+    return type(value) == 'number' and value == value and
+        value < math.huge and value > -math.huge and
+        value == math.floor(value) and
+        value >= -MAX_EXACT_INTEGER and value <= MAX_EXACT_INTEGER
+end
+
+function M.new(seed)
+    assert(integer(seed) and seed >= 1 and seed < MODULUS,
+        'seed must be an integer from 1 to 2147483646')
+    local current = seed
+    return {
+        state = function()
+            return current
+        end,
+        nextInt = function(_, minimum, maximum)
+            assert(integer(minimum) and integer(maximum) and minimum <= maximum,
+                'range endpoints must be ordered exact integers')
+            local width = maximum - minimum + 1
+            assert(width >= 1 and width <= SAMPLE_COUNT,
+                'range width exceeds generator sample count')
+
+            local accepted = math.floor(SAMPLE_COUNT / width) * width
+            local sample
+            repeat
+                -- The product is < 2^53, so Lua doubles represent it exactly.
+                current = (current * MULTIPLIER) % MODULUS
+                sample = current - 1
+            until sample < accepted
+            return minimum + (sample % width)
+        end,
+    }
+end
+
 return M
 end
 factories["combat-intent.spells"]=function(require)
@@ -991,6 +1041,7 @@ local function filters(spell)
     end
     return all
 end
+M.filters=filters
 
 -- Spell protections that would stop this spell: turning, deflection, traps and globes by
 -- level, school or secondary type; immunity or bounce by opcode or projectile; protection
@@ -1042,6 +1093,565 @@ function M.legal(caster,target,spell,original)
     end
     if M.protected(target,spell) then return false,'protected' end
     return true
+end
+return M
+end
+factories["combat-intent.ids"]=function(require)
+-- Whether a creature is of the kind a spell's creature filter names (opcodes 175, 177, 185 and
+-- 283 carry an IDS file and an entry). Plain values only: the creature's IDS values as
+-- adapters/eeex/sense.lua reads them. The engine matches a few entries by rule (EA cutoffs,
+-- the *_ALL classes, alignment masks); those rules follow the game's IDS files. An entry this
+-- module cannot judge answers nil, and the caller leaves the spell out for that creature.
+local M={}
+-- IDS file numbers as the opcodes use them.
+M.FIELDS={[2]='ea',[3]='general',[4]='race',[5]='class',[6]='specific',[7]='gender',[8]='alignment'}
+-- CLASS.IDS: the classes each *_ALL entry stands for (the game's fixed class numbers).
+M.CLASS_ALL={
+    [202]={1,7,10,13,14,17,19},  -- MAGE_ALL: mages, their multiclasses, sorcerers
+    [203]={2,7,8,9,10,16,17},    -- FIGHTER_ALL
+    [204]={3,8,14,15,17,18},     -- CLERIC_ALL
+    [205]={4,9,10,13,15},        -- THIEF_ALL
+    [206]={5},                   -- BARD_ALL
+    [207]={6},                   -- PALADIN_ALL
+    [208]={11,16},               -- DRUID_ALL
+    [209]={12,18},               -- RANGER_ALL
+}
+-- Classes that cast spells (CLASS.IDS): mage, cleric, bard, paladin, the multiclasses with a
+-- caster class, druid, ranger, sorcerer, shaman.
+M.CASTERS={}
+for _,n in ipairs({1,3,5,6,7,8,10,11,12,13,14,15,16,17,18,19,21}) do M.CASTERS[n]=true end
+
+local function number(v) return type(v)=='number' and v==v and v%1==0 end
+
+-- EA.IDS (EE): 0 anyone; GOODCUTOFF (30) the good side; NOTGOOD (31) everything above it;
+-- NOTEVIL (199) everything below EVILCUTOFF (200), which is the evil side.
+local function ea(entry,value)
+    if entry==0 then return true end
+    if entry==30 then return value<=30 end
+    if entry==31 then return value>=31 end
+    if entry==199 then return value<200 end
+    if entry==200 then return value>=200 end
+    -- GOODBUTRED, GOODBUTBLUE, EVILBUTGREEN and EVILBUTBLUE name selection colours, and
+    -- ANYTHING has no plain range: not judged here.
+    if entry==28 or entry==29 or entry==201 or entry==202 or entry==126 then return nil end
+    return value==entry
+end
+-- ALIGN.IDS: a mask entry names only the law axis (0x10, 0x20, 0x30) or only the good axis
+-- (0x01, 0x02, 0x03).
+local function alignment(entry,value)
+    local law,good=math.floor(entry/16),entry%16
+    if law==0 and good>0 then return value%16==good end
+    if good==0 and law>0 then return math.floor(value/16)==law end
+    return value==entry
+end
+local function class(entry,value)
+    local all=M.CLASS_ALL[entry]
+    if all then
+        for _,n in ipairs(all) do if n==value then return true end end
+        return false
+    end
+    return value==entry
+end
+
+-- true, false, or nil when the filter cannot be judged. creature.ids holds the IDS values.
+function M.matches(filter,creature)
+    if type(filter)~='table' or type(creature)~='table' or type(creature.ids)~='table' then return nil end
+    local field=M.FIELDS[filter.ids]
+    local entry=filter.entry
+    if not field or not number(entry) then return nil end
+    if entry==0 then return true end
+    local value=creature.ids[field]
+    if not number(value) then return nil end
+    if field=='ea' then return ea(entry,value) end
+    if field=='alignment' then return alignment(entry,value) end
+    if field=='class' then return class(entry,value) end
+    return value==entry
+end
+
+-- Whether the creature casts spells, by its class.
+function M.caster(creature)
+    return type(creature)=='table' and type(creature.ids)=='table' and M.CASTERS[creature.ids.class]==true
+end
+return M
+end
+factories["combat-intent.mind"]=function(require)
+-- How a creature thinks: the knobs that may differ between groups and single creatures
+-- (Christopher, 2026-10-18: "Gruppen und einzelne Kreaturen müssen verschiedene Intelligenzen
+-- haben"). Only the default profile exists so far; which creature or group gets which profile
+-- is designed later with him. Plain values; nothing here touches the engine.
+local M={}
+M.default={
+    -- 0 to 1: how much the group's plan counts (its focus target, one disabler per target).
+    coordination=1,
+    -- Chance to take the best option outright; otherwise a random near-best one. A strategic
+    -- mind such as Irenicus would sit close to 1, never at it.
+    best=0.6,
+    -- Near-best: within this share below the best score.
+    band=0.2,
+    -- Weight of a spell's level against what it does: small spells for small jobs, strong
+    -- spells kept for strong enemies.
+    economy=1,
+    -- Leaves a target out for a spell that had no effect on it before.
+    memory=true,
+    -- What it knows about enemies. 'scs': what SCS's scripts read (magic resistance,
+    -- resistances, saves, level, spell protections). Knowledge a creature could not have
+    -- goes in a later step.
+    knowledge='scs',
+    -- An attack must be worth at least this much (about a share of one enemy taken out of
+    -- the fight), or SCS keeps the round.
+    minValue=0.2,
+    -- Extra weight of damage on the group's focus, times coordination.
+    focusBonus=0.5,
+    -- Worth of killing an enemy beyond the hit points taken.
+    killBonus=0.5,
+    -- Urgent things that come first in SCS's own order, left to SCS until the engine does
+    -- them: a silenced caster; a priest with healing ready who is below selfHealth itself or
+    -- sees an ally below allyHealth (SCS's priests heal at 50% and 75%).
+    defer={silenced=true,selfHealth=0.5,allyHealth=0.75},
+}
+
+local function share(v) return type(v)=='number' and v==v and v>=0 and v<=1 end
+local function amount(v) return type(v)=='number' and v==v and v>=0 and v<=1000 end
+local CHECKS={coordination=share,best=share,band=share,economy=amount,minValue=amount,
+    focusBonus=amount,killBonus=amount,
+    memory=function(v) return type(v)=='boolean' end,
+    knowledge=function(v) return v=='scs' end}
+
+local function copy(t)
+    local c={}
+    for k,v in pairs(t) do c[k]=type(v)=='table' and copy(v) or v end
+    return c
+end
+
+-- The default profile with the given changes, or nil and the first bad field.
+function M.new(changes)
+    local mind=copy(M.default)
+    if changes==nil then return mind end
+    if type(changes)~='table' then return nil,'changes' end
+    for k,v in pairs(changes) do
+        if k=='defer' then
+            if type(v)~='table' then return nil,'defer' end
+            for name,value in pairs(v) do
+                if name=='silenced' then
+                    if type(value)~='boolean' then return nil,'defer.silenced' end
+                elseif name=='selfHealth' or name=='allyHealth' then
+                    if not share(value) then return nil,'defer.'..tostring(name) end
+                else return nil,'defer.'..tostring(name) end
+                mind.defer[name]=value
+            end
+        else
+            local check=CHECKS[k]
+            if not check or not check(v) then return nil,tostring(k) end
+            mind[k]=v
+        end
+    end
+    return mind
+end
+return M
+end
+factories["combat-intent.choice"]=function(require)
+-- The engine's own choice of an attack spell and its target or aim point for one caster (step
+-- 3, second slice; Christopher's answers of 2026-10-18 are in the plan). Inputs are plain
+-- values: the caster's perception frame with enemy details (adapters/eeex/sense.lua), its
+-- ready and usable spells classified by combat-intent/spells.lua, the fight director's plan,
+-- what it remembers about casts that had no effect, and its profile (combat-intent/mind.lua).
+-- Nothing here touches the engine. Odd data drops one option, never the whole choice, and no
+-- choice means SCS keeps the round.
+--
+-- Worth is counted in shares of an enemy taken out of the fight: the hit points a cast takes
+-- (as a share of the enemy's maximum, no more than it has left), the worth of a kill, or the
+-- chance and length of a disable. A spell's level costs a little, so small spells do small
+-- jobs. An attack must reach the profile's minimum worth.
+local targeting=require('combat-intent.targeting')
+local ids=require('combat-intent.ids')
+local M={}
+M.rangeUnit=targeting.rangeUnit
+-- Allies keep this much room beyond an area's edge; positions are up to a check-in old.
+M.allyMargin=32
+-- Worth of one spell level, times the profile's economy.
+M.costPerLevel=0.03
+-- A disable lasting this long counts in full (three rounds).
+M.fullSeconds=18
+-- STATE_SILENCED, in the active state.
+M.SILENCED=0x1000
+local UNSEEN=targeting.STATE.invisible+targeting.STATE.improvedInvisible
+-- What each kind of disable is worth on an enemy in full health, for the full time. Death,
+-- petrification and imprisonment take the enemy out for good.
+M.DISABLE={hold=1,stun=1,sleep=0.8,charm=1.2,confusion=0.8,panic=0.7,berserk=0.4,feeblemind=1,
+    silence=0.7,nocast=0.7,entangle=0.5,web=0.6,root=0.3,polymorph=1,pause=0.8,maze=1.2,
+    turnUndead=1,petrify=1,imprison=1,death=1}
+M.FOR_GOOD={petrify=true,imprison=true,death=true}
+-- Disables that matter only against casters.
+M.CASTERS_ONLY={feeblemind=true,silence=true,nocast=true}
+-- Damage types to the resistance an enemy's details carry (sense.lua reads SCS's stats).
+M.RESIST={fire='fire',cold='cold',electricity='electricity',acid='acid',magic='magic',
+    magicfire='magicfire',magiccold='magiccold',slashing='slashing',crushing='crushing',
+    piercing='piercing',missile='missile',poison='poison'}
+-- Roles that make a spell something other than an attack: protection removal, healing,
+-- curing, raising and summoning are other decisions (later slices).
+local OTHER={'removal','heal','raise','cure','summon'}
+local GLOBAL={everyone=true,nonparty=true,casterGroup=true,party=true}
+
+local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
+local function clamp(v,a,b) if v<a then return a elseif v>b then return b end return v end
+local function reaches(role) return type(role)=='table' and type(role.who)=='table' and (role.who.target or role.who.area) end
+local function benefits(role)
+    return type(role)=='table' and type(role.who)=='table' and (role.who.target or role.who.area or role.who.point or role.who.party)
+end
+
+-- 'damage' or 'disable' and how the spell is aimed, or nil and why the engine leaves it out.
+function M.attack(spell)
+    if type(spell)~='table' or type(spell.roles)~='table' then return nil,'unclassified' end
+    if spell.partial then return nil,'partial' end
+    for _,name in ipairs(OTHER) do
+        if benefits(spell.roles[name]) then return nil,'role-'..name end
+    end
+    for _,name in ipairs({'damage','disable','debuff'}) do
+        local r=spell.roles[name]
+        if type(r)=='table' and type(r.who)=='table' then
+            for who in pairs(r.who) do if GLOBAL[who] then return nil,'global' end end
+            if r.who.self then return nil,'self-harm' end
+        end
+    end
+    if type(spell.roles.disable)=='table' and spell.roles.disable.kinds and spell.roles.disable.kinds.timestop then
+        return nil,'time-stop'
+    end
+    local kind=reaches(spell.roles.disable) and 'disable' or reaches(spell.roles.damage) and 'damage' or nil
+    if not kind then return nil,'no-attack' end
+    local a=spell.area
+    if spell.projectileUnknown and not targeting.builtinSingle[spell.projectile] then return nil,'unknown-projectile' end
+    if a and a.filter=='allies' then return nil,'allies-area' end
+    if a and (a.line or a.rectangle) and a.filter~='enemies' then return nil,'unknown-shape' end
+    if a and a.cone and not (number(a.cone) and a.cone>0 and a.cone<360) then return nil,'unknown-cone' end
+    if a and not (number(a.radius) and a.radius>0) then return nil,'unknown-radius' end
+    if spell.target=='creature' then return kind,a and 'creature-area' or 'creature' end
+    if spell.target=='point' and a then return kind,'point-area' end
+    if spell.target=='self' and a then return kind,'self-area' end
+    return nil,'not-aimed'
+end
+
+local function range(spell) return number(spell.range) and spell.range*M.rangeUnit or 0 end
+
+-- Whether e can be aimed at directly: alive, no sanctuary, seen, in range.
+local function aimable(caster,e,spell)
+    if not targeting.alive(e) then return false,'dead' end
+    if number(e.sanctuary) and e.sanctuary>0 then return false,'sanctuary' end
+    if targeting.has(e.state,UNSEEN) and not caster.seeInvisible then return false,'invisible' end
+    local d=targeting.distance(caster,e)
+    if d==math.huge then return false,'no-position' end
+    if d>range(spell) then return false,'out-of-range' end
+    return true
+end
+-- Whether the spell can work on e at all: its creature filters and e's spell protections.
+local function affects(spell,e)
+    for _,f in ipairs(targeting.filters(spell)) do
+        local m=ids.matches(f,e)
+        if m~=true then return false,m==false and 'filter' or 'unknown-filter' end
+    end
+    if targeting.protected(e,spell) then return false,'protected' end
+    return true
+end
+
+local function resisted(e,label)
+    local r=type(e.resist)=='table' and e.resist[M.RESIST[label] or '']
+    if not number(r) then return 1 end
+    return math.max(0,1-r/100)
+end
+local function notResisted(e) return 1-clamp(number(e.mr) and e.mr or 0,0,100)/100 end
+-- The chance e makes its saving throw against role: a d20 plus the effect's bonus reaching the
+-- best of e's saves the role allows. Unknown saves count as even odds.
+function M.saveChance(role,e)
+    if type(role.save)~='table' or next(role.save)==nil then return 0 end
+    local best
+    for name in pairs(role.save) do
+        local v=type(e.saves)=='table' and e.saves[name]
+        if number(v) and (best==nil or v<best) then best=v end
+    end
+    if not best then return 0.5 end
+    local bonus=number(role.saveBonus) and role.saveBonus or 0
+    return clamp((21-(best-bonus))/20,0.05,0.95)
+end
+-- How much of a remembered failure still counts: a spell that missed e without a save and
+-- without magic resistance to blame met an immunity.
+local function remembered(input,resref,e,role)
+    if not input.mind.memory or type(input.memory)~='table' then return 1 end
+    local misses=input.memory[resref..':'..tostring(e.id)]
+    if not number(misses) or misses<=0 then return 1 end
+    local saves=type(role.save)=='table' and next(role.save)~=nil
+    if not saves and not (number(e.mr) and e.mr>0) then return 0 end
+    if misses>=3 then return 0 end
+    return 0.5^misses
+end
+
+local function damageOn(input,row,role,e)
+    local hp,maxHp=e.hp,e.maxHp
+    if not number(hp) or not number(maxHp) or maxHp<=0 or hp<=0 then return 0 end
+    local amount=0
+    for label,v in pairs(type(role.types)=='table' and role.types or {}) do
+        if number(v) then amount=amount+v*resisted(e,label) end
+    end
+    if number(role.percent) then amount=amount+maxHp*role.percent/100 end
+    if amount<=0 then return 0 end
+    local land=notResisted(e)
+    local save=M.saveChance(role,e)
+    local expected=amount*land*(role.saveForHalf and 1-save/2 or 1-save)
+    local worth=math.min(expected,hp)/maxHp
+    -- The cast kills when the hit points it deals (halved on a save, if it allows half)
+    -- reach those e has left.
+    local kill=0
+    if amount>=hp then
+        kill=land*((role.saveForHalf and amount/2>=hp) and 1 or 1-save)
+    end
+    worth=worth+input.mind.killBonus*kill
+    local plan=input.plan
+    if type(plan)=='table' and plan.focus==e.id then worth=worth*(1+input.mind.focusBonus*input.mind.coordination) end
+    return worth*remembered(input,row.resref,e,role)
+end
+
+local function disableOn(input,row,role,e)
+    if targeting.disabled(e) then return 0 end
+    local plan=input.plan
+    local reserved=type(plan)=='table' and type(plan.reserved)=='table' and plan.reserved[e.id]
+    if reserved and reserved~=input.frame.self.id and input.mind.coordination>=0.5 then return 0 end
+    local level=e.level
+    if number(level) and ((number(role.maxLevel) and level>role.maxLevel) or (number(role.minLevel) and level<role.minLevel)) then
+        return 0
+    end
+    local factor,forGood=0,false
+    for label in pairs(type(role.kinds)=='table' and role.kinds or {}) do
+        local f=M.DISABLE[label] or 0
+        if M.CASTERS_ONLY[label] and not ids.caster(e) then f=f*0.2 end
+        if label=='turnUndead' and not (type(e.ids)=='table' and e.ids.general==4) then f=0 end
+        if label=='sleep' and role.wakesOnDamage then f=f*0.6 end
+        if f>factor then factor,forGood=f,M.FOR_GOOD[label]==true end
+    end
+    if factor<=0 then return 0 end
+    local health=targeting.health(e)
+    local length
+    if forGood then length=1
+    elseif role.duration=='permanent' then length=1
+    elseif number(role.duration) and role.duration>0 then length=clamp(role.duration/M.fullSeconds,0,1)
+    else length=0.5 end
+    -- Taking out a nearly dead enemy is worth less than taking out a healthy one; taking one
+    -- out for good is worth what killing it is.
+    local worth=forGood and factor*(health+input.mind.killBonus) or factor*length*(0.5+0.5*health)
+    local chance=notResisted(e)*(1-M.saveChance(role,e))
+    return worth*chance*remembered(input,row.resref,e,role)
+end
+
+local function offset(a,b) return b.x-a.x,(b.y-a.y)*4/3 end
+local function inCone(origin,aim,p,radius,half)
+    local ax,ay=offset(origin,aim)
+    local px,py=offset(origin,p)
+    local d=math.sqrt(px*px+py*py)
+    if d>radius then return false end
+    if d<1 then return true end
+    local la=math.sqrt(ax*ax+ay*ay)
+    if la<1 then return false end
+    return (ax*px+ay*py)/(la*d)>=math.cos(math.rad(math.min(half,180)))
+end
+
+-- Who an area at center (aimed at aim for a cone) reaches, by edge: inside returns whether p
+-- is in it, near whether p is within the ally margin of it.
+local function shape(spell,caster,center,aim)
+    local a=spell.area
+    if a.cone then
+        local half=a.cone/2
+        return function(p) return inCone(caster,aim,p,a.radius,half) end,
+            function(p) return inCone(caster,aim,p,a.radius+M.allyMargin,half+10) end
+    end
+    return function(p) return targeting.distance(center,p)<=a.radius end,
+        function(p) return targeting.distance(center,p)<=a.radius+M.allyMargin end
+end
+
+local function worthOn(input,row,kind,spell,e)
+    if kind=='damage' then return damageOn(input,row,spell.roles.damage,e) end
+    return disableOn(input,row,spell.roles.disable,e)
+end
+
+-- One option: the spell aimed at a creature or a point, its worth, cost and score, or nil
+-- and why it is no option.
+local function evaluate(input,row,spell,kind,mode,aim)
+    local frame=input.frame
+    local caster=frame.self
+    local a=spell.area
+    local worth,hits,slack=0,{},0
+    if mode=='creature' then
+        local e=aim.enemy
+        local ok,why=affects(spell,e)
+        if not ok then return nil,why end
+        if kind=='disable' and targeting.disabled(e) then return nil,'disabled' end
+        worth=worthOn(input,row,kind,spell,e)
+        hits[1]=e.id
+    else
+        local center=aim.point
+        if a.line or a.rectangle then
+            -- An enemies-only line or box: counted for the creature aimed at only.
+            local e=aim.enemy
+            if not e or not affects(spell,e) then return nil,'shape' end
+            worth=worthOn(input,row,kind,spell,e)
+            hits[1]=e.id
+        else
+            local inside,near=shape(spell,caster,center,aim.point)
+            if a.filter~='enemies' then
+                for _,ally in ipairs(type(frame.allies)=='table' and frame.allies or {}) do
+                    if targeting.alive(ally) and near(ally) then return nil,'ally-in-area' end
+                end
+                -- A cone starts at the caster; any other area must keep it out.
+                if not a.cone then
+                    if mode=='self-area' then
+                        if not a.skipsCenter then return nil,'caster-in-area' end
+                    elseif near(caster) then return nil,'caster-in-area' end
+                end
+            end
+            -- How far the nearest hit enemy is from the area's edge: an area that holds its
+            -- enemies well inside still hits them after a step.
+            slack=math.huge
+            for _,e in ipairs(frame.enemies) do
+                if targeting.alive(e) and inside(e) and affects(spell,e) then
+                    local w=worthOn(input,row,kind,spell,e)
+                    if w>0 then
+                        worth=worth+w;hits[#hits+1]=e.id
+                        slack=math.min(slack,a.radius-targeting.distance(a.cone and caster or center,e))
+                    end
+                end
+            end
+            if slack==math.huge then slack=0 end
+        end
+    end
+    if worth<=0 then return nil,'no-worth' end
+    local level=number(row.level) and row.level or number(spell.level) and spell.level or 1
+    local cost=input.mind.economy*M.costPerLevel*level
+    local option={resref=row.resref,kind=kind,mode=mode,worth=worth,cost=cost,score=worth-cost,hits=hits,slack=slack}
+    if aim.enemy and (mode=='creature' or mode=='creature-area') then option.target=aim.enemy.id
+    elseif mode=='point-area' then option.point={x=math.floor(aim.point.x+0.5),y=math.floor(aim.point.y+0.5)}
+    elseif mode=='self-area' then option.self=true
+    elseif aim.enemy then option.target=aim.enemy.id end
+    return option
+end
+
+-- Where the spell can be aimed: enemies it can reach for creature spells; for point areas each
+-- such enemy's spot and the middle of the enemies around it; the caster for its own area.
+local function aims(input,spell,mode)
+    local frame=input.frame
+    local caster=frame.self
+    local out={}
+    if mode=='self-area' then
+        out[1]={point={x=caster.x,y=caster.y}}
+        if spell.area.cone then out={} end
+        return out
+    end
+    for _,e in ipairs(frame.enemies) do
+        if mode=='point-area' then
+            if targeting.alive(e) and number(e.x) and number(e.y) then
+                local p={x=e.x,y=e.y}
+                if targeting.distance(caster,p)<=range(spell) then out[#out+1]={point=p,enemy=e} end
+                local sx,sy,n=0,0,0
+                for _,o in ipairs(frame.enemies) do
+                    if targeting.alive(o) and number(o.x) and number(o.y) and targeting.distance(e,o)<=spell.area.radius then
+                        sx,sy,n=sx+o.x,sy+o.y,n+1
+                    end
+                end
+                if n>1 then
+                    local m={x=sx/n,y=sy/n}
+                    if targeting.distance(caster,m)<=range(spell) then out[#out+1]={point=m} end
+                end
+            end
+        elseif aimable(caster,e,spell) then
+            out[#out+1]={enemy=e,point={x=e.x,y=e.y}}
+        end
+    end
+    return out
+end
+
+local function better(a,b)
+    if a.score~=b.score then return a.score>b.score end
+    if a.slack~=b.slack then return a.slack>b.slack end
+    if a.resref~=b.resref then return a.resref<b.resref end
+    local ta,tb=a.target or -1,b.target or -1
+    if ta~=tb then return ta<tb end
+    local pa,pb=a.point or {x=-1,y=-1},b.point or {x=-1,y=-1}
+    if pa.x~=pb.x then return pa.x<pb.x end
+    return pa.y<pb.y
+end
+
+-- Every option the caster has, best first.
+function M.options(input)
+    local out={}
+    for _,row in ipairs(type(input.spells)=='table' and input.spells or {}) do
+        if type(row)=='table' and number(row.ready) and row.ready>0 and row.usable then
+            local spell=row.spell
+            local kind,mode=M.attack(spell)
+            if kind then
+                local seen={}
+                for _,aim in ipairs(aims(input,spell,mode)) do
+                    local option=evaluate(input,row,spell,kind,mode,aim)
+                    if option then
+                        local key=tostring(option.target)..':'..(option.point and option.point.x..','..option.point.y or '')
+                        if not seen[key] then seen[key]=true;out[#out+1]=option end
+                    end
+                end
+            end
+        end
+    end
+    table.sort(out,better)
+    return out
+end
+
+-- Healing the caster has ready: for itself, and for others.
+function M.heals(input)
+    local own,others=false,false
+    for _,row in ipairs(type(input.spells)=='table' and input.spells or {}) do
+        local h=type(row)=='table' and number(row.ready) and row.ready>0 and row.usable and
+            type(row.spell)=='table' and type(row.spell.roles)=='table' and row.spell.roles.heal
+        if type(h)=='table' and type(h.who)=='table' then
+            if h.who.self or h.who.target then own=true end
+            if h.who.target or h.who.area or h.who.party then others=true end
+        end
+    end
+    for _,item in ipairs(type(input.items)=='table' and input.items or {}) do
+        for _,a in ipairs(type(item)=='table' and type(item.abilities)=='table' and item.abilities or {}) do
+            local h=type(a)=='table' and type(a.effect)=='table' and type(a.effect.roles)=='table' and a.effect.roles.heal
+            if type(h)=='table' and type(h.who)=='table' and (h.who.self or h.who.target) and
+                (not number(a.uses) or a.uses>0) then own=true end
+        end
+    end
+    return {self=own,others=others}
+end
+
+-- Something SCS's own order puts before attacks, which the engine leaves to SCS for now.
+function M.urgent(input)
+    local defer=type(input.mind.defer)=='table' and input.mind.defer or {}
+    local caster=input.frame.self
+    if defer.silenced and targeting.has(caster.state,M.SILENCED) then return 'silenced' end
+    if input.family=='priest' then
+        local heals=M.heals(input)
+        if heals.self and number(defer.selfHealth) and targeting.health(caster)<defer.selfHealth then return 'self-hurt' end
+        if heals.others and number(defer.allyHealth) then
+            for _,ally in ipairs(type(input.frame.allies)=='table' and input.frame.allies or {}) do
+                if targeting.alive(ally) and targeting.health(ally)<defer.allyHealth then return 'ally-hurt' end
+            end
+        end
+    end
+end
+
+-- The attack to cast now, or nil and why; the options come along for the log.
+function M.decide(input)
+    if type(input)~='table' or type(input.frame)~='table' or type(input.frame.self)~='table' or
+        type(input.frame.enemies)~='table' or type(input.mind)~='table' then return nil,'bad-input',{} end
+    local why=M.urgent(input)
+    if why then return nil,'urgent-'..why,{} end
+    local options=M.options(input)
+    if #options==0 then return nil,'no-option',options end
+    local mind=input.mind
+    local best=options[1]
+    if best.score<mind.minValue then return nil,'nothing-good',options end
+    local rng=input.rng
+    if not rng or rng:nextInt(1,1000)<=math.floor(mind.best*1000+0.5) then return best,'best',options end
+    local floor=math.max(mind.minValue,best.score-math.abs(best.score)*mind.band)
+    local pool={}
+    for _,o in ipairs(options) do if o.score>=floor then pool[#pool+1]=o end end
+    return pool[rng:nextInt(1,#pool)],'near-best',options
 end
 return M
 end
@@ -1216,8 +1826,19 @@ function M.new(config)
         return result
     end
 
+    -- The group's plan as its members use it at tick: the focus target and who holds which
+    -- disable reservation.
+    function api:plan(tick)
+        clock(tick)
+        local reserved={}
+        for target,r in pairs(reservations) do
+            if r.untilTick>tick and members[r.owner] then reserved[target]=r.owner end
+        end
+        return {focus=api:focus(tick),reserved=reserved}
+    end
+
     -- A member's cast has started at target (after any redirect). Any cast counts for the
-    -- picture; a disable reserves its target.
+    -- picture; a disable reserves its target. own: the engine chose the cast itself.
     function api:started(member,cast,tick)
         clock(tick)
         finish(member.id,tick,'replaced')
@@ -1230,7 +1851,7 @@ function M.new(config)
         end
         record({kind='start',tick=tick,member=member.id,family=member.family,spell=cast.spell,
             role=role,target=cast.target,original=cast.original,redirected=cast.redirected or nil,
-            typed=cast.typed or nil})
+            typed=cast.typed or nil,own=cast.own or nil})
     end
     -- A member started some other action: its cast, if any, is over.
     function api:action(member,tick) clock(tick);finish(member,tick,'next-action') end
@@ -1496,8 +2117,9 @@ factories["adapters.eeex.sense"]=function(require)
 -- finds this creature. Sides
 -- follow the engine's EA groups: for a creature on the evil side (EA 200 and up) the good side
 -- (EA 2 to 30) are enemies and the evil side are allies. With details, each enemy also carries
--- its creature IDS values and the spell protections a script can test (SCS's triggers read the
--- same). Only plain values leave this module; no engine object is kept.
+-- its creature IDS values, saves, resistances, level and the spell protections a script can
+-- test (SCS's triggers read the same). Only plain values leave this module; no engine object
+-- is kept.
 local M={}
 -- A sprite's default visual range in EEex's area search.
 M.sightRange=448
@@ -1506,6 +2128,12 @@ M.GOOD_CUTOFF,M.EVIL_CUTOFF=30,200
 M.stats={maxHp=1,mr=18,held=58,sanctuary=63,seeInvisible=81,trueSight=118}
 -- STATE_INVISIBLE and STATE_IMPROVEDINVISIBILITY; STATE_BLIND.
 M.unseen,M.blind=0x400010,0x40000
+-- STATS.IDS: the saving throws, resistances and levels SCS's attack blocks read about their
+-- targets; the engine's own choice reads the same (Christopher, 2026-10-18: as much as SCS).
+M.saves={death=9,wand=10,poly=11,breath=12,spell=13}
+M.resists={fire=14,cold=15,electricity=16,acid=17,magicfire=19,magiccold=20,slashing=21,crushing=22,
+    piercing=23,missile=24,magic=73,poison=74}
+M.levels={34,68,69}
 -- Effect opcodes that protect against spells (combat-intent/targeting.lua matches them).
 M.protections={}
 for _,op in ipairs({83,101,102,197,198,199,200,201,202,203,204,205,206,207,223,226,227,228,259,318,324}) do
@@ -1533,11 +2161,18 @@ function M.actor(g,sprite)
         mr=stat(g,sprite,M.stats.mr),action=sprite.m_curAction.m_actionID}
 end
 
--- Creature IDS values and the spell protections in both effect lists.
+-- Creature IDS values, saving throws, resistances, level and the spell protections in both
+-- effect lists.
 function M.details(g,sprite,entry)
     local t=sprite.m_typeAI
     entry.ids={ea=t.m_EnemyAlly,general=t.m_General,race=t.m_Race,class=t.m_Class,
         specific=t.m_Specifics,gender=t.m_Gender,alignment=t.m_Alignment}
+    entry.saves,entry.resist={},{}
+    for name,n in pairs(M.saves) do entry.saves[name]=stat(g,sprite,n) end
+    for name,n in pairs(M.resists) do entry.resist[name]=stat(g,sprite,n) end
+    local level=0
+    for _,n in ipairs(M.levels) do level=math.max(level,stat(g,sprite,n)) end
+    entry.level=level
     local found={}
     for _,list in ipairs({sprite.m_timedEffectList,sprite.m_equipedEffectList}) do
         local seen=0
@@ -1621,6 +2256,113 @@ function M.frame(g,sprite,tick,detailed)
 end
 return M
 end
+factories["adapters.eeex.creature"]=function(require)
+-- What one creature carries right now, read from the engine: its memorized spells and innate
+-- abilities (copies, ready copies, and whether the engine offers them on its spell buttons),
+-- its items with their remaining uses, and its level. Only plain values leave this module;
+-- combat-intent/abilities.lua turns the snapshot into a classified profile.
+local M={}
+-- Memorized spell lists on the sprite and how many spell levels each has.
+M.lists={{'mage','m_memorizedSpellsMage',9},{'priest','m_memorizedSpellsPriest',7},
+    {'innate','m_memorizedSpellsInnate',1}}
+-- The engine's button lists for the spell and the innate-ability menus.
+M.buttons={2,4}
+-- Item slots in SLOTS.IDS order, which the engine's item array uses: 0-9 worn, 10 fist,
+-- 11-14 ammo, 15-17 quick items, 18-33 backpack, 34 magic weapon, 35-38 weapons.
+M.slots=39
+-- LEVEL, LEVEL2 and LEVEL3 in STATS.IDS.
+M.levelStats={34,68,69}
+
+local function clean(value)
+    return (value:match('^[^%z]*'):gsub('[a-z]',function(c) return string.char(c:byte()-32) end))
+end
+
+-- Spells the engine would let the creature cast now (a silenced caster's buttons are disabled).
+local function usable(g,sprite)
+    local found={}
+    for _,kind in ipairs(M.buttons) do
+        local list=sprite:GetQuickButtons(kind,false)
+        if list~=nil then
+            local ok,err=pcall(g.EEex_Utility_IterateCPtrList,list,function(button)
+                if button.m_count>0 and (button.m_bDisabled==0 or button.m_bDisabled==false) then
+                    found[clean(button.m_abilityId.m_res:get())]=true
+                end
+            end)
+            g.EEex_Utility_FreeCPtrList(list)
+            if not ok then error(err,0) end
+        end
+    end
+    return found
+end
+
+local function memorized(g,sprite)
+    local rows,index={},{}
+    for _,list in ipairs(M.lists) do
+        local name,field,levels=list[1],list[2],list[3]
+        for level=0,levels-1 do
+            g.EEex_Utility_IterateCPtrList(sprite[field]:getReference(level),function(spell)
+                local resref=clean(spell.m_spellId:get())
+                if resref=='' then return end
+                local row=index[name..':'..resref]
+                if not row then
+                    row={list=name,resref=resref,level=level+1,memorized=0,ready=0}
+                    index[name..':'..resref]=row;rows[#rows+1]=row
+                end
+                row.memorized=row.memorized+1
+                if spell.m_flags%2==1 then row.ready=row.ready+1 end
+            end)
+        end
+    end
+    return rows
+end
+
+local function items(g,equipment)
+    local rows={}
+    local toPtr=rawget(g,'EEex_UDToPtr')
+    for slot=0,M.slots-1 do
+        local item=equipment.m_items:get(slot)
+        if item~=nil and (type(toPtr)~='function' or toPtr(item)~=0) then
+            local resref=clean(item.cResRef:get())
+            if resref~='' then
+                rows[#rows+1]={slot=slot,resref=resref,flags=item.m_flags,
+                    uses={item.m_useCount1,item.m_useCount2,item.m_useCount3}}
+            end
+        end
+    end
+    return rows
+end
+
+local function read(g,sprite,resources)
+    local level=0
+    for _,stat in ipairs(M.levelStats) do
+        local value=g.EEex_Sprite_GetStat(sprite,stat)
+        if type(value)=='number' and value>level then level=value end
+    end
+    local equipment=sprite.m_equipment
+    local snapshot={resref=clean(sprite.m_resref:get()),
+        scriptName=sprite.m_scriptName:get():match('^[^%z]*'),
+        level=level,spells=memorized(g,sprite),items=items(g,equipment),
+        selectedWeapon=equipment.m_selectedWeapon,selectedAbility=equipment.m_selectedWeaponAbility}
+    local found=usable(g,sprite)
+    for _,row in ipairs(snapshot.spells) do
+        row.usable=found[row.resref]==true
+        -- The engine's level check reads the spell file, so ask only for spells the game has.
+        if resources and resources.get('SPL',row.resref) then
+            local ok,value=pcall(g.EEex_Sprite_GetCasterLevelForSpell,sprite,row.resref,false)
+            if ok and type(value)=='number' then row.casterLevel=value end
+        end
+    end
+    return snapshot
+end
+
+-- The creature's snapshot, or nil and the error. resources is an adapters.eeex.resources reader.
+function M.read(g,sprite,resources)
+    local ok,value=pcall(read,g,sprite,resources)
+    if ok then return value end
+    return nil,tostring(value)
+end
+return M
+end
 factories["adapters.eeex.director"]=function(require)
 -- EEex side of the fight director. Hooked creatures check in when their hook is reached (the
 -- gate's observe callback), each at most every checkTicks, with a plain perception frame
@@ -1630,7 +2372,8 @@ factories["adapters.eeex.director"]=function(require)
 -- action's target, as EEex's own SpellToPoint listener changes a starting action: the cast
 -- keeps its casting time, spell slot and interruption. A cast aimed at a kind of creature
 -- ([PC.0.0.MAGE]) has no target yet when it starts; a decoded copy of its object names the
--- creature it would hit. Session-local; a load forgets it all.
+-- creature it would hit. The engine's own casts (adapters/eeex/choice.lua) are recorded for
+-- the picture and the reservations but never advised. Session-local; a load forgets it all.
 -- Errors never reach the engine: the cast then goes ahead as the creature's script chose it.
 local sense=require('adapters.eeex.sense')
 local resources=require('adapters.eeex.resources')
@@ -1657,8 +2400,8 @@ function M.new(g,options)
     local reader=options.reader or resources.new(g)
     local directors,memberArea,memberFamily,lastCheck={},{},{},{}
     local cache,cached={},0
-    local root,sink
-    local counts={checkIns=0,starts=0,advised=0,redirected=0,errors=0}
+    local root,sink,choice
+    local counts={checkIns=0,starts=0,advised=0,redirected=0,own=0,errors=0}
     local adapter={}
     local function now() return root and root.now and root.now() end
     local function director(area)
@@ -1713,12 +2456,20 @@ function M.new(g,options)
     end
 
     local function started(sprite,action)
+        local tick=now()
+        -- The engine's own cast starting, or an action ending one (every sprite comes here).
+        local own=choice and type(tick)=='number' and choice:started(sprite,action,tick)
         local id=sprite.m_id
         local area=memberArea[id]
         if not area then return end
         local d=directors[area]
-        local tick=now()
         if not d or type(tick)~='number' or not d:isMember(id) then return end
+        if own then
+            counts.own=counts.own+1
+            d:started({id=id,family=memberFamily[id]},{spell=own.spell,role=own.role,target=own.target,
+                original=own.target,action=action.m_actionID,own=true},tick)
+            return
+        end
         if action.m_actionID~=31 then d:action(id,tick);return end
         counts.starts=counts.starts+1
         local resref=M.resref(action)
@@ -1773,6 +2524,16 @@ function M.new(g,options)
         if not ok then failed('started',err) end
     end
 
+    -- The group's plan for a member at tick (focus, reservations), or nil outside a group.
+    function adapter:plan(id,tick)
+        local area=memberArea[id]
+        local d=area and directors[area]
+        if not d then return nil end
+        local ok,plan=pcall(d.plan,d,tick)
+        if ok then return plan end
+        failed('plan',plan)
+    end
+    function adapter:setChoice(c) choice=c end
     function adapter:attach(r) root=r end
     function adapter:setSink(fn) assert(fn==nil or type(fn)=='function');sink=fn end
     function adapter:invalidate()
@@ -1789,6 +2550,369 @@ function M.new(g,options)
 end
 return M
 end
+factories["adapters.eeex.choice"]=function(require)
+-- EEex side of the engine's own choice (step 3, second slice). When a hooked mage's or
+-- priest's script asks the gate and SCS's round timer has run out, this reads what the
+-- creature perceives (sense.lua, with the details SCS's scripts read), what it has ready
+-- (creature.lua, classified by combat-intent/spells.lua) and the director's plan, and asks
+-- combat-intent/choice.lua for an attack. A chosen attack becomes the gate's decision: a
+-- normal SpellRES or SpellPointRES that first sets SCS's round timer as SCS's own cast blocks
+-- do, so SCS's filler runs between casts. Right before the response is queued the target is
+-- checked again and named through EEex's EEex_Target object, which reads the caster's own
+-- table, so no other creature's choice can change it. A cast that never starts is given up;
+-- one that ends with no effect on its target is remembered as a miss. No answer, an error or
+-- a switch leaves the round to SCS. Session-local; a load forgets it all.
+local sense=require('adapters.eeex.sense')
+local creature=require('adapters.eeex.creature')
+local resources=require('adapters.eeex.resources')
+local spells=require('combat-intent.spells')
+local targeting=require('combat-intent.targeting')
+local choice=require('combat-intent.choice')
+local mind=require('combat-intent.mind')
+local rngs=require('kernel.rng')
+local M={}
+M.families={mage=true,priest=true}
+-- Game ticks (15 a second). A queued cast that has not started after pendingTicks is given up;
+-- outcomeTicks after a cast ends, its effect on the target is judged.
+M.pendingTicks=45
+M.outcomeTicks=30
+-- A started cast that ends this much before its casting time was interrupted.
+M.interruptSlack=3
+-- The name under which the caster's EEex_Target table holds the engine's target.
+M.targetName='BGSE'
+-- SCS's round timer, set the way SCS's own cast blocks set it.
+M.timer='castspell'
+M.setTimer='SetGlobalTimer("castspell","LOCALS",ONE_ROUND)'
+M.cacheLimit=1024
+M.logCapacity=128
+M.judgeLimit=64
+-- Item slots a creature drinks from: the quick items and the backpack (SLOTS.IDS).
+M.itemFirst,M.itemLast=15,33
+-- Casts of the engine's own: Spell (SpellRES) and SpellPoint (SpellPointRES).
+M.CASTS={[31]=true,[95]=true}
+M.required={'EEex_GameObject_Get','EEex_GameObject_IsSprite','EEex_Sprite_GetCastTimer',
+    'EEex_Sprite_GetLocalInt','EEex_GetUDAux','EEex_Sprite_GetState','EEex_Sprite_GetStat'}
+local UNSEEN=targeting.STATE.invisible+targeting.STATE.improvedInvisible
+
+local function text(value) return (value:match('^[^%z]*'):upper()) end
+local function valid(resref) return type(resref)=='string' and #resref>0 and #resref<=8 and not resref:find('[^A-Z0-9_#%-]') end
+local function whole(v) return type(v)=='number' and v>=0 and v<65536 and v%1==0 end
+
+-- Whether SCS's round timer is still running for sprite at tick. Game timers hold the game
+-- time they run out at; without the accessor the timer counts as running, so the engine never
+-- takes a round it cannot place.
+function M.timerRunning(g,sprite,tick)
+    local get=rawget(g,'EEex_Sprite_GetLocalInt')
+    if type(get)~='function' then return true end
+    local ok,value=pcall(get,sprite,M.timer)
+    return ok and type(value)=='number' and value>tick
+end
+
+-- The response that casts decision's spell, or nil.
+function M.response(decision)
+    if type(decision)~='table' or not valid(decision.resref) then return nil end
+    if decision.point then
+        local p=decision.point
+        if not whole(p.x) or not whole(p.y) then return nil end
+        return M.setTimer..' SpellPointRES("'..decision.resref..'",['..p.x..'.'..p.y..'])'
+    end
+    if decision.self then return M.setTimer..' SpellRES("'..decision.resref..'",Myself)' end
+    local t=decision.target
+    if type(t)=='number' and t>=0 and t%1==0 then
+        return M.setTimer..' SpellRES("'..decision.resref..'",EEex_Target("'..M.targetName..'"))'
+    end
+end
+
+function M.new(g,options)
+    options=options or {}
+    local reader=options.reader or resources.new(g)
+    local director=options.director
+    local defaultMind=mind.new()
+    local mindFor=options.mindFor or function() return defaultMind end
+    local seed=options.seed
+    if type(seed)~='number' then
+        local clock=rawget(g,'os') and g.os.time or (os and os.time)
+        seed=(clock and clock() or 1)%2147483645+1
+    end
+    local rng=rngs.new(seed)
+    local enabled=options.enabled~=false
+    local missing
+    for _,name in ipairs(M.required) do
+        if type(rawget(g,name))~='function' then missing=missing or name end
+    end
+    local cache,cached,items,itemCount={},0,{},0
+    local pending,running,judging,memory={},{},{},{}
+    local counts={decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
+        hits=0,misses=0,errors=0,holds=0}
+    local reasons={}
+    local log,nextRow,size={},1,0
+    local root,sink,lastError
+    local api={}
+
+    local function now() return root and root.now and root.now() end
+    local function record(row)
+        log[nextRow]=row;nextRow=nextRow%M.logCapacity+1;size=math.min(size+1,M.logCapacity)
+        if sink then pcall(sink,row) end
+    end
+    local function failed(where,err)
+        counts.errors=counts.errors+1
+        lastError=where..': '..tostring(err):sub(1,200)
+        record({kind='error',where=where,error=tostring(err):sub(1,200)})
+    end
+    local function decline(why)
+        counts.declines=counts.declines+1
+        reasons[why]=(reasons[why] or 0)+1
+        return nil
+    end
+    local function get(id)
+        local object=g.EEex_GameObject_Get(id)
+        if object and g.EEex_GameObject_IsSprite(object,false) then return object end
+    end
+
+    -- A spell at a caster level, classified once.
+    local function classify(resref,level)
+        local key=resref..':'..level
+        if cache[key]==nil then
+            if cached>=M.cacheLimit then cache,cached={},0 end
+            local record=reader.get('SPL',resref)
+            local index=record and spells.abilityForLevel(record,level)
+            cache[key]=index and spells.classify(record,index,reader.lookup,{level=level}) or false
+            cached=cached+1
+        end
+        return cache[key] or nil
+    end
+    -- An item's first three abilities, classified once.
+    local function item(resref)
+        if items[resref]==nil then
+            if itemCount>=M.cacheLimit then items,itemCount={},0 end
+            local record=reader.get('ITM',resref)
+            local list={}
+            if record and type(record.abilities)=='table' then
+                for i=1,math.min(3,#record.abilities) do list[i]=spells.classify(record,i,reader.lookup,{level=1}) end
+            end
+            items[resref]=list;itemCount=itemCount+1
+        end
+        return items[resref]
+    end
+    -- What the creature has ready: its spells with their classification, and the items it can
+    -- drink or use from its quick slots and backpack.
+    local function book(sprite)
+        local snapshot,err=creature.read(g,sprite,reader)
+        if not snapshot then return nil,err end
+        local rows={}
+        for _,s in ipairs(snapshot.spells) do
+            local level=s.casterLevel or snapshot.level or 1
+            if level<1 then level=1 end
+            rows[#rows+1]={resref=s.resref,list=s.list,level=s.level,ready=s.ready,memorized=s.memorized,
+                usable=s.usable,spell=classify(s.resref,level)}
+        end
+        local carried={}
+        for _,it in ipairs(snapshot.items) do
+            if it.slot>=M.itemFirst and it.slot<=M.itemLast then
+                local abilities={}
+                for i,effect in ipairs(item(it.resref)) do
+                    abilities[i]={effect=effect,uses=type(it.uses)=='table' and it.uses[i] or nil}
+                end
+                carried[#carried+1]={resref=it.resref,abilities=abilities}
+            end
+        end
+        return rows,carried
+    end
+
+    -- The effect of finished casts on their targets: a target that lost hit points, became
+    -- disabled by a disable, or carries an effect of the spell was hit.
+    local function outcome(a)
+        if not a.target or a.mode~='creature' then return end
+        if a.castTicks and a.ended-a.started<a.castTicks-M.interruptSlack then
+            counts.interrupted=counts.interrupted+1;return
+        end
+        local target=get(a.target)
+        if not target then return end
+        local hit=a.hp~=nil and target.m_baseStats.m_hitPoints<a.hp
+        if not hit and a.kind=='disable' then hit=targeting.disabled(sense.actor(g,target)) end
+        if not hit then
+            for _,list in ipairs({target.m_timedEffectList,target.m_equipedEffectList}) do
+                local n=0
+                g.EEex_Utility_IterateCPtrList(list,function(effect)
+                    n=n+1
+                    if n>sense.maxEffects then return true end
+                    if text(effect.m_sourceRes:get())==a.resref then hit=true;return true end
+                end)
+                if hit then break end
+            end
+        end
+        local key=a.resref..':'..a.target
+        local mine=memory[a.caster] or {}
+        memory[a.caster]=mine
+        if hit then counts.hits=counts.hits+1;mine[key]=nil
+        else counts.misses=counts.misses+1;mine[key]=(mine[key] or 0)+1 end
+        record({kind='outcome',tick=a.ended,member=a.caster,spell=a.resref,target=a.target,hit=hit,misses=mine[key]})
+    end
+    local function judge(tick)
+        for id,a in pairs(running) do
+            local sprite=get(id)
+            local action=sprite and sprite.m_curAction
+            local ours=action and M.CASTS[action.m_actionID] and text(action.m_string1.m_pchData:get())==a.resref
+            if not ours then
+                a.ended=tick;running[id]=nil
+                if #judging<M.judgeLimit then judging[#judging+1]=a end
+            end
+        end
+        local keep={}
+        for _,a in ipairs(judging) do
+            if tick<a.ended then
+            elseif tick-a.ended>=M.outcomeTicks then outcome(a)
+            else keep[#keep+1]=a end
+        end
+        judging=keep
+    end
+
+    local function decide(view,family)
+        if not enabled or missing then return decline(missing and 'missing' or 'off') end
+        if not M.families[family] then return decline('family') end
+        local tick=now()
+        if type(tick)~='number' then return decline('no-clock') end
+        local id=view.id
+        local sprite=get(id)
+        if not sprite then return decline('no-sprite') end
+        judge(tick)
+        local p=pending[id]
+        if p then
+            if tick>=p.tick and tick-p.tick<=M.pendingTicks then counts.holds=counts.holds+1;return {hold=true} end
+            pending[id]=nil;counts.lost=counts.lost+1
+            record({kind='lost',tick=tick,member=id,spell=p.resref,target=p.target,queued=p.tick})
+        end
+        if M.timerRunning(g,sprite,tick) then return decline('timer') end
+        if g.EEex_Sprite_GetCastTimer(sprite)~=-1 then return decline('aura') end
+        if targeting.CASTS[sprite.m_curAction.m_actionID] then return decline('casting') end
+        local frame=sense.frame(g,sprite,tick,true)
+        if not frame then return decline('no-frame') end
+        if sense.side(frame.self.ea)~='evil' then return decline('side') end
+        if #frame.enemies==0 then return decline('no-enemy') end
+        local rows,carried=book(sprite)
+        if not rows then failed('book',carried);return nil end
+        counts.decisions=counts.decisions+1
+        local input={tick=tick,family=family,frame=frame,spells=rows,items=carried,
+            plan=director and director:plan(id,tick) or {},memory=memory[id] or {},mind=mindFor(sprite,family),rng=rng}
+        local d,why,options=choice.decide(input)
+        local top={}
+        for i=1,math.min(3,#options) do
+            local o=options[i]
+            top[i]={spell=o.resref,target=o.target,point=o.point,score=o.score,hits=#o.hits}
+        end
+        if not d then
+            if why~='no-option' then record({kind='decline',tick=tick,member=id,family=family,reason=why,top=top}) end
+            return decline(why)
+        end
+        local response=M.response(d)
+        if not response then return decline('bad-response') end
+        counts.claims=counts.claims+1
+        record({kind='choice',tick=tick,member=id,family=family,spell=d.resref,castKind=d.kind,mode=d.mode,
+            target=d.target,point=d.point,score=d.score,worth=d.worth,hits=d.hits,how=why,top=top,
+            focus=input.plan.focus})
+        local spell
+        for _,row in ipairs(rows) do if row.resref==d.resref then spell=row.spell end end
+        return {own=true,response=response,spell=d.resref,kind=d.kind,mode=d.mode,target=d.target,point=d.point,
+            self=d.self,castTicks=spell and type(spell.speed)=='number' and spell.speed*9 or nil}
+    end
+    -- From the gate, each time a hooked script asks: nil (SCS's round), {hold=true} while the
+    -- engine's queued cast has not started, or the decision.
+    function api:decide(view,family)
+        local ok,result=pcall(decide,view,family)
+        if ok then return result end
+        failed('decide',result)
+    end
+
+    -- Right before the gate queues the response: the caster can still cast and the target is
+    -- still a living, visible creature without sanctuary; then the caster's EEex_Target table
+    -- names it. Decisions of other deciders (lab experiments) pass unchanged.
+    local function prepare(object,decision)
+        if not decision.own then return true end
+        if not enabled or missing then return 'skipped' end
+        local tick=now()
+        if type(tick)~='number' then return 'skipped' end
+        if g.EEex_Sprite_GetCastTimer(object)~=-1 or M.timerRunning(g,object,tick) then return 'skipped' end
+        local hp
+        if decision.target and not decision.point and not decision.self then
+            local target=get(decision.target)
+            if not target then return 'skipped' end
+            local seen=sense.actor(g,target)
+            if not targeting.alive(seen) or (seen.sanctuary or 0)>0 then return 'skipped' end
+            if targeting.has(seen.state,UNSEEN) and not (g.EEex_Sprite_GetStat(object,sense.stats.seeInvisible)>0 or
+                g.EEex_Sprite_GetStat(object,sense.stats.trueSight)>0) then return 'skipped' end
+            local aux=g.EEex_GetUDAux(object)
+            local make=rawget(g,'EEex_Utility_GetOrCreateTable')
+            local names
+            if type(make)=='function' then names=make(aux,'EEex_Target')
+            else
+                names=aux.EEex_Target
+                if type(names)~='table' then names={};aux.EEex_Target=names end
+            end
+            names[M.targetName]=decision.target
+            hp=seen.hp
+        end
+        pending[object.m_id]={caster=object.m_id,resref=decision.spell,kind=decision.kind,mode=decision.mode,
+            target=decision.target,point=decision.point,tick=tick,hp=hp,castTicks=decision.castTicks}
+        counts.performed=counts.performed+1
+        return true
+    end
+    function api:prepare(object,decision)
+        local ok,result=pcall(prepare,object,decision)
+        if ok then
+            if result=='skipped' then counts.skipped=counts.skipped+1 end
+            return result
+        end
+        failed('prepare',result)
+        return false
+    end
+
+    -- From the director's started-action listener, for every sprite's every action: the
+    -- engine's queued cast starting (returned for the director's picture), or another action
+    -- ending a running one.
+    local function started(sprite,action,tick)
+        local id=sprite.m_id
+        local p,r=pending[id],running[id]
+        if not p and not r then return nil end
+        if r then
+            r.ended=tick;running[id]=nil
+            if #judging<M.judgeLimit then judging[#judging+1]=r end
+        end
+        if p and M.CASTS[action.m_actionID] and text(action.m_string1.m_pchData:get())==p.resref then
+            pending[id]=nil;p.started=tick;running[id]=p
+            counts.started=counts.started+1
+            record({kind='start',tick=tick,member=id,spell=p.resref,target=p.target,point=p.point,
+                waited=tick-p.tick})
+            return {spell=p.resref,role=p.kind,target=p.target}
+        end
+    end
+    function api:started(sprite,action,tick)
+        local ok,result=pcall(started,sprite,action,tick)
+        if ok then return result end
+        failed('started',result)
+    end
+
+    function api:setEnabled(value)
+        assert(type(value)=='boolean');enabled=value
+        if not value then pending={} end
+    end
+    function api:attach(r) root=r end
+    function api:setSink(fn) assert(fn==nil or type(fn)=='function');sink=fn end
+    function api:invalidate() pending,running,judging,memory={},{},{},{} end
+    function api:inspect()
+        local copy=function(t) local c={};for k,v in pairs(t) do c[k]=v end;return c end
+        local rows,first={},(nextRow-size-1)%M.logCapacity+1
+        for i=0,size-1 do rows[#rows+1]=log[(first+i-1)%M.logCapacity+1] end
+        local open,busy,remembered=0,0,0
+        for _ in pairs(pending) do open=open+1 end
+        for _ in pairs(running) do busy=busy+1 end
+        for _,mine in pairs(memory) do for _ in pairs(mine) do remembered=remembered+1 end end
+        return {enabled=enabled,missing=missing or false,counts=copy(counts),reasons=copy(reasons),
+            pending=open,running=busy,judging=#judging,remembered=remembered,log=rows,lastError=lastError or false}
+    end
+    return api
+end
+return M
+end
 factories["adapters.eeex.hook"]=function(require)
 -- EEex side of the BCS handoff. A hook block's trigger calls BGSE_Claim(object, family, script)
 -- and its response calls BGSE_Act(object); guarded copies of SCS blocks above the hook call
@@ -1799,6 +2923,9 @@ factories["adapters.eeex.hook"]=function(require)
 -- into the creature's script: a failure is a decline, and the script's own blocks run on.
 -- options.director (adapters/eeex/director.lua) gets the gate's check-ins and EEex's
 -- started-action events; it acts only while the gate is on for the creature's family.
+-- options.choice (adapters/eeex/choice.lua) is the engine's own choice; options.prepare runs
+-- right before a decision's response is queued and may skip it ('skipped'): a target gone by
+-- then is no error.
 local hook=require('kernel.hook')
 local M={}
 M.keys={mage='Mages',priest='Priests',fighter='Fighters',monster='Monsters'}
@@ -1809,6 +2936,7 @@ local function ini(g,key)
     if ok and type(value)=='number' then return value end
     return 1
 end
+M.ini=ini
 function M.settings(g)
     local families={}
     for family,key in pairs(M.keys) do families[family]=ini(g,key)~=0 end
@@ -1864,7 +2992,7 @@ function M.install(g,options)
     options=options or {}
     local settings=M.settings(g)
     local clock=options.now or function() return M.gameTime(g) end
-    local director=options.director
+    local director,choice,prepare=options.director,options.choice,options.prepare
     local gate=hook.new({
         now=clock,
         observe=director and function(view,family) director:observe(view,family) end,
@@ -1879,12 +3007,17 @@ function M.install(g,options)
         perform=function(a,decision)
             local object=sprite(g,a.id)
             if not object or type(decision.response)~='string' or #decision.response==0 then return false end
+            if prepare then
+                local ready=prepare(object,decision)
+                if ready=='skipped' then return 'skipped' end
+                if ready~=true then return false end
+            end
             g.EEex_Action_QueueResponseStringOnAIBase(decision.response,object)
             return true
         end,
     })
     local previous=rawget(g,'BGSE')
-    local root={gate=gate,version=options.version or 'dev',director=director,
+    local root={gate=gate,version=options.version or 'dev',director=director,choice=choice,
         listening=type(previous)=='table' and previous.listening or false,
         watching=type(previous)=='table' and previous.watching or false}
     -- Game time for helpers, or nil when it cannot be read.
@@ -1898,11 +3031,18 @@ function M.install(g,options)
     function root.setFamily(family,value,persist)
         gate:setFamily(family,value);if persist then store(g,M.keys[family],value) end
     end
+    -- The engine's own choice on or off (Baldur.lua [BGSE] Choice); off leaves the rounds to
+    -- SCS, with the director's advice.
+    function root.setChoice(value,persist)
+        if choice then choice:setEnabled(value) end
+        if persist then store(g,'Choice',value) end
+    end
     -- Experiments install a decider here: function(actor, family) -> nil | {response=...} | {hold=true}.
     function root.setDecider(fn) gate:setDecider(fn) end
     function root.inspect()
         local state=gate:inspect()
         if director then state.director=director:inspect() end
+        if choice then state.choice=choice:inspect() end
         return state
     end
     g.BGSE=root
@@ -1927,6 +3067,7 @@ function M.install(g,options)
             local current=rawget(g,'BGSE')
             if type(current)=='table' and current.gate then current.gate:invalidate() end
             if type(current)=='table' and current.director then pcall(current.director.invalidate,current.director) end
+            if type(current)=='table' and current.choice then pcall(current.choice.invalidate,current.choice) end
         end)
         root.listening=true
     end
@@ -1940,21 +3081,35 @@ function M.install(g,options)
         root.watching=true
     end
     if director then director:attach(root) end
+    if choice then choice:attach(root) end
     return root
 end
 return M
 end
 factories["adapters.eeex.runtime"]=function(require)
--- The installed runtime: the BCS handoff gate with the fight director attached. Without the
--- director (it failed to start) the gate still installs and SCS runs as before.
+-- The installed runtime: the BCS handoff gate with the fight director and the engine's own
+-- choice attached. Without the director or the choice (either failed to start) the gate still
+-- installs, and SCS runs its rounds as before. The choice follows Baldur.lua's [BGSE] Choice
+-- (on unless 0).
 local hook=require('adapters.eeex.hook')
 local director=require('adapters.eeex.director')
+local choice=require('adapters.eeex.choice')
 local M={}
 function M.install(g,options)
     options=options or {}
     if options.director==nil then
         local ok,value=pcall(director.new,g)
         if ok then options.director=value end
+    end
+    if options.choice==nil then
+        local ok,value=pcall(choice.new,g,{director=options.director,enabled=hook.ini(g,'Choice')~=0})
+        if ok then options.choice=value end
+    end
+    local own=options.choice
+    if own then
+        if options.decide==nil then options.decide=function(view,family) return own:decide(view,family) end end
+        if options.prepare==nil then options.prepare=function(object,decision) return own:prepare(object,decision) end end
+        if options.director then options.director:setChoice(own) end
     end
     return hook.install(g,options)
 end

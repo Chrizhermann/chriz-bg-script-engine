@@ -210,4 +210,16 @@ assert(g:claim(actor,'mage')==true and #seen==3 and g:allows('mage') and not g:a
 g:setEnabled(false)
 assert(not g:allows('mage'))
 rejects(function() raw.new({now=clock,observe=1}) end)
-return 15
+
+-- 16. A performer may skip a decision that no longer fits (its target died meanwhile): no
+-- error and no backoff, so the next pass decides again at once.
+local skips=0
+g=hook.new({now=clock,decide=function() return {response='NoAction()'} end,
+    perform=function() skips=skips+1;return skips==1 and 'skipped' or true end})
+pass()
+assert(g:claim(actor,'mage')==true)
+ok,why=g:act(actor);assert(ok==false and why=='skipped')
+assert(g:inspect().counts.skipped==1 and g:inspect().counts.errors==0 and g:inspect().counts.acted==0)
+pass()
+assert(g:claim(actor,'mage')==true and g:act(actor)==true and g:inspect().counts.acted==1)
+return 16

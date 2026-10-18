@@ -168,8 +168,19 @@ function M.new(config)
         return result
     end
 
+    -- The group's plan as its members use it at tick: the focus target and who holds which
+    -- disable reservation.
+    function api:plan(tick)
+        clock(tick)
+        local reserved={}
+        for target,r in pairs(reservations) do
+            if r.untilTick>tick and members[r.owner] then reserved[target]=r.owner end
+        end
+        return {focus=api:focus(tick),reserved=reserved}
+    end
+
     -- A member's cast has started at target (after any redirect). Any cast counts for the
-    -- picture; a disable reserves its target.
+    -- picture; a disable reserves its target. own: the engine chose the cast itself.
     function api:started(member,cast,tick)
         clock(tick)
         finish(member.id,tick,'replaced')
@@ -182,7 +193,7 @@ function M.new(config)
         end
         record({kind='start',tick=tick,member=member.id,family=member.family,spell=cast.spell,
             role=role,target=cast.target,original=cast.original,redirected=cast.redirected or nil,
-            typed=cast.typed or nil})
+            typed=cast.typed or nil,own=cast.own or nil})
     end
     -- A member started some other action: its cast, if any, is over.
     function api:action(member,tick) clock(tick);finish(member,tick,'next-action') end

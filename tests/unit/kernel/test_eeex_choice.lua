@@ -1,0 +1,302 @@
+-- EEex side of the engine's own choice against fake engine globals: taking the round through
+-- the gate, the response that casts and sets SCS's round timer, the target named through
+-- EEex_Target, holding while the cast is queued, the director's picture of the engine's own
+-- casts, outcomes and memory, re-checks, switches, errors and loads.
+local runtime=require('adapters.eeex.runtime')
+local directors=require('adapters.eeex.director')
+local choices=require('adapters.eeex.choice')
+local groups=0
+
+local function band(a,b)
+    a,b=a%4294967296,b%4294967296
+    local r,bit=0,1
+    while a>0 and b>0 do
+        local x,y=a%2,b%2
+        if x==1 and y==1 then r=r+bit end
+        a,b,bit=(a-x)/2,(b-y)/2,bit*2
+    end
+    return r
+end
+local function str(v) return {get=function() return v end} end
+local AREA={m_resref=str('AR0001'),m_lVertSortBack={}}
+local function memorized(list) return {getReference=function(_,level) return list[level] or {} end} end
+-- A sprite at (x, y) with EA ea; stats by STATS.IDS number. book: memorized spells by spell
+-- level (0-based) as {resref, ready}; buttons: the resrefs its spell buttons offer.
+local function sprite(id,x,y,ea,fields)
+    local s={m_id=id,m_pos={x=x,y=y},m_typeAI={m_EnemyAlly=ea,m_General=1,m_Race=1,m_Class=2,m_Specifics=0,
+        m_Gender=1,m_Alignment=0},m_baseStats={m_hitPoints=40,m_generalState=0},m_curAction={m_actionID=0},
+        m_pArea=AREA,m_timedEffectList={},m_equipedEffectList={},m_resref=str('TEST'..id),m_scriptName=str('c'..id),
+        state=0,stats={[1]=40},levels={[7]='S1'},locals={},book={},buttons={},items={}}
+    s.m_memorizedSpellsMage=memorized(s.book)
+    s.m_memorizedSpellsPriest=memorized({})
+    s.m_memorizedSpellsInnate=memorized({})
+    s.m_equipment={m_selectedWeapon=10,m_selectedWeaponAbility=0,m_items={get=function(_,slot) return s.items[slot] end}}
+    function s:GetQuickButtons(kind)
+        local list={}
+        if kind==2 then for _,r in ipairs(self.buttons) do list[#list+1]={m_count=1,m_bDisabled=0,m_abilityId={m_res=str(r)}} end end
+        return list
+    end
+    for k,v in pairs(fields or {}) do s[k]=v end
+    return s
+end
+local function learn(s,level,resref,count)
+    s.book[level]=s.book[level] or {}
+    for _=1,count or 1 do table.insert(s.book[level],{m_spellId=str(resref),m_flags=1}) end
+    s.buttons[#s.buttons+1]=resref
+end
+local function world()
+    local g={ticks=100,objects={},order={},listeners={destroyed={},started={}},queued={},
+        BGSE_HOOKED={s1='mage',s2='priest',s3='fighter'}}
+    local time=setmetatable({},{__index=function(_,key) if key=='m_gameTime' then return g.ticks end end})
+    g.EngineGlobals={g_pBaldurChitin={m_pObjectGame={m_worldTime=time}}}
+    g.EEex_BAnd=band
+    g.EEex_GameObject_Get=function(id) return g.objects[id] end
+    g.EEex_GameObject_IsSprite=function(o,allowDead) return o~=nil and (allowDead or band(o.state,0xFC0)==0) end
+    g.EEex_Sprite_GetState=function(s) return s.state end
+    g.EEex_Sprite_GetStat=function(s,n) return s.stats[n] or 0 end
+    g.EEex_Sprite_GetCasterLevelForSpell=function() return 10 end
+    g.EEex_Sprite_GetLocalInt=function(s,name) return s.locals[name] or 0 end
+    g.EEex_Sprite_GetCastTimer=function(s) return s.castTimer or -1 end
+    g.EEex_GetUDAux=function(o) o.aux=o.aux or {};return o.aux end
+    g.EEex_Utility_GetOrCreateTable=function(t,key) t[key]=t[key] or {};return t[key] end
+    g.EEex_Utility_IterateCPtrList=function(t,fn) for _,x in ipairs(t) do if fn(x) then break end end end
+    g.EEex_Utility_FreeCPtrList=function() end
+    g.EEex_AIBase_GetScriptLevelResRef=function(o,level) return o.levels[level] or '' end
+    g.EEex_Action_QueueResponseStringOnAIBase=function(text,o) g.queued[#g.queued+1]={id=o.m_id,text=text} end
+    local function search(x,y,range,fn)
+        for _,id in ipairs(g.order) do
+            local o=g.objects[id]
+            local dx,dy=o.m_pos.x-x,o.m_pos.y-y
+            if dx*dx+dy*dy<=range*range then fn(o) end
+        end
+    end
+    g.EEex_Sprite_ForAllOfTypeStringInRange=function(s,what,range,fn) search(s.m_pos.x,s.m_pos.y,range,fn) end
+    g.EEex_Area_ForAllOfTypeStringInRange=function(area,x,y,what,range,fn) search(x,y,range,fn) end
+    g.EEex_Object_EvalAsAIBase=function() return nil end
+    g.EEex_GameState_AddDestroyedListener=function(fn) table.insert(g.listeners.destroyed,fn) end
+    g.EEex_Action_AddSpriteStartedActionListener=function(fn) table.insert(g.listeners.started,fn) end
+    function g.add(s) g.objects[s.m_id]=s;g.order[#g.order+1]=s.m_id;return s end
+    return g
+end
+local function fx(op,fields)
+    local e={opcode=op,target=2,power=0,p1=0,p2=0,timing=0,resist=0,duration=0,prob1=100,prob2=0,
+        res='',dice=0,sides=0,save=0,saveBonus=0,special=0}
+    for k,v in pairs(fields or {}) do e[k]=v end
+    return e
+end
+local function spl(resref,level,effects,target,projectile)
+    return {kind='SPL',resref=resref,name=0,flags=1024,spellType=1,exclusion=0,school=0,secondary=0,level=level,
+        casting={},abilities={{form=1,flags=0,location=2,target=target or 1,targetCount=0,range=30,minLevel=1,
+        speed=3,projectile=projectile or 2,effects=effects}}}
+end
+local records={
+    TESTBOLT=spl('TESTBOLT',3,{fx(12,{p2=8*65536,dice=6,sides=6})}),
+    TESTBALL=spl('TESTBALL',3,{fx(12,{p2=8*65536,dice=6,sides=6})},4,3),
+    TESTHEAL=spl('TESTHEAL',4,{fx(17,{p1=20})})}
+local POTION={kind='ITM',resref='TESTPOTN',flags=0,abilities={{form=3,flags=0,location=3,target=5,range=1,speed=0,
+    projectile=1,effects={fx(17,{p1=20,target=1})}}}}
+local reader={problems={},get=function(kind,resref)
+        if kind=='SPL' then return records[resref] end
+        if kind=='ITM' and resref=='TESTPOTN' then return POTION end
+    end,
+    lookup=function(kind,key)
+        if kind=='PRO' and key==2 then return {kind='PRO',resref='SINGLE',type=2,speed=20,flags=0,extFlags=0} end
+        if kind=='PRO' and key==3 then
+            return {kind='PRO',resref='AREA',type=3,speed=20,flags=0,extFlags=0,areaFlags=0,trigger=30,radius=64,coneWidth=0}
+        end
+        if kind=='SPL' then return records[key] end
+    end}
+local function action(id,resref,target)
+    return {m_actionID=id,m_string1={m_pchData=str(resref or '')},m_specificID=0,m_acteeID={m_Instance=target}}
+end
+
+-- The scene: mage 1 (EA 255) with two Fire Bolts; enemies 11-13 (EA 2), 12 badly wounded.
+local g=world()
+local m1=g.add(sprite(1,0,0,255))
+learn(m1,2,'TESTBOLT',2)
+local e11=g.add(sprite(11,100,0,2))
+local e12=g.add(sprite(12,200,0,2,{m_baseStats={m_hitPoints=5,m_generalState=0}}))
+local e13=g.add(sprite(13,300,0,2))
+local dir=directors.new(g,{reader=reader})
+local ch=choices.new(g,{reader=reader,director=dir,seed=7})
+local rows,picture={},{}
+ch:setSink(function(row) rows[#rows+1]=row end)
+dir:setSink(function(row) picture[#picture+1]=row end)
+local root=runtime.install(g,{director=dir,choice=ch,version='test'})
+assert(root.choice==ch and root.director==dir and #g.listeners.started==1)
+local function claim(s,family,script,tick)
+    g.ticks=tick
+    return g.BGSE_Claim(s,family,script)
+end
+local function start(s,a) g.listeners.started[1](s,a);return a end
+local function last(kind) for i=#rows,1,-1 do if rows[i].kind==kind then return rows[i] end end end
+
+-- 1. Formats and the timer: SCS's round timer is set before the cast; the target is named by
+-- EEex_Target; a game timer runs while it holds a later game time.
+assert(choices.response({resref='SPWI304',target=12})==
+    'SetGlobalTimer("castspell","LOCALS",ONE_ROUND) SpellRES("SPWI304",EEex_Target("BGSE"))')
+assert(choices.response({resref='SPWI304',point={x=430,y=107}})==
+    'SetGlobalTimer("castspell","LOCALS",ONE_ROUND) SpellPointRES("SPWI304",[430.107])')
+assert(choices.response({resref='SPPR502',self=true}):find('SpellRES%("SPPR502",Myself%)')~=nil)
+assert(choices.response({resref='BAD"X',target=1})==nil and choices.response({resref='SPWI304',point={x=-1,y=2}})==nil)
+assert(choices.response({resref='SPWI304'})==nil)
+m1.locals.castspell=150
+assert(choices.timerRunning(g,m1,100) and not choices.timerRunning(g,m1,150))
+m1.locals.castspell=nil
+assert(choices.timerRunning({},m1,100))
+groups=groups+1
+
+-- 2. The round is the engine's: the Fire Bolt goes to the director's focus, the wounded 12,
+-- which it kills; the response sets SCS's timer and casts at EEex_Target, which names 12.
+assert(claim(m1,'mage','s1',100)==true)
+local c=last('choice')
+assert(c.spell=='TESTBOLT' and c.target==12 and c.focus==12 and #c.top==3 and c.top[1].target==12)
+g.BGSE_Act(m1)
+assert(#g.queued==1 and g.queued[1].id==1 and g.queued[1].text:find('SpellRES%("TESTBOLT",EEex_Target%("BGSE"%)%)')~=nil)
+assert(m1.aux.EEex_Target.BGSE==12)
+local state=root.inspect()
+assert(state.counts.acted==1 and state.choice.counts.claims==1 and state.choice.counts.performed==1 and state.choice.pending==1)
+-- Queued, not started: the next pass holds, so SCS's blocks cannot replace the cast.
+assert(claim(m1,'mage','s1',101)==true)
+g.BGSE_Act(m1)
+assert(#g.queued==1 and root.inspect().counts.held==1 and root.inspect().choice.counts.holds==1)
+groups=groups+1
+
+-- 3. The cast starts: the director records it as the engine's own and never advises on it.
+local a=start(m1,action(31,'TESTBOLT',-1))
+assert(a.m_acteeID.m_Instance==-1)
+local own
+for _,row in ipairs(picture) do if row.kind=='start' and row.own then own=row end end
+assert(own and own.spell=='TESTBOLT' and own.target==12 and own.role=='damage')
+state=root.inspect()
+assert(state.choice.counts.started==1 and state.choice.running==1 and state.director.counts.own==1 and
+    state.director.counts.advised==0)
+-- While it runs, SCS's round timer (set by the response) leaves the round to SCS's filler.
+m1.m_curAction=action(31,'TESTBOLT',12)
+m1.locals.castspell=190
+assert(claim(m1,'mage','s1',120)==false and root.inspect().choice.reasons.timer==1)
+-- It ends; 30 ticks later its effect is judged: 12 lost its hit points.
+m1.m_curAction={m_actionID=0}
+e12.m_baseStats.m_hitPoints=0
+assert(claim(m1,'mage','s1',130)==false and root.inspect().choice.judging==1)
+m1.locals.castspell=0
+assert(claim(m1,'mage','s1',165)==true)
+state=root.inspect().choice
+assert(state.counts.hits==1 and state.judging==0 and last('outcome').hit==true)
+-- With 12 dead the focus moves on to the nearer 11, and so does the next bolt.
+c=last('choice');assert(c.target==11 and c.focus==11)
+groups=groups+1
+
+-- 4. A bolt that leaves its target untouched, with no save or magic resistance to blame, met
+-- an immunity: the mage remembers it and turns to 13. An interrupted cast says nothing.
+g.BGSE_Act(m1)
+assert(m1.aux.EEex_Target.BGSE==11)
+start(m1,action(31,'TESTBOLT',-1))
+m1.m_curAction=action(31,'TESTBOLT',11);m1.locals.castspell=300
+assert(claim(m1,'mage','s1',200)==false)
+m1.m_curAction={m_actionID=0}
+assert(claim(m1,'mage','s1',201)==false)
+m1.locals.castspell=0
+assert(claim(m1,'mage','s1',235)==true)
+state=root.inspect().choice
+assert(state.counts.misses==1 and state.remembered==1 and last('outcome').hit==false and last('outcome').misses==1)
+c=last('choice');assert(c.target==13)
+g.BGSE_Act(m1)
+start(m1,action(31,'TESTBOLT',-1))
+-- Damage ends the cast four ticks in, long before its casting time.
+start(m1,action(3,'',13))
+m1.locals.castspell=0
+assert(claim(m1,'mage','s1',275)==true)
+state=root.inspect().choice
+assert(state.counts.interrupted==1 and state.counts.misses==1 and state.counts.hits==1)
+groups=groups+1
+
+-- 5. Right before acting the target is checked again: one that died meanwhile skips the act
+-- without an error or a backoff; a cast queued that never starts is given up.
+local errors=root.inspect().counts.errors
+c=last('choice');assert(c.target==13)
+e13.state=0x800
+g.BGSE_Act(m1)
+state=root.inspect()
+assert(state.counts.skipped==1 and state.counts.errors==errors and state.choice.counts.skipped==1 and state.choice.pending==0)
+e13.state=0
+local queued=#g.queued
+assert(claim(m1,'mage','s1',280)==true)
+g.BGSE_Act(m1)
+assert(#g.queued==queued+1 and root.inspect().choice.pending==1)
+assert(claim(m1,'mage','s1',300)==true and root.inspect().choice.counts.holds==2)
+g.BGSE_Act(m1)
+assert(claim(m1,'mage','s1',330)==true and root.inspect().choice.counts.lost==1)
+assert(last('lost').spell=='TESTBOLT' and last('lost').queued==280)
+groups=groups+1
+
+-- 6. SCS keeps the round: the switch off, a silenced mage, a busy aura, a cast already
+-- running, families the choice does not drive, a creature on the good side.
+g.BGSE_Act(m1)
+start(m1,action(31,'TESTBOLT',-1))
+start(m1,action(0,'',0))
+root.setChoice(false)
+assert(claim(m1,'mage','s1',400)==false and root.inspect().choice.reasons.off==1)
+root.setChoice(true)
+m1.state=0x1000
+assert(claim(m1,'mage','s1',401)==false and root.inspect().choice.reasons['urgent-silenced']==1)
+m1.state=0
+m1.castTimer=40
+assert(claim(m1,'mage','s1',402)==false and root.inspect().choice.reasons.aura==1)
+m1.castTimer=nil
+m1.m_curAction=action(31,'SPWI112',11)
+assert(claim(m1,'mage','s1',403)==false and root.inspect().choice.reasons.casting==1)
+m1.m_curAction={m_actionID=0}
+local fighter=g.add(sprite(4,0,40,255,{levels={[7]='S3'}}))
+learn(fighter,2,'TESTBOLT')
+assert(claim(fighter,'fighter','s3',404)==false and root.inspect().choice.reasons.family==1)
+local friend=g.add(sprite(5,0,-40,2))
+learn(friend,2,'TESTBOLT')
+assert(claim(friend,'mage','s1',405)==false and root.inspect().choice.reasons.side==1)
+groups=groups+1
+
+-- 7. An area spell at a point: the Fireball goes where it catches the whole cluster (the
+-- middle ranks first; equal options are drawn at random), as a SpellPointRES, and its start
+-- at that point is the engine's own.
+local m6=g.add(sprite(6,0,100,255))
+learn(m6,2,'TESTBALL')
+local f21=g.add(sprite(21,300,100,2));local f22=g.add(sprite(22,330,100,2));g.add(sprite(23,360,100,2))
+for _,e in ipairs({e11,e12,e13}) do e.state=0x800 end
+assert(claim(m6,'mage','s1',410)==true)
+c=last('choice')
+assert(c.spell=='TESTBALL' and c.mode=='point-area' and #c.hits==3 and c.point.y==100 and c.target==nil)
+assert(c.top[1].point.x==330 and c.top[1].hits==3)
+g.BGSE_Act(m6)
+assert(g.queued[#g.queued].text:find('SpellPointRES%("TESTBALL",%['..c.point.x..'%.100%]%)')~=nil)
+start(m6,action(95,'TESTBALL',-1))
+assert(root.inspect().choice.counts.started>=5)
+groups=groups+1
+
+-- 8. A priest leaves the round to SCS while an ally is badly hurt and healing is ready.
+local p7=g.add(sprite(7,0,140,255,{levels={[7]='S2'}}))
+learn(p7,3,'TESTBOLT');learn(p7,3,'TESTHEAL')
+f21.state=0;f22.state=0
+local hurt=g.add(sprite(8,20,140,255,{m_baseStats={m_hitPoints=10,m_generalState=0}}))
+assert(claim(p7,'priest','s2',420)==false and root.inspect().choice.reasons['urgent-ally-hurt']==1)
+hurt.m_baseStats.m_hitPoints=40
+assert(claim(p7,'priest','s2',421)==true)
+groups=groups+1
+
+-- 9. Errors stay inside: a creature whose spellbook cannot be read, and a broken decision,
+-- leave the round to SCS without a gate error; a load forgets every queued cast.
+local before=root.inspect().counts.errors
+local broken=g.add(sprite(9,0,180,255))
+broken.m_memorizedSpellsMage={getReference=function() error('unreadable') end}
+assert(claim(broken,'mage','s1',430)==false)
+state=root.inspect()
+assert(state.counts.errors==before and state.choice.counts.errors==1 and state.choice.lastError:find('^book: ')~=nil)
+assert(ch:decide({id=1},nil)==nil)
+assert(claim(m1,'mage','s1',440)==true)
+g.BGSE_Act(m1)
+assert(root.inspect().choice.pending>=1)
+g.listeners.destroyed[1]()
+state=root.inspect().choice
+assert(state.pending==0 and state.running==0 and state.remembered==0)
+groups=groups+1
+
+return groups

@@ -93,6 +93,7 @@ local function filters(spell)
     end
     return all
 end
+M.filters=filters
 
 -- Spell protections that would stop this spell: turning, deflection, traps and globes by
 -- level, school or secondary type; immunity or bounce by opcode or projectile; protection
