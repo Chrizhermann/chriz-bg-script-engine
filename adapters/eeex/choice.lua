@@ -498,6 +498,14 @@ function M.new(g,options)
     function api:attach(r) root=r end
     function api:setSink(fn) assert(fn==nil or type(fn)=='function');sink=fn end
     function api:setTrace(value) assert(type(value)=='boolean');trace=value end
+    -- Labs: the default profile with these changes (combat-intent/mind.lua), e.g. {caution=0}
+    -- to weigh no defences; nil restores the default. Returns false and the bad field.
+    function api:setMind(changes)
+        local m,bad=mind.new(changes)
+        if not m then return false,bad end
+        defaultMind=m
+        return true
+    end
     function api:invalidate()
         pending,running,judging,memory,stop,resumed={},{},{},{},nil,nil
         lastDefence,known={},{}

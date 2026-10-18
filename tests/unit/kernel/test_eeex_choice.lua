@@ -590,6 +590,18 @@ g7.listeners.started[1](other,action(31,'TESTSTON',2))
 other.locals.castspell=0
 g7.ticks=316
 assert(g7.BGSE_Claim(other,'mage','s1')==true and last7('choice',2).spell=='TESTBOLT')
+-- Labs can weigh no defences (caution 0): the first mage, its skins gone and the pause over,
+-- attacks the swordsmen, now near death; a bad profile change is refused and changes nothing.
+mage.m_timedEffectList={};mage.stats[88]=0
+for _,id in ipairs({11,12}) do g7.objects[id].m_baseStats.m_hitPoints=20 end
+assert(ch7:setMind({caution=-1})==false)
+assert(ch7:setMind({caution=0})==true)
+g7.ticks=400;mage.locals.castspell=0;mage.m_curAction={m_actionID=0}
+assert(g7.BGSE_Claim(mage,'mage','s1')==true and last7('choice',1).spell=='TESTBOLT')
+local weighed=false
+for _,o in ipairs(last7('choice',1).top) do if o.kind=='defence' then weighed=true;assert(o.score<0) end end
+assert(weighed)
+assert(ch7:setMind(nil)==true)
 groups=groups+1
 
 return groups
