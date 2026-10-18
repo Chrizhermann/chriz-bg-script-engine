@@ -464,7 +464,7 @@ against dummies):
   Free Action and no charm to one with Chaotic Commands. A director fault found on the way is
   fixed: it would not move a cast away from a creature immune to it.
 
-**Next:** the engine's own openers and defences.
+**Next:** the engine's own openers and defences (see "Step 3, third slice").
 
 **Asked with the report**, answered by Christopher on 2026-10-18:
 
@@ -487,6 +487,60 @@ against dummies):
    investieren, immer um die Fallbacks und die Umlenkungen zu implementieren." **So:** neither
    stopgap is built (SCS's opener first, redirects away from immune enemies); the engine's own
    openers and defences come next and replace both.
+
+## Step 3, third slice: openers and defences (design, 2026-10-19)
+
+([DEFENCE-01](../research/DEFENCE-01-openers-and-defences.md))
+
+**What SCS does,** read from the installed scripts. After the pre-buffs, a fixed ladder runs
+each round, and the first matching block casts:
+
+- **Mages:**
+  - Time Stop when the party or a strong enemy is seen.
+  - Always one weapon protection: Protection from Magical Weapons, then Stoneskin, then Mirror
+    Image.
+  - Then Improved Invisibility or Spell Deflection/Turning, depending on whether an enemy
+    caster is seen.
+  - Then globes, and armour spells when enemies are close.
+- **Priests:**
+  - Close-range defences only with enemies near; long-term ones only while nobody is near.
+  - Group buffs from three enemies on, when allies are in range.
+  - Sanctuary under half health.
+- **Rhythm:** after each defence SCS waits a little more than a round, so the caster attacks in
+  between.
+- **Knowledge:** what the creature sees, distances, the number of enemies and their classes.
+  SCS does not read spellbooks.
+
+**The gap since the second slice:** the engine takes every round in which it has a good attack.
+SCS's ladder sits below the hook, so those rounds bring no defence.
+
+Christopher's answers, 2026-10-19:
+1. When does a caster defend, when attack? **Weigh per round,** "aber man könnte auch in der
+   Runde selbst noch nachjustieren... Das müssen wir uns aber gut überlegen." **So:**
+   protections and buffs become options on the attack's scale, with a caution knob in the
+   profile. Adjusting within the round is an open idea to think through together.
+2. Protect and buff allies on purpose? **Rather like SCS:** the casters themselves, plus area
+   buffs for the group. "du musst überlegen, dass viele einzelne Buffs an verbündeten außer
+   Resist Fear oder Remove Paralysis super lange dauern zu casten. Man kann natürlich Ausnahmen
+   machen, aber das müssen wir schauen." **So:** casting time is a cost. Single-target buffs on
+   allies come only as exceptions agreed with him.
+3. Time Stop and other combos: **like SCS first,** "und machen das dann später pro Gegner".
+
+**Build order:**
+1. **D1, defences and buffs:**
+   - What protections and buffs each creature has. The pre-buffs count, so they are renewed,
+     not cast again.
+   - A threat picture from what the creature perceives.
+   - Protections and area buffs as options on the attack's scale: the share of a friend's hit
+     points and fight time they probably save within a horizon, set against the best attack.
+   - Knobs: caution, horizon, a pause between defences like SCS's, and a casting-time cost.
+   - A lab with enemies that fight back.
+2. **D2, openers like SCS:**
+   - Time Stop when the party or a strong enemy is seen, followed by quick attacks.
+   - Improved Alacrity.
+   - Sequencers and spell triggers, judged by the spells they release.
+3. **D3, removing enemy protections:** Breach, Dispel Magic, Spell Thrust and the like, worth
+   what they open for the group's attacks.
 
 ## To design with Christopher
 
