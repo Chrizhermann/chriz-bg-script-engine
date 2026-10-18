@@ -1510,6 +1510,625 @@ function M.new(changes)
 end
 return M
 end
+factories["combat-intent.threat"]=function(require)
+-- What threatens a caster and its allies right now, from what the caster perceives (step 3,
+-- third slice, D1; DEFENCE-01). Inputs are plain values: the caster's perception frame
+-- (adapters/eeex/sense.lua), whose creatures may carry their armour class, attack data and
+-- current target. Nothing here touches the engine or raises on odd data; what is unknown counts
+-- with the defaults below.
+--
+-- Harm is counted per round, in hit points, by the way it comes:
+-- - weapons: from enemies that can strike the friend (melee within a round's walk, or ranged),
+--   with the hits and attacks behind it, which Stoneskin and Mirror Image absorb one by one;
+-- - spells: from enemy casters that see the friend, split into spells aimed at one creature and
+--   areas, and their chance to disable it.
+-- Who an enemy attacks: the friend its current action is aimed at, else the nearest friend it can
+-- reach. A caster's spells go to the friend it casts at, else spread over the friends it sees.
+-- An invisible friend is safe from weapons and aimed spells of enemies that do not see invisible
+-- creatures (lab: party fighters never attacked an invisible SCS mage). This is knowledge SCS's
+-- scripts have too (Christopher, 2026-10-18: as much as SCS).
+local targeting=require('combat-intent.targeting')
+local M={}
+M.ROUND=6
+-- How far a creature walks in a round, in world units (y counted 4/3): the lab's fighters covered
+-- about 100 a second. How far a melee weapon reaches.
+M.stride=600
+M.reach=64
+-- Attack data for an enemy whose weapon or stats were not read: one attack a round, the THAC0 of
+-- a mid-level fighter, the average hit of a long sword with a small bonus.
+M.unknownAttack={apr=1,thac0=12,damage=7,ranged=false,magical=true}
+-- Hit points a round an enemy caster deals per caster level, the share of it aimed at one
+-- creature (the rest comes as areas), and the chance a round it disables the friend it casts at.
+-- Rough on purpose: they weigh spell protections against weapon protections; the lab tunes them.
+M.spellPerLevel=1.2
+M.personal=0.6
+M.disablePerRound=0.15
+-- How much of a class's casting counts: full casters, bards, the half-casting warriors.
+M.CASTING={[1]=1,[3]=1,[11]=1,[19]=1,[21]=1,[5]=0.6,[6]=0.2,[12]=0.2,
+    [7]=0.8,[8]=0.8,[10]=0.8,[13]=0.8,[14]=0.8,[15]=0.8,[16]=0.6,[17]=0.8,[18]=0.6}
+-- Divine casters reach spell level 7, arcane ones 9.
+local DIVINE={[3]=true,[8]=true,[11]=true,[14]=true,[15]=true,[16]=true,[17]=true,[18]=true,[21]=true}
+local UNSEEN=targeting.STATE.invisible+targeting.STATE.improvedInvisible
+
+local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
+local function clamp(v,a,b) if v<a then return a elseif v>b then return b end return v end
+
+-- The chance a d20 attack roll with thac0 hits armour class ac.
+function M.hitChance(thac0,ac)
+    if not number(thac0) then thac0=M.unknownAttack.thac0 end
+    if not number(ac) then ac=10 end
+    return clamp((21-(thac0-ac))/20,0.05,0.95)
+end
+
+-- An enemy's attack data with the defaults filled in.
+function M.attack(e)
+    local a=type(e)=='table' and type(e.attack)=='table' and e.attack or {}
+    local u=M.unknownAttack
+    local apr=number(a.apr) and a.apr>0 and a.apr or u.apr
+    return {apr=apr,thac0=number(a.thac0) and a.thac0 or u.thac0,
+        damage=number(a.damage) and a.damage>=0 and a.damage or u.damage,
+        ranged=a.ranged==true,magical=a.magical~=false,range=number(a.range) and a.range or nil}
+end
+
+-- How much of a creature's class casts, 0 for none.
+function M.casting(e)
+    local class=type(e)=='table' and type(e.ids)=='table' and e.ids.class
+    return M.CASTING[class] or 0
+end
+-- The highest spell level a caster of its class and level casts.
+function M.spellLevel(e)
+    local level=type(e)=='table' and number(e.level) and e.level or 1
+    local class=type(e)=='table' and type(e.ids)=='table' and e.ids.class
+    local top=DIVINE[class] and 7 or 9
+    return clamp(math.ceil(level/2),1,top)
+end
+
+-- The caster and its living allies.
+function M.friends(frame)
+    local out={}
+    if type(frame)~='table' then return out end
+    if targeting.alive(frame.self) then out[#out+1]=frame.self end
+    for _,a in ipairs(type(frame.allies)=='table' and frame.allies or {}) do
+        if targeting.alive(a) then out[#out+1]=a end
+    end
+    return out
+end
+
+-- Whether e can aim at f: f is not hidden from it.
+local function sees(e,f) return e.seeInvisible==true or not targeting.has(f.state,UNSEEN) end
+
+local function entry(t,id)
+    local r=t[id]
+    if not r then
+        r={weapon={hp=0,hits=0,attacks=0,magicalAttacks=0},
+            spell={hp=0,personal=0,area=0,disable=0,casters=0,level=0},attackers={},casters={}}
+        t[id]=r
+    end
+    return r
+end
+
+-- The threat to each friend (the caster and its living allies), by id. Each entry has weapon
+-- {hp, hits, attacks, magicalAttacks} and spell {hp, personal, area, disable, casters, level}
+-- per round, and the ids of the enemies behind them.
+function M.picture(frame)
+    local out={}
+    local friends=M.friends(frame)
+    if #friends==0 or type(frame.enemies)~='table' then return out end
+    local byId={}
+    for _,f in ipairs(friends) do byId[f.id]=f;entry(out,f.id) end
+    for _,e in ipairs(frame.enemies) do
+        if targeting.alive(e) and not targeting.disabled(e) then
+            local a=M.attack(e)
+            -- Weapons: the friend it is aimed at, else the nearest one it can reach this round.
+            local reach=a.ranged and (a.range or math.huge) or M.reach+M.stride
+            local target=byId[e.actee]
+            if target and (targeting.distance(e,target)>reach or not sees(e,target)) then target=nil end
+            if not target then
+                local best=math.huge
+                for _,f in ipairs(friends) do
+                    local d=targeting.distance(e,f)
+                    if d<=reach and d<best and sees(e,f) then target,best=f,d end
+                end
+            end
+            if target then
+                local r=entry(out,target.id)
+                local hit=M.hitChance(a.thac0,target.ac)
+                r.weapon.hp=r.weapon.hp+a.apr*hit*a.damage
+                r.weapon.hits=r.weapon.hits+a.apr*hit
+                r.weapon.attacks=r.weapon.attacks+a.apr
+                if a.magical then r.weapon.magicalAttacks=r.weapon.magicalAttacks+a.apr end
+                r.attackers[#r.attackers+1]=e.id
+            end
+            -- Spells: the friend it casts at, else spread over the friends it sees. Areas reach
+            -- hidden friends too.
+            local weight=M.casting(e)
+            if weight>0 then
+                local level=number(e.level) and e.level or 1
+                local aimed=targeting.casting(e) and byId[e.actee]
+                local near={}
+                if aimed then near[1]=aimed
+                else
+                    for _,f in ipairs(friends) do
+                        if targeting.distance(e,f)<=448 then near[#near+1]=f end
+                    end
+                end
+                for _,f in ipairs(near) do
+                    local harm=weight*M.spellPerLevel*level/#near
+                    local r=entry(out,f.id)
+                    local open=sees(e,f)
+                    local personal=open and harm*M.personal or 0
+                    r.spell.personal=r.spell.personal+personal
+                    r.spell.area=r.spell.area+harm*(1-M.personal)
+                    r.spell.hp=r.spell.personal+r.spell.area
+                    if open then r.spell.disable=math.min(0.95,r.spell.disable+weight*M.disablePerRound/#near) end
+                    r.spell.casters=r.spell.casters+weight/#near
+                    r.spell.level=math.max(r.spell.level,M.spellLevel(e))
+                    r.casters[#r.casters+1]=e.id
+                end
+            end
+        end
+    end
+    return out
+end
+return M
+end
+factories["combat-intent.defence"]=function(require)
+-- The engine's own protections and buffs for one caster (step 3, third slice, D1; DEFENCE-01).
+-- Christopher's answers of 2026-10-19: weigh defence against attack every round; protect and
+-- buff allies rather like SCS: the caster itself, and areas around it that reach its allies.
+-- Single-target spells on allies only as exceptions agreed with him (the profile's allySpells,
+-- empty for now), because most of them take long to cast. Casting time counts.
+--
+-- Inputs are plain values, as for combat-intent/choice.lua: the caster's frame, whose friends
+-- (the caster and its allies) carry their armour class and guard (what protects them now) and
+-- may carry attack data; the classified ready spells; the profile; the tick and the tick of
+-- the caster's last defence. Nothing here touches the engine or raises on odd data.
+--
+-- Worth is on the attack's scale (shares of a creature):
+-- - A protection is worth the share of a friend's hit points it probably saves within the
+--   horizon, the kill bonus as far as it keeps the friend alive, and the rounds it keeps the
+--   friend in the fight (alive and not disabled), each worth a round of disable. Harm runs over
+--   time: Stoneskin's skins and Mirror Images absorb the first hits, so they buy rounds even
+--   when the friend falls in the end. What a friend has already counts first; the same kind
+--   twice counts once (the larger), independent kinds compound (armour lowers the hits that
+--   get past weapon immunity), and a fresh Stoneskin over skins that last the horizon gains
+--   nothing: SCS keeps "at least one" up.
+-- - A buff is worth the share of an enemy its receivers' extra weapon damage takes. The caster's
+--   own weapon does not count; it casts.
+-- Harm comes from combat-intent/threat.lua: weapons, spells aimed at one creature, areas and
+-- disables, as the caster perceives them.
+local targeting=require('combat-intent.targeting')
+local threat=require('combat-intent.threat')
+local M={}
+M.ROUND=6
+-- Worth of a round a friend is in the fight, as a share of it (attacks count a hold for the full
+-- 18 seconds as 1).
+M.disableRound=1/3
+-- Share of enemy casters' disables each kind makes up, for immunities to their opcodes.
+M.DISABLES={hold=0.25,charm=0.15,confusion=0.1,panic=0.1,sleep=0.05,stun=0.05,feeblemind=0.05,
+    death=0.1,petrify=0.05,silence=0.05,slow=0.05}
+-- Opcodes whose immunity keeps each kind of disable out.
+M.COVERS={[109]='hold',[175]='hold',[185]='hold',[5]='charm',[241]='charm',[128]='confusion',
+    [24]='panic',[39]='sleep',[217]='sleep',[45]='stun',[210]='stun',[76]='feeblemind',[13]='death',
+    [55]='death',[134]='petrify',[38]='silence',[40]='slow'}
+-- Share of enemy spell damage by type, for resistances, while the enemies' spells are unknown.
+M.SPELL_TYPES={fire=0.3,cold=0.15,electricity=0.15,acid=0.1,magic=0.2}
+M.PHYSICAL={'slashing','crushing','piercing'}
+-- Share of spells one school makes up, for an immunity to a school.
+M.schoolShare=1/8
+-- Share of attackers that do not see invisible creatures.
+M.unseeing=0.9
+-- A speed point of casting time is a tenth of a round.
+M.speedSeconds=0.6
+-- Worth of one spell level, times the profile's economy (as for attacks).
+M.costPerLevel=0.03
+-- Enemy armour class and hit points when no enemy shows them.
+M.enemyAc=5
+M.enemyHp=60
+
+local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
+local function clamp(v,a,b) if v<a then return a elseif v>b then return b end return v end
+local function amount(role,label)
+    local a=type(role)=='table' and role.amounts
+    local v=type(a)=='table' and a[label]
+    return number(v) and v or 0
+end
+-- Opcode 1 counts half attacks from 6 on: 6 is a half, 7 one and a half, up to 10.
+function M.attacks(v)
+    if not number(v) or v<=0 then return 0 end
+    if v>5 and v<=10 then return v-5.5 end
+    return v
+end
+
+-- What a set of roles (a spell's, or the effects a friend carries) protects against, as plain
+-- numbers. Sets of spell levels: all (globes keep out every spell of the level) and personal
+-- (deflections, turnings and traps take spells aimed at one creature).
+function M.shield(roles)
+    local s={stoneskin=0,mirror=0,armor=0,hp=0,mr=0,saves=0,schools=0,resist={},covers={},
+        all={},personal={},nonmagical=false,magicalUpTo=0,invisible=false,improved=false,blur=false}
+    local p=type(roles)=='table' and roles.protection
+    if type(p)=='table' then
+        local k=type(p.kinds)=='table' and p.kinds or {}
+        if type(p.weapons)=='table' then
+            for key,v in pairs(p.weapons) do
+                if key==2 then s.nonmagical=true
+                elseif key==0 and number(v) then s.magicalUpTo=math.max(s.magicalUpTo,v)
+                elseif key==1 then s.magicalUpTo=math.max(s.magicalUpTo,9) end
+            end
+        end
+        if number(p.stoneskin) then s.stoneskin=p.stoneskin end
+        if number(p.mirror) then s.mirror=p.mirror end
+        -- An armour change without an amount (setting the base armour class) counts as 2.
+        if k.armor then local a=amount(p,'armor');s.armor=a>0 and a or 2 end
+        s.blur=k.blur==true
+        s.invisible=k.invisible==true
+        s.improved=k.improvedInvisible==true
+        s.mr=amount(p,'magicResistance')
+        s.saves=amount(p,'saves')
+        if type(p.resist)=='table' then
+            for label,v in pairs(p.resist) do if number(v) then s.resist[label]=math.max(s.resist[label] or 0,v) end end
+        end
+        local immune=type(p.immuneBy)=='table' and p.immuneBy or {}
+        for level in pairs(type(immune.levels)=='table' and immune.levels or {}) do
+            if number(level) then s.all[level]=true end
+        end
+        for _,field in ipairs({'deflectBy','bounceBy','trapBy'}) do
+            local by=type(p[field])=='table' and p[field].levels
+            for top in pairs(type(by)=='table' and by or {}) do
+                if number(top) then for level=1,math.min(top,9) do s.personal[level]=true end end
+            end
+        end
+        for _ in pairs(type(immune.schools)=='table' and immune.schools or {}) do s.schools=s.schools+1 end
+        for op in pairs(type(immune.opcodes)=='table' and immune.opcodes or {}) do
+            local kind=M.COVERS[op]
+            if kind then s.covers[kind]=true end
+        end
+        if k.freeAction then s.covers.hold=true;s.covers.slow=true end
+    end
+    local b=type(roles)=='table' and roles.buff
+    if type(b)=='table' then s.hp=amount(b,'hp') end
+    return s
+end
+
+-- Two shields as one: the larger of each number, every flag and level of either.
+function M.union(a,b)
+    local s={resist={},covers={},all={},personal={}}
+    for _,k in ipairs({'stoneskin','mirror','armor','hp','mr','saves','schools','magicalUpTo'}) do
+        s[k]=math.max(a[k] or 0,b[k] or 0)
+    end
+    for _,k in ipairs({'nonmagical','invisible','improved','blur'}) do s[k]=a[k] or b[k] or false end
+    for _,k in ipairs({'resist','covers','all','personal'}) do
+        for key,v in pairs(a[k]) do s[k][key]=v end
+        for key,v in pairs(b[k]) do
+            if type(v)=='number' then s[k][key]=math.max(s[k][key] or 0,v) else s[k][key]=v end
+        end
+    end
+    return s
+end
+
+-- A friend's shield now: its guard's roles, with the engine's counts of Stoneskin skins and
+-- Mirror Images, its invisibility and magic resistance. Its armour class already holds the
+-- armour bonuses it has, so they do not count again.
+function M.held(friend)
+    local guard=type(friend)=='table' and type(friend.guard)=='table' and friend.guard or {}
+    local s=M.shield(guard.roles)
+    s.armor=0
+    if number(friend and friend.mr) then s.mr=math.max(s.mr,friend.mr) end
+    if number(guard.stoneskins) then s.stoneskin=guard.stoneskins end
+    if number(guard.mirror) then s.mirror=guard.mirror end
+    if targeting.has(friend and friend.state,targeting.STATE.improvedInvisible) then s.invisible,s.improved=true,true
+    elseif targeting.has(friend and friend.state,targeting.STATE.invisible) then s.invisible=true end
+    return s
+end
+
+-- The share of levels 1 to top in a set, or in either of two.
+local function share(set,top,other)
+    if top<1 then return 0 end
+    local n=0
+    for level=1,top do if set[level] or (other and other[level]) then n=n+1 end end
+    return n/top
+end
+-- What shield s keeps away of threat t (threat.picture's entry) over r rounds:
+-- - rate: the share of weapon harm it stops while it holds (weapon immunity, armour,
+--   invisibility, resistance); independent ways compound;
+-- - pool: the hits it absorbs one by one before weapon harm gets through (Stoneskin's skins;
+--   each Mirror Image takes an attack);
+-- - spell: the hit points of spell harm a round it keeps away; globes and deflections count
+--   by the levels they cover together, other ways compound;
+-- - personal: the share of aimed spells it keeps away;
+-- - disable: the share of disables it keeps away.
+function M.blocks(s,t,r)
+    local w,sp=t.weapon,t.spell
+    local rate,pool=0,0
+    if w.attacks>0 then
+        local magical=w.magicalAttacks/w.attacks
+        local open=1-((s.nonmagical and 1-magical or 0)+magical*clamp(s.magicalUpTo/3,0,1))
+        local hit=w.hits/w.attacks
+        local bonus=s.armor+(s.blur and 3 or 0)
+        if bonus>0 and hit>0 then open=open*math.max(0.05,hit-0.05*bonus)/hit end
+        -- Improved Invisibility lasts through attacks; plain invisibility ends with the next cast.
+        if s.improved then open=open*(1-M.unseeing)
+        elseif s.invisible then open=open*(1-M.unseeing/math.max(r,1)) end
+        local physical=0
+        for _,label in ipairs(M.PHYSICAL) do physical=physical+clamp((s.resist[label] or 0)/100,0,1) end
+        rate=1-open*(1-physical/#M.PHYSICAL)
+        pool=s.stoneskin+s.mirror*hit
+    end
+    local top=math.max(0,math.floor(sp.level+0.5))
+    local typed=0
+    for label,part in pairs(M.SPELL_TYPES) do typed=typed+part*clamp((s.resist[label] or 0)/100,0,1) end
+    local mr=clamp(s.mr/100,0,1)
+    local open=(1-typed)*(1-mr)*(1-clamp(s.schools*M.schoolShare,0,1))
+    local area=1-open*(1-share(s.all,top))
+    local personal=1-open*(1-share(s.all,top,s.personal))
+    if s.improved then personal=1-(1-personal)*(1-M.unseeing)
+    elseif s.invisible then personal=1-(1-personal)*(1-M.unseeing/math.max(r,1)) end
+    local kinds=0
+    for kind,part in pairs(M.DISABLES) do if s.covers[kind] then kinds=kinds+part end end
+    local free=(1-clamp(kinds,0,1))*(1-share(s.all,top,s.personal))*(1-mr)*(1-clamp(0.05*s.saves,0,0.5))
+    if s.improved then free=free*(1-M.unseeing) end
+    return {rate=rate,pool=pool,spell=sp.personal*personal+sp.area*area,personal=personal,disable=1-free}
+end
+
+-- How harm runs for friend f under threat t with shield s over r rounds: the hit points it has
+-- lost by then (temporary hit points go first), the round it dies in (math.huge if it lives
+-- through them), and what s blocks. Absorbed hits go first; the rest of the harm runs evenly.
+function M.course(s,f,t,r)
+    local maxHp=number(f.maxHp) and f.maxHp>0 and f.maxHp or 1
+    local left=number(f.hp) and f.hp>0 and f.hp or maxHp
+    local b=M.blocks(s,t,r)
+    local weapon=t.weapon.hp*(1-b.rate)
+    local hits=t.weapon.hits*(1-b.rate)
+    local spell=math.max(0,t.spell.hp-b.spell)
+    local lasts=0
+    if b.pool>0 then lasts=hits>0 and b.pool/hits or math.huge end
+    local need=left+s.hp
+    local death
+    if lasts==math.huge then death=spell>0 and need/spell or math.huge
+    elseif spell*lasts>=need then death=need/spell
+    elseif spell+weapon>0 then death=lasts+(need-spell*lasts)/(spell+weapon)
+    else death=math.huge end
+    local harm=spell*r
+    if lasts<r then harm=harm+weapon*(r-lasts) end
+    return math.max(0,harm-s.hp),death,b
+end
+
+-- The expected loss of friend f under threat t with shield s over r rounds, on the attack's
+-- scale: the share of its hit points it loses, the kill bonus as likely as it dies, and the
+-- rounds it is out of the fight, dead or disabled, each worth a round of disable. A protection
+-- that keeps a friend alive for longer is worth the rounds it fights in the meantime.
+function M.loss(s,f,t,r,killBonus)
+    local maxHp=number(f.maxHp) and f.maxHp>0 and f.maxHp or 1
+    local left=number(f.hp) and f.hp>0 and f.hp or maxHp
+    local harm,death,b=M.course(s,f,t,r)
+    local dies=clamp((harm-0.5*left)/(0.5*left),0,1)
+    local alive=math.min(death,r)
+    local disabled=t.spell.disable*(1-b.disable)*alive
+    return math.min(harm,left)/maxHp+killBonus*dies+M.disableRound*(r-alive+disabled)
+end
+
+-- The living enemies' mean armour class and maximum hit points.
+local function enemies(frame)
+    local ac,hp,n=0,0,0
+    for _,e in ipairs(type(frame.enemies)=='table' and frame.enemies or {}) do
+        if targeting.alive(e) then
+            ac=ac+(number(e.ac) and e.ac or M.enemyAc)
+            hp=hp+(number(e.maxHp) and e.maxHp>0 and e.maxHp or M.enemyHp)
+            n=n+1
+        end
+    end
+    if n==0 then return M.enemyAc,M.enemyHp,0 end
+    return ac/n,hp/n,n
+end
+-- The share of an enemy a buff's extra weapon damage takes through friend f over r rounds; only
+-- friends with attack data and an enemy within a round's walk fight.
+function M.offense(buff,f,frame,r)
+    if type(buff)~='table' or type(f.attack)~='table' then return 0 end
+    local ac,hp,n=enemies(frame)
+    if n==0 then return 0 end
+    local close=false
+    for _,e in ipairs(frame.enemies) do
+        if targeting.alive(e) and targeting.distance(e,f)<=threat.reach+threat.stride then close=true;break end
+    end
+    if not close then return 0 end
+    local a=threat.attack({attack=f.attack})
+    local k=type(buff.kinds)=='table' and buff.kinds or {}
+    local apr=a.apr+M.attacks(amount(buff,'attacks'))
+    if k.haste then apr=apr+(k.improvedHaste and a.apr or 1) end
+    local bonus=amount(buff,'thac0')+(k.bless and 1 or 0)+(k.aid and 1 or 0)+0.5*(amount(buff,'luck')+(k.chant and 1 or 0))
+    local before=a.apr*threat.hitChance(a.thac0,ac)*a.damage
+    local after=apr*threat.hitChance(a.thac0-bonus,ac)*(a.damage+amount(buff,'damage'))
+    return math.max(0,after-before)*r/hp
+end
+
+-- Whether a role of a beneficial spell reaches friends: the caster, its area (an area that
+-- spares allies does not), or the creature it is cast at.
+local function forFriends(role)
+    if type(role)~='table' or type(role.who)~='table' then return false end
+    if role.who.self or role.who.target then return true end
+    if role.who.area then
+        local f=role.filters
+        return type(f)~='table' or f.allies==true or f.all==true
+    end
+    return false
+end
+-- Harm a spell does to friends: damage or disables that reach the caster or its allies.
+local function harmsFriends(spell)
+    for _,name in ipairs({'damage','disable'}) do
+        local r=spell.roles[name]
+        if type(r)=='table' and type(r.who)=='table' then
+            if r.who.self or r.who.party or r.who.everyone or r.who.casterGroup then return true end
+            if r.who.area and type(r.filters)=='table' and (r.filters.allies or r.filters.all) then return true end
+        end
+    end
+    return false
+end
+-- The protection and buff roles a spell gives its receivers, or nil and why it is no defence.
+function M.defence(spell)
+    if type(spell)~='table' or type(spell.roles)~='table' then return nil,'unclassified' end
+    if spell.partial then return nil,'partial' end
+    local p,b=spell.roles.protection,spell.roles.buff
+    local gives=forFriends(p) or forFriends(b)
+    if not gives then return nil,'no-defence' end
+    if harmsFriends(spell) then return nil,'harms-friends' end
+    -- Attacks with a protection on the side stay attacks (combat-intent/choice.lua).
+    for _,name in ipairs({'damage','disable'}) do
+        local r=spell.roles[name]
+        if type(r)=='table' and type(r.who)=='table' and (r.who.target or r.who.point) then return nil,'attack' end
+    end
+    for _,name in ipairs({'summon','heal','raise','removal'}) do
+        local r=spell.roles[name]
+        if type(r)=='table' and type(r.who)=='table' and next(r.who) then return nil,'role-'..name end
+    end
+    return {protection=forFriends(p) and p or nil,buff=forFriends(b) and b or nil}
+end
+
+local function seconds(role)
+    local d=type(role)=='table' and role.duration
+    if d=='permanent' or d=='equipped' then return math.huge end
+    return number(d) and d or 0
+end
+local function guarded(friend,resref)
+    local guard=type(friend.guard)=='table' and friend.guard or {}
+    return (type(guard.recast)=='table' and guard.recast[resref]) or (type(guard.sources)=='table' and guard.sources[resref])
+end
+
+-- Who the spell reaches, aimed as it is cast: the caster for a spell on itself, the friends
+-- within the area around the caster or a point, an ally an exception names.
+local function receivers(input,row,spell,aim)
+    local frame=input.frame
+    local out={}
+    local area=spell.area
+    if aim.point and area and number(area.radius) then
+        for _,f in ipairs(threat.friends(frame)) do
+            if targeting.distance(aim.point,f)<=area.radius then out[#out+1]=f end
+        end
+        return out
+    end
+    if aim.friend then out[1]=aim.friend end
+    return out
+end
+-- Where a defence can be cast: on the caster itself (also an area around it); at the caster's
+-- spot or an ally's for a spell aimed at a point; at an ally for an agreed exception.
+local function aims(input,row,spell)
+    local frame=input.frame
+    local caster=frame.self
+    local out={}
+    local range=(number(spell.range) and spell.range or 0)*targeting.rangeUnit
+    if spell.target=='self' then
+        out[1]={self=true,friend=caster,point=spell.area and {x=caster.x,y=caster.y} or nil}
+    elseif spell.target=='point' and spell.area then
+        out[1]={point={x=caster.x,y=caster.y}}
+        for _,f in ipairs(threat.friends(frame)) do
+            if f~=caster and targeting.distance(caster,f)<=range then out[#out+1]={point={x=f.x,y=f.y}} end
+        end
+    elseif spell.target=='creature' then
+        out[1]={self=true,friend=caster}
+        local allowed=type(input.mind.allySpells)=='table' and input.mind.allySpells[row.resref]
+        if allowed then
+            for _,f in ipairs(threat.friends(frame)) do
+                if f~=caster and targeting.distance(caster,f)<=range then out[#out+1]={friend=f} end
+            end
+        end
+    end
+    return out
+end
+
+-- Whether the caster is in acute danger: what it would lose in a round, with what protects it
+-- now, reaches mind.acute of the hit points it has left.
+function M.acute(input,pictures)
+    local caster=input.frame.self
+    local t=pictures[caster.id]
+    if not t or not number(input.mind.acute) then return false end
+    local left=number(caster.hp) and caster.hp>0 and caster.hp or 1
+    return (M.course(M.held(caster),caster,t,1))>=input.mind.acute*left
+end
+-- The chance the caster finishes a cast of the given seconds: each hit or aimed spell that gets
+-- through what protects it now can break the cast; absorbed hits do not.
+function M.through(input,t,cast)
+    if not t or cast<=0 then return 1 end
+    local b=M.blocks(M.held(input.frame.self),t,1)
+    local part=cast/M.ROUND
+    local hits=math.max(0,t.weapon.hits*(1-b.rate)*part-b.pool)
+    return math.exp(-hits-t.spell.casters*threat.personal*(1-b.personal)*part)
+end
+
+-- Every defence option the caster has: {resref, kind='defence', mode, worth, cost, score, hits
+-- (the friends it reaches), slack=0, and self, point or target as the cast is aimed}. rejected
+-- (optional) counts why ready defensive spells gave none. A friend's guard false means it could
+-- not be read. A defence that follows the last one within mind.redefend seconds waits, as
+-- SCS's does, unless the caster is in acute danger.
+function M.options(input,rejected)
+    local out={}
+    local function reject(why) if rejected then rejected[why]=(rejected[why] or 0)+1 end end
+    local mind=input.mind
+    local frame=input.frame
+    if type(frame)~='table' or type(frame.self)~='table' or type(mind)~='table' then return out end
+    local pictures=threat.picture(frame)
+    local pause=number(mind.redefend) and mind.redefend or 0
+    local waiting=number(input.lastDefence) and number(input.tick) and input.tick-input.lastDefence<pause*15
+        and not M.acute(input,pictures)
+    local horizon=number(mind.horizon) and mind.horizon or 18
+    local killBonus=number(mind.killBonus) and mind.killBonus or 0
+    local held={}
+    local function heldOf(f) held[f.id]=held[f.id] or M.held(f);return held[f.id] end
+    local caster=frame.self
+    local ct=pictures[caster.id]
+    for _,row in ipairs(type(input.spells)=='table' and input.spells or {}) do
+        if type(row)=='table' and number(row.ready) and row.ready>0 and row.usable then
+            local spell=row.spell
+            local gives,why=M.defence(spell)
+            if not gives then
+                if why~='no-defence' and why~='attack' and why~='unclassified' then reject(why) end
+            elseif waiting then reject('redefend')
+            else
+                local shield=M.shield(gives)
+                local length=math.max(seconds(gives.protection),seconds(gives.buff))
+                local rounds=math.min(horizon,length)/M.ROUND
+                local best,unknown
+                for _,aim in ipairs(aims(input,row,spell)) do
+                    local worth,hits=0,{}
+                    for _,f in ipairs(receivers(input,row,spell,aim)) do
+                        -- What protects a friend whose effects could not be read is unknown:
+                        -- it gets nothing rather than a second copy.
+                        if f.guard==false then unknown=true
+                        elseif not guarded(f,row.resref) then
+                            local t=pictures[f.id]
+                            local gain=0
+                            if t and rounds>0 then
+                                local now=heldOf(f)
+                                gain=M.loss(now,f,t,rounds,killBonus)-M.loss(M.union(now,shield),f,t,rounds,killBonus)
+                            end
+                            if f~=caster then gain=gain+M.offense(gives.buff,f,frame,rounds) end
+                            if gain>0 then worth=worth+gain;hits[#hits+1]=f.id end
+                        end
+                    end
+                    if worth>0 and (not best or worth>best.worth) then best={aim=aim,worth=worth,hits=hits} end
+                end
+                if not best then reject(unknown and 'unknown-guard' or 'no-worth')
+                else
+                    -- Casting time: harm while casting can interrupt the cast; long casts also cost.
+                    local cast=(number(spell.speed) and spell.speed or 0)*M.speedSeconds
+                    local through=M.through(input,ct,cast)
+                    local level=number(row.level) and row.level or number(spell.level) and spell.level or 1
+                    local cost=(number(mind.economy) and mind.economy or 1)*M.costPerLevel*level+
+                        (number(mind.castCost) and mind.castCost or 0)*cast
+                    local worth=best.worth*through*(number(mind.caution) and mind.caution or 1)
+                    local option={resref=row.resref,kind='defence',worth=worth,cost=cost,score=worth-cost,
+                        hits=best.hits,slack=0}
+                    local aim=best.aim
+                    if aim.self then option.self=true;option.mode='self'
+                    elseif aim.friend then option.target=aim.friend.id;option.mode='ally'
+                    else option.point={x=math.floor(aim.point.x+0.5),y=math.floor(aim.point.y+0.5)};option.mode='point' end
+                    out[#out+1]=option
+                end
+            end
+        end
+    end
+    return out
+end
+return M
+end
 factories["combat-intent.choice"]=function(require)
 -- The engine's own choice of an attack spell and its target or aim point for one caster (step
 -- 3, second slice; Christopher's answers of 2026-10-18 are in the plan). Inputs are plain
@@ -1523,7 +2142,11 @@ factories["combat-intent.choice"]=function(require)
 -- (as a share of the enemy's maximum, no more than it has left), the worth of a kill, or the
 -- chance and length of a disable. A spell's level costs a little, so small spells do small
 -- jobs. An attack must reach the profile's minimum worth.
+--
+-- Since the third slice (Christopher, 2026-10-19) the caster's protections and buffs compete on
+-- the same scale (combat-intent/defence.lua): the best option of either kind is cast.
 local targeting=require('combat-intent.targeting')
+local defence=require('combat-intent.defence')
 local ids=require('combat-intent.ids')
 local spells=require('combat-intent.spells')
 local M={}
@@ -1933,8 +2556,8 @@ function M.urgent(input)
     end
 end
 
--- The attack to cast now, or nil and why; the options come along for the log, and with
--- 'no-option' the count of reasons the attack spells gave none.
+-- The attack or defence to cast now, or nil and why; the options come along for the log, and
+-- with 'no-option' the count of reasons the ready spells gave none.
 function M.decide(input)
     if type(input)~='table' or type(input.frame)~='table' or type(input.frame.self)~='table' or
         type(input.frame.enemies)~='table' or type(input.mind)~='table' then return nil,'bad-input',{} end
@@ -1942,6 +2565,8 @@ function M.decide(input)
     if why then return nil,'urgent-'..why,{} end
     local rejected={}
     local options=M.options(input,rejected)
+    for _,o in ipairs(defence.options(input,rejected)) do options[#options+1]=o end
+    table.sort(options,better)
     if #options==0 then return nil,'no-option',options,rejected end
     local mind=input.mind
     local best=options[1]
@@ -2474,8 +3099,10 @@ factories["adapters.eeex.sense"]=function(require)
 -- (EA 2 to 30) are enemies and the evil side are allies. With details, each enemy also carries
 -- its creature IDS values, saves, resistances, level and the spell protections a script can
 -- test (SCS's triggers read the same); M.splprot adds the engine's own answers to the SPLPROT
--- checks of the spells in question. Only plain values leave this module; no engine object is
--- kept.
+-- checks of the spells in question. M.defend adds what the defence slice weighs: what protects
+-- each friend now and the weapons of the creatures around. Only plain values leave this module;
+-- no engine object is kept.
+local targeting=require('combat-intent.targeting')
 local M={}
 -- A sprite's default visual range in EEex's area search.
 M.sightRange=448
@@ -2499,6 +3126,17 @@ end
 M.maxEffects=1024
 -- Searches from lying creatures per frame at most (each one is an area search).
 M.maxLying=32
+-- STATS.IDS for the defence slice: ARMORCLASS, THAC0, NUMBEROFATTACKS, DAMAGEBONUS,
+-- THAC0BONUSRIGHT, DAMAGEBONUSRIGHT, STONESKINS, HITBONUS. In the lab the right-hand bonuses
+-- held strength, proficiency and the weapon's own bonus to hit (probe F: a fighter with 18
+-- strength, specialised in a Short Sword +1, had THAC0BONUSRIGHT 3).
+M.combat={ac=2,thac0=7,apr=8,damageBonus=50,thac0Right=84,damageRight=86,stoneskins=88,hitBonus=151}
+-- The quiver slots, whose ammunition a launcher shoots (SLOTS.IDS).
+M.quiver={11,12,13}
+-- An effect that ends within this many seconds no longer protects.
+M.expiring=6
+-- Opcodes that deliver other effects; what they delivered is in the list already.
+M.delivered={[146]=true,[148]=true,[177]=true,[272]=true,[283]=true,[326]=true,[333]=true,[366]=true}
 
 local function band(g,a,b) return g.EEex_BAnd(a,b) end
 local function stat(g,sprite,n)
@@ -2507,14 +3145,24 @@ local function stat(g,sprite,n)
     return 0
 end
 local function text(value) return (value:match('^[^%z]*'):upper()) end
+local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge and v or 0 end
+local function name(field)
+    if field==nil then return '' end
+    local ok,v=pcall(function() return field:get() end)
+    return ok and type(v)=='string' and text(v) or ''
+end
 
--- The plain facts every frame carries for one creature.
+-- The plain facts every frame carries for one creature: also its armour class and the creature
+-- its current action is aimed at (-1 for none).
 function M.actor(g,sprite)
     local state=g.EEex_Sprite_GetState(sprite)
+    local action=sprite.m_curAction
+    local actee=action.m_acteeID and action.m_acteeID.m_Instance
     return {id=sprite.m_id,x=sprite.m_pos.x,y=sprite.m_pos.y,ea=sprite.m_typeAI.m_EnemyAlly,
         state=state,held=stat(g,sprite,M.stats.held),sanctuary=stat(g,sprite,M.stats.sanctuary),
         hp=sprite.m_baseStats.m_hitPoints,maxHp=stat(g,sprite,M.stats.maxHp),
-        mr=stat(g,sprite,M.stats.mr),action=sprite.m_curAction.m_actionID}
+        mr=stat(g,sprite,M.stats.mr),action=action.m_actionID,ac=stat(g,sprite,M.combat.ac),
+        actee=type(actee)=='number' and actee or -1}
 end
 
 -- Creature IDS values, saving throws, resistances, level and the spell protections in both
@@ -2583,6 +3231,127 @@ function M.splprot(g,sprite,frame,rows)
         end
     end
     return read,failed,last
+end
+
+local function average(dice,sides)
+    dice,sides=number(dice),number(sides)
+    return dice>0 and sides>0 and dice*(sides+1)/2 or 0
+end
+local function itemAt(equipment,slot,reader)
+    if equipment==nil or type(slot)~='number' then return nil end
+    local item=equipment.m_items:get(slot)
+    if item==nil then return nil end
+    local resref=name(item.cResRef)
+    return resref~='' and reader.get('ITM',resref) or nil
+end
+local function magical(g,record)
+    return number(record.enchantment)>0 or band(g,number(record.flags),0x40)~=0
+end
+-- A creature's weapon as plain values (combat-intent/threat.lua's attack data): attacks a round
+-- with half attacks decoded, THAC0 with its bonuses, the average damage of a hit, whether it
+-- shoots and how far, and whether the weapon is magical (for Protection from Magical Weapons).
+-- A launcher hits with the ammunition in the first filled quiver slot. Without a readable
+-- weapon, damage and magic stay unknown.
+function M.attack(g,sprite,reader)
+    local apr=stat(g,sprite,M.combat.apr)
+    if apr>5 and apr<=10 then apr=apr-5.5 end
+    local out={apr=apr>0 and apr or nil,
+        thac0=stat(g,sprite,M.combat.thac0)-stat(g,sprite,M.combat.thac0Right)-stat(g,sprite,M.combat.hitBonus)}
+    local equipment=sprite.m_equipment
+    local record=itemAt(equipment,equipment and equipment.m_selectedWeapon,reader)
+    local abilities=record and type(record.abilities)=='table' and record.abilities or {}
+    local ability=abilities[number(equipment and equipment.m_selectedWeaponAbility)+1] or abilities[1]
+    if type(ability)~='table' then return out end
+    local damage=average(ability.dice,ability.sides)+number(ability.damageBonus)
+    local magic=magical(g,record)
+    if ability.attackType==4 then
+        out.ranged=true
+        for _,slot in ipairs(M.quiver) do
+            local ammo=itemAt(equipment,slot,reader)
+            local hit=ammo and type(ammo.abilities)=='table' and ammo.abilities[1]
+            if type(hit)=='table' then
+                damage=damage+average(hit.dice,hit.sides)+number(hit.damageBonus)
+                magic=magic or magical(g,ammo)
+                break
+            end
+        end
+    elseif ability.attackType==2 then out.ranged=true end
+    if out.ranged and number(ability.range)>0 then out.range=ability.range*targeting.rangeUnit end
+    out.damage=math.max(0,damage+stat(g,sprite,M.combat.damageBonus)+stat(g,sprite,M.combat.damageRight))
+    out.magical=magic
+    return out
+end
+
+-- What protects a creature now, as plain values (combat-intent/defence.lua's guard): its
+-- active effects classified as one record (classify(record), combat-intent/spells.lua) for
+-- their roles, the engine's counts of Stoneskin skins and Mirror Images, the spells its effects
+-- come from, and the spells opcode 206 keeps off it. Effects that end within M.expiring
+-- seconds and delayed ones that have not started are left out.
+function M.guard(g,sprite,tick,classify)
+    local list,sources,recast={},{},{}
+    for _,effects in ipairs({sprite.m_timedEffectList,sprite.m_equipedEffectList}) do
+        local seen=0
+        g.EEex_Utility_IterateCPtrList(effects,function(e)
+            seen=seen+1
+            if seen>M.maxEffects then return true end
+            local kind=e.m_durationType
+            local timing,duration
+            if kind==4096 then
+                local left=(number(e.m_duration)-tick)/15
+                if left>=M.expiring then timing,duration=0,math.floor(left) end
+            elseif kind==1 or kind==9 then timing,duration=1,0
+            elseif kind==2 then timing,duration=2,0 end
+            local op=e.m_effectId
+            if timing and type(op)=='number' then
+                local source=name(e.m_sourceRes)
+                if source~='' then sources[source]=true end
+                local res=name(e.m_res)
+                if op==206 and res~='' then recast[res]=true end
+                if not M.delivered[op] then
+                    list[#list+1]={opcode=op,target=1,power=number(e.m_spellLevel),p1=number(e.m_effectAmount),
+                        p2=number(e.m_dWFlags),timing=timing,resist=0,duration=duration,prob1=100,prob2=0,res=res,
+                        dice=number(e.m_numDice),sides=number(e.m_diceSize),save=0,saveBonus=0,special=number(e.m_special)}
+                end
+            end
+        end)
+    end
+    local record={kind='SPL',resref='',name=0,flags=0,spellType=0,exclusion=0,school=0,secondary=0,level=1,
+        casting={},abilities={{form=1,flags=0,location=2,target=5,targetCount=0,range=0,minLevel=1,speed=0,
+        projectile=1,effects=list}}}
+    local classified=classify(record)
+    local mirror=sprite.m_nMirrorImages
+    return {roles=type(classified)=='table' and classified.roles or {},stoneskins=stat(g,sprite,M.combat.stoneskins),
+        mirror=type(mirror)=='number' and mirror or 0,sources=sources,recast=recast}
+end
+
+-- Adds what the defence slice weighs to a frame read with details: each friend's guard (false
+-- if it could not be read), the weapons of enemies and allies, and whether each enemy sees
+-- invisible creatures. A creature whose engine data fails keeps what it has; returns the count
+-- of failures and the last one.
+function M.defend(g,frame,tick,reader,classify)
+    local failed,last=0,nil
+    local function each(entry,fn)
+        local sprite=g.EEex_GameObject_Get(entry.id)
+        if not sprite or not g.EEex_GameObject_IsSprite(sprite,false) then return end
+        local ok,err=pcall(fn,sprite)
+        if not ok then failed=failed+1;last=tostring(err) end
+    end
+    local function friend(entry)
+        entry.guard=false
+        each(entry,function(sprite)
+            entry.guard=M.guard(g,sprite,tick,classify)
+            if entry~=frame.self then entry.attack=M.attack(g,sprite,reader) end
+        end)
+    end
+    friend(frame.self)
+    for _,a in ipairs(frame.allies) do friend(a) end
+    for _,e in ipairs(frame.enemies) do
+        each(e,function(sprite)
+            e.seeInvisible=stat(g,sprite,M.stats.seeInvisible)>0 or stat(g,sprite,M.stats.trueSight)>0
+            e.attack=M.attack(g,sprite,reader)
+        end)
+    end
+    return failed,last
 end
 
 function M.side(ea)
@@ -2979,7 +3748,7 @@ end
 return M
 end
 factories["adapters.eeex.choice"]=function(require)
--- EEex side of the engine's own choice (step 3, second slice). When a hooked mage's or
+-- EEex side of the engine's own choice (step 3, second and third slices). When a hooked mage's or
 -- priest's script asks the gate and SCS's round timer has run out, this reads what the
 -- creature perceives (sense.lua, with the details SCS's scripts read), what it has ready
 -- (creature.lua, classified by combat-intent/spells.lua), the engine's answers to those spells'
@@ -2992,11 +3761,20 @@ factories["adapters.eeex.choice"]=function(require)
 -- one that ends with no effect on its target is remembered as a miss, judged only once the
 -- target could react (not while another creature's Time Stop freezes it). No answer, an error
 -- or a switch leaves the round to SCS. Session-local; a load forgets it all.
+--
+-- Since the third slice the choice weighs the caster's protections and buffs against its attacks
+-- (combat-intent/defence.lua): the frame then also carries what protects each friend now and the
+-- weapons around (sense.defend). A defence is cast on the caster (SpellRES at Myself), at a point
+-- or at an ally the profile names. A defence the creature starts, the engine's or its script's,
+-- starts the pause before the next one, as SCS's redefend timer does; a finished one is judged
+-- by whether its friends carry its effects.
 local sense=require('adapters.eeex.sense')
 local creature=require('adapters.eeex.creature')
 local resources=require('adapters.eeex.resources')
+local directors=require('adapters.eeex.director')
 local spells=require('combat-intent.spells')
 local targeting=require('combat-intent.targeting')
+local defence=require('combat-intent.defence')
 local choice=require('combat-intent.choice')
 local mind=require('combat-intent.mind')
 local rngs=require('kernel.rng')
@@ -3074,11 +3852,15 @@ function M.new(g,options)
     end
     local cache,cached,items,itemCount={},0,{},0
     local pending,running,judging,memory={},{},{},{}
+    -- lastDefence: the tick each creature last started a defence; known: the creatures that
+    -- asked the engine (hooked mages and priests).
+    local lastDefence,known={},{}
     local counts={decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
-        hits=0,misses=0,errors=0,holds=0,frozen=0,marks=0,markFailures=0}
+        hits=0,misses=0,errors=0,holds=0,frozen=0,marks=0,markFailures=0,defences=0,guarded=0,unguarded=0,
+        guardFailures=0}
     local reasons={}
     local log,nextRow,size={},1,0
-    local root,sink,lastError,markError
+    local root,sink,lastError,markError,guardError
     -- trace: labs see every decline as a 'declined' row in the sink (never in the log).
     local trace,lastReason,lastDetail=false,nil,nil
     local api={}
@@ -3116,6 +3898,8 @@ function M.new(g,options)
         end
         return cache[key] or nil
     end
+    -- A creature's active effects, classified as one record for what protects it (sense.guard).
+    local function effectsOf(record) return spells.classify(record,1,reader.lookup,{level=1}) end
     -- An item's first three abilities, classified once.
     local function item(resref)
         if items[resref]==nil then
@@ -3208,30 +3992,47 @@ function M.new(g,options)
         end
     end
 
+    -- Whether a creature carries an effect of cast a's spell. An effect a spell lands through a
+    -- sub-spell or an EFF file names that as its source (the classifier's sources).
+    local function carries(target,a)
+        local names=type(a.sources)=='table' and a.sources or {[a.resref]=true}
+        local hit=false
+        for _,list in ipairs({target.m_timedEffectList,target.m_equipedEffectList}) do
+            local n=0
+            g.EEex_Utility_IterateCPtrList(list,function(effect)
+                n=n+1
+                if n>sense.maxEffects then return true end
+                if names[text(effect.m_sourceRes:get())] then hit=true;return true end
+            end)
+            if hit then break end
+        end
+        return hit
+    end
     -- The effect of finished casts on their targets: a target that lost hit points, became
-    -- disabled by a disable, or carries an effect of the spell was hit. An effect a spell lands
-    -- through a sub-spell or an EFF file names that as its source (the classifier's sources).
+    -- disabled by a disable, or carries an effect of the spell was hit. A defence took when a
+    -- friend it was for carries its effects.
     local function outcome(a)
-        if not a.target or a.mode~='creature' then return end
+        local defending=a.kind=='defence'
+        if not defending and (not a.target or a.mode~='creature') then return end
         if a.castTicks and a.ended-a.started<a.castTicks-M.interruptSlack then
             counts.interrupted=counts.interrupted+1;return
+        end
+        if defending then
+            local landed=0
+            local friends=type(a.hits)=='table' and a.hits or {}
+            for _,id in ipairs(friends) do
+                local friend=get(id)
+                if friend and carries(friend,a) then landed=landed+1 end
+            end
+            if landed>0 then counts.guarded=counts.guarded+1 else counts.unguarded=counts.unguarded+1 end
+            record({kind='guard',tick=a.ended,member=a.caster,spell=a.resref,mode=a.mode,friends=#friends,landed=landed})
+            return
         end
         local target=get(a.target)
         if not target then return end
         local hit=a.hp~=nil and target.m_baseStats.m_hitPoints<a.hp
         if not hit and a.kind=='disable' then hit=targeting.disabled(sense.actor(g,target)) end
-        if not hit then
-            local names=type(a.sources)=='table' and a.sources or {[a.resref]=true}
-            for _,list in ipairs({target.m_timedEffectList,target.m_equipedEffectList}) do
-                local n=0
-                g.EEex_Utility_IterateCPtrList(list,function(effect)
-                    n=n+1
-                    if n>sense.maxEffects then return true end
-                    if names[text(effect.m_sourceRes:get())] then hit=true;return true end
-                end)
-                if hit then break end
-            end
-        end
+        if not hit then hit=carries(target,a) end
         local key=a.resref..':'..a.target
         local mine=memory[a.caster] or {}
         memory[a.caster]=mine
@@ -3273,6 +4074,7 @@ function M.new(g,options)
         local tick=now()
         if type(tick)~='number' then return decline('no-clock') end
         local id=view.id
+        known[id]=true
         local sprite=get(id)
         if not sprite then return decline('no-sprite') end
         judge(tick)
@@ -3301,15 +4103,23 @@ function M.new(g,options)
         local rows,carried=book(sprite)
         if not rows then failed('book',carried);return nil end
         mark(sprite,frame,rows)
+        local bad,last=sense.defend(g,frame,tick,reader,effectsOf)
+        if bad>0 then
+            counts.guardFailures=counts.guardFailures+bad
+            if not guardError then
+                guardError=tostring(last):sub(1,200)
+                record({kind='error',where='guard',error=guardError})
+            end
+        end
         counts.decisions=counts.decisions+1
-        local input={tick=tick,family=family,frame=frame,spells=rows,items=carried,
+        local input={tick=tick,family=family,frame=frame,spells=rows,items=carried,lastDefence=lastDefence[id],
             plan=director and director:plan(id,tick) or {},memory=memory[id] or {},mind=mindFor(sprite,family),rng=rng}
         local d,why,options,rejected=choice.decide(input)
         lastDetail=rejected
         local top={}
         for i=1,math.min(3,#options) do
             local o=options[i]
-            top[i]={spell=o.resref,target=o.target,point=o.point,score=o.score,hits=#o.hits}
+            top[i]={spell=o.resref,kind=o.kind,target=o.target,point=o.point,score=o.score,hits=#o.hits}
         end
         if not d then
             if why~='no-option' then record({kind='decline',tick=tick,member=id,family=family,reason=why,top=top}) end
@@ -3318,6 +4128,7 @@ function M.new(g,options)
         local response=M.response(d)
         if not response then return decline('bad-response') end
         counts.claims=counts.claims+1
+        if d.kind=='defence' then counts.defences=counts.defences+1 end
         record({kind='choice',tick=tick,member=id,family=family,spell=d.resref,castKind=d.kind,mode=d.mode,
             target=d.target,point=d.point,score=d.score,worth=d.worth,hits=d.hits,how=why,top=top,
             focus=input.plan.focus})
@@ -3359,7 +4170,8 @@ function M.new(g,options)
             local target=get(decision.target)
             if not target then return 'skipped' end
             local seen=sense.actor(g,target)
-            if not targeting.alive(seen) or (seen.sanctuary or 0)>0 then return 'skipped' end
+            -- Sanctuary keeps out enemies' casts, not an ally's protection.
+            if not targeting.alive(seen) or ((seen.sanctuary or 0)>0 and decision.kind~='defence') then return 'skipped' end
             if targeting.has(seen.state,UNSEEN) and not (g.EEex_Sprite_GetStat(object,sense.stats.seeInvisible)>0 or
                 g.EEex_Sprite_GetStat(object,sense.stats.trueSight)>0) then return 'skipped' end
             local aux=g.EEex_GetUDAux(object)
@@ -3390,11 +4202,24 @@ function M.new(g,options)
         return ok and result or false
     end
 
+    -- A defence a creature that asks the engine starts, the engine's or its script's, starts
+    -- its pause before the next one (mind.redefend), as SCS's redefend timer does.
+    local function defended(sprite,action,tick)
+        local id=sprite.m_id
+        if not known[id] or not targeting.CASTS[action.m_actionID] then return end
+        local resref=directors.resref(action)
+        if not resref then return end
+        local ok,level=pcall(g.EEex_Sprite_GetCasterLevelForSpell,sprite,resref,false)
+        if not ok or type(level)~='number' or level<1 then level=1 end
+        local spell=classify(resref,level)
+        if spell and defence.defence(spell) then lastDefence[id]=tick end
+    end
     -- From the director's started-action listener, for every sprite's every action: the
     -- engine's queued cast starting (returned for the director's picture), or another action
     -- ending a running one.
     local function started(sprite,action,tick)
         local id=sprite.m_id
+        defended(sprite,action,tick)
         local p,r=pending[id],running[id]
         if not p and not r then return nil end
         if r then
@@ -3423,7 +4248,10 @@ function M.new(g,options)
     function api:attach(r) root=r end
     function api:setSink(fn) assert(fn==nil or type(fn)=='function');sink=fn end
     function api:setTrace(value) assert(type(value)=='boolean');trace=value end
-    function api:invalidate() pending,running,judging,memory,stop,resumed={},{},{},{},nil,nil end
+    function api:invalidate()
+        pending,running,judging,memory,stop,resumed={},{},{},{},nil,nil
+        lastDefence,known={},{}
+    end
     function api:inspect()
         local copy=function(t) local c={};for k,v in pairs(t) do c[k]=v end;return c end
         local rows,first={},(nextRow-size-1)%M.logCapacity+1
@@ -3434,7 +4262,7 @@ function M.new(g,options)
         for _,mine in pairs(memory) do for _ in pairs(mine) do remembered=remembered+1 end end
         return {enabled=enabled,missing=missing or false,trace=trace,counts=copy(counts),reasons=copy(reasons),
             pending=open,running=busy,judging=#judging,remembered=remembered,log=rows,lastError=lastError or false,
-            markError=markError or false}
+            markError=markError or false,guardError=guardError or false}
     end
     return api
 end

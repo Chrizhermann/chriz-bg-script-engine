@@ -1,4 +1,4 @@
--- EEex side of the engine's own choice (step 3, second slice). When a hooked mage's or
+-- EEex side of the engine's own choice (step 3, second and third slices). When a hooked mage's or
 -- priest's script asks the gate and SCS's round timer has run out, this reads what the
 -- creature perceives (sense.lua, with the details SCS's scripts read), what it has ready
 -- (creature.lua, classified by combat-intent/spells.lua), the engine's answers to those spells'
@@ -11,11 +11,20 @@
 -- one that ends with no effect on its target is remembered as a miss, judged only once the
 -- target could react (not while another creature's Time Stop freezes it). No answer, an error
 -- or a switch leaves the round to SCS. Session-local; a load forgets it all.
+--
+-- Since the third slice the choice weighs the caster's protections and buffs against its attacks
+-- (combat-intent/defence.lua): the frame then also carries what protects each friend now and the
+-- weapons around (sense.defend). A defence is cast on the caster (SpellRES at Myself), at a point
+-- or at an ally the profile names. A defence the creature starts, the engine's or its script's,
+-- starts the pause before the next one, as SCS's redefend timer does; a finished one is judged
+-- by whether its friends carry its effects.
 local sense=require('adapters.eeex.sense')
 local creature=require('adapters.eeex.creature')
 local resources=require('adapters.eeex.resources')
+local directors=require('adapters.eeex.director')
 local spells=require('combat-intent.spells')
 local targeting=require('combat-intent.targeting')
+local defence=require('combat-intent.defence')
 local choice=require('combat-intent.choice')
 local mind=require('combat-intent.mind')
 local rngs=require('kernel.rng')
@@ -93,11 +102,15 @@ function M.new(g,options)
     end
     local cache,cached,items,itemCount={},0,{},0
     local pending,running,judging,memory={},{},{},{}
+    -- lastDefence: the tick each creature last started a defence; known: the creatures that
+    -- asked the engine (hooked mages and priests).
+    local lastDefence,known={},{}
     local counts={decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
-        hits=0,misses=0,errors=0,holds=0,frozen=0,marks=0,markFailures=0}
+        hits=0,misses=0,errors=0,holds=0,frozen=0,marks=0,markFailures=0,defences=0,guarded=0,unguarded=0,
+        guardFailures=0}
     local reasons={}
     local log,nextRow,size={},1,0
-    local root,sink,lastError,markError
+    local root,sink,lastError,markError,guardError
     -- trace: labs see every decline as a 'declined' row in the sink (never in the log).
     local trace,lastReason,lastDetail=false,nil,nil
     local api={}
@@ -135,6 +148,8 @@ function M.new(g,options)
         end
         return cache[key] or nil
     end
+    -- A creature's active effects, classified as one record for what protects it (sense.guard).
+    local function effectsOf(record) return spells.classify(record,1,reader.lookup,{level=1}) end
     -- An item's first three abilities, classified once.
     local function item(resref)
         if items[resref]==nil then
@@ -227,30 +242,47 @@ function M.new(g,options)
         end
     end
 
+    -- Whether a creature carries an effect of cast a's spell. An effect a spell lands through a
+    -- sub-spell or an EFF file names that as its source (the classifier's sources).
+    local function carries(target,a)
+        local names=type(a.sources)=='table' and a.sources or {[a.resref]=true}
+        local hit=false
+        for _,list in ipairs({target.m_timedEffectList,target.m_equipedEffectList}) do
+            local n=0
+            g.EEex_Utility_IterateCPtrList(list,function(effect)
+                n=n+1
+                if n>sense.maxEffects then return true end
+                if names[text(effect.m_sourceRes:get())] then hit=true;return true end
+            end)
+            if hit then break end
+        end
+        return hit
+    end
     -- The effect of finished casts on their targets: a target that lost hit points, became
-    -- disabled by a disable, or carries an effect of the spell was hit. An effect a spell lands
-    -- through a sub-spell or an EFF file names that as its source (the classifier's sources).
+    -- disabled by a disable, or carries an effect of the spell was hit. A defence took when a
+    -- friend it was for carries its effects.
     local function outcome(a)
-        if not a.target or a.mode~='creature' then return end
+        local defending=a.kind=='defence'
+        if not defending and (not a.target or a.mode~='creature') then return end
         if a.castTicks and a.ended-a.started<a.castTicks-M.interruptSlack then
             counts.interrupted=counts.interrupted+1;return
+        end
+        if defending then
+            local landed=0
+            local friends=type(a.hits)=='table' and a.hits or {}
+            for _,id in ipairs(friends) do
+                local friend=get(id)
+                if friend and carries(friend,a) then landed=landed+1 end
+            end
+            if landed>0 then counts.guarded=counts.guarded+1 else counts.unguarded=counts.unguarded+1 end
+            record({kind='guard',tick=a.ended,member=a.caster,spell=a.resref,mode=a.mode,friends=#friends,landed=landed})
+            return
         end
         local target=get(a.target)
         if not target then return end
         local hit=a.hp~=nil and target.m_baseStats.m_hitPoints<a.hp
         if not hit and a.kind=='disable' then hit=targeting.disabled(sense.actor(g,target)) end
-        if not hit then
-            local names=type(a.sources)=='table' and a.sources or {[a.resref]=true}
-            for _,list in ipairs({target.m_timedEffectList,target.m_equipedEffectList}) do
-                local n=0
-                g.EEex_Utility_IterateCPtrList(list,function(effect)
-                    n=n+1
-                    if n>sense.maxEffects then return true end
-                    if names[text(effect.m_sourceRes:get())] then hit=true;return true end
-                end)
-                if hit then break end
-            end
-        end
+        if not hit then hit=carries(target,a) end
         local key=a.resref..':'..a.target
         local mine=memory[a.caster] or {}
         memory[a.caster]=mine
@@ -292,6 +324,7 @@ function M.new(g,options)
         local tick=now()
         if type(tick)~='number' then return decline('no-clock') end
         local id=view.id
+        known[id]=true
         local sprite=get(id)
         if not sprite then return decline('no-sprite') end
         judge(tick)
@@ -320,15 +353,23 @@ function M.new(g,options)
         local rows,carried=book(sprite)
         if not rows then failed('book',carried);return nil end
         mark(sprite,frame,rows)
+        local bad,last=sense.defend(g,frame,tick,reader,effectsOf)
+        if bad>0 then
+            counts.guardFailures=counts.guardFailures+bad
+            if not guardError then
+                guardError=tostring(last):sub(1,200)
+                record({kind='error',where='guard',error=guardError})
+            end
+        end
         counts.decisions=counts.decisions+1
-        local input={tick=tick,family=family,frame=frame,spells=rows,items=carried,
+        local input={tick=tick,family=family,frame=frame,spells=rows,items=carried,lastDefence=lastDefence[id],
             plan=director and director:plan(id,tick) or {},memory=memory[id] or {},mind=mindFor(sprite,family),rng=rng}
         local d,why,options,rejected=choice.decide(input)
         lastDetail=rejected
         local top={}
         for i=1,math.min(3,#options) do
             local o=options[i]
-            top[i]={spell=o.resref,target=o.target,point=o.point,score=o.score,hits=#o.hits}
+            top[i]={spell=o.resref,kind=o.kind,target=o.target,point=o.point,score=o.score,hits=#o.hits}
         end
         if not d then
             if why~='no-option' then record({kind='decline',tick=tick,member=id,family=family,reason=why,top=top}) end
@@ -337,6 +378,7 @@ function M.new(g,options)
         local response=M.response(d)
         if not response then return decline('bad-response') end
         counts.claims=counts.claims+1
+        if d.kind=='defence' then counts.defences=counts.defences+1 end
         record({kind='choice',tick=tick,member=id,family=family,spell=d.resref,castKind=d.kind,mode=d.mode,
             target=d.target,point=d.point,score=d.score,worth=d.worth,hits=d.hits,how=why,top=top,
             focus=input.plan.focus})
@@ -378,7 +420,8 @@ function M.new(g,options)
             local target=get(decision.target)
             if not target then return 'skipped' end
             local seen=sense.actor(g,target)
-            if not targeting.alive(seen) or (seen.sanctuary or 0)>0 then return 'skipped' end
+            -- Sanctuary keeps out enemies' casts, not an ally's protection.
+            if not targeting.alive(seen) or ((seen.sanctuary or 0)>0 and decision.kind~='defence') then return 'skipped' end
             if targeting.has(seen.state,UNSEEN) and not (g.EEex_Sprite_GetStat(object,sense.stats.seeInvisible)>0 or
                 g.EEex_Sprite_GetStat(object,sense.stats.trueSight)>0) then return 'skipped' end
             local aux=g.EEex_GetUDAux(object)
@@ -409,11 +452,24 @@ function M.new(g,options)
         return ok and result or false
     end
 
+    -- A defence a creature that asks the engine starts, the engine's or its script's, starts
+    -- its pause before the next one (mind.redefend), as SCS's redefend timer does.
+    local function defended(sprite,action,tick)
+        local id=sprite.m_id
+        if not known[id] or not targeting.CASTS[action.m_actionID] then return end
+        local resref=directors.resref(action)
+        if not resref then return end
+        local ok,level=pcall(g.EEex_Sprite_GetCasterLevelForSpell,sprite,resref,false)
+        if not ok or type(level)~='number' or level<1 then level=1 end
+        local spell=classify(resref,level)
+        if spell and defence.defence(spell) then lastDefence[id]=tick end
+    end
     -- From the director's started-action listener, for every sprite's every action: the
     -- engine's queued cast starting (returned for the director's picture), or another action
     -- ending a running one.
     local function started(sprite,action,tick)
         local id=sprite.m_id
+        defended(sprite,action,tick)
         local p,r=pending[id],running[id]
         if not p and not r then return nil end
         if r then
@@ -442,7 +498,10 @@ function M.new(g,options)
     function api:attach(r) root=r end
     function api:setSink(fn) assert(fn==nil or type(fn)=='function');sink=fn end
     function api:setTrace(value) assert(type(value)=='boolean');trace=value end
-    function api:invalidate() pending,running,judging,memory,stop,resumed={},{},{},{},nil,nil end
+    function api:invalidate()
+        pending,running,judging,memory,stop,resumed={},{},{},{},nil,nil
+        lastDefence,known={},{}
+    end
     function api:inspect()
         local copy=function(t) local c={};for k,v in pairs(t) do c[k]=v end;return c end
         local rows,first={},(nextRow-size-1)%M.logCapacity+1
@@ -453,7 +512,7 @@ function M.new(g,options)
         for _,mine in pairs(memory) do for _ in pairs(mine) do remembered=remembered+1 end end
         return {enabled=enabled,missing=missing or false,trace=trace,counts=copy(counts),reasons=copy(reasons),
             pending=open,running=busy,judging=#judging,remembered=remembered,log=rows,lastError=lastError or false,
-            markError=markError or false}
+            markError=markError or false,guardError=guardError or false}
     end
     return api
 end

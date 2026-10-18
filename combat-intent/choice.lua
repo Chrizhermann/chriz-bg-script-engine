@@ -10,7 +10,11 @@
 -- (as a share of the enemy's maximum, no more than it has left), the worth of a kill, or the
 -- chance and length of a disable. A spell's level costs a little, so small spells do small
 -- jobs. An attack must reach the profile's minimum worth.
+--
+-- Since the third slice (Christopher, 2026-10-19) the caster's protections and buffs compete on
+-- the same scale (combat-intent/defence.lua): the best option of either kind is cast.
 local targeting=require('combat-intent.targeting')
+local defence=require('combat-intent.defence')
 local ids=require('combat-intent.ids')
 local spells=require('combat-intent.spells')
 local M={}
@@ -420,8 +424,8 @@ function M.urgent(input)
     end
 end
 
--- The attack to cast now, or nil and why; the options come along for the log, and with
--- 'no-option' the count of reasons the attack spells gave none.
+-- The attack or defence to cast now, or nil and why; the options come along for the log, and
+-- with 'no-option' the count of reasons the ready spells gave none.
 function M.decide(input)
     if type(input)~='table' or type(input.frame)~='table' or type(input.frame.self)~='table' or
         type(input.frame.enemies)~='table' or type(input.mind)~='table' then return nil,'bad-input',{} end
@@ -429,6 +433,8 @@ function M.decide(input)
     if why then return nil,'urgent-'..why,{} end
     local rejected={}
     local options=M.options(input,rejected)
+    for _,o in ipairs(defence.options(input,rejected)) do options[#options+1]=o end
+    table.sort(options,better)
     if #options==0 then return nil,'no-option',options,rejected end
     local mind=input.mind
     local best=options[1]

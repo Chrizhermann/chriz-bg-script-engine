@@ -8,8 +8,10 @@
 -- (EA 2 to 30) are enemies and the evil side are allies. With details, each enemy also carries
 -- its creature IDS values, saves, resistances, level and the spell protections a script can
 -- test (SCS's triggers read the same); M.splprot adds the engine's own answers to the SPLPROT
--- checks of the spells in question. Only plain values leave this module; no engine object is
--- kept.
+-- checks of the spells in question. M.defend adds what the defence slice weighs: what protects
+-- each friend now and the weapons of the creatures around. Only plain values leave this module;
+-- no engine object is kept.
+local targeting=require('combat-intent.targeting')
 local M={}
 -- A sprite's default visual range in EEex's area search.
 M.sightRange=448
@@ -33,6 +35,17 @@ end
 M.maxEffects=1024
 -- Searches from lying creatures per frame at most (each one is an area search).
 M.maxLying=32
+-- STATS.IDS for the defence slice: ARMORCLASS, THAC0, NUMBEROFATTACKS, DAMAGEBONUS,
+-- THAC0BONUSRIGHT, DAMAGEBONUSRIGHT, STONESKINS, HITBONUS. In the lab the right-hand bonuses
+-- held strength, proficiency and the weapon's own bonus to hit (probe F: a fighter with 18
+-- strength, specialised in a Short Sword +1, had THAC0BONUSRIGHT 3).
+M.combat={ac=2,thac0=7,apr=8,damageBonus=50,thac0Right=84,damageRight=86,stoneskins=88,hitBonus=151}
+-- The quiver slots, whose ammunition a launcher shoots (SLOTS.IDS).
+M.quiver={11,12,13}
+-- An effect that ends within this many seconds no longer protects.
+M.expiring=6
+-- Opcodes that deliver other effects; what they delivered is in the list already.
+M.delivered={[146]=true,[148]=true,[177]=true,[272]=true,[283]=true,[326]=true,[333]=true,[366]=true}
 
 local function band(g,a,b) return g.EEex_BAnd(a,b) end
 local function stat(g,sprite,n)
@@ -41,14 +54,24 @@ local function stat(g,sprite,n)
     return 0
 end
 local function text(value) return (value:match('^[^%z]*'):upper()) end
+local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge and v or 0 end
+local function name(field)
+    if field==nil then return '' end
+    local ok,v=pcall(function() return field:get() end)
+    return ok and type(v)=='string' and text(v) or ''
+end
 
--- The plain facts every frame carries for one creature.
+-- The plain facts every frame carries for one creature: also its armour class and the creature
+-- its current action is aimed at (-1 for none).
 function M.actor(g,sprite)
     local state=g.EEex_Sprite_GetState(sprite)
+    local action=sprite.m_curAction
+    local actee=action.m_acteeID and action.m_acteeID.m_Instance
     return {id=sprite.m_id,x=sprite.m_pos.x,y=sprite.m_pos.y,ea=sprite.m_typeAI.m_EnemyAlly,
         state=state,held=stat(g,sprite,M.stats.held),sanctuary=stat(g,sprite,M.stats.sanctuary),
         hp=sprite.m_baseStats.m_hitPoints,maxHp=stat(g,sprite,M.stats.maxHp),
-        mr=stat(g,sprite,M.stats.mr),action=sprite.m_curAction.m_actionID}
+        mr=stat(g,sprite,M.stats.mr),action=action.m_actionID,ac=stat(g,sprite,M.combat.ac),
+        actee=type(actee)=='number' and actee or -1}
 end
 
 -- Creature IDS values, saving throws, resistances, level and the spell protections in both
@@ -117,6 +140,127 @@ function M.splprot(g,sprite,frame,rows)
         end
     end
     return read,failed,last
+end
+
+local function average(dice,sides)
+    dice,sides=number(dice),number(sides)
+    return dice>0 and sides>0 and dice*(sides+1)/2 or 0
+end
+local function itemAt(equipment,slot,reader)
+    if equipment==nil or type(slot)~='number' then return nil end
+    local item=equipment.m_items:get(slot)
+    if item==nil then return nil end
+    local resref=name(item.cResRef)
+    return resref~='' and reader.get('ITM',resref) or nil
+end
+local function magical(g,record)
+    return number(record.enchantment)>0 or band(g,number(record.flags),0x40)~=0
+end
+-- A creature's weapon as plain values (combat-intent/threat.lua's attack data): attacks a round
+-- with half attacks decoded, THAC0 with its bonuses, the average damage of a hit, whether it
+-- shoots and how far, and whether the weapon is magical (for Protection from Magical Weapons).
+-- A launcher hits with the ammunition in the first filled quiver slot. Without a readable
+-- weapon, damage and magic stay unknown.
+function M.attack(g,sprite,reader)
+    local apr=stat(g,sprite,M.combat.apr)
+    if apr>5 and apr<=10 then apr=apr-5.5 end
+    local out={apr=apr>0 and apr or nil,
+        thac0=stat(g,sprite,M.combat.thac0)-stat(g,sprite,M.combat.thac0Right)-stat(g,sprite,M.combat.hitBonus)}
+    local equipment=sprite.m_equipment
+    local record=itemAt(equipment,equipment and equipment.m_selectedWeapon,reader)
+    local abilities=record and type(record.abilities)=='table' and record.abilities or {}
+    local ability=abilities[number(equipment and equipment.m_selectedWeaponAbility)+1] or abilities[1]
+    if type(ability)~='table' then return out end
+    local damage=average(ability.dice,ability.sides)+number(ability.damageBonus)
+    local magic=magical(g,record)
+    if ability.attackType==4 then
+        out.ranged=true
+        for _,slot in ipairs(M.quiver) do
+            local ammo=itemAt(equipment,slot,reader)
+            local hit=ammo and type(ammo.abilities)=='table' and ammo.abilities[1]
+            if type(hit)=='table' then
+                damage=damage+average(hit.dice,hit.sides)+number(hit.damageBonus)
+                magic=magic or magical(g,ammo)
+                break
+            end
+        end
+    elseif ability.attackType==2 then out.ranged=true end
+    if out.ranged and number(ability.range)>0 then out.range=ability.range*targeting.rangeUnit end
+    out.damage=math.max(0,damage+stat(g,sprite,M.combat.damageBonus)+stat(g,sprite,M.combat.damageRight))
+    out.magical=magic
+    return out
+end
+
+-- What protects a creature now, as plain values (combat-intent/defence.lua's guard): its
+-- active effects classified as one record (classify(record), combat-intent/spells.lua) for
+-- their roles, the engine's counts of Stoneskin skins and Mirror Images, the spells its effects
+-- come from, and the spells opcode 206 keeps off it. Effects that end within M.expiring
+-- seconds and delayed ones that have not started are left out.
+function M.guard(g,sprite,tick,classify)
+    local list,sources,recast={},{},{}
+    for _,effects in ipairs({sprite.m_timedEffectList,sprite.m_equipedEffectList}) do
+        local seen=0
+        g.EEex_Utility_IterateCPtrList(effects,function(e)
+            seen=seen+1
+            if seen>M.maxEffects then return true end
+            local kind=e.m_durationType
+            local timing,duration
+            if kind==4096 then
+                local left=(number(e.m_duration)-tick)/15
+                if left>=M.expiring then timing,duration=0,math.floor(left) end
+            elseif kind==1 or kind==9 then timing,duration=1,0
+            elseif kind==2 then timing,duration=2,0 end
+            local op=e.m_effectId
+            if timing and type(op)=='number' then
+                local source=name(e.m_sourceRes)
+                if source~='' then sources[source]=true end
+                local res=name(e.m_res)
+                if op==206 and res~='' then recast[res]=true end
+                if not M.delivered[op] then
+                    list[#list+1]={opcode=op,target=1,power=number(e.m_spellLevel),p1=number(e.m_effectAmount),
+                        p2=number(e.m_dWFlags),timing=timing,resist=0,duration=duration,prob1=100,prob2=0,res=res,
+                        dice=number(e.m_numDice),sides=number(e.m_diceSize),save=0,saveBonus=0,special=number(e.m_special)}
+                end
+            end
+        end)
+    end
+    local record={kind='SPL',resref='',name=0,flags=0,spellType=0,exclusion=0,school=0,secondary=0,level=1,
+        casting={},abilities={{form=1,flags=0,location=2,target=5,targetCount=0,range=0,minLevel=1,speed=0,
+        projectile=1,effects=list}}}
+    local classified=classify(record)
+    local mirror=sprite.m_nMirrorImages
+    return {roles=type(classified)=='table' and classified.roles or {},stoneskins=stat(g,sprite,M.combat.stoneskins),
+        mirror=type(mirror)=='number' and mirror or 0,sources=sources,recast=recast}
+end
+
+-- Adds what the defence slice weighs to a frame read with details: each friend's guard (false
+-- if it could not be read), the weapons of enemies and allies, and whether each enemy sees
+-- invisible creatures. A creature whose engine data fails keeps what it has; returns the count
+-- of failures and the last one.
+function M.defend(g,frame,tick,reader,classify)
+    local failed,last=0,nil
+    local function each(entry,fn)
+        local sprite=g.EEex_GameObject_Get(entry.id)
+        if not sprite or not g.EEex_GameObject_IsSprite(sprite,false) then return end
+        local ok,err=pcall(fn,sprite)
+        if not ok then failed=failed+1;last=tostring(err) end
+    end
+    local function friend(entry)
+        entry.guard=false
+        each(entry,function(sprite)
+            entry.guard=M.guard(g,sprite,tick,classify)
+            if entry~=frame.self then entry.attack=M.attack(g,sprite,reader) end
+        end)
+    end
+    friend(frame.self)
+    for _,a in ipairs(frame.allies) do friend(a) end
+    for _,e in ipairs(frame.enemies) do
+        each(e,function(sprite)
+            e.seeInvisible=stat(g,sprite,M.stats.seeInvisible)>0 or stat(g,sprite,M.stats.trueSight)>0
+            e.attack=M.attack(g,sprite,reader)
+        end)
+    end
+    return failed,last
 end
 
 function M.side(ea)

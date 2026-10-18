@@ -281,4 +281,16 @@ assert(o and o.mode=='ally' and o.target==2 and near(o.worth,0.15*0.3*3/3))
 assert(mind.new({allySpells={['bad name!']=true}})==nil and mind.new({caution=-1})==nil)
 groups=groups+1
 
+-- 8. The choice weighs both kinds on one scale: under two fighters Protection from Magical
+-- Weapons, else even Stoneskin beats a solid attack; with no one threatening, the attack.
+i=input({fighter(11,130),fighter(12,135)},list)
+local pick,why=choice.decide(i)
+assert(pick.resref=='TESTPFMW' and pick.kind=='defence' and why=='best')
+i=input({fighter(11,130),fighter(12,135)},{row('TESTSTON',stoneskin,4),row('TESTBOLT',bolt,3)})
+assert(choice.decide(i).resref=='TESTSTON')
+i=input({fighter(11,130,{held=1}),fighter(12,135,{held=1})},list)
+pick=choice.decide(i)
+assert(pick.resref=='TESTBOLT' and pick.kind=='damage')
+groups=groups+1
+
 return groups

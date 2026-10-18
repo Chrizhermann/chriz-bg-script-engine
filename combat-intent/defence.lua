@@ -380,8 +380,9 @@ end
 
 -- Every defence option the caster has: {resref, kind='defence', mode, worth, cost, score, hits
 -- (the friends it reaches), slack=0, and self, point or target as the cast is aimed}. rejected
--- (optional) counts why ready defensive spells gave none. A defence that follows the last one
--- within mind.redefend seconds waits, as SCS's does, unless the caster is in acute danger.
+-- (optional) counts why ready defensive spells gave none. A friend's guard false means it could
+-- not be read. A defence that follows the last one within mind.redefend seconds waits, as
+-- SCS's does, unless the caster is in acute danger.
 function M.options(input,rejected)
     local out={}
     local function reject(why) if rejected then rejected[why]=(rejected[why] or 0)+1 end end
@@ -409,11 +410,14 @@ function M.options(input,rejected)
                 local shield=M.shield(gives)
                 local length=math.max(seconds(gives.protection),seconds(gives.buff))
                 local rounds=math.min(horizon,length)/M.ROUND
-                local best
+                local best,unknown
                 for _,aim in ipairs(aims(input,row,spell)) do
                     local worth,hits=0,{}
                     for _,f in ipairs(receivers(input,row,spell,aim)) do
-                        if not guarded(f,row.resref) then
+                        -- What protects a friend whose effects could not be read is unknown:
+                        -- it gets nothing rather than a second copy.
+                        if f.guard==false then unknown=true
+                        elseif not guarded(f,row.resref) then
                             local t=pictures[f.id]
                             local gain=0
                             if t and rounds>0 then
@@ -426,7 +430,7 @@ function M.options(input,rejected)
                     end
                     if worth>0 and (not best or worth>best.worth) then best={aim=aim,worth=worth,hits=hits} end
                 end
-                if not best then reject('no-worth')
+                if not best then reject(unknown and 'unknown-guard' or 'no-worth')
                 else
                     -- Casting time: harm while casting can interrupt the cast; long casts also cost.
                     local cast=(number(spell.speed) and spell.speed or 0)*M.speedSeconds

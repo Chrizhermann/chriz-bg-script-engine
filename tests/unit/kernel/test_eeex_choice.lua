@@ -5,6 +5,8 @@
 local runtime=require('adapters.eeex.runtime')
 local directors=require('adapters.eeex.director')
 local choices=require('adapters.eeex.choice')
+local sense=require('adapters.eeex.sense')
+local spells=require('combat-intent.spells')
 local groups=0
 
 local function band(a,b)
@@ -95,9 +97,20 @@ local records={
     TESTHEAL=spl('TESTHEAL',4,{fx(17,{p1=20})})}
 local POTION={kind='ITM',resref='TESTPOTN',flags=0,abilities={{form=3,flags=0,location=3,target=5,range=1,speed=0,
     projectile=1,effects={fx(17,{p1=20,target=1})}}}}
+-- Weapons: a magical long sword, a bow and its arrows.
+local function weapon(resref,fields,ability)
+    local a={attackType=1,dice=1,sides=8,damageBonus=0,range=1,thac0=0,effects={}}
+    for k,v in pairs(ability or {}) do a[k]=v end
+    local r={kind='ITM',resref=resref,flags=0x40,enchantment=0,abilities={a}}
+    for k,v in pairs(fields or {}) do r[k]=v end
+    return r
+end
+local ITEMS={TESTPOTN=POTION,TESTSWRD=weapon('TESTSWRD'),
+    TESTBOW=weapon('TESTBOW',{flags=0},{attackType=4,dice=0,sides=0,range=100}),
+    TESTARRW=weapon('TESTARRW',{flags=0,enchantment=1},{attackType=2,dice=1,sides=6,damageBonus=1})}
 local reader={problems={},get=function(kind,resref)
         if kind=='SPL' then return records[resref] end
-        if kind=='ITM' and resref=='TESTPOTN' then return POTION end
+        if kind=='ITM' then return ITEMS[resref] end
     end,
     lookup=function(kind,key)
         if kind=='PRO' and key==2 then return {kind='PRO',resref='SINGLE',type=2,speed=20,flags=0,extFlags=0} end
@@ -496,6 +509,87 @@ assert(s6.counts.claims==3 and s6.counts.markFailures==4 and s6.markError:find('
 local failures=0
 for _,row in ipairs(traced6) do if row.kind=='error' and row.where=='splprot' then failures=failures+1 end end
 assert(failures==1 and s6.counts.errors==0)
+groups=groups+1
+
+-- 16. Defences (third slice). Two fighters with magical long swords at a mage: the engine reads
+-- their weapons and what protects the mage, casts Stoneskin on the mage itself, judges that it
+-- took, and waits out the redefend pause, attacking in between. A defence the creature's own
+-- script starts begins the pause as well. Effects about to end do not protect.
+records.TESTSTON=spl('TESTSTON',4,{fx(218,{p1=8,duration=600,target=1})},5,1)
+records.TESTSTON.abilities[1].speed=1
+local g7=world()
+local function armed(s,slot,resref)
+    s.items[slot]={cResRef=str(resref)};s.m_equipment.m_selectedWeapon=slot
+    s.stats[8],s.stats[7]=2,10
+    return s
+end
+local function sturdy(s) s.m_baseStats.m_hitPoints=80;s.stats[1]=80;return s end
+local mage=g7.add(sprite(1,0,0,255))
+mage.stats[2]=8
+learn(mage,2,'TESTBOLT',2);learn(mage,3,'TESTSTON')
+local swordA=g7.add(sturdy(armed(sprite(11,40,0,2,{m_curAction=action(3,'',1)}),35,'TESTSWRD')))
+g7.add(sturdy(armed(sprite(12,50,0,2,{m_curAction=action(3,'',1)}),35,'TESTSWRD')))
+local dir7=directors.new(g7,{reader=reader})
+local ch7=choices.new(g7,{reader=reader,director=dir7,seed=11})
+local rows7={}
+ch7:setSink(function(row) rows7[#rows7+1]=row end)
+local root7=runtime.install(g7,{director=dir7,choice=ch7,version='test'})
+local function last7(kind,member)
+    for i=#rows7,1,-1 do if rows7[i].kind==kind and (member==nil or rows7[i].member==member) then return rows7[i] end end
+end
+-- What the engine reads: attacks, THAC0 and damage of each sword; a bow shoots its arrows.
+local seen=sense.attack(g7,swordA,reader)
+assert(seen.apr==2 and seen.thac0==10 and seen.damage==4.5 and seen.magical==true and not seen.ranged)
+local archer=armed(sprite(13,500,0,2),35,'TESTBOW')
+archer.items[11]={cResRef=str('TESTARRW')};archer.stats[8]=7;archer.stats[86]=2
+seen=sense.attack(g7,archer,reader)
+assert(seen.apr==1.5 and seen.ranged and seen.range==1600 and seen.damage==0+3.5+1+2 and seen.magical==true)
+g7.ticks=100
+assert(g7.BGSE_Claim(mage,'mage','s1')==true)
+local d7=last7('choice')
+assert(d7.spell=='TESTSTON' and d7.castKind=='defence' and d7.mode=='self' and d7.hits[1]==1 and d7.top[1].kind=='defence')
+g7.BGSE_Act(mage)
+assert(g7.queued[#g7.queued].text:find('SpellRES%("TESTSTON",Myself%)')~=nil)
+assert(root7.inspect().choice.counts.defences==1 and root7.inspect().choice.guardError==false)
+g7.listeners.started[1](mage,action(31,'TESTSTON',1))
+mage.m_curAction=action(31,'TESTSTON',1);mage.locals.castspell=190
+-- The cast ends; the mage carries its skins.
+g7.ticks=110
+mage.m_curAction={m_actionID=0}
+mage.m_timedEffectList={{m_effectId=218,m_durationType=4096,m_duration=110+9000,m_effectAmount=8,m_dWFlags=0,
+    m_res=str(''),m_sourceRes=str('TESTSTON')}}
+mage.stats[88]=8
+assert(g7.BGSE_Claim(mage,'mage','s1')==false)
+g7.ticks=141
+assert(g7.BGSE_Claim(mage,'mage','s1')==false)
+local s7=root7.inspect().choice
+assert(s7.counts.guarded==1 and s7.counts.unguarded==0 and last7('guard').landed==1 and last7('guard').friends==1)
+-- Within the pause, and with the skins up, the mage attacks.
+g7.ticks=200;mage.locals.castspell=0
+assert(g7.BGSE_Claim(mage,'mage','s1')==true)
+d7=last7('choice')
+assert(d7.spell=='TESTBOLT' and d7.castKind=='damage')
+-- What protects the mage: the skins and their source; an effect that ends within six seconds
+-- does not count.
+local function effectsOf(record) return spells.classify(record,1,reader.lookup,{level=1}) end
+local guard=sense.guard(g7,mage,200,effectsOf)
+assert(guard.stoneskins==8 and guard.sources.TESTSTON and guard.roles.protection.stoneskin==8)
+mage.m_timedEffectList[1].m_duration=200+80
+guard=sense.guard(g7,mage,200,effectsOf)
+assert(guard.sources.TESTSTON==nil and guard.roles.protection==nil)
+-- A defence the creature's own script starts begins the pause too: a second mage under one
+-- fighter would cast Stoneskin, but its script has just cast it.
+local other=g7.add(sprite(2,0,600,255))
+other.stats[2]=8
+learn(other,2,'TESTBOLT',2);learn(other,3,'TESTSTON')
+g7.add(sturdy(armed(sprite(14,40,600,2,{m_curAction=action(3,'',2)}),35,'TESTSWRD')))
+other.locals.castspell=400
+g7.ticks=300
+assert(g7.BGSE_Claim(other,'mage','s1')==false)
+g7.listeners.started[1](other,action(31,'TESTSTON',2))
+other.locals.castspell=0
+g7.ticks=316
+assert(g7.BGSE_Claim(other,'mage','s1')==true and last7('choice',2).spell=='TESTBOLT')
 groups=groups+1
 
 return groups
