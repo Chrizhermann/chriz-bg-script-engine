@@ -429,6 +429,47 @@ Christopher's answers, 2026-10-18:
    Ausbauschritt noch verbessern? Weil das ja individuelle Arbeit wäre." **So:** SCS's
    knowledge now; implausible knowledge is removed in a later refinement step.
 
+## Step 3, second slice: result (2026-10-18)
+
+([CHOICE-01](../research/CHOICE-01-engine-own-attack-choice.md))
+
+**What it is.** Hooked mages and priests take their attack rounds from the engine.
+
+- Once SCS's round timer has run out, the engine reads what the creature sees, what it has
+  ready and the director's plan, and picks an attack at a creature or a point: expected damage
+  or disable worth after saves, resistances and magic resistance, the focus, economy and
+  remembered misses, then a random pick near the best.
+- It queues a normal SpellRES or SpellPointRES that first sets SCS's round timer, so SCS's
+  filler runs between casts. It leaves the round to SCS when the caster is silenced, when a
+  priest with healing ready sees urgent need, and when no attack is good enough.
+- The agreed rules (no disable on a disabled target, no allies in an area, damage on the
+  focus, economical casting, remembered immunities) are knobs of one default profile.
+
+**Lab, batches E to E5** (the SR lab on Insane, a level-8 to -12 group and a level-18 group
+against dummies):
+
+- E: the engine's casts work. Every queued cast started, and there were no errors.
+- E2 and E3: SCS's round timer and the casting aura kept most rounds with SCS. Since the engine
+  takes the round as soon as SCS's timer is out, it casts about twice as often. Time Stops
+  explain the hook actions that stayed current.
+- Two faults found in E3, fixed and confirmed in E4: misses judged while a Time Stop froze the
+  target, and equal aims weighed several times in the draw.
+- A classifier fault locked out most fire, acid and charm spells: it made the creature
+  conditions of conditional deliveries (SCS's troll extras, Spell Revisions' exclusions)
+  filters on the whole spell. Fixed. In E5 the filter declines are gone, and Flame Strike,
+  Melf's Acid Arrow, Sleep, Charm Person, Dire Charm and Horror come.
+- No engine disable has gone to a disabled target since E4.
+
+**Next, technical:** the spells' own immunity checks (SPLPROT rows of opcodes 318, 324 and
+326), answered by the engine's own check for each enemy. Then defences.
+
+**Open for Christopher**, asked with the report:
+
+1. The engine casts an attack before SCS's Time Stop opener and other strong non-attack spells
+   whenever SCS's timer runs out. Leave SCS's opener first, or attack first as now, until the
+   engine weighs such spells itself in the defence slice?
+2. What a caster does when no attack is an option: SCS's round (now), wait, or a profile knob?
+
 ## To design with Christopher
 
 Short decisions for the first release, answered by Christopher on 2026-10-14:
