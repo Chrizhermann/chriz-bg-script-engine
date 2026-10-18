@@ -394,9 +394,10 @@ with special 1, as Spell Revisions does. Cleanup was clean both times.
 - **Area casts teach nothing.** Only single-target casts are judged.
 - **Dummies.** All fights so far are against dummies that do not fight back. Single-target
   spells rarely reach the minimum worth (0.2 of an enemy) against their 250 hit points.
-- **For Christopher:** whether the engine should leave SCS's Time Stop opener and other strong
-  non-attack spells first; what a caster does when no attack is an option; whether the director
-  should also move SCS's disables away from a free enemy immune to them (now only from disabled
-  or reserved ones); and the minimum worth.
+- **Answered by Christopher (2026-10-18):** without an attack option the round stays SCS's,
+  as now. SCS's opener first and redirects away from immune enemies would be SCS fallbacks;
+  they are not built, because the engine's own openers and defences come next and replace
+  them (plan, "Step 3, second slice: result"). The minimum worth (0.2 of an enemy) stays for
+  now.
 - **Knowledge.** Creatures that another creature's Time Stop freezes still decide, with what
   happens meanwhile. A later knowledge refinement may limit that.

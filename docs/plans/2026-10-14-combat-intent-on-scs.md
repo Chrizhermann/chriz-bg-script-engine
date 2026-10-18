@@ -464,16 +464,29 @@ against dummies):
   Free Action and no charm to one with Chaotic Commands. A director fault found on the way is
   fixed: it would not move a cast away from a creature immune to it.
 
-**Next, technical:** defences, after Christopher's answers below.
+**Next:** the engine's own openers and defences.
 
-**Open for Christopher**, asked with the report:
+**Asked with the report**, answered by Christopher on 2026-10-18:
 
 1. The engine casts an attack before SCS's Time Stop opener and other strong non-attack spells
    whenever SCS's timer runs out. Leave SCS's opener first, or attack first as now, until the
    engine weighs such spells itself in the defence slice?
+   **Answer: SCS's opener first, as a stopgap,** "aber mMn releasen wir sowieso nicht bevor
+   wir nicht auch das ausgetauscht haben". Then dropped with answer 3's principle: the engine
+   takes the openers over itself next.
 2. What a caster does when no attack is an option: SCS's round (now), wait, or a profile knob?
+   **Answer: SCS's round, as now.** It runs SCS's own priority list (defences, dispels,
+   summons, SCS's attacks, melee or ranged filler), so no one stands idle. "Ich finde warten
+   sollte jemand fast nie, außer er ist total dumm :D" Waiting may become a trait of very
+   dumb profiles later.
 3. Should the director also move SCS's disables away from a free enemy immune to them? Now it
    moves them only from disabled or reserved enemies.
+   **Answer: yes in principle, but it is a fallback.** Christopher's principle for all such
+   work: the engine replaces SCS's fight logic completely in the end, and nobody will play
+   long, if at all, with the SCS fallback. "Und jetzt will ich nicht, dass wir Stunden und Tage
+   investieren, immer um die Fallbacks und die Umlenkungen zu implementieren." **So:** neither
+   stopgap is built (SCS's opener first, redirects away from immune enemies); the engine's own
+   openers and defences come next and replace both.
 
 ## To design with Christopher
 
@@ -612,6 +625,24 @@ Open after step 1 (2026-10-14):
     would apply effects directly, against the fair-play rule; taking powers over belongs to
     the later work of answer 5. Done on 2026-10-15: exactly those blocks are copied now, and
     mage, priest and general-AI scripts get no new copies.
+
+Decided on 2026-10-18, with the answers above:
+12. **Pre-buffs.** They exist because creatures that know or suspect an attack is coming
+    prepare instead of standing around unbuffed (the deeper Cloakwood Mines hear the party
+    coming, or are on edge anyway), mostly with longer-lasting buffs. Christopher likes SCS's
+    pre-buffs "zu 50 bis 100%", their random part included; sometimes they could be more and
+    smarter. **So:** a first test release can keep exactly SCS's pre-buffs; the engine's own
+    preparation is designed later, fight by fight with Christopher, with SCS as the
+    reference.
+13. **Random choices per run, not per installation.** Christopher likes the random parts of
+    SCS's pre-buffs and spellbooks: "Das sollte meiner Meinung nach übrigens auch pro Run
+    möglich sein. Und nicht pro Installation". SCS draws its spellbook swaps once, when it is
+    installed; its pre-buff scripts roll at run time. **So:** later, random choices such as
+    spellbook swaps are drawn per run and kept for that run.
+14. **SCS's other components stay SCS's for now.** Item balancing and SCS's other tweaks
+    outside the fight logic stay as SCS installs them; they may be reviewed one by one later.
+    This is the plan's split (see "How it fits with SCS"): the engine replaces SCS's fight
+    logic and reads the creatures as installed.
 
 Christopher's ideas so far (living list; more will follow):
 - **Started casts don't fail when the target runs out of sight.** Reported in September:
