@@ -1,8 +1,9 @@
--- Whether a creature is of the kind a spell's creature filter names (opcodes 175, 177, 185 and
--- 283 carry an IDS file and an entry). Plain values only: the creature's IDS values as
+-- Whether a creature is of the kind a spell's creature condition names (opcodes 109, 175, 177,
+-- 185 and 283 carry an IDS file and an entry). Plain values only: the creature's IDS values as
 -- adapters/eeex/sense.lua reads them. The engine matches a few entries by rule (EA cutoffs,
 -- the *_ALL classes, alignment masks); those rules follow the game's IDS files. An entry this
--- module cannot judge answers nil, and the caller leaves the spell out for that creature.
+-- module cannot judge answers nil, and nothing that depends on it counts for that creature
+-- (combat-intent/spells.lua, M.view).
 local M={}
 -- IDS file numbers as the opcodes use them.
 M.FIELDS={[2]='ea',[3]='general',[4]='race',[5]='class',[6]='specific',[7]='gender',[8]='alignment'}

@@ -3,6 +3,8 @@
 -- perception frame (adapters/eeex/sense.lua) and the spell's classification
 -- (combat-intent/spells.lua). Nothing here touches the engine or raises on odd data; an
 -- answer it cannot give is a reason to leave the cast as it is.
+local spells=require('combat-intent.spells')
+local ids=require('combat-intent.ids')
 local M={}
 
 -- STATE.IDS bits (engine constants).
@@ -21,8 +23,6 @@ for n=68,78 do M.builtinSingle[n]=true end
 -- Distance as the engine's search map measures it: cells are 16 by 12 world units, so y
 -- counts 4/3. SPL range values are taken as cells of 16 (to be confirmed in the lab).
 M.rangeUnit=16
--- IDS files a spell's creature filter can name (opcodes 175, 177, 283).
-M.IDS={[2]='ea',[3]='general',[4]='race',[5]='class',[6]='specific',[7]='gender',[8]='alignment'}
 -- Roles that tie a cast to its target for reasons the director does not judge (a dispel
 -- picks the protected enemy) or that are not attacks at all.
 local KEEP_ROLES={'removal','heal','raise','cure','summon'}
@@ -60,12 +60,21 @@ function M.distance(a,b)
 end
 
 local function reaches(role) return type(role)=='table' and type(role.who)=='table' and (role.who.target or role.who.area) end
+-- The roles that say what kind of attack a spell is: what it does to a creature none of its
+-- creature conditions single out, when that is an attack, else all it can do (a hold that takes
+-- humanoids only is still a hold). A fire spell with SCS's troll extra stays a damage spell.
+function M.kindRoles(spell)
+    local common=spells.common(spell)
+    if type(common)=='table' and (reaches(common.disable) or reaches(common.damage)) then return common end
+    return spell.roles
+end
 -- What a cast does to the creature it is aimed at, for the group picture: 'disable', 'damage'
 -- or nil. Any cast counts here, also one the director would not redirect.
 function M.role(spell)
     if type(spell)~='table' or type(spell.roles)~='table' then return nil end
-    if reaches(spell.roles.disable) then return 'disable' end
-    if reaches(spell.roles.damage) then return 'damage' end
+    local roles=M.kindRoles(spell)
+    if reaches(roles.disable) then return 'disable' end
+    if reaches(roles.damage) then return 'damage' end
 end
 -- 'disable' or 'damage' when the director may redirect this cast, else nil and why.
 function M.kind(spell)
@@ -78,22 +87,17 @@ function M.kind(spell)
     for _,name in ipairs(KEEP_ROLES) do
         if reaches(spell.roles[name]) then return nil,'role-'..name end
     end
-    if reaches(spell.roles.disable) then return 'disable' end
-    if reaches(spell.roles.damage) then return 'damage' end
+    local roles=M.kindRoles(spell)
+    if reaches(roles.disable) then return 'disable' end
+    if reaches(roles.damage) then return 'damage' end
     return nil,'not-damage-or-disable'
 end
 
--- Every creature filter of the spell, from conditional deliveries and from holds.
-local function filters(spell)
-    local all={}
-    for _,f in ipairs(type(spell.filters)=='table' and spell.filters or {}) do all[#all+1]=f end
-    local disable=spell.roles.disable
-    for _,f in ipairs(type(disable)=='table' and type(disable.filters)=='table' and disable.filters or {}) do
-        all[#all+1]=f
-    end
-    return all
+-- Which of the spell's creature conditions e meets: spells.view's key, one mark each.
+local function met(spell,e)
+    local _,key=spells.view(spell,function(f) return ids.matches(f,e) end)
+    return key
 end
-M.filters=filters
 
 -- Spell protections that would stop this spell: turning, deflection, traps and globes by
 -- level, school or secondary type; immunity or bounce by opcode or projectile; protection
@@ -125,7 +129,8 @@ end
 -- Whether target may take the cast instead of original, the enemy the creature's script chose
 -- (both entries of the caster's frame). Nothing here is stricter than "no worse than the
 -- original": range up to the farther of the spell's range and the original's distance, magic
--- resistance up to the original's, the same values in every IDS file the spell filters on.
+-- resistance up to the original's, the same creature conditions of the spell met, so it does to
+-- target what it would do to the original.
 function M.legal(caster,target,spell,original)
     if type(target)~='table' or type(original)~='table' or type(caster)~='table' then return false,'missing' end
     if not M.alive(target) then return false,'dead' end
@@ -137,12 +142,11 @@ function M.legal(caster,target,spell,original)
     if (number(target.mr) and target.mr or 0)>(number(original.mr) and original.mr or 0) then
         return false,'magic-resistance'
     end
-    for _,f in ipairs(filters(spell)) do
-        local field=type(f)=='table' and M.IDS[f.ids]
-        if not field then return false,'unknown-filter' end
-        local a,b=type(target.ids)=='table' and target.ids[field],type(original.ids)=='table' and original.ids[field]
-        if a==nil or a~=b then return false,'filter' end
+    local a,b=met(spell,target),met(spell,original)
+    if type(a)~='string' or type(b)~='string' or a:find('?',1,true) or b:find('?',1,true) then
+        return false,'unknown-filter'
     end
+    if a~=b then return false,'filter' end
     if M.protected(target,spell) then return false,'protected' end
     return true
 end

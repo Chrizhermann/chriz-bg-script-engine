@@ -139,7 +139,10 @@ assert(c.roles.damage.amount==4 and c.roles.damage.who.target and not c.conditio
 assert(c.sources.TESTCAR and c.sources.TESTEFF)
 carrier.abilities[1].effects[1].p1=4;carrier.abilities[1].effects[1].p2=4
 c=classify(carrier,effs)
-assert(c.conditional and c.filters[1].ids==4 and c.filters[1].entry==4 and c.roles.damage.amount==4)
+assert(c.conditional and c.conditions[1].ids==4 and c.conditions[1].entry==4 and c.roles.damage.amount==4)
+-- The type is a condition of what the 177 brings: only a creature of that type takes it.
+local yes,no=function() return true end,function() return false end
+assert(spells.view(c,yes).damage.amount==4 and spells.view(c,no).damage==nil and spells.common(c).damage==nil)
 groups=groups+1
 
 -- 272 repeats an EFF: once a second, every p1 seconds, or p1 times a second.
@@ -323,6 +326,67 @@ c=classify(spl('TESTLONG',{ability({fx(165,{target=1,duration=30}),fx(12,{p1=10}
 assert(c.selfHarm and c.roles.disable.kinds.pause and c.pause==nil)
 c=one(fx(165,{duration=2}))
 assert(c.roles.disable.kinds.pause and c.roles.disable.who.target and c.pause==nil)
+groups=groups+1
+
+-- Conditions belong to what they deliver. SCS's troll extra on an acid arrow: everyone takes
+-- the acid, trolls a little more. Spell Revisions' charms: elves keep nine charms in ten out,
+-- with an immunity to the charm opcode (Dire Charm) or with the charm's sub-spell protecting
+-- them from itself (DVHCHRM); its fear spares the undead with a protection from the parent
+-- spell. A hold that names a creature type holds that type only. A delivery's saving throw goes
+-- to what it brings (Charm Person saves on its 177s).
+local function only(...)
+    local wanted={...}
+    return function(f)
+        for _,x in ipairs(wanted) do if f.ids==x.ids and f.entry==x.entry then return true end end
+        return false
+    end
+end
+local troll,elf,undead,humanoid={ids=4,entry=129},{ids=4,entry=2},{ids=3,entry=4},{ids=3,entry=1}
+local evil,notEvil={ids=2,entry=200},{ids=2,entry=199}
+local sr=world({
+    ['EFF:TESTTRLX']={kind='EFF',resref='TESTTRLX',effect=fx(146,{res='TESTTRLS',p2=1})},
+    ['SPL:TESTTRLS']=spl('TESTTRLS',{ability({fx(12,{p1=1,p2=65536})})}),
+    ['EFF:TESTELF']={kind='EFF',resref='TESTELF',effect=fx(101,{p2=5,duration=1})},
+    ['EFF:TESTSELF']={kind='EFF',resref='TESTSELF',effect=fx(206,{res='TESTCHRB'})},
+    ['SPL:TESTCHRB']=spl('TESTCHRB',{ability({fx(177,{p1=2,p2=4,prob1=89,res='TESTSELF'}),fx(5,{duration=30})})}),
+    ['EFF:TESTCHRE']={kind='EFF',resref='TESTCHRE',effect=fx(146,{res='TESTCHRB',p2=1})},
+    ['EFF:TESTUND']={kind='EFF',resref='TESTUND',effect=fx(206,{res='TESTFEAR'})},
+    ['SPL:TESTFERD']=spl('TESTFERD',{ability({fx(177,{p1=4,p2=3,res='TESTUND'}),fx(24,{duration=30,save=1})})}),
+})
+local nine=90/101
+c=classify(spl('TESTACID',{ability({fx(12,{p2=65536,dice=2,sides=4}),fx(177,{p1=129,p2=4,res='TESTTRLX'})})}),sr)
+assert(c.conditional and #c.conditions==1 and c.conditions[1].ids==4 and c.conditions[1].entry==129)
+assert(near(c.roles.damage.amount,6) and near(spells.common(c).damage.amount,5))
+assert(near(spells.view(c,only(troll)).damage.amount,6))
+-- Dire Charm: an elf is immune to the charm opcode, nine times in ten, before the charm comes.
+c=classify(spl('TESTDIRE',{ability({fx(177,{p1=2,p2=4,prob1=89,res='TESTELF'}),fx(5,{duration=60,save=1,saveBonus=-9})})}),sr)
+assert(c.roles.disable.kinds.charm and not c.roles.protection and not c.beneficial)
+assert(near(spells.common(c).disable.chance,1) and near(spells.view(c,only(elf)).disable.chance,1-nine))
+-- Charm Person: the evil side saves at -5, the rest at -9; an elf of either side is also
+-- protected by the charm's own sub-spell. A creature of neither side is not charmed at all.
+c=classify(spl('TESTCHRM',{ability({fx(177,{p1=200,p2=2,save=1,saveBonus=-5,res='TESTCHRE'}),
+    fx(177,{p1=199,p2=2,save=1,saveBonus=-9,res='TESTCHRE'})})}),sr)
+local v=spells.view(c,only(evil))
+assert(v.disable.kinds.charm and v.disable.save.spell and v.disable.saveBonus==-5 and near(v.disable.chance,1))
+assert(spells.view(c,only(notEvil)).disable.saveBonus==-9 and near(spells.view(c,only(evil,elf)).disable.chance,1-nine))
+assert(spells.common(c).disable==nil and c.roles.disable.saveBonus==-9)
+-- Horror's sub-spell: the undead get a protection from the parent spell before the fear.
+c=classify(spl('TESTFEAR',{ability({fx(146,{res='TESTFERD',p2=1})})}),sr)
+assert(spells.common(c).disable.kinds.panic and spells.view(c,only(undead)).disable==nil and not c.beneficial)
+-- A hold of humanoids holds humanoids; a view is kept by its key.
+c=classify(spl('TESTHPER',{ability({fx(175,{p1=1,p2=3,duration=60,save=1})})}),sr)
+assert(c.roles.disable.kinds.hold and #c.conditions==1 and c.conditions[1].ids==3 and c.conditions[1].entry==1)
+assert(spells.view(c,only(humanoid)).disable.kinds.hold and spells.common(c).disable==nil)
+assert(spells.view(c,only(humanoid))==spells.view(c,only(humanoid)))
+-- An unjudged condition brings nothing and cuts nothing; the key marks it.
+local roles,key=spells.view(c,function() return nil end)
+assert(roles.disable==nil and key=='?')
+c=classify(spl('TESTDIR2',{ability({fx(177,{p1=2,p2=4,res='TESTELF'}),fx(5,{duration=60})})}),sr)
+roles,key=spells.view(c,function() error('unreadable') end)
+assert(roles.disable.kinds.charm and near(roles.disable.chance,1) and key=='?')
+-- Without conditions there is nothing to replay: every creature gets the spell's roles.
+c=one(fx(12,{p1=1}))
+assert(c.conditions==nil and c.log==nil and spells.view(c,no)==c.roles and select(2,spells.view(c,no))=='')
 groups=groups+1
 
 return groups

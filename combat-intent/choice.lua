@@ -12,6 +12,7 @@
 -- jobs. An attack must reach the profile's minimum worth.
 local targeting=require('combat-intent.targeting')
 local ids=require('combat-intent.ids')
+local spells=require('combat-intent.spells')
 local M={}
 M.rangeUnit=targeting.rangeUnit
 -- Allies keep this much room beyond an area's edge; positions are up to a check-in old.
@@ -64,7 +65,8 @@ function M.attack(spell)
     if type(spell.roles.disable)=='table' and spell.roles.disable.kinds and spell.roles.disable.kinds.timestop then
         return nil,'time-stop'
     end
-    local kind=reaches(spell.roles.disable) and 'disable' or reaches(spell.roles.damage) and 'damage' or nil
+    local roles=targeting.kindRoles(spell)
+    local kind=reaches(roles.disable) and 'disable' or reaches(roles.damage) and 'damage' or nil
     if not kind then return nil,'no-attack' end
     local a=spell.area
     if spell.projectileUnknown and not targeting.builtinSingle[spell.projectile] then return nil,'unknown-projectile' end
@@ -90,14 +92,15 @@ local function aimable(caster,e,spell)
     if d>range(spell) then return false,'out-of-range' end
     return true
 end
--- Whether the spell can work on e at all: its creature filters and e's spell protections.
-local function affects(spell,e)
-    for _,f in ipairs(targeting.filters(spell)) do
-        local m=ids.matches(f,e)
-        if m~=true then return false,m==false and 'filter' or 'unknown-filter' end
+-- What the spell does to e, or nil and why it does not work on e: its roles for e's kind of
+-- creature (spells.view) must hold the attack, and e's spell protections must not stop it.
+local function affects(spell,e,kind)
+    local roles,key=spells.view(spell,function(f) return ids.matches(f,e) end)
+    if type(roles)~='table' or not reaches(roles[kind]) then
+        return nil,type(key)=='string' and key:find('?',1,true) and 'unknown-filter' or 'filter'
     end
-    if targeting.protected(e,spell) then return false,'protected' end
-    return true
+    if targeting.protected(e,spell) then return nil,'protected' end
+    return roles
 end
 
 local function resisted(e,label)
@@ -183,7 +186,9 @@ local function disableOn(input,row,role,e)
     -- Taking out a nearly dead enemy is worth less than taking out a healthy one; taking one
     -- out for good is worth what killing it is.
     local worth=forGood and factor*(health+input.mind.killBonus) or factor*length*(0.5+0.5*health)
-    local chance=notResisted(e)*(1-M.saveChance(role,e))
+    -- The chance it lands: magic resistance, the saving throw, and the effect's own chance (an
+    -- elf keeps out nine charms in ten).
+    local chance=notResisted(e)*(1-M.saveChance(role,e))*clamp(number(role.chance) and role.chance or 1,0,1)
     return worth*chance*remembered(input,row.resref,e,role)
 end
 
@@ -212,9 +217,9 @@ local function shape(spell,caster,center,aim)
         function(p) return targeting.distance(center,p)<=a.radius+M.allyMargin end
 end
 
-local function worthOn(input,row,kind,spell,e)
-    if kind=='damage' then return damageOn(input,row,spell.roles.damage,e) end
-    return disableOn(input,row,spell.roles.disable,e)
+local function worthOn(input,row,kind,roles,e)
+    if kind=='damage' then return damageOn(input,row,roles.damage,e) end
+    return disableOn(input,row,roles.disable,e)
 end
 
 -- One option: the spell aimed at a creature or a point, its worth, cost and score, or nil
@@ -226,18 +231,19 @@ local function evaluate(input,row,spell,kind,mode,aim)
     local worth,hits,slack=0,{},0
     if mode=='creature' then
         local e=aim.enemy
-        local ok,why=affects(spell,e)
-        if not ok then return nil,why end
+        local roles,why=affects(spell,e,kind)
+        if not roles then return nil,why end
         if kind=='disable' and targeting.disabled(e) then return nil,'disabled' end
-        worth=worthOn(input,row,kind,spell,e)
+        worth=worthOn(input,row,kind,roles,e)
         hits[1]=e.id
     else
         local center=aim.point
         if a.line or a.rectangle then
             -- An enemies-only line or box: counted for the creature aimed at only.
             local e=aim.enemy
-            if not e or not affects(spell,e) then return nil,'shape' end
-            worth=worthOn(input,row,kind,spell,e)
+            local roles=e and affects(spell,e,kind)
+            if not roles then return nil,'shape' end
+            worth=worthOn(input,row,kind,roles,e)
             hits[1]=e.id
         else
             local inside,near=shape(spell,caster,center,aim.point)
@@ -256,8 +262,9 @@ local function evaluate(input,row,spell,kind,mode,aim)
             -- enemies well inside still hits them after a step.
             slack=math.huge
             for _,e in ipairs(frame.enemies) do
-                if targeting.alive(e) and inside(e) and affects(spell,e) then
-                    local w=worthOn(input,row,kind,spell,e)
+                local roles=targeting.alive(e) and inside(e) and affects(spell,e,kind)
+                if roles then
+                    local w=worthOn(input,row,kind,roles,e)
                     if w>0 then
                         worth=worth+w;hits[#hits+1]=e.id
                         slack=math.min(slack,a.radius-targeting.distance(a.cone and caster or center,e))

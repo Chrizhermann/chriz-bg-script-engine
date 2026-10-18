@@ -10,14 +10,17 @@ local function fx(op,fields)
     for k,v in pairs(fields or {}) do e[k]=v end
     return e
 end
-local function spell(resref,effects,ability,record,pro)
+local function spell(resref,effects,ability,record,pro,more)
     local a={form=1,flags=0,location=2,target=1,targetCount=0,range=30,minLevel=1,speed=3,projectile=2,effects=effects}
     for k,v in pairs(ability or {}) do a[k]=v end
     local r={kind='SPL',resref=resref,name=0,flags=1024,spellType=1,exclusion=0,school=0,secondary=0,
         level=3,abilities={a},casting={}}
     for k,v in pairs(record or {}) do r[k]=v end
     local projectiles={[2]=pro or {kind='PRO',resref='SINGLE',type=2,speed=20,flags=0,extFlags=0}}
-    return spells.classify(r,1,function(kind,key) if kind=='PRO' then return projectiles[key] end end,{level=10})
+    return spells.classify(r,1,function(kind,key)
+        if kind=='PRO' then return projectiles[key] end
+        return more and more[kind..':'..tostring(key)]
+    end,{level=10})
 end
 local bolt=spell('TESTBOLT',{fx(12,{p2=4*65536,dice=6,sides=6})},nil,{school=8,secondary=10})
 local hold=spell('TESTHOLD',{fx(175,{p2=3,p1=2,duration=30})},nil,{school=5})
@@ -30,6 +33,9 @@ local screen=spell('TESTSCRN',{fx(12,{dice=6,sides=6})},nil,nil,
 local blast=spell('TESTBLST',{fx(12,{dice=6,sides=6})},nil,nil,
     {kind='PRO',resref='AREA',type=3,speed=20,flags=0,extFlags=0,areaFlags=0,trigger=30,radius=256,coneWidth=0})
 local breach=spell('TESTBRCH',{fx(12,{p1=2}),fx(221,{p2=1,p1=9})})
+-- A fire bolt that also kills trolls (an SCS-style extra for one race).
+local trollBolt=spell('TESTTRBL',{fx(12,{p2=8*65536,dice=6,sides=6}),fx(177,{p1=129,p2=4,res='TESTTRDE'})},nil,nil,nil,
+    {['EFF:TESTTRDE']={kind='EFF',resref='TESTTRDE',effect=fx(13,{})}})
 
 -- 1. State bits, health and distance; a signed state value still shows confusion.
 assert(targeting.has(0x8010202D,0x80000000) and targeting.has(-2147483648,targeting.STATE.confused))
@@ -50,10 +56,13 @@ assert(why(strange)=='unknown-projectile' and why(ball)=='not-creature-target' a
 assert(why(breach)=='role-removal' and why(nil)=='unclassified')
 local part=spell('TESTPART',{fx(146,{res='GONE'}),fx(12,{p1=1})});assert(part.partial and why(part)=='partial')
 assert(targeting.role(ball)=='damage' and targeting.role(hold)=='disable' and targeting.role(breach)=='damage')
+-- What a spell does to a creature none of its conditions single out decides its kind: the
+-- troll extra does not make the bolt a disable.
+assert(trollBolt.roles.disable.kinds.death and targeting.kind(trollBolt)=='damage' and targeting.role(trollBolt)=='damage')
 groups=groups+1
 
 -- 3. A legal replacement: alive, no sanctuary, seen, in reach, no more magic resistance than
--- the original, the same filtered IDS values, and no protection that stops this spell.
+-- the original, the same creature conditions met, and no protection that stops this spell.
 local caster={id=1,x=0,y=0}
 local original={id=2,x=100,y=0,state=0,hp=10,maxHp=10,mr=0,ids={general=1,race=1},protections={}}
 local function enemy(fields)
@@ -70,8 +79,15 @@ assert(legal(enemy({x=0,y=361}))=='out-of-range' and legal(enemy({x=600}),bolt,c
 local lost=enemy();lost.x=nil
 assert(legal(lost)=='no-position')
 assert(legal(enemy({mr=10}))=='magic-resistance' and legal(enemy({mr=10}),bolt,caster,enemy({id=2,x=100,mr=50}))=='ok')
--- The hold filters on GENERAL (IDS 3): the same value passes, another fails.
-assert(legal(enemy({ids={general=1}}),hold)=='ok' and legal(enemy({ids={general=4}}),hold)=='filter')
+-- A hold of animals (GENERAL 2): aimed at an animal it may move to another animal, not to a
+-- humanoid; aimed at a humanoid, to any creature but an animal. An unknown type is no
+-- replacement.
+local animal={id=2,x=100,y=0,state=0,hp=10,maxHp=10,mr=0,ids={general=2,race=1},protections={}}
+assert(legal(enemy({ids={general=2}}),hold,caster,animal)=='ok' and legal(enemy({ids={general=1}}),hold,caster,animal)=='filter')
+assert(legal(enemy({ids={general=4}}),hold)=='ok' and legal(enemy({ids={general=2}}),hold)=='filter')
+assert(legal(enemy({ids={}}),hold)=='unknown-filter')
+-- The troll extra: an elf takes the bolt as the human original does; a troll would take more.
+assert(legal(enemy(),trollBolt)=='ok' and legal(enemy({ids={general=1,race=129}}),trollBolt)=='filter')
 groups=groups+1
 
 -- 4. Protections by opcode, projectile, level, school, secondary type and resource.

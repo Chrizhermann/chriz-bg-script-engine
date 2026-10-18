@@ -374,6 +374,12 @@ factories["combat-intent.spells"]=function(require)
 -- ability's projectile number. Spells delivered through other spells or EFF files are followed
 -- with depth, cycle and size limits. Nothing here raises: odd or missing data is reported in
 -- the result (partial, reasons, unknown opcodes), and the caller skips what it cannot use.
+--
+-- roles is everything the spell can do to anyone. Some effects reach only one kind of
+-- creature: what 177 or 283 deliver with an IDS entry, a hold that names a creature type. Those
+-- kinds are the spell's conditions, and M.view gives the roles for one creature by which of
+-- them it meets: an extra for trolls counts only on trolls, and a conditional immunity (Spell
+-- Revisions spares elves its charms and the undead its fear) takes out what follows it.
 local M={}
 -- SCS's troll chains and SR's Greater Command go more than eight deliveries deep.
 M.limits={depth=12,effects=2048}
@@ -547,11 +553,11 @@ H[39]=function(c,e,who,p)
     -- Parameter 2 is 0 when the sleeper wakes on damage (EE).
     if e.p2==0 then r.wakesOnDamage=true else r.staysAsleep=true end
 end
-local function hold(c,e,who,p)
-    local r=kind(c,'disable','hold',who,e,p)
-    if e.p2~=0 then set(r,'filters')[#r.filters+1]={ids=e.p2,entry=e.p1} end
-end
+-- A hold that names a creature type (IDS file in parameter 2, a non-zero entry in parameter 1)
+-- holds only that type: walk makes the type a condition of the hold.
+local function hold(c,e,who,p) kind(c,'disable','hold',who,e,p) end
 H[109]=hold;H[175]=hold;H[185]=hold
+local TYPED={[109]=true,[175]=true,[185]=true}
 H[145]=function(c,e,who,p) kind(c,'disable','nocast',who,e,p) end
 local function berserk(c,e,who,p)
     if who=='self' then kind(c,'buff','berserk',who,e,p) else kind(c,'disable','berserk',who,e,p) end
@@ -804,16 +810,54 @@ local function valid(e)
     return type(e.res)=='string'
 end
 
-local walk
-local function deliver(c,state,e,where,depth,p)
-    local op=e.opcode
-    -- With a non-zero IDS entry, 177 and 283 apply only to creatures of that type (entry 0
-    -- matches anyone: bard songs and most SR spells use EA 0).
-    if (op==177 or op==283) and e.p1~=0 then
-        c.conditional=true
-        c.filters=c.filters or {}
-        c.filters[#c.filters+1]={ids=e.p2,entry=e.p1}
+-- Creature conditions: c.conditions lists each IDS file and entry once, and c.when holds the
+-- positions of those the effects being walked depend on (all of them must hold).
+local function condition(c,ids,entry)
+    local key=ids..':'..entry
+    local n=c.conditionAt[key]
+    if not n then
+        c.conditions[#c.conditions+1]={ids=ids,entry=entry}
+        n=#c.conditions;c.conditionAt[key]=n
     end
+    return n
+end
+local function within(when,n)
+    local out={}
+    for _,v in ipairs(when or {}) do
+        if v==n then return when end
+        out[#out+1]=v
+    end
+    out[#out+1]=n
+    return out
+end
+
+-- Under a creature condition, an immunity to an opcode, or a protection from the spell itself or
+-- a spell it comes through, keeps creatures of that kind out of what follows. Returns what it
+-- cuts: an opcode, or the walk node of that spell.
+local function exclusion(c,e)
+    if e.opcode==101 then return {opcode=e.p2} end
+    -- 318 and 324 name a SPLPROT row in parameter 2; row 0 matches anyone.
+    local named=e.opcode==206 or ((e.opcode==318 or e.opcode==324) and e.p2==0)
+    if not named or e.res=='' then return nil end
+    local node=c.node
+    while node do
+        if c.nodes[node].res==e.res then return {node=node} end
+        node=c.nodes[node].parent
+    end
+end
+
+-- An effect without a saving throw of its own, given the one of the delivery that brings it.
+local function inherited(e,from)
+    local x={}
+    for k,v in pairs(e) do x[k]=v end
+    x.save=e.save+from.save%32
+    x.saveBonus=from.saveBonus
+    return x
+end
+
+local walk
+local function send(c,state,e,where,depth,p)
+    local op=e.opcode
     if op==177 or op==283 or op==272 then c.sources[e.res]=true end
     if op==177 or op==283 then
         local eff=state.lookup('EFF',e.res)
@@ -821,7 +865,15 @@ local function deliver(c,state,e,where,depth,p)
         local inner={}
         for k,v in pairs(eff.effect) do inner[k]=v end
         inner.target=2
-        return walk(c,state,{inner},receiver(e,where),depth+1,p,'EFF:'..e.res,c.owner)
+        -- With a non-zero IDS entry, 177 and 283 deliver only to creatures of that type (entry
+        -- 0 matches anyone: bard songs and most SR spells use EA 0). The type is a condition of
+        -- what they deliver, not of the whole spell: SCS's troll extras ride on fire and acid
+        -- spells that hurt everyone.
+        local when=c.when
+        if e.p1~=0 then c.conditional=true;c.when=within(when,condition(c,e.p2,e.p1)) end
+        walk(c,state,{inner},receiver(e,where),depth+1,p,'EFF:'..e.res,c.owner)
+        c.when=when
+        return
     end
     if op==272 then
         local eff=state.lookup('EFF',e.res)
@@ -870,6 +922,14 @@ local function deliver(c,state,e,where,depth,p)
     walk(c,state,ability.effects,to,depth+1,p,'SPL:'..res,res)
     c.times=saved
 end
+-- What a delivery brings shares its saving throw: an effect without one of its own saves as the
+-- delivery does (Spell Revisions' Charm Person saves on its 177s, not on the charm).
+local function deliver(c,state,e,where,depth,p)
+    local inherit=c.inherit
+    if saveNames(e.save) then c.inherit={save=e.save,saveBonus=e.saveBonus} end
+    send(c,state,e,where,depth,p)
+    c.inherit=inherit
+end
 local DELIVERY={[146]=true,[148]=true,[177]=true,[272]=true,[283]=true,[326]=true,[333]=true,[366]=true}
 
 walk=function(c,state,effects,where,depth,p,key,owner)
@@ -878,8 +938,13 @@ walk=function(c,state,effects,where,depth,p,key,owner)
         if depth>M.limits.depth then c.partial=true;c.reasons['depth:'..key]=true;return end
         state.path[key]=true
     end
-    local outer=c.owner
+    local outer,parent=c.owner,c.node
     c.owner=owner
+    -- Each record walked is a node; a conditional protection from it cuts what follows inside.
+    if key then
+        c.nodes[#c.nodes+1]={res=key:match('^SPL:(.+)$'),parent=parent}
+        c.node=#c.nodes
+    end
     if type(effects)=='table' then
         for _,e in ipairs(effects) do
             state.count=state.count+1
@@ -889,16 +954,28 @@ walk=function(c,state,effects,where,depth,p,key,owner)
                 local who=receiver(e,where)
                 local q=p*chance(e)
                 if who and q>0 then
+                    if c.inherit and not saveNames(e.save) then e=inherited(e,c.inherit) end
                     -- What reaches others, for matching a target's opcode immunities.
                     if who~='self' then c.opcodes[e.opcode]=true end
+                    local cut=not DELIVERY[e.opcode] and c.when and who~='self' and exclusion(c,e)
                     if DELIVERY[e.opcode] then deliver(c,state,e,where,depth,q)
-                    elseif H[e.opcode] then H[e.opcode](c,e,who,q)
+                    elseif cut then
+                        cut.cut=true;cut.when=c.when;cut.p=q
+                        c.log[#c.log+1]=cut
+                    elseif H[e.opcode] then
+                        H[e.opcode](c,e,who,q)
+                        -- The log replays what reaches others for one creature (M.view).
+                        if who~='self' then
+                            local when=c.when
+                            if TYPED[e.opcode] and e.p2~=0 and e.p1~=0 then when=within(when,condition(c,e.p2,e.p1)) end
+                            c.log[#c.log+1]={e=e,who=who,p=q,times=c.times,owner=c.owner,node=c.node,when=when}
+                        end
                     elseif not NEUTRAL[e.opcode] then tally(c.unknown,e.opcode,1) end
                 end
             end
         end
     end
-    c.owner=outer
+    c.owner=outer;c.node=parent
     if key then state.path[key]=nil end
 end
 
@@ -910,7 +987,7 @@ local HARMS_ALLIES={everyone=true,nonparty=true,casterGroup=true}
 -- file it delivers through: an effect it lands carries one of them as its source.
 function M.classify(record,index,lookup,options)
     options=options or {}
-    local c={roles={},unknown={},reasons={},opcodes={},sources={}}
+    local c={roles={},unknown={},reasons={},opcodes={},sources={},conditions={},conditionAt={},log={},nodes={}}
     if type(record)~='table' or type(record.abilities)~='table' then c.partial=true;c.reasons['no-record']=true;return c end
     local ability=record.abilities[index]
     if type(ability)~='table' then c.partial=true;c.reasons['no-ability']=true;return c end
@@ -940,7 +1017,9 @@ function M.classify(record,index,lookup,options)
     local key=tostring(record.kind)..':'..tostring(record.resref)
     walk(c,state,ability.effects,where,0,1,key,record.resref)
     if record.kind=='SPL' then walk(c,state,record.casting,'self',0,1,key,record.resref) end
-    c.times=nil;c.owner=nil
+    c.times=nil;c.owner=nil;c.node=nil;c.when=nil;c.inherit=nil;c.conditionAt=nil
+    -- Without conditions every creature gets the same roles, and no view needs the log.
+    if #c.conditions==0 then c.conditions=nil;c.log=nil;c.nodes=nil end
     local names={}
     for name,r in pairs(c.roles) do
         names[#names+1]=name
@@ -956,6 +1035,56 @@ function M.classify(record,index,lookup,options)
     return c
 end
 
+-- The roles the classified spell c has for one creature it reaches. holds(condition) answers
+-- whether the creature meets one of c.conditions: true, false or nil (cannot judge). What a
+-- condition brings counts only when it holds; a conditional immunity counts when it holds, and
+-- what follows it counts only for the chance it leaves. An unjudged condition brings nothing
+-- and cuts nothing. Returns the roles and the creature's key, one mark per condition (1, 0 or
+-- ?); roles are kept by key on c. A spell without conditions gives every creature its roles
+-- (key ''); a view built from conditions leaves out what the spell does to its caster.
+function M.view(c,holds)
+    if type(c)~='table' or type(c.roles)~='table' then return nil end
+    if type(c.log)~='table' or type(c.conditions)~='table' then return c.roles,'' end
+    local marks={}
+    for i,f in ipairs(c.conditions) do
+        local ok,v=pcall(holds,f)
+        marks[i]=(ok and v==true) and '1' or (ok and v==false) and '0' or '?'
+    end
+    local key=table.concat(marks)
+    c.views=c.views or {}
+    if c.views[key] then return c.views[key],key end
+    local function met(when)
+        for _,n in ipairs(when or {}) do if marks[n]~='1' then return false end end
+        return true
+    end
+    local r={roles={},self=c.self}
+    local nodes,opcodes={},{}
+    for _,x in ipairs(c.log) do
+        if x.cut then
+            if met(x.when) then
+                if x.node then nodes[x.node]=(nodes[x.node] or 1)*(1-math.min(x.p,1)) end
+                if x.opcode then opcodes[x.opcode]=(opcodes[x.opcode] or 1)*(1-math.min(x.p,1)) end
+            end
+        elseif met(x.when) then
+            local left=opcodes[x.e.opcode] or 1
+            local node=x.node
+            while node do
+                left=left*(nodes[node] or 1)
+                node=c.nodes[node].parent
+            end
+            if left>0 then
+                r.times=x.times;r.owner=x.owner
+                H[x.e.opcode](r,x.e,x.who,x.p*left)
+            end
+        end
+    end
+    c.views[key]=r.roles
+    return r.roles,key
+end
+local function never() return false end
+-- The roles for a creature that meets none of the spell's conditions.
+function M.common(c) return (M.view(c,never)) end
+
 return M
 end
 factories["combat-intent.targeting"]=function(require)
@@ -964,6 +1093,8 @@ factories["combat-intent.targeting"]=function(require)
 -- perception frame (adapters/eeex/sense.lua) and the spell's classification
 -- (combat-intent/spells.lua). Nothing here touches the engine or raises on odd data; an
 -- answer it cannot give is a reason to leave the cast as it is.
+local spells=require('combat-intent.spells')
+local ids=require('combat-intent.ids')
 local M={}
 
 -- STATE.IDS bits (engine constants).
@@ -982,8 +1113,6 @@ for n=68,78 do M.builtinSingle[n]=true end
 -- Distance as the engine's search map measures it: cells are 16 by 12 world units, so y
 -- counts 4/3. SPL range values are taken as cells of 16 (to be confirmed in the lab).
 M.rangeUnit=16
--- IDS files a spell's creature filter can name (opcodes 175, 177, 283).
-M.IDS={[2]='ea',[3]='general',[4]='race',[5]='class',[6]='specific',[7]='gender',[8]='alignment'}
 -- Roles that tie a cast to its target for reasons the director does not judge (a dispel
 -- picks the protected enemy) or that are not attacks at all.
 local KEEP_ROLES={'removal','heal','raise','cure','summon'}
@@ -1021,12 +1150,21 @@ function M.distance(a,b)
 end
 
 local function reaches(role) return type(role)=='table' and type(role.who)=='table' and (role.who.target or role.who.area) end
+-- The roles that say what kind of attack a spell is: what it does to a creature none of its
+-- creature conditions single out, when that is an attack, else all it can do (a hold that takes
+-- humanoids only is still a hold). A fire spell with SCS's troll extra stays a damage spell.
+function M.kindRoles(spell)
+    local common=spells.common(spell)
+    if type(common)=='table' and (reaches(common.disable) or reaches(common.damage)) then return common end
+    return spell.roles
+end
 -- What a cast does to the creature it is aimed at, for the group picture: 'disable', 'damage'
 -- or nil. Any cast counts here, also one the director would not redirect.
 function M.role(spell)
     if type(spell)~='table' or type(spell.roles)~='table' then return nil end
-    if reaches(spell.roles.disable) then return 'disable' end
-    if reaches(spell.roles.damage) then return 'damage' end
+    local roles=M.kindRoles(spell)
+    if reaches(roles.disable) then return 'disable' end
+    if reaches(roles.damage) then return 'damage' end
 end
 -- 'disable' or 'damage' when the director may redirect this cast, else nil and why.
 function M.kind(spell)
@@ -1039,22 +1177,17 @@ function M.kind(spell)
     for _,name in ipairs(KEEP_ROLES) do
         if reaches(spell.roles[name]) then return nil,'role-'..name end
     end
-    if reaches(spell.roles.disable) then return 'disable' end
-    if reaches(spell.roles.damage) then return 'damage' end
+    local roles=M.kindRoles(spell)
+    if reaches(roles.disable) then return 'disable' end
+    if reaches(roles.damage) then return 'damage' end
     return nil,'not-damage-or-disable'
 end
 
--- Every creature filter of the spell, from conditional deliveries and from holds.
-local function filters(spell)
-    local all={}
-    for _,f in ipairs(type(spell.filters)=='table' and spell.filters or {}) do all[#all+1]=f end
-    local disable=spell.roles.disable
-    for _,f in ipairs(type(disable)=='table' and type(disable.filters)=='table' and disable.filters or {}) do
-        all[#all+1]=f
-    end
-    return all
+-- Which of the spell's creature conditions e meets: spells.view's key, one mark each.
+local function met(spell,e)
+    local _,key=spells.view(spell,function(f) return ids.matches(f,e) end)
+    return key
 end
-M.filters=filters
 
 -- Spell protections that would stop this spell: turning, deflection, traps and globes by
 -- level, school or secondary type; immunity or bounce by opcode or projectile; protection
@@ -1086,7 +1219,8 @@ end
 -- Whether target may take the cast instead of original, the enemy the creature's script chose
 -- (both entries of the caster's frame). Nothing here is stricter than "no worse than the
 -- original": range up to the farther of the spell's range and the original's distance, magic
--- resistance up to the original's, the same values in every IDS file the spell filters on.
+-- resistance up to the original's, the same creature conditions of the spell met, so it does to
+-- target what it would do to the original.
 function M.legal(caster,target,spell,original)
     if type(target)~='table' or type(original)~='table' or type(caster)~='table' then return false,'missing' end
     if not M.alive(target) then return false,'dead' end
@@ -1098,23 +1232,23 @@ function M.legal(caster,target,spell,original)
     if (number(target.mr) and target.mr or 0)>(number(original.mr) and original.mr or 0) then
         return false,'magic-resistance'
     end
-    for _,f in ipairs(filters(spell)) do
-        local field=type(f)=='table' and M.IDS[f.ids]
-        if not field then return false,'unknown-filter' end
-        local a,b=type(target.ids)=='table' and target.ids[field],type(original.ids)=='table' and original.ids[field]
-        if a==nil or a~=b then return false,'filter' end
+    local a,b=met(spell,target),met(spell,original)
+    if type(a)~='string' or type(b)~='string' or a:find('?',1,true) or b:find('?',1,true) then
+        return false,'unknown-filter'
     end
+    if a~=b then return false,'filter' end
     if M.protected(target,spell) then return false,'protected' end
     return true
 end
 return M
 end
 factories["combat-intent.ids"]=function(require)
--- Whether a creature is of the kind a spell's creature filter names (opcodes 175, 177, 185 and
--- 283 carry an IDS file and an entry). Plain values only: the creature's IDS values as
+-- Whether a creature is of the kind a spell's creature condition names (opcodes 109, 175, 177,
+-- 185 and 283 carry an IDS file and an entry). Plain values only: the creature's IDS values as
 -- adapters/eeex/sense.lua reads them. The engine matches a few entries by rule (EA cutoffs,
 -- the *_ALL classes, alignment masks); those rules follow the game's IDS files. An entry this
--- module cannot judge answers nil, and the caller leaves the spell out for that creature.
+-- module cannot judge answers nil, and nothing that depends on it counts for that creature
+-- (combat-intent/spells.lua, M.view).
 local M={}
 -- IDS file numbers as the opcodes use them.
 M.FIELDS={[2]='ea',[3]='general',[4]='race',[5]='class',[6]='specific',[7]='gender',[8]='alignment'}
@@ -1277,6 +1411,7 @@ factories["combat-intent.choice"]=function(require)
 -- jobs. An attack must reach the profile's minimum worth.
 local targeting=require('combat-intent.targeting')
 local ids=require('combat-intent.ids')
+local spells=require('combat-intent.spells')
 local M={}
 M.rangeUnit=targeting.rangeUnit
 -- Allies keep this much room beyond an area's edge; positions are up to a check-in old.
@@ -1329,7 +1464,8 @@ function M.attack(spell)
     if type(spell.roles.disable)=='table' and spell.roles.disable.kinds and spell.roles.disable.kinds.timestop then
         return nil,'time-stop'
     end
-    local kind=reaches(spell.roles.disable) and 'disable' or reaches(spell.roles.damage) and 'damage' or nil
+    local roles=targeting.kindRoles(spell)
+    local kind=reaches(roles.disable) and 'disable' or reaches(roles.damage) and 'damage' or nil
     if not kind then return nil,'no-attack' end
     local a=spell.area
     if spell.projectileUnknown and not targeting.builtinSingle[spell.projectile] then return nil,'unknown-projectile' end
@@ -1355,14 +1491,15 @@ local function aimable(caster,e,spell)
     if d>range(spell) then return false,'out-of-range' end
     return true
 end
--- Whether the spell can work on e at all: its creature filters and e's spell protections.
-local function affects(spell,e)
-    for _,f in ipairs(targeting.filters(spell)) do
-        local m=ids.matches(f,e)
-        if m~=true then return false,m==false and 'filter' or 'unknown-filter' end
+-- What the spell does to e, or nil and why it does not work on e: its roles for e's kind of
+-- creature (spells.view) must hold the attack, and e's spell protections must not stop it.
+local function affects(spell,e,kind)
+    local roles,key=spells.view(spell,function(f) return ids.matches(f,e) end)
+    if type(roles)~='table' or not reaches(roles[kind]) then
+        return nil,type(key)=='string' and key:find('?',1,true) and 'unknown-filter' or 'filter'
     end
-    if targeting.protected(e,spell) then return false,'protected' end
-    return true
+    if targeting.protected(e,spell) then return nil,'protected' end
+    return roles
 end
 
 local function resisted(e,label)
@@ -1448,7 +1585,9 @@ local function disableOn(input,row,role,e)
     -- Taking out a nearly dead enemy is worth less than taking out a healthy one; taking one
     -- out for good is worth what killing it is.
     local worth=forGood and factor*(health+input.mind.killBonus) or factor*length*(0.5+0.5*health)
-    local chance=notResisted(e)*(1-M.saveChance(role,e))
+    -- The chance it lands: magic resistance, the saving throw, and the effect's own chance (an
+    -- elf keeps out nine charms in ten).
+    local chance=notResisted(e)*(1-M.saveChance(role,e))*clamp(number(role.chance) and role.chance or 1,0,1)
     return worth*chance*remembered(input,row.resref,e,role)
 end
 
@@ -1477,9 +1616,9 @@ local function shape(spell,caster,center,aim)
         function(p) return targeting.distance(center,p)<=a.radius+M.allyMargin end
 end
 
-local function worthOn(input,row,kind,spell,e)
-    if kind=='damage' then return damageOn(input,row,spell.roles.damage,e) end
-    return disableOn(input,row,spell.roles.disable,e)
+local function worthOn(input,row,kind,roles,e)
+    if kind=='damage' then return damageOn(input,row,roles.damage,e) end
+    return disableOn(input,row,roles.disable,e)
 end
 
 -- One option: the spell aimed at a creature or a point, its worth, cost and score, or nil
@@ -1491,18 +1630,19 @@ local function evaluate(input,row,spell,kind,mode,aim)
     local worth,hits,slack=0,{},0
     if mode=='creature' then
         local e=aim.enemy
-        local ok,why=affects(spell,e)
-        if not ok then return nil,why end
+        local roles,why=affects(spell,e,kind)
+        if not roles then return nil,why end
         if kind=='disable' and targeting.disabled(e) then return nil,'disabled' end
-        worth=worthOn(input,row,kind,spell,e)
+        worth=worthOn(input,row,kind,roles,e)
         hits[1]=e.id
     else
         local center=aim.point
         if a.line or a.rectangle then
             -- An enemies-only line or box: counted for the creature aimed at only.
             local e=aim.enemy
-            if not e or not affects(spell,e) then return nil,'shape' end
-            worth=worthOn(input,row,kind,spell,e)
+            local roles=e and affects(spell,e,kind)
+            if not roles then return nil,'shape' end
+            worth=worthOn(input,row,kind,roles,e)
             hits[1]=e.id
         else
             local inside,near=shape(spell,caster,center,aim.point)
@@ -1521,8 +1661,9 @@ local function evaluate(input,row,spell,kind,mode,aim)
             -- enemies well inside still hits them after a step.
             slack=math.huge
             for _,e in ipairs(frame.enemies) do
-                if targeting.alive(e) and inside(e) and affects(spell,e) then
-                    local w=worthOn(input,row,kind,spell,e)
+                local roles=targeting.alive(e) and inside(e) and affects(spell,e,kind)
+                if roles then
+                    local w=worthOn(input,row,kind,roles,e)
                     if w>0 then
                         worth=worth+w;hits[#hits+1]=e.id
                         slack=math.min(slack,a.radius-targeting.distance(a.cone and caster or center,e))

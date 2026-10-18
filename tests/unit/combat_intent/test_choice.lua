@@ -235,6 +235,36 @@ for seed=1,10 do
 end
 groups=groups+1
 
+-- 15. Creature conditions belong to what they deliver: a fire bolt with a troll extra is a
+-- damage option against anyone; a charm elves resist nine times in ten is worth a tenth as
+-- much on an elf; a hold of humanoids is no option against an animal.
+local function classified(resref,level,effects,files)
+    local r={kind='SPL',resref=resref,name=0,flags=1024,spellType=1,exclusion=0,school=0,secondary=0,level=level,
+        abilities={{form=1,flags=0,location=2,target=1,targetCount=0,range=30,minLevel=1,speed=3,projectile=2,
+        effects=effects}},casting={}}
+    return spells.classify(r,1,function(kind,key)
+        if kind=='PRO' and key==2 then return SINGLE end
+        return files[kind..':'..tostring(key)]
+    end,{level=10})
+end
+local trollBolt=classified('TESTTRBL',3,{fx(12,{p2=FIRE,dice=6,sides=6}),fx(177,{p1=129,p2=4,res='TESTTRX'})},
+    {['EFF:TESTTRX']={kind='EFF',resref='TESTTRX',effect=fx(13,{})}})
+assert(choice.attack(trollBolt)=='damage')
+i=enemies(input({spells={row('TESTTRBL',trollBolt,3)}}),{enemy(11)})
+opts=choice.options(i)
+assert(#opts==1 and opts[1].kind=='damage' and opts[1].target==11)
+local dire=classified('TESTDIRE',3,{fx(177,{p1=2,p2=4,prob1=89,res='TESTELFI'}),fx(5,{duration=60})},
+    {['EFF:TESTELFI']={kind='EFF',resref='TESTELFI',effect=fx(101,{p2=5,duration=1})}})
+i=enemies(input({spells={row('TESTDIRE',dire,3)}}),
+    {enemy(11),enemy(12,{ids={ea=2,general=1,race=2,class=2,specific=0,gender=1,alignment=0x11}})})
+opts=choice.options(i)
+assert(#opts==2 and opts[1].target==11 and opts[2].target==12)
+assert(math.abs(opts[2].worth/opts[1].worth-(1-90/101))<1e-9)
+local rejected={}
+i=enemies(input({spells={row('TESTHOLD',hold,2)}}),{enemy(11,{ids={ea=2,general=2,class=2}})})
+assert(#choice.options(i,rejected)==0 and rejected.filter==1)
+groups=groups+1
+
 -- 13. Who can be aimed at: in range, no sanctuary, seen, alive.
 i=enemies(input({spells={row('TESTBOLT',bolt,3)}}),{enemy(11,{x=700}),enemy(12,{x=300})})
 assert(choice.decide(i).target==12)
