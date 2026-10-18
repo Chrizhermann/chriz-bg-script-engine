@@ -230,8 +230,9 @@ assert(claim(m1,'mage','s1',330)==true and root.inspect().choice.counts.lost==1)
 assert(last('lost').spell=='TESTBOLT' and last('lost').queued==280)
 groups=groups+1
 
--- 6. SCS keeps the round: the switch off, a silenced mage, a busy aura, a cast already
--- running, families the choice does not drive, a creature on the good side.
+-- 6. SCS keeps the round: the switch off, a silenced mage, a cast already running, families the
+-- choice does not drive, a creature on the good side. A busy casting aura does not: the cast
+-- waits for it.
 g.BGSE_Act(m1)
 start(m1,action(31,'TESTBOLT',-1))
 start(m1,action(0,'',0))
@@ -242,7 +243,7 @@ m1.state=0x1000
 assert(claim(m1,'mage','s1',401)==false and root.inspect().choice.reasons['urgent-silenced']==1)
 m1.state=0
 m1.castTimer=40
-assert(claim(m1,'mage','s1',402)==false and root.inspect().choice.reasons.aura==1)
+assert(claim(m1,'mage','s1',402)==true and root.inspect().choice.reasons.aura==nil)
 m1.castTimer=nil
 m1.m_curAction=action(31,'SPWI112',11)
 assert(claim(m1,'mage','s1',403)==false and root.inspect().choice.reasons.casting==1)
@@ -377,6 +378,29 @@ ch3:setTrace(false)
 local n=#traced
 g3.ticks=201
 assert(g3.BGSE_Claim(q1,'priest','s2')==false and #traced==n)
+groups=groups+1
+
+-- 13. A cast queued while the casting aura runs waits for it: the creature holds while the aura
+-- runs and pendingTicks after it was last seen busy, then the cast is given up.
+local g4=world()
+local w=g4.add(sprite(1,0,0,255))
+learn(w,2,'TESTBOLT',3)
+g4.add(sprite(11,100,0,2))
+local dir4=directors.new(g4,{reader=reader})
+local ch4=choices.new(g4,{reader=reader,director=dir4,seed=9})
+local root4=runtime.install(g4,{director=dir4,choice=ch4,version='test'})
+w.castTimer=60
+g4.ticks=100
+assert(g4.BGSE_Claim(w,'mage','s1')==true)
+g4.BGSE_Act(w)
+assert(#g4.queued==1 and root4.inspect().choice.pending==1)
+g4.ticks=180
+assert(g4.BGSE_Claim(w,'mage','s1')==true and root4.inspect().choice.counts.holds==1)
+w.castTimer=nil
+g4.ticks=225
+assert(g4.BGSE_Claim(w,'mage','s1')==true and root4.inspect().choice.counts.holds==2)
+g4.ticks=226
+assert(g4.BGSE_Claim(w,'mage','s1')==true and root4.inspect().choice.counts.lost==1)
 groups=groups+1
 
 return groups

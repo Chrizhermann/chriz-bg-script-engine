@@ -2660,8 +2660,9 @@ local mind=require('combat-intent.mind')
 local rngs=require('kernel.rng')
 local M={}
 M.families={mage=true,priest=true}
--- Game ticks (15 a second). A queued cast that has not started after pendingTicks is given up;
--- outcomeTicks after a cast ends, its effect on the target is judged.
+-- Game ticks (15 a second). A queued cast that has not started pendingTicks after it was
+-- queued, or after the creature's casting aura was last seen busy, is given up; outcomeTicks
+-- after a cast ends, its effect on the target is judged.
 M.pendingTicks=45
 M.outcomeTicks=30
 -- A started cast that ends this much before its casting time was interrupted.
@@ -2871,13 +2872,21 @@ function M.new(g,options)
         judge(tick)
         local p=pending[id]
         if p then
-            if tick>=p.tick and tick-p.tick<=M.pendingTicks then counts.holds=counts.holds+1;return {hold=true} end
+            -- A cast queued while the casting aura (the round of the creature's last cast) runs
+            -- waits for it, as SCS's casts do.
+            if g.EEex_Sprite_GetCastTimer(sprite)~=-1 then p.waiting=tick end
+            if tick>=p.tick and tick-(p.waiting or p.tick)<=M.pendingTicks then
+                counts.holds=counts.holds+1;return {hold=true}
+            end
             pending[id]=nil;counts.lost=counts.lost+1
             record({kind='lost',tick=tick,member=id,spell=p.resref,target=p.target,queued=p.tick})
             if director then director:release(id,tick) end
         end
+        -- The round is free once SCS's timer has run out, even while the casting aura of the
+        -- last cast still runs: SCS's timer counts a round from the cast's queueing, the aura
+        -- from its start, so the aura nearly always outlasts the timer. A queued cast waits for
+        -- the aura, SCS's and the engine's alike.
         if M.timerRunning(g,sprite,tick) then return decline('timer') end
-        if g.EEex_Sprite_GetCastTimer(sprite)~=-1 then return decline('aura') end
         if targeting.CASTS[sprite.m_curAction.m_actionID] then return decline('casting') end
         local frame=sense.frame(g,sprite,tick,true)
         if not frame then return decline('no-frame') end
@@ -2936,7 +2945,7 @@ function M.new(g,options)
         if not enabled or missing then return 'skipped' end
         local tick=now()
         if type(tick)~='number' then return 'skipped' end
-        if g.EEex_Sprite_GetCastTimer(object)~=-1 or M.timerRunning(g,object,tick) then return 'skipped' end
+        if M.timerRunning(g,object,tick) then return 'skipped' end
         local hp
         if decision.target and not decision.point and not decision.self then
             local target=get(decision.target)
