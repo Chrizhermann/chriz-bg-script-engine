@@ -140,24 +140,21 @@ s=back:inspect()
 assert(s.members==0 and s.enemies==0 and s.focus==nil and s.log[#s.log].kind=='invalidated')
 groups=groups+1
 
--- 7. A cast at a kind of creature: another target must be of the kind its object names, for a
--- disable's alternative and for the focus alike.
+-- 7. A cast its script aimed at a kind of creature takes any legal target like any other cast,
+-- a creature of another kind too; the log marks it.
 local function kinOf(id,class,fields) local e=enemy(id,fields);e.ids={ea=2,general=1,class=class};return e end
-local mageKind={ea=2,general=0,race=0,class=1,specific=0,gender=0,alignment=0}
 local kd=director.new({})
 f=frame(700,nil,{kinOf(11,1,{held=1}),kinOf(12,2),kinOf(13,1)})
 kd:checkIn(mage,f)
--- 12 is nearer but no mage.
-a=kd:advise(mage,f,hold,11,700,mageKind)
-assert(a.action=='redirect' and a.target==13 and kd:inspect().log[#kd:inspect().log].typed==true)
-assert(kd:advise(mage,f,hold,11,700).target==12)
-f=frame(701,nil,{kinOf(11,1,{held=1}),kinOf(12,2)})
-assert(kd:advise(mage,f,hold,11,701,mageKind).reason=='disabled-no-alternative')
+-- 12 is no mage like 11, and the nearest free enemy.
+a=kd:advise(mage,f,hold,11,700,true)
+assert(a.action=='redirect' and a.target==12 and kd:inspect().log[#kd:inspect().log].typed==true)
+assert(kd:advise(mage,f,hold,11,700).target==12 and kd:inspect().log[#kd:inspect().log].typed==nil)
 local kf=director.new({})
 f=frame(702,nil,{kinOf(11,1),kinOf(12,2,{hp=5})})
 kf:checkIn(mage,f)
-assert(kf:advise(mage,f,bolt,11,702,mageKind).reason=='focus-other-kind')
-assert(kf:advise(mage,f,bolt,11,702).reason=='focus')
+a=kf:advise(mage,f,bolt,11,702,true)
+assert(a.action=='redirect' and a.target==12 and a.reason=='focus')
 kf:started(mage,{spell='TESTHOLD',role='disable',target=11,original=11,typed=true},703)
 assert(kf:inspect().log[#kf:inspect().log].typed==true and kf:inspect().reservations[1].target==11)
 -- The group's picture: when each enemy was last seen, by how many, whether disabled.

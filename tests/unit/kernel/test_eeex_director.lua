@@ -225,7 +225,7 @@ groups=groups+1
 
 -- 7. A cast at a kind of creature has no instance when it starts: a decoded copy of its object
 -- names the target, which a disable then reserves; another member's hold at the same kind
--- goes to another creature of that kind (13, not the nearer fighter 12), taking its AI type.
+-- goes elsewhere, to the focus 12 (no mage: any legal target will do), taking its AI type.
 g.ticks=400
 g.objects[12].m_typeAI.m_Class=2
 g.objects[13].m_timedEffectList={}
@@ -237,7 +237,7 @@ state=root.inspect().director
 assert(state.areas.AR0001.reservations[1].target==11 and state.areas.AR0001.reservations[1].owner==1)
 local redirected=state.counts.redirected
 a=start(m2,typed('TESTHOLD',1))
-assert(a.m_acteeID.m_Instance==13 and a.m_acteeID.m_Class==1)
+assert(a.m_acteeID.m_Instance==12 and a.m_acteeID.m_Class==2)
 local typedRows=0
 for _,row in ipairs(rows) do if row.typed then typedRows=typedRows+1 end end
 assert(root.inspect().director.counts.redirected==redirected+1 and typedRows>=3)

@@ -921,8 +921,6 @@ for n=68,78 do M.builtinSingle[n]=true end
 M.rangeUnit=16
 -- IDS files a spell's creature filter can name (opcodes 175, 177, 283).
 M.IDS={[2]='ea',[3]='general',[4]='race',[5]='class',[6]='specific',[7]='gender',[8]='alignment'}
--- The IDS fields of a creature-type object, as sense.lua reads a creature's.
-M.KIND_FIELDS={'ea','general','race','class','specific','gender','alignment'}
 -- Roles that tie a cast to its target for reasons the director does not judge (a dispel
 -- picks the protected enemy) or that are not attacks at all.
 local KEEP_ROLES={'removal','heal','raise','cure','summon'}
@@ -1019,26 +1017,6 @@ function M.protected(target,spell)
         if type(p)=='table' and stops(p,spell) then return true end
     end
     return false
-end
-
--- A cast aimed at a kind of creature ([PC.0.0.MAGE]) names its creature only when the engine
--- decodes it; object holds the IDS values the script named (0 for any). Whether target is of
--- that kind as surely as original, the creature the object named: the same value as original
--- in every field the object names. Stricter than the engine's own matching (MAGE_ALL takes any
--- mage), never looser. Without an object any target is.
-function M.sameKind(target,original,object)
-    if object==nil then return true end
-    if type(object)~='table' or type(target)~='table' or type(original)~='table' then return false end
-    for _,field in ipairs(M.KIND_FIELDS) do
-        local want=object[field]
-        if want~=nil and want~=0 then
-            if not number(want) then return false end
-            local a=type(target.ids)=='table' and target.ids[field]
-            local b=type(original.ids)=='table' and original.ids[field]
-            if a==nil or a==false or a~=b then return false end
-        end
-    end
-    return true
 end
 
 -- Whether target may take the cast instead of original, the enemy the creature's script chose
@@ -1185,9 +1163,7 @@ function M.new(config)
         return focus
     end
 
-    -- object: for a cast aimed at a kind of creature, the IDS values its script named; another
-    -- target must be of that kind too (targeting.sameKind).
-    local function advise(member,frame,spell,original,tick,object)
+    local function advise(member,frame,spell,original,tick)
         local family=members[member.id] and members[member.id].family or member.family
         if not o.families[family] then return {action='keep',reason='family'} end
         local kind,why=targeting.kind(spell)
@@ -1204,7 +1180,7 @@ function M.new(config)
             if not busy then return {action='keep',kind=kind,reason='free'} end
             local best,bestDistance
             for key,e in pairs(byId) do
-                if key~=original and not targeting.disabled(e) and targeting.sameKind(e,first,object) and
+                if key~=original and not targeting.disabled(e) and
                     (holder(key,tick)==nil or holder(key,tick)==member.id) and targeting.legal(caster,e,spell,first) then
                     local d=key==target and -1 or targeting.distance(caster,e)
                     if best==nil or d<bestDistance or (d==bestDistance and key<best) then best,bestDistance=key,d end
@@ -1221,22 +1197,22 @@ function M.new(config)
         if targeting.health(first)<targeting.health(chosen) then
             return {action='keep',kind=kind,reason='original-more-wounded'}
         end
-        if not targeting.sameKind(chosen,first,object) then return {action='keep',kind=kind,reason='focus-other-kind'} end
         local ok,blocked=targeting.legal(caster,chosen,spell,first)
         if not ok then return {action='keep',kind=kind,reason='focus-'..blocked} end
         return {action='redirect',kind=kind,target=target,reason='focus'}
     end
-    -- A member's own cast at original is starting: keep it, or take another target. object as
-    -- for advise above, nil for a cast at one creature.
-    function api:advise(member,frame,spell,original,tick,object)
+    -- A member's own cast at original is starting: keep it, or take another target. typed: the
+    -- script aimed it at a kind of creature ([PC.0.0.MAGE]) that named original; any other
+    -- legal target will do as well (Christopher, 2026-10-18), so it only marks the log.
+    function api:advise(member,frame,spell,original,tick,typed)
         clock(tick);counts.advice=counts.advice+1
-        local ok,result=pcall(advise,member,frame,spell,original,tick,object)
+        local ok,result=pcall(advise,member,frame,spell,original,tick)
         local err
         if not ok then err=tostring(result):sub(1,200);result={action='keep',reason='error'} end
         if result.action=='redirect' then counts.redirects=counts.redirects+1 else counts.keeps=counts.keeps+1 end
         record({kind=result.action,tick=tick,member=member.id,family=member.family,
             spell=type(spell)=='table' and spell.resref or nil,castKind=result.kind,from=original,
-            to=result.target,reason=result.reason,focus=focus,typed=object~=nil or nil,error=err})
+            to=result.target,reason=result.reason,focus=focus,typed=typed or nil,error=err})
         return result
     end
 
@@ -1668,11 +1644,6 @@ M.cacheLimit=512
 M.prefixes={'SPPR','SPWI','SPIN','SPCL'}
 
 local function text(value) return (value:match('^[^%z]*'):upper()) end
--- The IDS values a creature-type object names, as plain numbers (0 for any).
-function M.kindOf(object)
-    return {ea=object.m_EnemyAlly,general=object.m_General,race=object.m_Race,class=object.m_Class,
-        specific=object.m_Specifics,gender=object.m_Gender,alignment=object.m_Alignment}
-end
 function M.resref(action)
     local name=text(action.m_string1.m_pchData:get())
     if name~='' then return name end
@@ -1752,34 +1723,34 @@ function M.new(g,options)
         counts.starts=counts.starts+1
         local resref=M.resref(action)
         local original=action.m_acteeID.m_Instance
-        local object
+        local typed=false
         -- A cast at a kind of creature: the engine decodes the object as the cast runs; decode a
         -- copy the same way (EEex evaluates a copy) to learn whom it names.
         if type(original)~='number' or original<0 then
             local ok,named=pcall(g.EEex_Object_EvalAsAIBase,action.m_acteeID,sprite,false)
             if not ok then failed('decode',named)
             elseif named and g.EEex_GameObject_IsSprite(named,false) then
-                original,object=named.m_id,M.kindOf(action.m_acteeID)
+                original,typed=named.m_id,true
             end
         end
         local spell=resref and summary(sprite,resref)
         local member={id=id,family=memberFamily[id]}
         local cast={spell=resref,role=targeting.role(spell),target=original,original=original,action=31,
-            typed=object~=nil or nil}
+            typed=typed or nil}
         local allowed=root and root.gate and member.family and root.gate:allows(member.family)
         if allowed and spell and targeting.kind(spell) and original~=id then
             local frame=sense.frame(g,sprite,tick,true)
             if frame then
                 d:checkIn(member,frame)
                 counts.advised=counts.advised+1
-                local advice=d:advise(member,frame,spell,original,tick,object)
+                local advice=d:advise(member,frame,spell,original,tick,typed)
                 if advice.action=='redirect' then
                     -- The last check: the new target is still a living sprite the caster sees.
                     local target=g.EEex_GameObject_Get(advice.target)
                     local seen=false
                     for _,e in ipairs(frame.enemies) do if e.id==advice.target then seen=true end end
                     if target and seen and g.EEex_GameObject_IsSprite(target,false) then
-                        if object then
+                        if typed then
                             -- The object takes the new target's AI type, as the engine fills in
                             -- an object it has decoded; its instance then names the target.
                             action.m_acteeID:Set(target:virtual_GetAIType())

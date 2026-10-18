@@ -20,11 +20,6 @@ M.cacheLimit=512
 M.prefixes={'SPPR','SPWI','SPIN','SPCL'}
 
 local function text(value) return (value:match('^[^%z]*'):upper()) end
--- The IDS values a creature-type object names, as plain numbers (0 for any).
-function M.kindOf(object)
-    return {ea=object.m_EnemyAlly,general=object.m_General,race=object.m_Race,class=object.m_Class,
-        specific=object.m_Specifics,gender=object.m_Gender,alignment=object.m_Alignment}
-end
 function M.resref(action)
     local name=text(action.m_string1.m_pchData:get())
     if name~='' then return name end
@@ -104,34 +99,34 @@ function M.new(g,options)
         counts.starts=counts.starts+1
         local resref=M.resref(action)
         local original=action.m_acteeID.m_Instance
-        local object
+        local typed=false
         -- A cast at a kind of creature: the engine decodes the object as the cast runs; decode a
         -- copy the same way (EEex evaluates a copy) to learn whom it names.
         if type(original)~='number' or original<0 then
             local ok,named=pcall(g.EEex_Object_EvalAsAIBase,action.m_acteeID,sprite,false)
             if not ok then failed('decode',named)
             elseif named and g.EEex_GameObject_IsSprite(named,false) then
-                original,object=named.m_id,M.kindOf(action.m_acteeID)
+                original,typed=named.m_id,true
             end
         end
         local spell=resref and summary(sprite,resref)
         local member={id=id,family=memberFamily[id]}
         local cast={spell=resref,role=targeting.role(spell),target=original,original=original,action=31,
-            typed=object~=nil or nil}
+            typed=typed or nil}
         local allowed=root and root.gate and member.family and root.gate:allows(member.family)
         if allowed and spell and targeting.kind(spell) and original~=id then
             local frame=sense.frame(g,sprite,tick,true)
             if frame then
                 d:checkIn(member,frame)
                 counts.advised=counts.advised+1
-                local advice=d:advise(member,frame,spell,original,tick,object)
+                local advice=d:advise(member,frame,spell,original,tick,typed)
                 if advice.action=='redirect' then
                     -- The last check: the new target is still a living sprite the caster sees.
                     local target=g.EEex_GameObject_Get(advice.target)
                     local seen=false
                     for _,e in ipairs(frame.enemies) do if e.id==advice.target then seen=true end end
                     if target and seen and g.EEex_GameObject_IsSprite(target,false) then
-                        if object then
+                        if typed then
                             -- The object takes the new target's AI type, as the engine fills in
                             -- an object it has decoded; its instance then names the target.
                             action.m_acteeID:Set(target:virtual_GetAIType())

@@ -343,7 +343,8 @@ cast SCS has already chosen.
     free alternative.
 - **Fixed the same day, technical only:**
   - lying creatures are perceived;
-  - casts at a kind of creature are decoded, and redirected only to the same kind;
+  - casts at a kind of creature are decoded (redirected only within their kind in launch D;
+    any kind since Christopher's answer 2 below);
   - the focus is remembered for a round.
 - **Launch D, the fixes in game (5 + 5 fights):**
   - all 164 sleeping-dummy samples were in the director's picture;
@@ -368,9 +369,17 @@ cast SCS has already chosen.
    pick such a cast. Unwise casters are an idea for the personality layer (see the ideas
    list).
 2. Casts at a kind of creature: same kind only (now), or any creature?
+   **Answer: any creature.** "Natürlich? Oder wieso sollte er es nicht? Ich verstehe es
+   nicht." **So:** the director takes any legal target for them, as for every other cast. The
+   same-kind rule only protected SCS's class choice; the spell's own creature filters are
+   still checked.
 3. No alternative: keep SCS's cast (now), or cancel it so SCS picks something else?
+   Settled with answer 1: the cast stays until the engine chooses spells itself.
 4. Area spells: aim them at the focus or at the biggest cluster without allies?
+   **Answer: both.** "Das soll beides gehen." **So:** the engine's own choice can aim an area
+   spell at the focus or at the best cluster without allies, whichever scores better.
 5. Next: the engine's own spell and target choice, with the director's plan in the scoring.
+   **Answer: yes.** It starts with mages and priests.
 
 ## To design with Christopher
 

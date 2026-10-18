@@ -115,9 +115,7 @@ function M.new(config)
         return focus
     end
 
-    -- object: for a cast aimed at a kind of creature, the IDS values its script named; another
-    -- target must be of that kind too (targeting.sameKind).
-    local function advise(member,frame,spell,original,tick,object)
+    local function advise(member,frame,spell,original,tick)
         local family=members[member.id] and members[member.id].family or member.family
         if not o.families[family] then return {action='keep',reason='family'} end
         local kind,why=targeting.kind(spell)
@@ -134,7 +132,7 @@ function M.new(config)
             if not busy then return {action='keep',kind=kind,reason='free'} end
             local best,bestDistance
             for key,e in pairs(byId) do
-                if key~=original and not targeting.disabled(e) and targeting.sameKind(e,first,object) and
+                if key~=original and not targeting.disabled(e) and
                     (holder(key,tick)==nil or holder(key,tick)==member.id) and targeting.legal(caster,e,spell,first) then
                     local d=key==target and -1 or targeting.distance(caster,e)
                     if best==nil or d<bestDistance or (d==bestDistance and key<best) then best,bestDistance=key,d end
@@ -151,22 +149,22 @@ function M.new(config)
         if targeting.health(first)<targeting.health(chosen) then
             return {action='keep',kind=kind,reason='original-more-wounded'}
         end
-        if not targeting.sameKind(chosen,first,object) then return {action='keep',kind=kind,reason='focus-other-kind'} end
         local ok,blocked=targeting.legal(caster,chosen,spell,first)
         if not ok then return {action='keep',kind=kind,reason='focus-'..blocked} end
         return {action='redirect',kind=kind,target=target,reason='focus'}
     end
-    -- A member's own cast at original is starting: keep it, or take another target. object as
-    -- for advise above, nil for a cast at one creature.
-    function api:advise(member,frame,spell,original,tick,object)
+    -- A member's own cast at original is starting: keep it, or take another target. typed: the
+    -- script aimed it at a kind of creature ([PC.0.0.MAGE]) that named original; any other
+    -- legal target will do as well (Christopher, 2026-10-18), so it only marks the log.
+    function api:advise(member,frame,spell,original,tick,typed)
         clock(tick);counts.advice=counts.advice+1
-        local ok,result=pcall(advise,member,frame,spell,original,tick,object)
+        local ok,result=pcall(advise,member,frame,spell,original,tick)
         local err
         if not ok then err=tostring(result):sub(1,200);result={action='keep',reason='error'} end
         if result.action=='redirect' then counts.redirects=counts.redirects+1 else counts.keeps=counts.keeps+1 end
         record({kind=result.action,tick=tick,member=member.id,family=member.family,
             spell=type(spell)=='table' and spell.resref or nil,castKind=result.kind,from=original,
-            to=result.target,reason=result.reason,focus=focus,typed=object~=nil or nil,error=err})
+            to=result.target,reason=result.reason,focus=focus,typed=typed or nil,error=err})
         return result
     end
 

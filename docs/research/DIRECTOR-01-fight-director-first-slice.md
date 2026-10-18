@@ -91,9 +91,9 @@ as the cast runs.
 - The adapter decodes a copy of the object the same way (`EEex_Object_EvalAsAIBase`) to learn
   whom it names. From then on the cast counts like one at that creature: for the picture, for
   reservations and for advice.
-- Another target must be of the same kind. It must have the named creature's value in every
-  IDS field the object names (`targeting.sameKind`). This is stricter than the engine's own
-  matching (MAGE_ALL accepts any mage), never looser.
+- Another target may be of any kind, like for any other cast (Christopher, 2026-10-18). Launch
+  D still ran with a same-kind rule, which the director dropped after his answer. The log marks
+  such casts as `typed`.
 - To redirect such a cast, the adapter sets the object to the new target's AI type
   (`m_acteeID:Set(target:virtual_GetAIType())`), as the engine fills in an object it has
   decoded.
@@ -153,7 +153,7 @@ picture of each enemy: when it was last seen, by how many members, and whether i
 
 All of these run on Lua 5.1 and LuaJIT:
 
-- `tests/unit/combat_intent/test_targeting.lua` (5 groups);
+- `tests/unit/combat_intent/test_targeting.lua` (4 groups);
 - `test_director.lua` (8 groups);
 - `tests/unit/kernel/test_eeex_director.lua` (7 groups, against fake EEex globals: frames with
   lying creatures, check-ins, redirects, switches, errors, loads, and casts at a kind of
@@ -242,8 +242,8 @@ Casts at dummies over the 12 fights, area spells aimed at a creature included:
 ### Changed after the diagnosis (commit f9d6990)
 
 - lying creatures are perceived;
-- casts at a kind of creature are decoded, reserved, advised, and redirected only within their
-  kind;
+- casts at a kind of creature are decoded, reserved and advised (in launch D still redirected
+  only within their kind, a rule dropped after Christopher's answer);
 - the focus lasts a round, and a lost focus is logged.
 
 Launch D checks this in game.
@@ -294,9 +294,15 @@ coordinated casts go where they help. The bigger lever is the engine's own choic
    casters belong to the personality layer.
 2. Casts at a kind of creature now go only to another creature of the same kind. Should the
    director be allowed to pick any creature?
+   **Answer: any creature.** "Natürlich? Oder wieso sollte er es nicht?" The same-kind rule
+   only protected SCS's class choice (such as Magic Missile at a mage). Legality still checks
+   the spell's own creature filters, magic resistance and protections.
 3. With no alternative, the director keeps SCS's cast. Should it instead cancel the cast, so
    that SCS chooses something else?
+   Settled with answer 1: it stays until the engine chooses spells itself.
 4. Most of SCS's damage comes from area spells. Should they be aimed at the focus, or at the
    biggest cluster without allies?
+   **Answer: both.** "Das soll beides gehen." For the engine's own choice.
 5. Next big step: the engine's own spell and target choice, with the director's plan in the
    scoring.
+   **Answer: yes.**

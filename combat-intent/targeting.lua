@@ -23,8 +23,6 @@ for n=68,78 do M.builtinSingle[n]=true end
 M.rangeUnit=16
 -- IDS files a spell's creature filter can name (opcodes 175, 177, 283).
 M.IDS={[2]='ea',[3]='general',[4]='race',[5]='class',[6]='specific',[7]='gender',[8]='alignment'}
--- The IDS fields of a creature-type object, as sense.lua reads a creature's.
-M.KIND_FIELDS={'ea','general','race','class','specific','gender','alignment'}
 -- Roles that tie a cast to its target for reasons the director does not judge (a dispel
 -- picks the protected enemy) or that are not attacks at all.
 local KEEP_ROLES={'removal','heal','raise','cure','summon'}
@@ -121,26 +119,6 @@ function M.protected(target,spell)
         if type(p)=='table' and stops(p,spell) then return true end
     end
     return false
-end
-
--- A cast aimed at a kind of creature ([PC.0.0.MAGE]) names its creature only when the engine
--- decodes it; object holds the IDS values the script named (0 for any). Whether target is of
--- that kind as surely as original, the creature the object named: the same value as original
--- in every field the object names. Stricter than the engine's own matching (MAGE_ALL takes any
--- mage), never looser. Without an object any target is.
-function M.sameKind(target,original,object)
-    if object==nil then return true end
-    if type(object)~='table' or type(target)~='table' or type(original)~='table' then return false end
-    for _,field in ipairs(M.KIND_FIELDS) do
-        local want=object[field]
-        if want~=nil and want~=0 then
-            if not number(want) then return false end
-            local a=type(target.ids)=='table' and target.ids[field]
-            local b=type(original.ids)=='table' and original.ids[field]
-            if a==nil or a==false or a~=b then return false end
-        end
-    end
-    return true
 end
 
 -- Whether target may take the cast instead of original, the enemy the creature's script chose
