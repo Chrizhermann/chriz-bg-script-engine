@@ -311,6 +311,52 @@ otherwise disabled.)
   Chaotic Commands, magic resistance) and enemy casters with protections. The same lab would
   serve D2's openers and D3's removals.
 
+**Batch G1, 24 fights: the hard lab** (2026-10-20), built from F3's conclusion:
+
+- the four party-side fighters with 150 hit points, carrying the lasting effects of Spell
+  Revisions' Free Action and Chaotic Commands (their immunities and spell states) and 50% magic
+  resistance;
+- behind them a party mage without a script (a copy of MAGE12A against the mid group, of
+  MAGE18C against the high group) with 8 Stoneskin skins and the same magic resistance. The lab
+  casts its spells at the nearest group caster, at most one a round: Breach, damage and a few
+  disables;
+- every group caster with 50 more hit points; the strip at 16 seconds as in F3;
+- the same three modes. G1's build had D1 but not yet D2a's openers.
+
+| Group | Mode | Won | Length | Group hp lost | Group dead | Foes dead | Engine choices |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| high | SCS | 4 of 4 | 88 s | 84 | 0 | 5 of 5 | – |
+| high | attacks | 4 of 4 | 90 s | 112 | 0 | 5 of 5 | 2 in 4 fights |
+| high | defences | 4 of 4 | 93 s | 57 | 0 | 5 of 5 | 4 in 4 fights |
+| mid | SCS | 0 of 4 | 79 s | 460 | 4 | 0 | – |
+| mid | attacks | 0 of 4 | 97 s | 503 | 3.25 | 1.5 | 5 in 4 fights |
+| mid | defences | 0 of 4 | 92 s | 508 | 4 | 1.5 | 6 in 4 fights |
+
+(Means per fight; a fight ended when one side was dead, or after 120 seconds.)
+
+- The high group won every fight in every mode. Its two mages cast Time Stop 13 to 15 times in
+  each mode's four fights, about three a fight, all from SCS's script.
+- The mid group lost every fight. The party mage killed MAGE8A about 12 seconds in, every time.
+  With the engine the group killed 6 of 20 foes over four fights, alone none: too few fights to
+  call that an effect.
+- **The engine was almost passive.** In each mode's four fights it declined 52 to 89 free rounds
+  for lack of an option, 57 to 90 because nothing was good enough, and 13 to 55 because a friend
+  was hurt (urgent needs stay SCS's). Its best option in a declined round scored −0.04 in the
+  median and 0.18 at most, below the minimum worth of 0.2. The fighters are immune to its
+  disables, and its damage counts as a share of their 150 hit points, halved by magic
+  resistance. So SCS played nearly every round, in all three modes.
+- The lab added the magic resistance (opcode 166, mode 0) more than once to the party mage and to
+  one of the fighters in each fight: they had 100 or 127 instead of 50, the same in every mode.
+  G2 sets it (mode 1).
+
+**What G1 shows:**
+
+- The hard lab keeps up pressure: it overwhelms the mid group, and the high group wins with
+  SCS's Time Stops.
+- With a minimum worth of 0.2 the engine leaves almost every round to SCS against hard foes.
+  Whether it should act on its best option instead is a question for Christopher; batch G2
+  measures a minimum worth of 0.05.
+
 ### D2: what SCS does
 
 Christopher's choice of 2026-10-19: D2 like SCS first, with a hard lab; touch spells and
