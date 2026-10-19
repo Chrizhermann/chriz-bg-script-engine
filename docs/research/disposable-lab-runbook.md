@@ -12,6 +12,21 @@ acquisition framework. This procedure replaces the previous runbook. Historical 
 capacity and process-provider results remain in Git and their research memos; they are not
 prerequisites for making or using a disposable lab. No further framework work is planned.
 
+## Parallel labs: up to five, active since 2026-10-18
+
+Chris decided on up to five quiet lab games at the same time for every agent that uses labs
+("Lass uns vielleicht eine maximale Anzahl von 5 Labs setzen"). The same day, two parallel runs
+of two quiet labs each had clean guards. Chris was at the PC for the second run and noticed
+nothing. The two games together used about 0.3 CPU core and 0.6-0.75 GB RAM.
+
+Start lab games with `bg_lab_slots.py`, next to `lab_quiet_run.py`:
+`python -I bg_lab_slots.py run <game> <profile> <out.json> [seconds] --owner .. --purpose ..`,
+or `lab_slot(...)` from Python. It takes one of five slot files and waits only for its own lab.
+`bg-game-install.lock` stays the exclusive reservation for old launchers and anything touching
+Chris's game. While it exists, no new lab game starts. Each lab still needs its own folder and
+its own `engine_name`. The status line of `%USERPROFILE%\.codex\coordination\README.md` is the
+authority, and it also says how the slots are switched off.
+
 ## What this lab is for
 
 A separate game installation for examining installed SCS behavior, installing our changes,
