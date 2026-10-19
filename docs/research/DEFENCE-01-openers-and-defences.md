@@ -165,6 +165,152 @@ first.
 5. **Lab:** enemies that fight back, with fighters running at the casters and enemy casters,
    instead of dummies.
 
+### D1 as built (2026-10-19)
+
+**Sensing** (`adapters/eeex/sense.lua`, `defend`). The caster and each ally it sees get a guard:
+
+- their active effects, timed and equipped, read as one record by the spell classifier, so
+  protections count by what they do (effects ending within 6 seconds and delayed ones that have
+  not started are left out);
+- the Stoneskin skins and Mirror Images left;
+- the spells their effects come from, and the spells an opcode 206 keeps off them.
+
+Every creature around also gets its weapon: attacks a round, THAC0 with its bonuses, the average
+damage of a hit, whether it shoots and whether it is magical. Enemies also show whether they see
+invisible creatures. A friend whose effects cannot be read gets nothing rather than a second
+copy.
+
+**The threat picture** (`combat-intent/threat.lua`), per friend and round:
+
+- **Weapons** from enemies that can strike within a round's walk, or shoot. Each attacks the
+  friend its action names, else the nearest one it can reach and see. Hits and attacks are kept,
+  because skins and images absorb hits one by one.
+- **Spells** from enemy casters, by class and level only, since SCS reads no spellbooks either:
+  1.2 hit points per caster level a round, 60% of it aimed at one creature and the rest as areas,
+  and a 15% chance a round to disable the friend it casts at. These numbers are rough on purpose.
+- An invisible friend is safe from the weapons and aimed spells of enemies that do not see
+  invisible creatures.
+
+**Worth** (`combat-intent/defence.lua`), on the attack's scale. A defence is worth the loss it
+saves its receivers within the horizon (18 seconds, or less if the spell ends sooner). A friend's
+loss has three parts:
+
+- the share of its hit points it loses;
+- the kill bonus, as likely as it dies;
+- a third of a share (a round of disable) for each round it is out of the fight, dead or
+  disabled.
+
+Harm runs over time. Skins and images absorb the first hits, so they buy rounds even when the
+friend falls in the end. What a friend already has counts first:
+
+- the same kind twice counts once, the larger;
+- independent kinds compound (armour lowers the hits that get past weapon immunity);
+- a fresh Stoneskin over skins that last the horizon gains nothing, as SCS keeps "at least one"
+  up.
+
+An area buff is worth what it adds to every ally it reaches, including their extra weapon damage
+as a share of an enemy. Single-target spells on allies come only from the profile's `allySpells`,
+empty until Christopher agrees exceptions.
+
+**Costs and the decision:**
+
+- Defence options join the attack options in one ranking, with the same random pick near the
+  best.
+- Costs: 0.03 per spell level (times the profile's economy), plus `castCost` (0.02) per second of
+  casting time.
+- The worth is multiplied by the chance the cast gets through: each hit or aimed spell that gets
+  past what protects the caster now can break it.
+- `caution` (1) weights every defence; 0 turns them off.
+- After a defence, the engine's or the script's, the next waits `redefend` (7 seconds), as SCS's
+  timer does. It does not wait when the caster is in acute danger: one round would cost it half
+  its hit points left, with what protects it now.
+
+**Tests:** eight logic groups for the defence model, and the choice adapter's groups for
+defences and the lab's profile switch (`setMind`).
+
+### D1 in the lab
+
+All runs: the SR lab on Insane, the mid (levels 8 to 12) and high (level 18) groups, against
+party-side fighters with their own scripts where batch E had dummies. Each fight ran in three
+modes: SCS alone, the engine's attacks only (`caution` 0), and the engine with its defences.
+
+**Batch F, a probe.** The fields the slice reads exist and hold what it expects (effect timing,
+skin and image counts, combat stats, the weapon in hand; see learned.md, sections 1 and 6). The
+fighters' AttackReevaluate actions name no target, so the threat picture falls back to the
+nearest friend an enemy can reach.
+
+**Batch F2, 18 fights** against four level-8 fighters (two with a Short Sword +1 and a bow with
+Arrows +1, two with a Bastard Sword) and a level-12 mage:
+
+| Group | Mode | Won | Group dead | Group hp lost | Engine defences |
+| --- | --- | --- | --- | --- | --- |
+| high | SCS | 3 of 3 | 0 | 7 | – |
+| high | attacks | 3 of 3 | 0 | 3 | 0 |
+| high | defences | 3 of 3 | 0 | 10 | 0 |
+| mid | SCS | 1 of 3 | 0.33 | 79 | – |
+| mid | attacks | 2 of 3 | 0 | 47 | 0 |
+| mid | defences | 1 of 3 | 0 | 28 | 0 |
+
+(Means per fight; a fight not won ran out its 120 seconds.)
+
+- The slice ran without errors: no failed guard reads, no engine errors, no interrupted casts.
+- No fight created a need. SCS's pre-buffs held: the high mages kept all 9 Stoneskin skins and
+  8 Mirror Images in every fight, and the mid group's level-12 mage its 6 skins in 8 of 9. Only
+  the level-8 mage and the priests lost hit points worth mentioning.
+- In 28 of 91 decisions with defences on, a defence was among the best options. The best
+  defence scored −0.07 in the median: its worth was smaller than its cost. Most were Bless and
+  other priest buffs.
+- Three fights are too few to read the hit points lost as an effect of the modes.
+
+**Batch F3, 18 fights**, built to create the need F2 lacked:
+
+- the four fighters with 250 hit points each and no enemy mage;
+- every group caster with 150 more hit points from the start (Christopher: so that no one dies
+  too fast);
+- 16 seconds in, the lab strips every caster's weapon protections the way Spell Revisions'
+  Breach does (opcode 221 on secondary types 2 and 7), and its illusions (type 3), the same in
+  every mode.
+
+The strip took in all 18 fights: every caster had 0 skins and 0 images a second later.
+
+| Group | Mode | Won | Length | Group hp lost | Fighters disabled after the strip | Engine defences |
+| --- | --- | --- | --- | --- | --- | --- |
+| high | SCS | 3 of 3 | 65 s | 42 | 10% | – |
+| high | attacks | 2 of 3 | 108 s | 76 | 78% | 0 |
+| high | defences | 2 of 3 | 110 s | 49 | 73% | 0 |
+| mid | SCS | 0 of 3 | 120 s | 87 | 72% | – |
+| mid | attacks | 0 of 3 | 120 s | 67 | 85% | 0 |
+| mid | defences | 0 of 3 | 120 s | 91 | 89% | 1 in 3 fights |
+
+(Means per fight. "Disabled" is the share of samples in which a standing fighter was held or
+otherwise disabled.)
+
+- No caster died. After the strip each caster lost 3 to 13 hit points on average.
+- **The engine's one defence:** in the first mid fight with defences, a level-12 priest cast
+  Defensive Harmony around itself (score 0.72); it reached two friends, and both carried it
+  afterwards.
+- **Why so few:** the threat picture counts no disabled enemy, and with the engine casting, the
+  fighters were disabled about three quarters of the time or more. The extra 150 hit points
+  also lower what protection is worth, because harm counts as a share of a friend's hit points.
+- **The engine's attacks lean on disables** against these fighters: about 8 disables a fight
+  in both groups, 6 or 7 damage spells in the high group and almost none in the mid group. SCS
+  alone cast about 10 damage spells and no disables in the high group and won all three fights,
+  in 65 seconds on average; with the engine they took about 110, and one in each engine mode
+  was not won within 120. A full-length hold on a healthy enemy counts as that enemy taken out,
+  whatever its hit points, while damage counts as a share of them, so 250-hit-point fighters
+  make damage look small.
+
+**What F2 and F3 show:**
+
+- D1 works in game: the reads, the threat picture, the options and the decision run without
+  errors, and its one defence took.
+- These fights do not test its judgement. SCS's pre-buffs, and after the strip the group's
+  disables, kept the fighters off the casters, and the model rightly saw little to defend
+  against.
+- A fair test needs enemies that keep up pressure: fighters that resist disables (Free Action,
+  Chaotic Commands, magic resistance) and enemy casters with protections. The same lab would
+  serve D2's openers and D3's removals.
+
 ### D2 and D3
 
 - **D2, openers like SCS:**
@@ -180,3 +326,15 @@ first.
   example when a threat appears before the cast starts. To think through together.
 - **Quick single-target spells for allies,** such as Resist Fear and Remove Paralysis
   (Christopher's examples). Exceptions to agree with him, with their casting times.
+- **Touch spells and conjured weapons.** The classifier reads 57 wizard and priest spells of the
+  SR lab as a weapon or on-hit buff on the caster (learned.md, section 9): the Cause Wounds
+  spells, Harm, Slay Living, Shocking Grasp, Chill Touch, Melf's Minute Meteors, Spiritual
+  Hammer, Black Blade of Disaster, the shapeshifts and others. The engine neither attacks with
+  them nor gains anything by casting them as defences. Reading them needs the created item's
+  abilities (opcode 111) and the on-hit effects (248, 249), and a plan to cast and then strike,
+  as SCS does with Harm.
+- **Whom a fighter attacks.** The party fighters' AttackReevaluate names no target, so the threat
+  picture guesses the nearest friend an enemy can reach. Decoding the action's object, as the
+  director does for casts at a kind of creature (DIRECTOR-01), would name it.
+- **The spell threat's numbers** (1.2 hit points per caster level, 60% aimed, 15% disable chance)
+  are guesses. Only batch F2 had an enemy caster so far, one level-12 mage.

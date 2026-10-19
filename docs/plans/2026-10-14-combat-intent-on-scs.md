@@ -542,6 +542,40 @@ Christopher's answers, 2026-10-19:
 3. **D3, removing enemy protections:** Breach, Dispel Magic, Spell Thrust and the like, worth
    what they open for the group's attacks.
 
+## Step 3, third slice: D1 result (2026-10-19)
+
+([DEFENCE-01](../research/DEFENCE-01-openers-and-defences.md), "D1 as built" and "D1 in the
+lab")
+
+**What it is.** Protections and buffs are options on the attack's scale:
+
+- The engine reads what protects the caster and each ally it sees (their effects, Stoneskin
+  skins and Mirror Images left, guards against recasts) and the weapons around.
+- From that and what the caster perceives it builds a threat picture: weapon harm from enemies
+  that can reach a friend, and rough spell harm from enemy casters.
+- A protection is worth the hit points and fight time it probably saves its receivers within 18
+  seconds. An area buff counts for every ally it reaches. Casting time and the risk of
+  interruption cost.
+- Profile knobs: caution, horizon, castCost, and a pause of 7 seconds between defences, like
+  SCS's, unless the caster is in acute danger.
+
+**Lab, batches F to F3** (the SR lab on Insane; the mid and high groups against party-side
+fighters with their own scripts; SCS alone, the engine's attacks only, the engine with
+defences):
+
+- D1 runs in game without errors. Its one defence, Defensive Harmony, reached two allies.
+- No fight tested its judgement. In F2 SCS's pre-buffs kept the fighters' weapons out. In F3
+  the lab stripped the casters' weapon protections 16 seconds in, but the group's disables
+  then held the fighters about three quarters of the time or more, and no caster came near
+  death.
+- Against these sturdy fighters the engine's attacks lean on disables. The high group's fights
+  lasted about 110 seconds with the engine and 65 with SCS alone.
+- Found on the way: 57 spells of the SR lab are weapon buffs to the classifier, among them
+  Harm, the Cause Wounds spells, Shocking Grasp and Melf's Minute Meteors. The engine never
+  attacks with them.
+
+**Next:** for Christopher to choose (asked with the report).
+
 ## To design with Christopher
 
 Short decisions for the first release, answered by Christopher on 2026-10-14:
