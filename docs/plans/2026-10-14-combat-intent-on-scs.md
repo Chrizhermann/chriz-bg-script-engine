@@ -585,6 +585,20 @@ defences):
 2. Against sturdy fighters the engine casts mostly disables and wins more slowly than SCS. Is
    that the style? **Judge it in the hard lab:** the 250-hit-point fighters make damage look
    small in the model.
+3. Menu spells (Protection from Elemental Energy, Polymorph Self, Shapechange, Nahal's
+   Reckless Dweomer)? **Later, tested in peace; where it is simple, the sub-spell itself.**
+   "Alles, was einfach umzusetzen ist, dann nehmen wir einfach die Subspells. Ein Beispiel wäre
+   irgendein mächtiger Magier, könnte ja sich eventuell polymorphen oder shape-changen." In the
+   ideas list below.
+4. Touch spells and conjured weapons? **Build them as a combo with D2.** A conjured weapon
+   only needs the caster to know it now has a weapon, a ranged one for Melf's Minute Meteors.
+   Touch spells need a look one by one: they are missing or different in some installs, and
+   "so ein Harm […] ist ja extrem mächtig […] es muss extrem beachtet werden, in welcher zu
+   welchem Zeitpunkt wird das verwendet und der User sollte sich dann auch wirklich sicher
+   gehen, dass es landet und auch wirklich den Damage dann ausführt." **So:** each install's
+   spells are read by their effects (`SPPR118` is Cause Light Wounds with SR and Strength of
+   Stone without; `SPWI422` is missing without SR); a touch spell is cast only when the strike
+   can follow at once, and the engine checks that it landed.
 
 ## To design with Christopher
 
@@ -804,6 +818,21 @@ Christopher's ideas so far (living list; more will follow):
   Single target schutzspells. Aber eher natürlich die, die für fights gerecht sind und
   schnell. Da müssen wir später mal schauen, was Sinn macht." A protector role in the
   director, preferring fast protections that suit a fight; which spells, later.
+
+- **Enemies use more of their spells.** Oct 19: "Gerne können wir das auch verwenden, ich
+  finde das ja cool. Ich finde das cool, wenn die mehr benutzen würden. Zum Beispiel casten
+  Gegner auch niemals Webs." And: "solche coolen Ideen können wir hinterher immer noch
+  besprechen […] Hauptsache, die Standardmechaniken laufen erstmal." Known so far:
+  - Menu spells (opcode 214): Protection from Elemental Energy, Polymorph Self (memorized in
+    25 creature files), Shapechange (2) and Nahal's Reckless Dweomer (17). Neither SCS's
+    scripts nor the engine cast them. Where it is simple, cast the chosen sub-spell itself
+    with its casting time and spend the memorized menu spell, after a lab probe; a powerful
+    mage or a druid could polymorph or shapechange. Which form, with Christopher.
+  - Web: SCS casts a single Web only when the mage sees no other humanoid and no fighter of
+    its own side and has a Minor Globe of Invulnerability up, so it never catches its allies,
+    and two at once from a Minor Sequencer (`mage/ssl/combatblocks/areadenial.ssl`). Groups of
+    several casters never meet the first. The engine could web where no ally stands, but a
+    web lingers where allies may walk.
 
 Bigger design topics, in a dedicated design session:
 - what the director should do in typical situations (which threats come first, when a
