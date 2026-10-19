@@ -177,6 +177,17 @@ local DISABLES={[24]='panic',[38]='silence',[45]='stun',[76]='feeblemind',[128]=
     [211]='imprison',[213]='maze',[217]='sleep',[241]='charm',[247]='berserk',
     [264]='panic',[13]='death',[55]='death',[209]='death',[238]='death'}
 for op,label in pairs(DISABLES) do H[op]=function(c,e,who,p) kind(c,'disable',label,who,e,p) end end
+-- Power Word, Kill (209) and Power Word, Stun (210) work only on a creature with fewer than 60 or
+-- 90 hit points left (the engine's own limits): belowHp.
+local function below(op,limit)
+    local plain=H[op]
+    H[op]=function(c,e,who,p)
+        plain(c,e,who,p)
+        local r=c.roles.disable
+        if r then r.belowHp=math.max(r.belowHp or 0,limit) end
+    end
+end
+below(209,60);below(210,90)
 -- A short pause of the caster itself (two seconds after Spell Revisions' Shout and Cone of
 -- Cold) is a cost of casting, not harm: it is kept as c.pause, in seconds. A longer one stays a
 -- disable on the caster.
@@ -239,7 +250,8 @@ H[189]=function(c,e,who,p)
     elseif mode==1 then kind(c,'debuff','castingSpeed',who,e,p)
     else signed(c,e,who,p,e.p1,'castingSpeed','buff','debuff') end
 end
-H[188]=function(c,e,who,p) kind(c,'buff','castingSpeed',who,e,p) end
+-- Aura cleansing (Improved Alacrity): the next cast need not wait for the round to end.
+H[188]=function(c,e,who,p) kind(c,'buff','castingSpeed',who,e,p);kind(c,'buff','alacrity',who,e,p) end
 H[301]=function(c,e,who,p) modifier(c,e,who,p,'critical','buff','debuff') end
 H[344]=function(c,e,who,p) kind(c,'buff','enchantment',who,e,p) end
 H[345]=H[344]

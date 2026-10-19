@@ -304,6 +304,14 @@ assert(one(fx(189,{p1=-2})).roles.debuff.kinds.castingSpeed)
 assert(one(fx(189,{p1=0,p2=1,target=1}),{target=5}).roles.buff.kinds.castingSpeed)
 assert(one(fx(189,{p1=9,p2=1})).roles.debuff.kinds.castingSpeed)
 assert(one(fx(189,{p1=3,p2=2,target=1}),{target=5}).roles.buff.kinds.castingSpeed)
+-- Aura cleansing (Improved Alacrity) is a casting-speed buff of its own kind.
+c=one(fx(188,{p2=1,target=1,duration=12}),{target=5})
+assert(c.roles.buff.kinds.alacrity and c.roles.buff.kinds.castingSpeed and c.roles.buff.who.self)
+assert(not one(fx(189,{p1=10,target=1}),{target=5}).roles.buff.kinds.alacrity)
+-- Power Word, Kill and Stun work only below 60 and 90 hit points.
+assert(one(fx(209)).roles.disable.kinds.death and one(fx(209)).roles.disable.belowHp==60)
+assert(one(fx(210)).roles.disable.kinds.stun and one(fx(210)).roles.disable.belowHp==90)
+assert(one(fx(13)).roles.disable.belowHp==nil)
 -- Bits above 4 of the save type are flags, not saves.
 c=one(fx(12,{p1=1,save=2^24+2^10}))
 assert(c.roles.damage.save==nil)

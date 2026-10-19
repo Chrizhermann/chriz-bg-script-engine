@@ -18,6 +18,11 @@
 -- or at an ally the profile names. A defence the creature starts, the engine's or its script's,
 -- starts the pause before the next one, as SCS's redefend timer does; a finished one is judged
 -- by whether its friends carry its effects.
+--
+-- Openers (D2a): the choice also learns who holds a running Time Stop and the seconds left, and
+-- whether the caster's Improved Alacrity runs. In the caster's own stop it learns what the
+-- casts it started in the stop will do when time resumes (their kind, targets and expected
+-- damage); the list is dropped when the stop ends.
 local sense=require('adapters.eeex.sense')
 local creature=require('adapters.eeex.creature')
 local resources=require('adapters.eeex.resources')
@@ -52,6 +57,12 @@ M.itemFirst,M.itemLast=15,33
 M.CASTS={[31]=true,[95]=true}
 M.required={'EEex_GameObject_Get','EEex_GameObject_IsSprite','EEex_Sprite_GetCastTimer',
     'EEex_Sprite_GetLocalInt','EEex_GetUDAux','EEex_Sprite_GetState','EEex_Sprite_GetStat'}
+-- STATS.IDS: WIZARD_IMPROVED_ALACRITY (what SCS tests) and AURACLEANSING (opcode 188).
+M.alacrityStats={165,76}
+-- The game's Time Stop count falls by two a tick (learned.md, section 1): seconds = count/30.
+M.stopCount=30
+-- Casts remembered per caster in its own Time Stop.
+M.stopCastLimit=32
 local UNSEEN=targeting.STATE.invisible+targeting.STATE.improvedInvisible
 
 local function text(value) return (value:match('^[^%z]*'):upper()) end
@@ -103,11 +114,12 @@ function M.new(g,options)
     local cache,cached,items,itemCount={},0,{},0
     local pending,running,judging,memory={},{},{},{}
     -- lastDefence: the tick each creature last started a defence; known: the creatures that
-    -- asked the engine (hooked mages and priests).
-    local lastDefence,known={},{}
+    -- asked the engine (hooked mages and priests); stopCasts: what the holder of the running
+    -- Time Stop started in it.
+    local lastDefence,known,stopCasts={},{},{}
     local counts={decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
         hits=0,misses=0,errors=0,holds=0,frozen=0,marks=0,markFailures=0,defences=0,guarded=0,unguarded=0,
-        guardFailures=0}
+        guardFailures=0,openers=0}
     local reasons={}
     local log,nextRow,size={},1,0
     local root,sink,lastError,markError,guardError
@@ -212,6 +224,7 @@ function M.new(g,options)
     -- one's caster (true if unknown); resumed the tick time was last seen running again or
     -- changing hands. Every judgement and every start of a casting member looks.
     local stop,resumed
+    -- The running Time Stop's caster (true if unknown) and its seconds left, or nil.
     local function timeStop()
         local ok,n,c=pcall(function()
             local chitin=rawget(g,'EEex_EngineGlobal_CBaldurChitin')
@@ -220,11 +233,12 @@ function M.new(g,options)
             local game=chitin.m_pObjectGame
             return game.m_nTimeStop,game.m_nTimeStopCaster
         end)
-        if ok and type(n)=='number' and n>0 then return type(c)=='number' and c or true end
+        if ok and type(n)=='number' and n>0 then return type(c)=='number' and c or true,n/M.stopCount end
     end
     local function watch(tick)
         local caster=timeStop()
         if stop~=nil and caster~=stop then resumed=tick end
+        if caster~=stop then stopCasts={} end
         stop=caster
     end
     local function frozen(id)
@@ -362,8 +376,16 @@ function M.new(g,options)
             end
         end
         counts.decisions=counts.decisions+1
+        for _,n in ipairs(M.alacrityStats) do
+            if g.EEex_Sprite_GetStat(sprite,n)>0 then frame.self.alacrity=true end
+        end
+        local holder,left=timeStop()
         local input={tick=tick,family=family,frame=frame,spells=rows,items=carried,lastDefence=lastDefence[id],
             plan=director and director:plan(id,tick) or {},memory=memory[id] or {},mind=mindFor(sprite,family),rng=rng}
+        if holder~=nil then
+            input.timeStop={caster=holder,left=left}
+            if holder==id then input.stopCasts=stopCasts[id] or {} end
+        end
         local d,why,options,rejected=choice.decide(input)
         lastDetail=rejected
         local top={}
@@ -379,9 +401,11 @@ function M.new(g,options)
         if not response then return decline('bad-response') end
         counts.claims=counts.claims+1
         if d.kind=='defence' then counts.defences=counts.defences+1 end
+        if d.kind=='opener' then counts.openers=counts.openers+1 end
         record({kind='choice',tick=tick,member=id,family=family,spell=d.resref,castKind=d.kind,mode=d.mode,
             target=d.target,point=d.point,score=d.score,worth=d.worth,hits=d.hits,how=why,top=top,
-            focus=input.plan.focus})
+            focus=input.plan.focus,rule=d.rule,stop=input.timeStop and input.timeStop.left or nil,
+            alacrity=frame.self.alacrity or nil})
         -- A disable claims its targets in the group at once, so that another member deciding
         -- before this cast starts leaves them alone; any other decision gives earlier claims back.
         if director then
@@ -391,7 +415,7 @@ function M.new(g,options)
         for _,row in ipairs(rows) do if row.resref==d.resref then spell=row.spell end end
         return {own=true,response=response,spell=d.resref,kind=d.kind,mode=d.mode,target=d.target,point=d.point,
             self=d.self,hits=d.hits,castTicks=spell and type(spell.speed)=='number' and spell.speed*9 or nil,
-            sources=spell and spell.sources or nil}
+            sources=spell and spell.sources or nil,expected=d.expected}
     end
     -- From the gate, each time a hooked script asks: nil (SCS's round), {hold=true} while the
     -- engine's queued cast has not started, or the decision.
@@ -437,7 +461,7 @@ function M.new(g,options)
         end
         pending[object.m_id]={caster=object.m_id,resref=decision.spell,kind=decision.kind,mode=decision.mode,
             target=decision.target,point=decision.point,hits=decision.hits,tick=tick,hp=hp,
-            castTicks=decision.castTicks,sources=decision.sources}
+            castTicks=decision.castTicks,sources=decision.sources,expected=decision.expected}
         counts.performed=counts.performed+1
         return true
     end
@@ -480,6 +504,13 @@ function M.new(g,options)
         if p and M.CASTS[action.m_actionID] and text(action.m_string1.m_pchData:get())==p.resref then
             pending[id]=nil;p.started=tick;running[id]=p
             counts.started=counts.started+1
+            -- A cast started in the caster's own Time Stop lands when time resumes.
+            watch(tick)
+            if stop==id and (p.kind=='damage' or p.kind=='disable') then
+                local mine=stopCasts[id] or {}
+                stopCasts[id]=mine
+                if #mine<M.stopCastLimit then mine[#mine+1]={kind=p.kind,hits=p.hits,expected=p.expected} end
+            end
             record({kind='start',tick=tick,member=id,spell=p.resref,target=p.target,point=p.point,
                 waited=tick-p.tick})
             return {spell=p.resref,role=p.kind,target=p.target,hits=p.hits}
@@ -508,7 +539,7 @@ function M.new(g,options)
     end
     function api:invalidate()
         pending,running,judging,memory,stop,resumed={},{},{},{},nil,nil
-        lastDefence,known={},{}
+        lastDefence,known,stopCasts={},{},{}
     end
     function api:inspect()
         local copy=function(t) local c={};for k,v in pairs(t) do c[k]=v end;return c end

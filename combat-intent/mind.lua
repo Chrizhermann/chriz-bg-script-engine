@@ -46,6 +46,11 @@ M.default={
     -- Single-target defences cast on allies too, by resref (exceptions agreed with Christopher;
     -- none yet). Others are cast on the caster itself or as areas around it.
     allySpells={},
+    -- Openers (D2a): Time Stop and Improved Alacrity when SCS would cast them, before the
+    -- ranking. Under Improved Alacrity a spell of this casting time or more waits while a quicker
+    -- one reaches minValue (SCS's slow spells).
+    openers=true,
+    slowSpeed=6,
 }
 
 local function share(v) return type(v)=='number' and v==v and v>=0 and v<=1 end
@@ -59,7 +64,8 @@ local function resrefs(v)
 end
 local CHECKS={coordination=share,best=share,band=share,economy=amount,minValue=amount,
     focusBonus=amount,killBonus=amount,caution=amount,horizon=amount,redefend=amount,acute=share,
-    castCost=amount,allySpells=resrefs,
+    castCost=amount,allySpells=resrefs,slowSpeed=amount,
+    openers=function(v) return type(v)=='boolean' end,
     memory=function(v) return type(v)=='boolean' end,
     knowledge=function(v) return v=='scs' end}
 

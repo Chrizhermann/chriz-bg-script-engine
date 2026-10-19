@@ -547,6 +547,17 @@ local DISABLES={[24]='panic',[38]='silence',[45]='stun',[76]='feeblemind',[128]=
     [211]='imprison',[213]='maze',[217]='sleep',[241]='charm',[247]='berserk',
     [264]='panic',[13]='death',[55]='death',[209]='death',[238]='death'}
 for op,label in pairs(DISABLES) do H[op]=function(c,e,who,p) kind(c,'disable',label,who,e,p) end end
+-- Power Word, Kill (209) and Power Word, Stun (210) work only on a creature with fewer than 60 or
+-- 90 hit points left (the engine's own limits): belowHp.
+local function below(op,limit)
+    local plain=H[op]
+    H[op]=function(c,e,who,p)
+        plain(c,e,who,p)
+        local r=c.roles.disable
+        if r then r.belowHp=math.max(r.belowHp or 0,limit) end
+    end
+end
+below(209,60);below(210,90)
 -- A short pause of the caster itself (two seconds after Spell Revisions' Shout and Cone of
 -- Cold) is a cost of casting, not harm: it is kept as c.pause, in seconds. A longer one stays a
 -- disable on the caster.
@@ -609,7 +620,8 @@ H[189]=function(c,e,who,p)
     elseif mode==1 then kind(c,'debuff','castingSpeed',who,e,p)
     else signed(c,e,who,p,e.p1,'castingSpeed','buff','debuff') end
 end
-H[188]=function(c,e,who,p) kind(c,'buff','castingSpeed',who,e,p) end
+-- Aura cleansing (Improved Alacrity): the next cast need not wait for the round to end.
+H[188]=function(c,e,who,p) kind(c,'buff','castingSpeed',who,e,p);kind(c,'buff','alacrity',who,e,p) end
 H[301]=function(c,e,who,p) modifier(c,e,who,p,'critical','buff','debuff') end
 H[344]=function(c,e,who,p) kind(c,'buff','enchantment',who,e,p) end
 H[345]=H[344]
@@ -1461,6 +1473,11 @@ M.default={
     -- Single-target defences cast on allies too, by resref (exceptions agreed with Christopher;
     -- none yet). Others are cast on the caster itself or as areas around it.
     allySpells={},
+    -- Openers (D2a): Time Stop and Improved Alacrity when SCS would cast them, before the
+    -- ranking. Under Improved Alacrity a spell of this casting time or more waits while a quicker
+    -- one reaches minValue (SCS's slow spells).
+    openers=true,
+    slowSpeed=6,
 }
 
 local function share(v) return type(v)=='number' and v==v and v>=0 and v<=1 end
@@ -1474,7 +1491,8 @@ local function resrefs(v)
 end
 local CHECKS={coordination=share,best=share,band=share,economy=amount,minValue=amount,
     focusBonus=amount,killBonus=amount,caution=amount,horizon=amount,redefend=amount,acute=share,
-    castCost=amount,allySpells=resrefs,
+    castCost=amount,allySpells=resrefs,slowSpeed=amount,
+    openers=function(v) return type(v)=='boolean' end,
     memory=function(v) return type(v)=='boolean' end,
     knowledge=function(v) return v=='scs' end}
 
@@ -1672,6 +1690,107 @@ function M.picture(frame)
 end
 return M
 end
+factories["combat-intent.openers"]=function(require)
+-- The engine's openers (step 3, third slice, D2a; DEFENCE-01, "D2"): Time Stop and Improved
+-- Alacrity, cast when SCS casts them and before the ranking, as SCS's order puts them before its
+-- attacks (Christopher, 2026-10-19: Time Stop and combos like SCS first, per enemy later).
+-- Inputs are plain values, as for combat-intent/choice.lua; input.timeStop says who holds a
+-- running Time Stop ({caster=id, or true when unknown; left=seconds}) and frame.self.alacrity
+-- whether the caster's own Improved Alacrity runs. Nothing here touches the engine.
+--
+-- SCS ([src] mage/ssl/generalblocks/renew.ssl, combatblocks/alacrity.ssl):
+-- - Time Stop when the mage sees one of the party ("don't waste timestop on riff-raff") and no
+--   Time Stop of its own runs; not during its own Improved Alacrity (a slow spell).
+-- - Improved Alacrity when an enemy is seen and it is down; the first core spell in a Time Stop.
+local targeting=require('combat-intent.targeting')
+local M={}
+-- GENDER.IDS: summons and illusions, the riff-raff SCS stops no time for.
+M.RIFFRAFF={[6]=true,[7]=true}
+-- An opener needs at least this many other ready spells to follow it: a Time Stop or an
+-- Improved Alacrity with nothing to cast in it is a slot thrown away.
+M.followups=2
+
+local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
+local function ready(row)
+    return type(row)=='table' and number(row.ready) and row.ready>0 and row.usable and
+        type(row.spell)=='table' and type(row.spell.roles)=='table'
+end
+local function reaches(role,...)
+    if type(role)~='table' or type(role.who)~='table' then return false end
+    for _,who in ipairs({...}) do if role.who[who] then return true end end
+    return false
+end
+
+-- Whether a spell stops time around its caster (opcode 231 cast on itself).
+function M.stopsTime(spell)
+    local d=type(spell)=='table' and type(spell.roles)=='table' and spell.roles.disable
+    return type(d)=='table' and type(d.kinds)=='table' and d.kinds.timestop==true and spell.target=='self'
+end
+-- Whether a spell cleanses the caster's own casting aura (opcode 188), as Improved Alacrity does.
+function M.quickens(spell)
+    local b=type(spell)=='table' and type(spell.roles)=='table' and spell.roles.buff
+    return type(b)=='table' and type(b.kinds)=='table' and b.kinds.alacrity==true and reaches(b,'self')
+end
+-- The seconds left of the caster's own Time Stop, or nil when it holds none.
+function M.ownStop(input)
+    local s=type(input)=='table' and input.timeStop
+    local self=type(input)=='table' and type(input.frame)=='table' and input.frame.self
+    if type(s)~='table' or type(self)~='table' or s.caster~=self.id then return nil end
+    return number(s.left) and math.max(s.left,0) or 0
+end
+-- An enemy worth a Time Stop: a living creature that is neither a summon nor an illusion.
+function M.worthy(e)
+    return targeting.alive(e) and not (type(e.ids)=='table' and M.RIFFRAFF[e.ids.gender])
+end
+-- Whether a ready spell can follow an opener: an attack, or a protection or buff for the caster
+-- or its allies.
+local function followup(spell)
+    local r=spell.roles
+    return reaches(r.damage,'target','area','point') or reaches(r.disable,'target','area','point') or
+        reaches(r.protection,'self','area','target') or reaches(r.buff,'self','area','target')
+end
+
+local function option(row,rule)
+    return {resref=row.resref,kind='opener',rule=rule,mode='self',self=true,worth=0,cost=0,score=0,
+        hits={},slack=0}
+end
+
+-- The opener to cast now, or nil and why none.
+function M.choose(input)
+    if type(input)~='table' or type(input.frame)~='table' or type(input.frame.self)~='table' or
+        type(input.frame.enemies)~='table' then return nil,'bad-input' end
+    local caster=input.frame.self
+    local stop=input.timeStop
+    -- In another creature's Time Stop the caster stands frozen: nothing to open.
+    if stop~=nil and not M.ownStop(input) then return nil,'frozen' end
+    local seen,worthy=false,false
+    for _,e in ipairs(input.frame.enemies) do
+        if targeting.alive(e) then
+            seen=true
+            if M.worthy(e) then worthy=true end
+        end
+    end
+    if not seen then return nil,'no-enemy' end
+    local stopper,quickener,others=nil,nil,0
+    for _,row in ipairs(type(input.spells)=='table' and input.spells or {}) do
+        if ready(row) then
+            if M.stopsTime(row.spell) then stopper=stopper or row
+            elseif M.quickens(row.spell) then quickener=quickener or row
+            elseif followup(row.spell) then others=others+row.ready end
+        end
+    end
+    if not stopper and not quickener then return nil,'none' end
+    if others<M.followups then return nil,'no-followups' end
+    local alacrity=caster.alacrity==true
+    -- Time Stop: none runs, an enemy worth it is seen, and the caster's own Improved Alacrity is
+    -- down (SCS's slow spells wait for it).
+    if stopper and stop==nil and worthy and not alacrity then return option(stopper,'time-stop') end
+    -- Improved Alacrity when it is down, also as the first cast in the caster's own Time Stop.
+    if quickener and not alacrity then return option(quickener,'alacrity') end
+    return nil,'waiting'
+end
+return M
+end
 factories["combat-intent.defence"]=function(require)
 -- The engine's own protections and buffs for one caster (step 3, third slice, D1; DEFENCE-01).
 -- Christopher's answers of 2026-10-19: weigh defence against attack every round; protect and
@@ -1697,8 +1816,11 @@ factories["combat-intent.defence"]=function(require)
 --   own weapon does not count; it casts.
 -- Harm comes from combat-intent/threat.lua: weapons, spells aimed at one creature, areas and
 -- disables, as the caster perceives them.
+-- In the caster's own Time Stop (D2a) nothing threatens it until time resumes: a cast that ends
+-- within the stop cannot be broken, and a protection counts only for what is left of it then.
 local targeting=require('combat-intent.targeting')
 local threat=require('combat-intent.threat')
+local openers=require('combat-intent.openers')
 local M={}
 M.ROUND=6
 -- Worth of a round a friend is in the fight, as a share of it (attacks count a hold for the full
@@ -2039,7 +2161,7 @@ end
 function M.acute(input,pictures)
     local caster=input.frame.self
     local t=pictures[caster.id]
-    if not t or not number(input.mind.acute) then return false end
+    if not t or not number(input.mind.acute) or openers.ownStop(input) then return false end
     local left=number(caster.hp) and caster.hp>0 and caster.hp or 1
     return (M.course(M.held(caster),caster,t,1))>=input.mind.acute*left
 end
@@ -2047,6 +2169,8 @@ end
 -- through what protects it now can break the cast; absorbed hits do not.
 function M.through(input,t,cast)
     if not t or cast<=0 then return 1 end
+    local stop=openers.ownStop(input)
+    if stop and cast<=stop then return 1 end
     local b=M.blocks(M.held(input.frame.self),t,1)
     local part=cast/M.ROUND
     local hits=math.max(0,t.weapon.hits*(1-b.rate)*part-b.pool)
@@ -2070,6 +2194,7 @@ function M.options(input,rejected)
         and not M.acute(input,pictures)
     local horizon=number(mind.horizon) and mind.horizon or 18
     local killBonus=number(mind.killBonus) and mind.killBonus or 0
+    local stop=openers.ownStop(input) or 0
     local held={}
     local function heldOf(f) held[f.id]=held[f.id] or M.held(f);return held[f.id] end
     local caster=frame.self
@@ -2084,7 +2209,7 @@ function M.options(input,rejected)
             else
                 local shield=M.shield(gives)
                 local length=math.max(seconds(gives.protection),seconds(gives.buff))
-                local rounds=math.min(horizon,length)/M.ROUND
+                local rounds=math.max(0,math.min(horizon,length-stop))/M.ROUND
                 local best,unknown
                 for _,aim in ipairs(aims(input,row,spell)) do
                     local worth,hits=0,{}
@@ -2115,7 +2240,7 @@ function M.options(input,rejected)
                         (number(mind.castCost) and mind.castCost or 0)*cast
                     local worth=best.worth*through*(number(mind.caution) and mind.caution or 1)
                     local option={resref=row.resref,kind='defence',worth=worth,cost=cost,score=worth-cost,
-                        hits=best.hits,slack=0}
+                        hits=best.hits,slack=0,speed=number(spell.speed) and spell.speed or 0}
                     local aim=best.aim
                     if aim.self then option.self=true;option.mode='self'
                     elseif aim.friend then option.target=aim.friend.id;option.mode='ally'
@@ -2144,9 +2269,14 @@ factories["combat-intent.choice"]=function(require)
 -- jobs. An attack must reach the profile's minimum worth.
 --
 -- Since the third slice (Christopher, 2026-10-19) the caster's protections and buffs compete on
--- the same scale (combat-intent/defence.lua): the best option of either kind is cast.
+-- the same scale (combat-intent/defence.lua): the best option of either kind is cast. Openers
+-- (combat-intent/openers.lua: Time Stop, Improved Alacrity) come first, as in SCS's order. In the
+-- caster's own Time Stop its enemies stand frozen, and what it casts lands when time resumes:
+-- the enemies it has disabled in the stop count as disabled, the damage it dealt them as dealt.
+-- Under Improved Alacrity slow spells wait while a quick one is good enough, as SCS's do.
 local targeting=require('combat-intent.targeting')
 local defence=require('combat-intent.defence')
+local openers=require('combat-intent.openers')
 local ids=require('combat-intent.ids')
 local spells=require('combat-intent.spells')
 local M={}
@@ -2270,15 +2400,16 @@ local function remembered(input,resref,e,role)
     return 0.5^misses
 end
 
+-- The worth of a damage role on e, and the hit points it is expected to take.
 local function damageOn(input,row,role,e)
     local hp,maxHp=e.hp,e.maxHp
-    if not number(hp) or not number(maxHp) or maxHp<=0 or hp<=0 then return 0 end
+    if not number(hp) or not number(maxHp) or maxHp<=0 or hp<=0 then return 0,0 end
     local amount=0
     for label,v in pairs(type(role.types)=='table' and role.types or {}) do
         if number(v) then amount=amount+v*resisted(e,label) end
     end
     if number(role.percent) then amount=amount+maxHp*role.percent/100 end
-    if amount<=0 then return 0 end
+    if amount<=0 then return 0,0 end
     local land=notResisted(e)
     local save=M.saveChance(role,e)
     local expected=amount*land*(role.saveForHalf and 1-save/2 or 1-save)
@@ -2292,7 +2423,8 @@ local function damageOn(input,row,role,e)
     worth=worth+input.mind.killBonus*kill
     local plan=input.plan
     if type(plan)=='table' and plan.focus==e.id then worth=worth*(1+input.mind.focusBonus*input.mind.coordination) end
-    return worth*remembered(input,row.resref,e,role)
+    local still=remembered(input,row.resref,e,role)
+    return worth*still,math.min(expected,hp)*still
 end
 
 local function disableOn(input,row,role,e)
@@ -2304,6 +2436,10 @@ local function disableOn(input,row,role,e)
     if number(level) and ((number(role.maxLevel) and level>role.maxLevel) or (number(role.minLevel) and level<role.minLevel)) then
         return 0
     end
+    -- A power word works by the hit points e has now: in a Time Stop, not counting what lands
+    -- when time resumes (hpNow).
+    local now=number(e.hpNow) and e.hpNow or e.hp
+    if number(role.belowHp) and number(now) and now>=role.belowHp then return 0 end
     local factor,forGood=0,false
     for label in pairs(type(role.kinds)=='table' and role.kinds or {}) do
         local f=M.DISABLE[label] or 0
@@ -2353,9 +2489,11 @@ local function shape(spell,caster,center,aim)
         function(p) return targeting.distance(center,p)<=a.radius+M.allyMargin end
 end
 
+-- The worth of the spell's kind of attack on e, and for damage the hit points it is expected to
+-- take.
 local function worthOn(input,row,kind,roles,e)
     if kind=='damage' then return damageOn(input,row,roles.damage,e) end
-    return disableOn(input,row,roles.disable,e)
+    return disableOn(input,row,roles.disable,e),0
 end
 
 -- One option: the spell aimed at a creature or a point, its worth, cost and score, or nil
@@ -2364,13 +2502,13 @@ local function evaluate(input,row,spell,kind,mode,aim)
     local frame=input.frame
     local caster=frame.self
     local a=spell.area
-    local worth,hits,slack=0,{},0
+    local worth,hits,slack,expected=0,{},0,{}
     if mode=='creature' then
         local e=aim.enemy
         local roles,why=affects(spell,e,kind)
         if not roles then return nil,why end
         if kind=='disable' and targeting.disabled(e) then return nil,'disabled' end
-        worth=worthOn(input,row,kind,roles,e)
+        worth,expected[e.id]=worthOn(input,row,kind,roles,e)
         hits[1]=e.id
     else
         local center=aim.point
@@ -2379,7 +2517,7 @@ local function evaluate(input,row,spell,kind,mode,aim)
             local e=aim.enemy
             local roles=e and affects(spell,e,kind)
             if not roles then return nil,'shape' end
-            worth=worthOn(input,row,kind,roles,e)
+            worth,expected[e.id]=worthOn(input,row,kind,roles,e)
             hits[1]=e.id
         else
             local inside,near=shape(spell,caster,center,aim.point)
@@ -2400,9 +2538,9 @@ local function evaluate(input,row,spell,kind,mode,aim)
             for _,e in ipairs(frame.enemies) do
                 local roles=targeting.alive(e) and inside(e) and affects(spell,e,kind)
                 if roles then
-                    local w=worthOn(input,row,kind,roles,e)
+                    local w,hp=worthOn(input,row,kind,roles,e)
                     if w>0 then
-                        worth=worth+w;hits[#hits+1]=e.id
+                        worth=worth+w;hits[#hits+1]=e.id;expected[e.id]=hp
                         slack=math.min(slack,a.radius-targeting.distance(a.cone and caster or center,e))
                     end
                 end
@@ -2413,7 +2551,9 @@ local function evaluate(input,row,spell,kind,mode,aim)
     if worth<=0 then return nil,'no-worth' end
     local level=number(row.level) and row.level or number(spell.level) and spell.level or 1
     local cost=input.mind.economy*M.costPerLevel*level
-    local option={resref=row.resref,kind=kind,mode=mode,worth=worth,cost=cost,score=worth-cost,hits=hits,slack=slack}
+    local option={resref=row.resref,kind=kind,mode=mode,worth=worth,cost=cost,score=worth-cost,hits=hits,slack=slack,
+        speed=number(spell.speed) and spell.speed or 0}
+    if kind=='damage' then option.expected=expected end
     if aim.enemy and (mode=='creature' or mode=='creature-area') then option.target=aim.enemy.id
     elseif mode=='point-area' then option.point={x=math.floor(aim.point.x+0.5),y=math.floor(aim.point.y+0.5)}
     elseif mode=='self-area' then option.self=true
@@ -2556,19 +2696,66 @@ function M.urgent(input)
     end
 end
 
--- The attack or defence to cast now, or nil and why; the options come along for the log, and
--- with 'no-option' the count of reasons the ready spells gave none.
+-- The input as the caster sees it in its own Time Stop: what it cast in the stop
+-- (input.stopCasts: {kind, hits, expected}) lands when time resumes, so the enemies it disabled
+-- count as held and the hit points it is expected to have taken come off (hpNow keeps the hit
+-- points they have now). The same input outside its own stop.
+function M.frozen(input)
+    if not openers.ownStop(input) or type(input.stopCasts)~='table' or #input.stopCasts==0 then return input end
+    local held,lost={},{}
+    for _,cast in ipairs(input.stopCasts) do
+        if type(cast)=='table' then
+            if cast.kind=='disable' and type(cast.hits)=='table' then
+                for _,id in ipairs(cast.hits) do held[id]=true end
+            end
+            if type(cast.expected)=='table' then
+                for id,hp in pairs(cast.expected) do if number(hp) then lost[id]=(lost[id] or 0)+hp end end
+            end
+        end
+    end
+    local enemies={}
+    for n,e in ipairs(input.frame.enemies) do
+        if type(e)=='table' and (held[e.id] or lost[e.id]) then
+            local c={}
+            for k,v in pairs(e) do c[k]=v end
+            if held[e.id] then c.held=math.max(number(c.held) and c.held or 0,1);c.taken=true end
+            if lost[e.id] and number(c.hp) then c.hpNow=c.hp;c.hp=c.hp-lost[e.id] end
+            enemies[n]=c
+        else enemies[n]=e end
+    end
+    local frame,view={},{}
+    for k,v in pairs(input.frame) do frame[k]=v end
+    frame.enemies=enemies
+    for k,v in pairs(input) do view[k]=v end
+    view.frame=frame
+    return view
+end
+
+-- The attack, defence or opener to cast now, or nil and why; the options come along for the
+-- log, and with 'no-option' the count of reasons the ready spells gave none.
 function M.decide(input)
     if type(input)~='table' or type(input.frame)~='table' or type(input.frame.self)~='table' or
         type(input.frame.enemies)~='table' or type(input.mind)~='table' then return nil,'bad-input',{} end
     local why=M.urgent(input)
     if why then return nil,'urgent-'..why,{} end
+    local mind=input.mind
+    if mind.openers then
+        local opener=openers.choose(input)
+        if opener then return opener,'opener',{opener} end
+    end
+    input=M.frozen(input)
     local rejected={}
     local options=M.options(input,rejected)
     for _,o in ipairs(defence.options(input,rejected)) do options[#options+1]=o end
     table.sort(options,better)
     if #options==0 then return nil,'no-option',options,rejected end
-    local mind=input.mind
+    -- Under Improved Alacrity a slow spell waits while a quick one reaches the minimum worth
+    -- (SCS's slow spells and its compromise).
+    if input.frame.self.alacrity==true and number(mind.slowSpeed) then
+        local quick={}
+        for _,o in ipairs(options) do if not (number(o.speed) and o.speed>=mind.slowSpeed) then quick[#quick+1]=o end end
+        if quick[1] and quick[1].score>=mind.minValue then options=quick end
+    end
     local best=options[1]
     if best.score<mind.minValue then return nil,'nothing-good',options end
     local rng=input.rng
@@ -3768,6 +3955,11 @@ factories["adapters.eeex.choice"]=function(require)
 -- or at an ally the profile names. A defence the creature starts, the engine's or its script's,
 -- starts the pause before the next one, as SCS's redefend timer does; a finished one is judged
 -- by whether its friends carry its effects.
+--
+-- Openers (D2a): the choice also learns who holds a running Time Stop and the seconds left, and
+-- whether the caster's Improved Alacrity runs. In the caster's own stop it learns what the
+-- casts it started in the stop will do when time resumes (their kind, targets and expected
+-- damage); the list is dropped when the stop ends.
 local sense=require('adapters.eeex.sense')
 local creature=require('adapters.eeex.creature')
 local resources=require('adapters.eeex.resources')
@@ -3802,6 +3994,12 @@ M.itemFirst,M.itemLast=15,33
 M.CASTS={[31]=true,[95]=true}
 M.required={'EEex_GameObject_Get','EEex_GameObject_IsSprite','EEex_Sprite_GetCastTimer',
     'EEex_Sprite_GetLocalInt','EEex_GetUDAux','EEex_Sprite_GetState','EEex_Sprite_GetStat'}
+-- STATS.IDS: WIZARD_IMPROVED_ALACRITY (what SCS tests) and AURACLEANSING (opcode 188).
+M.alacrityStats={165,76}
+-- The game's Time Stop count falls by two a tick (learned.md, section 1): seconds = count/30.
+M.stopCount=30
+-- Casts remembered per caster in its own Time Stop.
+M.stopCastLimit=32
 local UNSEEN=targeting.STATE.invisible+targeting.STATE.improvedInvisible
 
 local function text(value) return (value:match('^[^%z]*'):upper()) end
@@ -3853,11 +4051,12 @@ function M.new(g,options)
     local cache,cached,items,itemCount={},0,{},0
     local pending,running,judging,memory={},{},{},{}
     -- lastDefence: the tick each creature last started a defence; known: the creatures that
-    -- asked the engine (hooked mages and priests).
-    local lastDefence,known={},{}
+    -- asked the engine (hooked mages and priests); stopCasts: what the holder of the running
+    -- Time Stop started in it.
+    local lastDefence,known,stopCasts={},{},{}
     local counts={decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
         hits=0,misses=0,errors=0,holds=0,frozen=0,marks=0,markFailures=0,defences=0,guarded=0,unguarded=0,
-        guardFailures=0}
+        guardFailures=0,openers=0}
     local reasons={}
     local log,nextRow,size={},1,0
     local root,sink,lastError,markError,guardError
@@ -3962,6 +4161,7 @@ function M.new(g,options)
     -- one's caster (true if unknown); resumed the tick time was last seen running again or
     -- changing hands. Every judgement and every start of a casting member looks.
     local stop,resumed
+    -- The running Time Stop's caster (true if unknown) and its seconds left, or nil.
     local function timeStop()
         local ok,n,c=pcall(function()
             local chitin=rawget(g,'EEex_EngineGlobal_CBaldurChitin')
@@ -3970,11 +4170,12 @@ function M.new(g,options)
             local game=chitin.m_pObjectGame
             return game.m_nTimeStop,game.m_nTimeStopCaster
         end)
-        if ok and type(n)=='number' and n>0 then return type(c)=='number' and c or true end
+        if ok and type(n)=='number' and n>0 then return type(c)=='number' and c or true,n/M.stopCount end
     end
     local function watch(tick)
         local caster=timeStop()
         if stop~=nil and caster~=stop then resumed=tick end
+        if caster~=stop then stopCasts={} end
         stop=caster
     end
     local function frozen(id)
@@ -4112,8 +4313,16 @@ function M.new(g,options)
             end
         end
         counts.decisions=counts.decisions+1
+        for _,n in ipairs(M.alacrityStats) do
+            if g.EEex_Sprite_GetStat(sprite,n)>0 then frame.self.alacrity=true end
+        end
+        local holder,left=timeStop()
         local input={tick=tick,family=family,frame=frame,spells=rows,items=carried,lastDefence=lastDefence[id],
             plan=director and director:plan(id,tick) or {},memory=memory[id] or {},mind=mindFor(sprite,family),rng=rng}
+        if holder~=nil then
+            input.timeStop={caster=holder,left=left}
+            if holder==id then input.stopCasts=stopCasts[id] or {} end
+        end
         local d,why,options,rejected=choice.decide(input)
         lastDetail=rejected
         local top={}
@@ -4129,9 +4338,11 @@ function M.new(g,options)
         if not response then return decline('bad-response') end
         counts.claims=counts.claims+1
         if d.kind=='defence' then counts.defences=counts.defences+1 end
+        if d.kind=='opener' then counts.openers=counts.openers+1 end
         record({kind='choice',tick=tick,member=id,family=family,spell=d.resref,castKind=d.kind,mode=d.mode,
             target=d.target,point=d.point,score=d.score,worth=d.worth,hits=d.hits,how=why,top=top,
-            focus=input.plan.focus})
+            focus=input.plan.focus,rule=d.rule,stop=input.timeStop and input.timeStop.left or nil,
+            alacrity=frame.self.alacrity or nil})
         -- A disable claims its targets in the group at once, so that another member deciding
         -- before this cast starts leaves them alone; any other decision gives earlier claims back.
         if director then
@@ -4141,7 +4352,7 @@ function M.new(g,options)
         for _,row in ipairs(rows) do if row.resref==d.resref then spell=row.spell end end
         return {own=true,response=response,spell=d.resref,kind=d.kind,mode=d.mode,target=d.target,point=d.point,
             self=d.self,hits=d.hits,castTicks=spell and type(spell.speed)=='number' and spell.speed*9 or nil,
-            sources=spell and spell.sources or nil}
+            sources=spell and spell.sources or nil,expected=d.expected}
     end
     -- From the gate, each time a hooked script asks: nil (SCS's round), {hold=true} while the
     -- engine's queued cast has not started, or the decision.
@@ -4187,7 +4398,7 @@ function M.new(g,options)
         end
         pending[object.m_id]={caster=object.m_id,resref=decision.spell,kind=decision.kind,mode=decision.mode,
             target=decision.target,point=decision.point,hits=decision.hits,tick=tick,hp=hp,
-            castTicks=decision.castTicks,sources=decision.sources}
+            castTicks=decision.castTicks,sources=decision.sources,expected=decision.expected}
         counts.performed=counts.performed+1
         return true
     end
@@ -4230,6 +4441,13 @@ function M.new(g,options)
         if p and M.CASTS[action.m_actionID] and text(action.m_string1.m_pchData:get())==p.resref then
             pending[id]=nil;p.started=tick;running[id]=p
             counts.started=counts.started+1
+            -- A cast started in the caster's own Time Stop lands when time resumes.
+            watch(tick)
+            if stop==id and (p.kind=='damage' or p.kind=='disable') then
+                local mine=stopCasts[id] or {}
+                stopCasts[id]=mine
+                if #mine<M.stopCastLimit then mine[#mine+1]={kind=p.kind,hits=p.hits,expected=p.expected} end
+            end
             record({kind='start',tick=tick,member=id,spell=p.resref,target=p.target,point=p.point,
                 waited=tick-p.tick})
             return {spell=p.resref,role=p.kind,target=p.target,hits=p.hits}
@@ -4258,7 +4476,7 @@ function M.new(g,options)
     end
     function api:invalidate()
         pending,running,judging,memory,stop,resumed={},{},{},{},nil,nil
-        lastDefence,known={},{}
+        lastDefence,known,stopCasts={},{},{}
     end
     function api:inspect()
         local copy=function(t) local c={};for k,v in pairs(t) do c[k]=v end;return c end

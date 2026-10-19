@@ -12,9 +12,14 @@
 -- jobs. An attack must reach the profile's minimum worth.
 --
 -- Since the third slice (Christopher, 2026-10-19) the caster's protections and buffs compete on
--- the same scale (combat-intent/defence.lua): the best option of either kind is cast.
+-- the same scale (combat-intent/defence.lua): the best option of either kind is cast. Openers
+-- (combat-intent/openers.lua: Time Stop, Improved Alacrity) come first, as in SCS's order. In the
+-- caster's own Time Stop its enemies stand frozen, and what it casts lands when time resumes:
+-- the enemies it has disabled in the stop count as disabled, the damage it dealt them as dealt.
+-- Under Improved Alacrity slow spells wait while a quick one is good enough, as SCS's do.
 local targeting=require('combat-intent.targeting')
 local defence=require('combat-intent.defence')
+local openers=require('combat-intent.openers')
 local ids=require('combat-intent.ids')
 local spells=require('combat-intent.spells')
 local M={}
@@ -138,15 +143,16 @@ local function remembered(input,resref,e,role)
     return 0.5^misses
 end
 
+-- The worth of a damage role on e, and the hit points it is expected to take.
 local function damageOn(input,row,role,e)
     local hp,maxHp=e.hp,e.maxHp
-    if not number(hp) or not number(maxHp) or maxHp<=0 or hp<=0 then return 0 end
+    if not number(hp) or not number(maxHp) or maxHp<=0 or hp<=0 then return 0,0 end
     local amount=0
     for label,v in pairs(type(role.types)=='table' and role.types or {}) do
         if number(v) then amount=amount+v*resisted(e,label) end
     end
     if number(role.percent) then amount=amount+maxHp*role.percent/100 end
-    if amount<=0 then return 0 end
+    if amount<=0 then return 0,0 end
     local land=notResisted(e)
     local save=M.saveChance(role,e)
     local expected=amount*land*(role.saveForHalf and 1-save/2 or 1-save)
@@ -160,7 +166,8 @@ local function damageOn(input,row,role,e)
     worth=worth+input.mind.killBonus*kill
     local plan=input.plan
     if type(plan)=='table' and plan.focus==e.id then worth=worth*(1+input.mind.focusBonus*input.mind.coordination) end
-    return worth*remembered(input,row.resref,e,role)
+    local still=remembered(input,row.resref,e,role)
+    return worth*still,math.min(expected,hp)*still
 end
 
 local function disableOn(input,row,role,e)
@@ -172,6 +179,10 @@ local function disableOn(input,row,role,e)
     if number(level) and ((number(role.maxLevel) and level>role.maxLevel) or (number(role.minLevel) and level<role.minLevel)) then
         return 0
     end
+    -- A power word works by the hit points e has now: in a Time Stop, not counting what lands
+    -- when time resumes (hpNow).
+    local now=number(e.hpNow) and e.hpNow or e.hp
+    if number(role.belowHp) and number(now) and now>=role.belowHp then return 0 end
     local factor,forGood=0,false
     for label in pairs(type(role.kinds)=='table' and role.kinds or {}) do
         local f=M.DISABLE[label] or 0
@@ -221,9 +232,11 @@ local function shape(spell,caster,center,aim)
         function(p) return targeting.distance(center,p)<=a.radius+M.allyMargin end
 end
 
+-- The worth of the spell's kind of attack on e, and for damage the hit points it is expected to
+-- take.
 local function worthOn(input,row,kind,roles,e)
     if kind=='damage' then return damageOn(input,row,roles.damage,e) end
-    return disableOn(input,row,roles.disable,e)
+    return disableOn(input,row,roles.disable,e),0
 end
 
 -- One option: the spell aimed at a creature or a point, its worth, cost and score, or nil
@@ -232,13 +245,13 @@ local function evaluate(input,row,spell,kind,mode,aim)
     local frame=input.frame
     local caster=frame.self
     local a=spell.area
-    local worth,hits,slack=0,{},0
+    local worth,hits,slack,expected=0,{},0,{}
     if mode=='creature' then
         local e=aim.enemy
         local roles,why=affects(spell,e,kind)
         if not roles then return nil,why end
         if kind=='disable' and targeting.disabled(e) then return nil,'disabled' end
-        worth=worthOn(input,row,kind,roles,e)
+        worth,expected[e.id]=worthOn(input,row,kind,roles,e)
         hits[1]=e.id
     else
         local center=aim.point
@@ -247,7 +260,7 @@ local function evaluate(input,row,spell,kind,mode,aim)
             local e=aim.enemy
             local roles=e and affects(spell,e,kind)
             if not roles then return nil,'shape' end
-            worth=worthOn(input,row,kind,roles,e)
+            worth,expected[e.id]=worthOn(input,row,kind,roles,e)
             hits[1]=e.id
         else
             local inside,near=shape(spell,caster,center,aim.point)
@@ -268,9 +281,9 @@ local function evaluate(input,row,spell,kind,mode,aim)
             for _,e in ipairs(frame.enemies) do
                 local roles=targeting.alive(e) and inside(e) and affects(spell,e,kind)
                 if roles then
-                    local w=worthOn(input,row,kind,roles,e)
+                    local w,hp=worthOn(input,row,kind,roles,e)
                     if w>0 then
-                        worth=worth+w;hits[#hits+1]=e.id
+                        worth=worth+w;hits[#hits+1]=e.id;expected[e.id]=hp
                         slack=math.min(slack,a.radius-targeting.distance(a.cone and caster or center,e))
                     end
                 end
@@ -281,7 +294,9 @@ local function evaluate(input,row,spell,kind,mode,aim)
     if worth<=0 then return nil,'no-worth' end
     local level=number(row.level) and row.level or number(spell.level) and spell.level or 1
     local cost=input.mind.economy*M.costPerLevel*level
-    local option={resref=row.resref,kind=kind,mode=mode,worth=worth,cost=cost,score=worth-cost,hits=hits,slack=slack}
+    local option={resref=row.resref,kind=kind,mode=mode,worth=worth,cost=cost,score=worth-cost,hits=hits,slack=slack,
+        speed=number(spell.speed) and spell.speed or 0}
+    if kind=='damage' then option.expected=expected end
     if aim.enemy and (mode=='creature' or mode=='creature-area') then option.target=aim.enemy.id
     elseif mode=='point-area' then option.point={x=math.floor(aim.point.x+0.5),y=math.floor(aim.point.y+0.5)}
     elseif mode=='self-area' then option.self=true
@@ -424,19 +439,66 @@ function M.urgent(input)
     end
 end
 
--- The attack or defence to cast now, or nil and why; the options come along for the log, and
--- with 'no-option' the count of reasons the ready spells gave none.
+-- The input as the caster sees it in its own Time Stop: what it cast in the stop
+-- (input.stopCasts: {kind, hits, expected}) lands when time resumes, so the enemies it disabled
+-- count as held and the hit points it is expected to have taken come off (hpNow keeps the hit
+-- points they have now). The same input outside its own stop.
+function M.frozen(input)
+    if not openers.ownStop(input) or type(input.stopCasts)~='table' or #input.stopCasts==0 then return input end
+    local held,lost={},{}
+    for _,cast in ipairs(input.stopCasts) do
+        if type(cast)=='table' then
+            if cast.kind=='disable' and type(cast.hits)=='table' then
+                for _,id in ipairs(cast.hits) do held[id]=true end
+            end
+            if type(cast.expected)=='table' then
+                for id,hp in pairs(cast.expected) do if number(hp) then lost[id]=(lost[id] or 0)+hp end end
+            end
+        end
+    end
+    local enemies={}
+    for n,e in ipairs(input.frame.enemies) do
+        if type(e)=='table' and (held[e.id] or lost[e.id]) then
+            local c={}
+            for k,v in pairs(e) do c[k]=v end
+            if held[e.id] then c.held=math.max(number(c.held) and c.held or 0,1);c.taken=true end
+            if lost[e.id] and number(c.hp) then c.hpNow=c.hp;c.hp=c.hp-lost[e.id] end
+            enemies[n]=c
+        else enemies[n]=e end
+    end
+    local frame,view={},{}
+    for k,v in pairs(input.frame) do frame[k]=v end
+    frame.enemies=enemies
+    for k,v in pairs(input) do view[k]=v end
+    view.frame=frame
+    return view
+end
+
+-- The attack, defence or opener to cast now, or nil and why; the options come along for the
+-- log, and with 'no-option' the count of reasons the ready spells gave none.
 function M.decide(input)
     if type(input)~='table' or type(input.frame)~='table' or type(input.frame.self)~='table' or
         type(input.frame.enemies)~='table' or type(input.mind)~='table' then return nil,'bad-input',{} end
     local why=M.urgent(input)
     if why then return nil,'urgent-'..why,{} end
+    local mind=input.mind
+    if mind.openers then
+        local opener=openers.choose(input)
+        if opener then return opener,'opener',{opener} end
+    end
+    input=M.frozen(input)
     local rejected={}
     local options=M.options(input,rejected)
     for _,o in ipairs(defence.options(input,rejected)) do options[#options+1]=o end
     table.sort(options,better)
     if #options==0 then return nil,'no-option',options,rejected end
-    local mind=input.mind
+    -- Under Improved Alacrity a slow spell waits while a quick one reaches the minimum worth
+    -- (SCS's slow spells and its compromise).
+    if input.frame.self.alacrity==true and number(mind.slowSpeed) then
+        local quick={}
+        for _,o in ipairs(options) do if not (number(o.speed) and o.speed>=mind.slowSpeed) then quick[#quick+1]=o end end
+        if quick[1] and quick[1].score>=mind.minValue then options=quick end
+    end
     local best=options[1]
     if best.score<mind.minValue then return nil,'nothing-good',options end
     local rng=input.rng

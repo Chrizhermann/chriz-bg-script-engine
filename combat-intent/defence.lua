@@ -22,8 +22,11 @@
 --   own weapon does not count; it casts.
 -- Harm comes from combat-intent/threat.lua: weapons, spells aimed at one creature, areas and
 -- disables, as the caster perceives them.
+-- In the caster's own Time Stop (D2a) nothing threatens it until time resumes: a cast that ends
+-- within the stop cannot be broken, and a protection counts only for what is left of it then.
 local targeting=require('combat-intent.targeting')
 local threat=require('combat-intent.threat')
+local openers=require('combat-intent.openers')
 local M={}
 M.ROUND=6
 -- Worth of a round a friend is in the fight, as a share of it (attacks count a hold for the full
@@ -364,7 +367,7 @@ end
 function M.acute(input,pictures)
     local caster=input.frame.self
     local t=pictures[caster.id]
-    if not t or not number(input.mind.acute) then return false end
+    if not t or not number(input.mind.acute) or openers.ownStop(input) then return false end
     local left=number(caster.hp) and caster.hp>0 and caster.hp or 1
     return (M.course(M.held(caster),caster,t,1))>=input.mind.acute*left
 end
@@ -372,6 +375,8 @@ end
 -- through what protects it now can break the cast; absorbed hits do not.
 function M.through(input,t,cast)
     if not t or cast<=0 then return 1 end
+    local stop=openers.ownStop(input)
+    if stop and cast<=stop then return 1 end
     local b=M.blocks(M.held(input.frame.self),t,1)
     local part=cast/M.ROUND
     local hits=math.max(0,t.weapon.hits*(1-b.rate)*part-b.pool)
@@ -395,6 +400,7 @@ function M.options(input,rejected)
         and not M.acute(input,pictures)
     local horizon=number(mind.horizon) and mind.horizon or 18
     local killBonus=number(mind.killBonus) and mind.killBonus or 0
+    local stop=openers.ownStop(input) or 0
     local held={}
     local function heldOf(f) held[f.id]=held[f.id] or M.held(f);return held[f.id] end
     local caster=frame.self
@@ -409,7 +415,7 @@ function M.options(input,rejected)
             else
                 local shield=M.shield(gives)
                 local length=math.max(seconds(gives.protection),seconds(gives.buff))
-                local rounds=math.min(horizon,length)/M.ROUND
+                local rounds=math.max(0,math.min(horizon,length-stop))/M.ROUND
                 local best,unknown
                 for _,aim in ipairs(aims(input,row,spell)) do
                     local worth,hits=0,{}
@@ -440,7 +446,7 @@ function M.options(input,rejected)
                         (number(mind.castCost) and mind.castCost or 0)*cast
                     local worth=best.worth*through*(number(mind.caution) and mind.caution or 1)
                     local option={resref=row.resref,kind='defence',worth=worth,cost=cost,score=worth-cost,
-                        hits=best.hits,slack=0}
+                        hits=best.hits,slack=0,speed=number(spell.speed) and spell.speed or 0}
                     local aim=best.aim
                     if aim.self then option.self=true;option.mode='self'
                     elseif aim.friend then option.target=aim.friend.id;option.mode='ally'

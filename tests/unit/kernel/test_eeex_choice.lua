@@ -604,4 +604,51 @@ assert(weighed)
 assert(ch7:setMind(nil)==true)
 groups=groups+1
 
+-- 17. Openers (D2a). A mage with Time Stop, Improved Alacrity and two holds stops time first
+-- and quickens itself as the first cast in its own stop; the hold it starts in the stop counts
+-- as landed, so the next goes to the other enemy; when time resumes that list is dropped.
+records.TESTSTOP=spl('TESTSTOP',9,{fx(231,{target=1,duration=36})},5,1)
+records.TESTALAC=spl('TESTALAC',9,{fx(188,{target=1,p2=1,duration=12})},5,1)
+records.TESTHOLD=spl('TESTHOLD',2,{fx(175,{p2=3,p1=1,duration=30,save=1})})
+local g8=world()
+local game8=g8.EngineGlobals.g_pBaldurChitin.m_pObjectGame
+local caster=g8.add(sprite(1,0,0,255))
+learn(caster,8,'TESTSTOP');learn(caster,8,'TESTALAC');learn(caster,1,'TESTHOLD',2)
+for _,id in ipairs({11,12}) do g8.add(sprite(id,id*10,0,2)).stats[13]=20 end
+local dir8=directors.new(g8,{reader=reader})
+local ch8=choices.new(g8,{reader=reader,director=dir8,seed=13})
+local rows8={}
+ch8:setSink(function(row) rows8[#rows8+1]=row end)
+runtime.install(g8,{director=dir8,choice=ch8,version='test'})
+local function last8(kind) for n=#rows8,1,-1 do if rows8[n].kind==kind then return rows8[n] end end end
+local function turn8(tick,resref)
+    g8.ticks=tick;caster.locals.castspell=0;caster.m_curAction={m_actionID=0}
+    assert(g8.BGSE_Claim(caster,'mage','s1')==true)
+    local c8=last8('choice')
+    assert(c8.spell==resref,tostring(c8.spell))
+    g8.BGSE_Act(caster)
+    g8.listeners.started[1](caster,action(31,resref,-1))
+    caster.m_curAction=action(31,resref,c8.target or 1)
+    return c8
+end
+local c8=turn8(100,'TESTSTOP')
+assert(c8.castKind=='opener' and c8.rule=='time-stop' and c8.stop==nil)
+assert(g8.queued[#g8.queued].text:find('SpellRES%("TESTSTOP",Myself%)')~=nil)
+game8.m_nTimeStop,game8.m_nTimeStopCaster=539,1
+c8=turn8(200,'TESTALAC')
+assert(c8.rule=='alacrity' and math.abs(c8.stop-539/30)<1e-9)
+caster.stats[165]=1
+c8=turn8(300,'TESTHOLD')
+assert(c8.castKind=='disable' and c8.target==11 and c8.alacrity==true)
+c8=turn8(400,'TESTHOLD')
+assert(c8.target==12)
+game8.m_nTimeStop,game8.m_nTimeStopCaster=0,-1
+caster.stats[165]=0
+-- Both openers are spent (with one left, the next Time Stop would follow, as SCS's do).
+for _,known in ipairs(caster.book[8]) do known.m_flags=0 end
+c8=turn8(500,'TESTHOLD')
+assert(c8.target==11 and c8.stop==nil)
+assert(ch8:inspect().counts.openers==2)
+groups=groups+1
+
 return groups
