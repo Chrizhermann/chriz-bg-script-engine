@@ -574,7 +574,17 @@ defences):
   Harm, the Cause Wounds spells, Shocking Grasp and Melf's Minute Meteors. The engine never
   attacks with them.
 
-**Next:** for Christopher to choose (asked with the report).
+**Next:** D2, the openers, with a hard lab (Christopher's choice, 2026-10-19).
+
+**Asked with the report**, answered by Christopher on 2026-10-19:
+
+1. What comes after D1? **D2 and a hard lab:** build the openers like SCS's (Time Stop,
+   Improved Alacrity, sequencers and triggers), and a lab with enemies that keep up pressure:
+   fighters with Free Action, Chaotic Commands and magic resistance, and enemy mages with
+   protections. It tests D1 and D2 together, and later D3.
+2. Against sturdy fighters the engine casts mostly disables and wins more slowly than SCS. Is
+   that the style? **Judge it in the hard lab:** the 250-hit-point fighters make damage look
+   small in the model.
 
 ## To design with Christopher
 
