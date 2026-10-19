@@ -32,6 +32,13 @@
 -- charge elsewhere. Once the charge is gone the strike is judged: did its target lose hit points,
 -- become disabled or carry an effect of the strike. A charge spent without effect is a miss of its
 -- touch spell on that enemy, as a cast that left its target untouched is.
+--
+-- Weapon attacks (D2c): the choice also gets the weapon in the caster's hand (sense.attack, with
+-- what its hit casts or applies, classified), its attacks a round and whether the magic weapon
+-- slot is taken. A weapon attack is AttackOneRound at EEex_Target after SCS's round timer, like
+-- a strike; the creature is held while it attacks, or while the timer runs and its target lives,
+-- and then whether its target lost hit points is recorded. A spell that conjures a weapon is cast
+-- on the caster.
 local sense=require('adapters.eeex.sense')
 local creature=require('adapters.eeex.creature')
 local resources=require('adapters.eeex.resources')
@@ -39,6 +46,7 @@ local directors=require('adapters.eeex.director')
 local spells=require('combat-intent.spells')
 local targeting=require('combat-intent.targeting')
 local defence=require('combat-intent.defence')
+local weapons=require('combat-intent.weapons')
 local choice=require('combat-intent.choice')
 local mind=require('combat-intent.mind')
 local rngs=require('kernel.rng')
@@ -96,10 +104,11 @@ function M.timerRunning(g,sprite,tick)
     return ok and type(value)=='number' and value>tick
 end
 
--- The response that casts decision's spell, or strikes with the charge in hand, or nil.
+-- The response that casts decision's spell, or strikes with the charge or attacks with the
+-- weapon in hand, or nil.
 function M.response(decision)
     if type(decision)~='table' or not valid(decision.resref) then return nil end
-    if decision.kind=='strike' then
+    if decision.kind=='strike' or decision.kind=='weapon' then
         local t=decision.target
         if type(t)~='number' or t<0 or t%1~=0 then return nil end
         return M.setTimer..'\nAttackOneRound(EEex_Target("'..M.targetName..'"))'
@@ -138,14 +147,16 @@ function M.new(g,options)
     -- lastDefence: the tick each creature last started a defence; known: the creatures that
     -- asked the engine (hooked mages and priests); stopCasts: what the holder of the running
     -- Time Stop started in it.
-    -- strikes: each creature's strike with a touch charge, until the charge is gone.
+    -- strikes: each creature's strike with a touch charge, until the charge is gone, or its
+    -- weapon attack (weapon=true), until it is over.
     local lastDefence,known,stopCasts,strikes={},{},{},{}
     local counts={decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
         hits=0,misses=0,errors=0,holds=0,frozen=0,marks=0,markFailures=0,defences=0,guarded=0,unguarded=0,
-        guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0}
+        guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0,arms=0,attacks=0,attackHits=0,
+        weaponFailures=0}
     local reasons={}
     local log,nextRow,size={},1,0
-    local root,sink,lastError,markError,guardError
+    local root,sink,lastError,markError,guardError,weaponError
     -- trace: labs see every decline as a 'declined' row in the sink (never in the log).
     local trace,lastReason,lastDetail=false,nil,nil
     local api={}
@@ -169,6 +180,11 @@ function M.new(g,options)
     local function get(id)
         local object=g.EEex_GameObject_Get(id)
         if object and g.EEex_GameObject_IsSprite(object,false) then return object end
+    end
+    -- The creature with id, dead or alive: a target that died still shows the hit points it lost.
+    local function any(id)
+        local object=g.EEex_GameObject_Get(id)
+        if object and g.EEex_GameObject_IsSprite(object,true) then return object end
     end
 
     -- A spell at a caster level, classified once.
@@ -234,6 +250,16 @@ function M.new(g,options)
                 end
             end
         end
+    end
+    -- The weapon in the creature's hand as an attack (combat-intent/weapons.lua's arms), or nil:
+    -- what sense.attack reads, and what a hit casts or applies (the weapon's ability, or the
+    -- ammunition a launcher shoots, classified). A launcher without ammunition is none.
+    local function arms(a)
+        if type(a)~='table' or type(a.item)~='string' or type(a.damage)~='number' or (a.launcher and not a.ammo) then return nil end
+        local strike
+        if a.ammo then strike=item(a.ammo)[1] else strike=item(a.item)[a.ability] end
+        return {item=a.item,damage=a.damage,damageType=a.damageType,apr=a.apr or weapons.baseApr,thac0=a.thac0,
+            ranged=a.ranged==true,range=a.range,flags=a.flags,enchantment=a.enchantment,strike=strike}
     end
     -- What the creature has ready: its spells with their classification, and the items it can
     -- drink or use from its quick slots and backpack.
@@ -368,7 +394,7 @@ function M.new(g,options)
     -- carries an effect of the strike. The touch spell it came from (when known) remembers it.
     local function struck(s,tick)
         strikes[s.caster]=nil
-        local target=get(s.target)
+        local target=any(s.target)
         local hit=false
         if target then
             hit=s.hp~=nil and target.m_baseStats.m_hitPoints<s.hp
@@ -383,6 +409,16 @@ function M.new(g,options)
             if hit then mine[key]=nil else mine[key]=(mine[key] or 0)+1 end
         end
         record({kind='strike',tick=tick,member=s.caster,item=s.item,spell=s.spell,target=s.target,hit=hit,started=s.tick})
+    end
+    -- A weapon attack that is over: whether its target lost hit points meanwhile (from any hand).
+    local function attacked(s,tick)
+        strikes[s.caster]=nil
+        local target=any(s.target)
+        local hp=target and target.m_baseStats.m_hitPoints
+        local hit=s.hp~=nil and type(hp)=='number' and hp<s.hp
+        if hit then counts.attackHits=counts.attackHits+1 end
+        record({kind='attack',tick=tick,member=s.caster,item=s.item,target=s.target,hit=hit,
+            lost=hit and s.hp-hp or 0,started=s.tick})
     end
 
     local function judge(tick)
@@ -436,9 +472,18 @@ function M.new(g,options)
             if director then director:release(id,tick) end
         end
         -- A strike runs while the creature swings or SCS's round timer runs (two rounds at most);
-        -- once its charge is gone it is judged.
+        -- once its charge is gone it is judged. A weapon attack runs while the creature attacks,
+        -- or while the timer runs and its target lives (two rounds at most).
         local s=strikes[id]
-        if s then
+        if s and s.weapon then
+            local target=get(s.target)
+            local alive=target~=nil and targeting.alive(sense.actor(g,target))
+            if tick-s.tick<M.strikeTicks and (M.ATTACKS[sprite.m_curAction.m_actionID] or
+                (alive and M.timerRunning(g,sprite,tick))) then
+                counts.holds=counts.holds+1;return {hold=true}
+            end
+            attacked(s,tick)
+        elseif s then
             if held(sprite)~=s.item then struck(s,tick)
             elseif tick-s.tick<M.strikeTicks and (M.ATTACKS[sprite.m_curAction.m_actionID] or M.timerRunning(g,sprite,tick)) then
                 counts.holds=counts.holds+1;return {hold=true}
@@ -469,6 +514,20 @@ function M.new(g,options)
         if g.EEex_Sprite_GetStat(sprite,M.alacrityStat)>0 then frame.self.alacrity=true end
         frame.self.thac0=sense.thac0(g,sprite)
         frame.self.charge=chargeIn(sprite,rows)
+        frame.self.magicItem=held(sprite)~=nil
+        -- A weapon that cannot be read leaves the caster without a weapon attack, nothing more.
+        local read,err=pcall(function()
+            local own=sense.attack(g,sprite,reader)
+            frame.self.apr=own.apr
+            frame.self.weapon=arms(own)
+        end)
+        if not read then
+            counts.weaponFailures=counts.weaponFailures+1
+            if not weaponError then
+                weaponError=tostring(err):sub(1,200)
+                record({kind='error',where='weapon',error=weaponError})
+            end
+        end
         local holder,left=timeStop()
         local input={tick=tick,family=family,frame=frame,spells=rows,items=carried,lastDefence=lastDefence[id],
             plan=director and director:plan(id,tick) or {},memory=memory[id] or {},mind=mindFor(sprite,family),rng=rng}
@@ -493,6 +552,7 @@ function M.new(g,options)
         if d.kind=='defence' then counts.defences=counts.defences+1 end
         if d.kind=='opener' then counts.openers=counts.openers+1 end
         if d.kind=='touch' then counts.touches=counts.touches+1 end
+        if d.kind=='arm' then counts.arms=counts.arms+1 end
         record({kind='choice',tick=tick,member=id,family=family,spell=d.resref,castKind=d.kind,mode=d.mode,
             target=d.target,point=d.point,score=d.score,worth=d.worth,hits=d.hits,how=why,top=top,
             focus=input.plan.focus,rule=d.rule,stop=input.timeStop and input.timeStop.left or nil,
@@ -562,6 +622,12 @@ function M.new(g,options)
                 hp=hp,tick=tick,sources=decision.sources,disable=decision.disable}
             counts.performed=counts.performed+1;counts.strikes=counts.strikes+1
             record({kind='swing',tick=tick,member=object.m_id,item=decision.spell,target=decision.target})
+            return true
+        end
+        if decision.kind=='weapon' then
+            strikes[object.m_id]={caster=object.m_id,item=decision.spell,weapon=true,target=decision.target,hp=hp,tick=tick}
+            counts.performed=counts.performed+1;counts.attacks=counts.attacks+1
+            record({kind='swing',tick=tick,member=object.m_id,item=decision.spell,target=decision.target,weapon=true})
             return true
         end
         pending[object.m_id]={caster=object.m_id,resref=decision.spell,kind=decision.kind,mode=decision.mode,
@@ -656,7 +722,7 @@ function M.new(g,options)
         for _,mine in pairs(memory) do for _ in pairs(mine) do remembered=remembered+1 end end
         return {enabled=enabled,missing=missing or false,trace=trace,counts=copy(counts),reasons=copy(reasons),
             pending=open,running=busy,judging=#judging,remembered=remembered,log=rows,lastError=lastError or false,
-            markError=markError or false,guardError=guardError or false}
+            markError=markError or false,guardError=guardError or false,weaponError=weaponError or false}
     end
     return api
 end

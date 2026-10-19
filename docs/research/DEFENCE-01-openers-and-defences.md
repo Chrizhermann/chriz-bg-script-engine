@@ -580,10 +580,69 @@ is no minimum: the charge is spent already.
 `AttackOneRound` at `EEex_Target` strikes, that the hit removes the hand, and that SR's Harm deals
 its 90 damage.
 
-**Conjured weapons** (Melf's Minute Meteors, Flame Blade, Black Blade of Disaster and the like)
-are read, but the choice does not use them yet. SCS's melee blocks attack with them in the rounds
-the engine leaves to SCS. How the engine should weigh an attack with them against a cast is
-Christopher's call.
+### D2c as built: weapon attacks (2026-10-20)
+
+Christopher chose conjured weapons as an attack option of the engine, and asked why the engine
+should leave any round to SCS ("Warum überlassen wir nicht alles unserer Engine? 0.2 passt aber
+ansonsten."). So the minimum worth now separates a cast from a weapon attack, not the engine
+from SCS.
+
+**The weapon in hand** (`combat-intent/weapons.lua`, `choice.weaponOptions`). The adapter reads
+the selected weapon (`sense.attack`): attacks a round, THAC0 with the weapon's own to-hit bonus,
+the average damage of a hit, the damage type, range, flags and enchantment, and what a hit casts
+or applies (the weapon's ability, classified). A launcher shoots the ammunition in the first
+filled quiver slot: their to-hit bonuses add up, the ammunition's damage type counts, and the
+higher enchantment (plain ammunition from a magical launcher hits as magical). A launcher
+without ammunition is no weapon.
+
+- An attack goes at each enemy that is alive, seen, without sanctuary, within the weapon's range
+  (melee: `touchReach`) and not immune to it (opcode 120, the same rule as touch charges).
+- Worth: a round of its hits on that enemy. Hits: the attacks a round times the chance to hit,
+  less the hits Mirror Images and Stoneskin skins take first. A hit deals the weapon's damage
+  (lessened by the enemy's resistance to its type, not by magic resistance or a save) and what it
+  casts or applies (lessened by both; a spell protection stops that part only). The hits kill
+  when those expected reach those needed, as likely as the last one lands. The group's focus
+  counts half again, as for casts.
+- Cost: for melee, the hit points lost standing next to the target (the same exposure as a
+  touch strike), for one round, times caution. A weapon attack spends nothing else.
+- **No minimum worth.** When no cast reaches `minValue`, the engine attacks instead of leaving the
+  round to SCS; a weapon attack worth more than the best cast is taken over it.
+- None with a touch charge in hand (the strike decides where that goes), in the caster's own
+  Time Stop or under Improved Alacrity.
+
+**Spells that conjure a weapon** (`weapons.conjured`, the `arm` option): a spell whose item is a
+weapon but no touch charge (Melf's Minute Meteors, Flame Blade, Black Blade of Disaster and the
+like). Its attacks a round come from the item (opcode 1 while equipped: SR's meteors set five;
+an added attack adds to the caster's own; half attacks decoded).
+
+- Cast on the caster, aimed at the enemy in reach where the weapon is worth most.
+- Worth: the hits it deals in the rounds it lasts (its uses at its attacks a round, or its
+  duration), at most the horizon (three rounds). Cost: the spell's level, and for melee the
+  exposure for those rounds.
+- Not while the magic weapon slot holds an item: the next rounds attack with it instead.
+- Profile: `weapons` (a switch).
+
+**In the adapter.** A weapon attack is SCS's round timer, then `AttackOneRound` at `EEex_Target`,
+like a strike. The engine holds the creature while it attacks, or while the timer runs and the
+target lives, two rounds at most, so SCS's attack blocks do not send it elsewhere. Then it
+records whether the target lost hit points meanwhile (from any hand). A target that died ends
+the hold. The log has `swing` rows with `weapon=true` and `attack` rows; the counts are `arms`,
+`attacks` and `attackHits`. A strike's target that died now counts as hit (it was a miss before,
+because a dead creature was not read).
+
+**Open, for Christopher:**
+
+- In rounds where no cast reaches `minValue`, SCS used to cast what the engine does not cast yet
+  (summons, Breach and Dispel Magic, cures, raising). The engine now attacks with a weapon in
+  those rounds. Either that stays and those spells become engine actions next, or SCS keeps
+  such rounds until they are.
+- A conjured weapon counts the damage of the rounds after the cast, while a cast counts its own
+  round. Those rounds are spent attacking, not casting. Whether that should cost something is to
+  be seen in the lab.
+
+**Not yet seen in a lab.** A fight must show that `AttackOneRound` at `EEex_Target` attacks
+with the selected weapon, that a conjured weapon lands in slot 34 and is selected, and how
+often the engine attacks instead of casting.
 
 ### D3
 
@@ -596,10 +655,9 @@ Christopher's call.
   example when a threat appears before the cast starts. To think through together.
 - **Quick single-target spells for allies,** such as Resist Fear and Remove Paralysis
   (Christopher's examples). Exceptions to agree with him, with their casting times.
-- **Conjured weapons and on-hit buffs.** The classifier reads 57 wizard and priest spells of the
-  SR lab as a weapon or on-hit buff on the caster (learned.md, section 9). The engine uses the
-  touch charges among them (D2c, above). It does not yet attack with conjured weapons such as
-  Melf's Minute Meteors, Spiritual Hammer or Black Blade of Disaster, nor cast them or the
+- **On-hit buffs and shapeshifts.** The classifier reads 57 wizard and priest spells of the SR
+  lab as a weapon or on-hit buff on the caster (learned.md, section 9). The engine uses the touch
+  charges and conjured weapons among them (D2c, above), not yet the on-hit buffs or the
   shapeshifts.
 - **Menu spells** (opcode 214): Protection from Elemental Energy, Polymorph Self, Shapechange and
   Nahal's Reckless Dweomer let the caster pick a sub-spell (learned.md, section 9). The engine

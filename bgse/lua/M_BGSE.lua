@@ -904,7 +904,8 @@ end
 -- A weapon the spell puts in the caster's hand (opcode 111), by the created item's first
 -- ability: how it attacks, how many hits it lasts and what a hit delivers (strike: that ability
 -- classified at the caster's level), with the item's flags and enchantment for weapon
--- immunities. It lasts one hit when the hit takes the item away (opcode
+-- immunities and the attacks a round the item sets or adds while equipped (opcode 1: SR's Melf's
+-- Minute Meteors set 5). It lasts one hit when the hit takes the item away (opcode
 -- 112: a touch charge), its charges times the items made when a spent charge makes it vanish,
 -- else as long as the item lasts (uses nil).
 local ATTACKS={[1]='melee',[2]='ranged',[3]='magical',[4]='launcher'}
@@ -921,11 +922,17 @@ local function weapon(c,state,e,p)
     local ability=type(item)=='table' and type(item.abilities)=='table' and item.abilities[1]
     if type(ability)~='table' then return state.miss(c,'ITM',e.res) end
     local n=uses(ability,e.p1)
+    local aprSet,aprAdd
+    for _,x in ipairs(type(item.equipping)=='table' and item.equipping or {}) do
+        if type(x)=='table' and x.opcode==1 and number(x.p1) then
+            if x.p2==1 then aprSet=x.p1 elseif x.p2==0 then aprAdd=(aprAdd or 0)+x.p1 end
+        end
+    end
     c.weapons=c.weapons or {}
     c.weapons[#c.weapons+1]={item=type(item.resref)=='string' and item.resref or e.res,
         attack=ATTACKS[ability.attackType] or 'none',range=ability.range,speed=ability.speed,
         toHit=ability.thac0,dice=ability.dice,sides=ability.sides,bonus=ability.damageBonus,
-        damageType=ability.damageType,flags=item.flags,enchantment=item.enchantment,
+        damageType=ability.damageType,flags=item.flags,enchantment=item.enchantment,aprSet=aprSet,aprAdd=aprAdd,
         uses=n,touch=(ability.attackType==1 and n==1) or nil,
         seconds=seconds(e),chance=p,strike=M.classify(item,1,state.lookup,{level=state.level,weapons=false})}
 end
@@ -1524,6 +1531,8 @@ M.default={
     -- touchReach range units (SCS: 10).
     touch=true,
     touchReach=10,
+    -- Weapon attacks (D2c): the weapon in hand as an attack, and spells that conjure one.
+    weapons=true,
 }
 
 local function share(v) return type(v)=='number' and v==v and v>=0 and v<=1 end
@@ -1540,6 +1549,7 @@ local CHECKS={coordination=share,best=share,band=share,economy=amount,minValue=a
     castCost=amount,allySpells=resrefs,slowSpeed=amount,touchReach=amount,
     openers=function(v) return type(v)=='boolean' end,
     touch=function(v) return type(v)=='boolean' end,
+    weapons=function(v) return type(v)=='boolean' end,
     memory=function(v) return type(v)=='boolean' end,
     knowledge=function(v) return v=='scs' end}
 
@@ -1838,67 +1848,39 @@ function M.choose(input)
 end
 return M
 end
-factories["combat-intent.touch"]=function(require)
--- Touch charges (step 3, D2c; DEFENCE-01): spells that put a weapon of one hit in the caster's
--- hand, such as Spell Revisions' Harm, the Cause Wounds spells, Slay Living, Shocking Grasp and
--- Chill Touch (combat-intent/spells.lua reads them: a weapon entry with touch=true). The caster
--- casts the spell on itself, walks up and strikes; the hit delivers the charge.
---
--- As SCS's touch attacks do (priest/ssl/combatblocks/touch_attacks.ssl and
--- meleeblocks/touchattack.ssl): only at an enemy within reach, which the strike can hit and the
--- charge can work on; and the strike follows at once, again and again until the charge lands
--- (Christopher, 2026-10-19: Harm is very strong, so choose the moment with care and make sure it
--- lands and deals its damage). Plain values only; nothing here touches the engine.
+factories["combat-intent.weapons"]=function(require)
+-- Weapon attacks (step 3, D2c; DEFENCE-01): the weapon in the caster's hand, ordinary or
+-- conjured, as an attack the engine weighs against its spells, and the spells that conjure one,
+-- worth the hits the weapon deals in the rounds after (Christopher, 2026-10-20: conjured weapons
+-- as an attack option; the engine should take every round it can). Touch charges
+-- (combat-intent/touch.lua) build on the same reach and immunities. Plain values only; nothing
+-- here touches the engine.
 local targeting=require('combat-intent.targeting')
 local threat=require('combat-intent.threat')
 local M={}
--- Rounds the caster stands in reach of its target's friends: the strike, and another after a
--- miss now and then.
-M.exposedRounds=1.5
+-- Item flags (ITM header): two-handed, cursed, magical, silver, cold iron.
+local FLAG={twoHanded=0x2,cursed=0x10,magical=0x40,silver=0x100,coldIron=0x200}
+-- An item ability's damage type as a resistance (ITM): the mixed types count as their first,
+-- non-lethal fists as crushing.
+M.DAMAGE={[1]='piercing',[2]='crushing',[3]='slashing',[4]='missile',[5]='crushing',[6]='piercing',
+    [7]='piercing',[8]='crushing',[9]='crushing'}
+-- Weapon attacks a round of a caster whose own is unknown.
+M.baseApr=1
 local UNSEEN=targeting.STATE.invisible+targeting.STATE.improvedInvisible
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
-
--- The touch charge a classified spell gives, or nil: its first weapon of one melee hit.
-function M.charge(spell)
-    if type(spell)~='table' or type(spell.weapons)~='table' then return nil end
-    for _,w in ipairs(spell.weapons) do
-        if type(w)=='table' and w.touch==true and type(w.strike)=='table' then return w end
-    end
+-- Opcode 1's values 6 to 10 are half attacks: 6 is a half, 7 one and a half, up to 10.
+local function decoded(v) if v>5 and v<=10 then return v-5.5 end return v end
+local function average(dice,sides)
+    if not number(dice) or not number(sides) or dice<=0 or sides<=0 then return 0 end
+    return dice*(sides+1)/2
 end
 
--- How far, in world units, the caster goes for a strike: the profile's touchReach in range
--- units (SCS: within 10).
-function M.reach(mind)
-    return (type(mind)=='table' and number(mind.touchReach) and mind.touchReach or 0)*targeting.rangeUnit
-end
-
--- Whether the caster can go for e: alive, no sanctuary, seen, within reach. Else false and why.
-function M.reachable(caster,e,mind)
-    if not targeting.alive(e) then return false,'dead' end
-    if number(e.sanctuary) and e.sanctuary>0 then return false,'sanctuary' end
-    if targeting.has(e.state,UNSEEN) and not caster.seeInvisible then return false,'invisible' end
-    local d=targeting.distance(caster,e)
-    if d==math.huge then return false,'no-position' end
-    if d>M.reach(mind) then return false,'out-of-reach' end
-    return true
-end
-
--- The chance a swing of w hits e: a d20 against the caster's THAC0 less the weapon's bonus, and
--- e's armour class.
-function M.hitChance(caster,e,w)
-    local thac0=number(caster.thac0) and caster.thac0 or nil
-    if thac0 and number(w.toHit) then thac0=thac0-w.toHit end
-    return threat.hitChance(thac0,e.ac)
-end
-
--- Item flags (ITM header): two-handed, cursed, magical, silver, cold iron.
-local FLAG={twoHanded=0x2,cursed=0x10,magical=0x40,silver=0x100,coldIron=0x200}
-
--- Whether an immunity to weapons (opcode 120, by its type p2) keeps weapon w off. Type 0 keeps
--- off weapons up to +p1, as combat-intent/defence.lua reads it; a weapon is magical with the flag
--- or an enchantment (SR's Chill Touch hand is neither). Unknown types count as keeping it off.
-local function immune(p,w)
+-- Whether an immunity to weapons (opcode 120, by its type p2) keeps weapon w off (its flags and
+-- enchantment). Type 0 keeps off weapons up to +p1, as combat-intent/defence.lua reads it; a
+-- weapon is magical with the flag or an enchantment (SR's Chill Touch hand is neither). Unknown
+-- types count as keeping it off.
+function M.immune(p,w)
     local flags=number(w.flags) and w.flags or 0
     local plus=number(w.enchantment) and w.enchantment or 0
     local magical=plus>0 or targeting.has(flags,FLAG.magical)
@@ -1910,22 +1892,32 @@ local function immune(p,w)
     if v==nil then return true end
     return v
 end
-
--- Why the charge would not work on e, or nil: a hit takes a Mirror Image or a Stoneskin skin
--- instead, e is immune to the hand as a weapon (opcode 120), or a spell protection stops the
--- strike or a spell it casts (Spell Turning, Deflection, a globe: one is enough, so the charge is
--- not spent on a hit that does half its work). Unknown protections count as protecting.
-function M.blocked(e,w)
-    if number(e.mirror) and e.mirror>0 then return 'mirror' end
-    if number(e.skins) and e.skins>0 then return 'stoneskin' end
-    if type(e.protections)~='table' then return 'protected' end
+-- Whether e is immune to weapon w (opcode 120). Unknown protections count as protecting.
+function M.immuneTo(e,w)
+    if type(e.protections)~='table' then return true end
     for _,p in ipairs(e.protections) do
-        if type(p)=='table' and p.opcode==120 and immune(p,w) then return 'weapon-immunity' end
+        if type(p)=='table' and p.opcode==120 and M.immune(p,w) then return true end
     end
-    if targeting.protected(e,w.strike) then return 'protected' end
-    for _,d in ipairs(type(w.strike.delivered)=='table' and w.strike.delivered or {}) do
-        if targeting.protected(e,d) then return 'protected' end
-    end
+    return false
+end
+
+-- How far, in world units, the caster goes for a melee hit: the profile's touchReach in range
+-- units (SCS's touch attacks: within 10).
+function M.reach(mind)
+    return (type(mind)=='table' and number(mind.touchReach) and mind.touchReach or 0)*targeting.rangeUnit
+end
+-- Whether the caster can attack e with weapon w: alive, no sanctuary, seen, within the weapon's
+-- range for missiles and thrown weapons, within reach for melee. Else false and why. A weapon
+-- without its own (w nil) counts as melee.
+function M.reachable(caster,e,mind,w)
+    if not targeting.alive(e) then return false,'dead' end
+    if number(e.sanctuary) and e.sanctuary>0 then return false,'sanctuary' end
+    if targeting.has(e.state,UNSEEN) and not caster.seeInvisible then return false,'invisible' end
+    local d=targeting.distance(caster,e)
+    if d==math.huge then return false,'no-position' end
+    local far=type(w)=='table' and w.ranged and (number(w.range) and w.range or 0) or M.reach(mind)
+    if d>far then return false,'out-of-reach' end
+    return true
 end
 
 -- Hit points a round the caster takes at spot from melee weapons that reach it already: living
@@ -1943,7 +1935,6 @@ local function melee(frame,spot)
     end
     return hp
 end
-
 -- Hit points a round the caster would take more standing next to e than where it stands: the
 -- melee at e's spot (e's own among it) less the melee at the caster's. Not threat.picture's
 -- round: in it every melee enemy within a round's walk strikes wherever the caster stands.
@@ -1951,6 +1942,100 @@ end
 function M.exposure(frame,e)
     return math.max(0,melee(frame,e)-melee(frame,frame.self))
 end
+
+-- Hits a round on e of a weapon swung apr times with thac0 (bonuses in): d20 rolls against e's
+-- armour class, less the hits its Mirror Images and Stoneskin skins take first.
+function M.hits(apr,thac0,e)
+    local raw=(number(apr) and apr>0 and apr or 0)*threat.hitChance(thac0,e.ac)
+    local absorbed=(number(e.mirror) and e.mirror>0 and e.mirror or 0)+(number(e.skins) and e.skins>0 and e.skins or 0)
+    return math.max(0,raw-absorbed)
+end
+
+-- The weapon a classified spell conjures for the caster as an attack (arms), or nil: its first
+-- weapon that is no touch charge, with the caster's THAC0 less the weapon's bonus, its attacks a
+-- round (set or raised by the item, opcode 1), its average damage and its range in world units.
+-- Rounds: how long it lasts, from its uses and its duration (nil when neither is known).
+function M.conjured(spell,caster)
+    if type(spell)~='table' or type(spell.weapons)~='table' then return nil end
+    for _,w in ipairs(spell.weapons) do
+        if type(w)=='table' and w.touch~=true and (w.attack=='melee' or w.attack=='ranged' or w.attack=='launcher') then
+            local apr=number(w.aprSet) and decoded(w.aprSet) or (number(caster.apr) and caster.apr>0 and caster.apr or
+                M.baseApr)+(number(w.aprAdd) and w.aprAdd or 0)
+            local thac0=number(caster.thac0) and caster.thac0 or nil
+            if thac0 and number(w.toHit) then thac0=thac0-w.toHit end
+            local rounds
+            if number(w.uses) and w.uses>0 and apr>0 then rounds=w.uses/apr end
+            if number(w.seconds) and w.seconds>0 then rounds=math.min(rounds or math.huge,w.seconds/6) end
+            return {item=w.item,damage=average(w.dice,w.sides)+(number(w.bonus) and w.bonus or 0),damageType=w.damageType,
+                apr=apr,thac0=thac0,ranged=w.attack~='melee',range=number(w.range) and w.range*targeting.rangeUnit or nil,
+                flags=w.flags,enchantment=w.enchantment,strike=w.strike,rounds=rounds}
+        end
+    end
+end
+return M
+end
+factories["combat-intent.touch"]=function(require)
+-- Touch charges (step 3, D2c; DEFENCE-01): spells that put a weapon of one hit in the caster's
+-- hand, such as Spell Revisions' Harm, the Cause Wounds spells, Slay Living, Shocking Grasp and
+-- Chill Touch (combat-intent/spells.lua reads them: a weapon entry with touch=true). The caster
+-- casts the spell on itself, walks up and strikes; the hit delivers the charge.
+--
+-- As SCS's touch attacks do (priest/ssl/combatblocks/touch_attacks.ssl and
+-- meleeblocks/touchattack.ssl): only at an enemy within reach, which the strike can hit and the
+-- charge can work on; and the strike follows at once, again and again until the charge lands
+-- (Christopher, 2026-10-19: Harm is very strong, so choose the moment with care and make sure it
+-- lands and deals its damage). Plain values only; nothing here touches the engine.
+local threat=require('combat-intent.threat')
+local weapons=require('combat-intent.weapons')
+local targeting=require('combat-intent.targeting')
+local M={}
+-- Rounds the caster stands in reach of its target's friends: the strike, and another after a
+-- miss now and then.
+M.exposedRounds=1.5
+
+local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
+
+-- The touch charge a classified spell gives, or nil: its first weapon of one melee hit.
+function M.charge(spell)
+    if type(spell)~='table' or type(spell.weapons)~='table' then return nil end
+    for _,w in ipairs(spell.weapons) do
+        if type(w)=='table' and w.touch==true and type(w.strike)=='table' then return w end
+    end
+end
+
+-- How far, in world units, the caster goes for a strike: the profile's touchReach in range
+-- units (SCS: within 10), as for any melee hit (combat-intent/weapons.lua).
+M.reach=weapons.reach
+
+-- Whether the caster can go for e: alive, no sanctuary, seen, within reach. Else false and why.
+function M.reachable(caster,e,mind) return weapons.reachable(caster,e,mind,nil) end
+
+-- The chance a swing of w hits e: a d20 against the caster's THAC0 less the weapon's bonus, and
+-- e's armour class.
+function M.hitChance(caster,e,w)
+    local thac0=number(caster.thac0) and caster.thac0 or nil
+    if thac0 and number(w.toHit) then thac0=thac0-w.toHit end
+    return threat.hitChance(thac0,e.ac)
+end
+
+-- Why the charge would not work on e, or nil: a hit takes a Mirror Image or a Stoneskin skin
+-- instead, e is immune to the hand as a weapon (opcode 120), or a spell protection stops the
+-- strike or a spell it casts (Spell Turning, Deflection, a globe: one is enough, so the charge is
+-- not spent on a hit that does half its work). Unknown protections count as protecting.
+function M.blocked(e,w)
+    if number(e.mirror) and e.mirror>0 then return 'mirror' end
+    if number(e.skins) and e.skins>0 then return 'stoneskin' end
+    if type(e.protections)~='table' then return 'protected' end
+    if weapons.immuneTo(e,w) then return 'weapon-immunity' end
+    if targeting.protected(e,w.strike) then return 'protected' end
+    for _,d in ipairs(type(w.strike.delivered)=='table' and w.strike.delivered or {}) do
+        if targeting.protected(e,d) then return 'protected' end
+    end
+end
+
+-- Hit points a round the caster would take more standing next to e than where it stands
+-- (combat-intent/weapons.lua).
+M.exposure=weapons.exposure
 return M
 end
 factories["combat-intent.defence"]=function(require)
@@ -2442,10 +2527,18 @@ factories["combat-intent.choice"]=function(require)
 -- standing next to that enemy costs. A charge in hand is struck first, again until it lands.
 -- Neither in the caster's own Time Stop nor under Improved Alacrity, as SCS keeps weapons out of
 -- both.
+--
+-- Weapon attacks (D2c, combat-intent/weapons.lua; Christopher, 2026-10-20): the weapon in the
+-- caster's hand, conjured or not, is worth a round of its hits on the enemy it attacks, less what
+-- standing next to that enemy costs for melee. It spends nothing, so it needs no minimum worth:
+-- when no spell reaches minValue, the engine attacks instead of leaving the round to SCS. A spell
+-- that conjures a weapon is worth the hits the weapon deals in the rounds after, as many as it
+-- lasts within the horizon. Neither in the caster's own Time Stop nor under Improved Alacrity.
 local targeting=require('combat-intent.targeting')
 local defence=require('combat-intent.defence')
 local openers=require('combat-intent.openers')
 local touch=require('combat-intent.touch')
+local weapons=require('combat-intent.weapons')
 local ids=require('combat-intent.ids')
 local spells=require('combat-intent.spells')
 local M={}
@@ -2778,6 +2871,75 @@ local function touchOptions(input,row,spell,w,out,reject)
     end
 end
 
+-- The worth of hits of weapon arms on e (hits: those expected, over one round or more), and the
+-- hit points e is expected to take. A hit deals the weapon's own damage, which neither magic
+-- resistance nor a save lessens, and what it casts or applies, which both do; no spell
+-- protection stops the weapon, one against what its hit casts stops that part. The hits kill
+-- when those expected reach those needed, as likely as the last one lands (two swings that each
+-- hit four times in five, needing both: 0.6). The hit's disable counts as likelier the more hits
+-- land.
+local function hitsOn(input,arms,hits,e)
+    local hp,maxHp=e.hp,e.maxHp
+    if not number(hits) or hits<=0 or not number(hp) or not number(maxHp) or maxHp<=0 or hp<=0 then return 0,0 end
+    local per=number(arms.damage) and arms.damage>0 and arms.damage*resisted(e,weapons.DAMAGE[arms.damageType] or '') or 0
+    local roles=type(arms.strike)=='table' and spells.view(arms.strike,targeting.holds(e)) or nil
+    if type(roles)~='table' or targeting.protected(e,arms.strike) then roles=nil end
+    if roles and reaches(roles.damage) then
+        local role=roles.damage
+        local each=0
+        for label,v in pairs(type(role.types)=='table' and role.types or {}) do
+            if number(v) then each=each+v*resisted(e,label) end
+        end
+        local save=M.saveChance(role,e)
+        per=per+each*notResisted(e)*(role.saveForHalf and 1-save/2 or 1-save)
+    end
+    local worth,expected=0,0
+    if per>0 then
+        expected=math.min(hits*per,hp)
+        worth=expected/maxHp+input.mind.killBonus*clamp(hits-math.ceil(hp/per)+1,0,1)
+        local plan=input.plan
+        if type(plan)=='table' and plan.focus==e.id then worth=worth*(1+input.mind.focusBonus*input.mind.coordination) end
+    end
+    if roles and reaches(roles.disable) then
+        worth=worth+disableOn(input,{resref=arms.item or ''},roles.disable,e)*math.min(1,hits)
+    end
+    return worth,expected
+end
+
+-- Options of one ready spell that conjures a weapon (arms, combat-intent/weapons.lua): cast on
+-- the caster, worth the hits the weapon deals in the rounds after, as many as it lasts within
+-- the horizon, at the enemy in its reach where they are worth most. Cost: the spell's level, and
+-- for a melee weapon the hit points lost standing next to that enemy those rounds, times caution.
+local function armOptions(input,row,spell,arms,out,reject)
+    local frame=input.frame
+    local caster=frame.self
+    local mind=input.mind
+    local horizon=(number(mind.horizon) and mind.horizon or 18)/6
+    local rounds=math.min(number(arms.rounds) and arms.rounds or horizon,horizon)
+    if rounds<=0 then reject('no-worth');return end
+    local best,target,expected=0,nil,0
+    for _,e in ipairs(frame.enemies) do
+        local ok,why=weapons.reachable(caster,e,mind,arms)
+        if ok and weapons.immuneTo(e,arms) then ok,why=false,'weapon-immunity' end
+        if ok then
+            local worth,hp=hitsOn(input,arms,weapons.hits(arms.apr,arms.thac0,e)*rounds,e)
+            if worth>best or (worth==best and worth>0 and e.id<target) then best,target,expected=worth,e.id,hp end
+        else reject(why) end
+    end
+    if not target then reject('no-worth');return end
+    local level=number(row.level) and row.level or number(spell.level) and spell.level or 1
+    local cost=mind.economy*M.costPerLevel*level
+    local maxHp=number(caster.maxHp) and caster.maxHp>0 and caster.maxHp or nil
+    if not arms.ranged and maxHp then
+        for _,e in ipairs(frame.enemies) do
+            if e.id==target then cost=cost+mind.caution*weapons.exposure(frame,e)*rounds/maxHp end
+        end
+    end
+    out[#out+1]={resref=row.resref,kind='arm',mode='self',self=true,target=target,worth=best,cost=cost,
+        score=best-cost,hits={target},slack=0,expected={[target]=expected},
+        speed=number(spell.speed) and spell.speed or 0,item=arms.item}
+end
+
 -- The strike of the touch charge the caster holds (frame.self.charge, a weapon entry): at the
 -- enemy in reach where the hit is worth most times its chance to land, or nil. No minimum: the
 -- charge is spent already.
@@ -2875,6 +3037,10 @@ function M.options(input,rejected)
             if w and not weaponsOut(input) and type(input.frame.self.charge)~='table' then
                 touchOptions(input,row,spell,w,out,reject)
             end
+            local arms=not kind and not w and input.mind.weapons and weapons.conjured(spell,input.frame.self)
+            if arms and not weaponsOut(input) and not input.frame.self.magicItem then
+                armOptions(input,row,spell,arms,out,reject)
+            end
             if kind then
                 local seen,same={},{}
                 local list=aims(input,spell,mode)
@@ -2897,6 +3063,38 @@ function M.options(input,rejected)
                 end
             end
         end
+    end
+    table.sort(out,better)
+    return out
+end
+
+-- Attacks with the weapon in the caster's hand (frame.self.weapon, arms): at each enemy it
+-- reaches and can hurt, best first. Worth: a round of its hits; cost: for melee, the hit points
+-- the caster loses to the weapons around the target that round, times caution. Not while the
+-- caster holds a touch charge (the strike decides where that goes), in its own Time Stop or
+-- under Improved Alacrity.
+function M.weaponOptions(input,rejected)
+    local out={}
+    local function reject(why) if rejected then rejected[why]=(rejected[why] or 0)+1 end end
+    local frame=input.frame
+    local caster=frame.self
+    local arms=caster.weapon
+    if type(arms)~='table' or not number(arms.damage) or type(caster.charge)=='table' or weaponsOut(input) then return out end
+    local mind=input.mind
+    local maxHp=number(caster.maxHp) and caster.maxHp>0 and caster.maxHp or nil
+    for _,e in ipairs(frame.enemies) do
+        local ok,why=weapons.reachable(caster,e,mind,arms)
+        if ok and weapons.immuneTo(e,arms) then ok,why=false,'weapon-immunity' end
+        if ok then
+            local hits=weapons.hits(arms.apr,arms.thac0,e)
+            local worth,expected=hitsOn(input,arms,hits,e)
+            if worth>0 then
+                local cost=0
+                if not arms.ranged and maxHp then cost=mind.caution*weapons.exposure(frame,e)/maxHp end
+                out[#out+1]={resref=arms.item or 'WEAPON',kind='weapon',mode='creature',target=e.id,worth=worth,
+                    cost=cost,score=worth-cost,hits={e.id},slack=0,expected={[e.id]=expected},speed=0}
+            else reject(hits<=0 and 'absorbed' or 'no-worth') end
+        else reject(why) end
     end
     table.sort(out,better)
     return out
@@ -2995,7 +3193,21 @@ function M.decide(input)
     local options=M.options(input,rejected)
     for _,o in ipairs(defence.options(input,rejected)) do options[#options+1]=o end
     table.sort(options,better)
-    if #options==0 then return nil,'no-option',options,rejected end
+    -- A weapon attack spends nothing: it needs no minimum worth, and it is taken over a spell
+    -- only when it is worth more.
+    local swings=mind.weapons and M.weaponOptions(input,rejected) or {}
+    local swing=swings[1]
+    local function all()
+        local list={}
+        for _,o in ipairs(options) do list[#list+1]=o end
+        for _,o in ipairs(swings) do list[#list+1]=o end
+        table.sort(list,better)
+        return list
+    end
+    if #options==0 then
+        if swing and swing.score>0 then return swing,'weapon',all() end
+        return nil,'no-option',options,rejected
+    end
     -- Under Improved Alacrity a slow spell waits while a quick one reaches the minimum worth
     -- (SCS's slow spells and its compromise).
     if input.frame.self.alacrity==true and number(mind.slowSpeed) then
@@ -3004,7 +3216,11 @@ function M.decide(input)
         if quick[1] and quick[1].score>=mind.minValue then options=quick end
     end
     local best=options[1]
-    if best.score<mind.minValue then return nil,'nothing-good',options end
+    if best.score<mind.minValue then
+        if swing and swing.score>0 then return swing,'weapon',all() end
+        return nil,'nothing-good',options
+    end
+    if swing and swing.score>best.score then return swing,'weapon',all() end
     local rng=input.rng
     if not rng or rng:nextInt(1,1000)<=math.floor(mind.best*1000+0.5) then return best,'best',options end
     local floor=math.max(mind.minValue,best.score-math.abs(best.score)*mind.band)
@@ -3682,43 +3898,58 @@ local function itemAt(equipment,slot,reader)
     local item=equipment.m_items:get(slot)
     if item==nil then return nil end
     local resref=name(item.cResRef)
-    return resref~='' and reader.get('ITM',resref) or nil
+    if resref=='' then return nil end
+    return reader.get('ITM',resref),resref
 end
 local function magical(g,record)
     return number(record.enchantment)>0 or band(g,number(record.flags),0x40)~=0
 end
 -- A creature's weapon as plain values (combat-intent/threat.lua's attack data): attacks a round
--- with half attacks decoded, THAC0 with its bonuses, the average damage of a hit, whether it
--- shoots and how far, and whether the weapon is magical (for Protection from Magical Weapons).
--- A launcher hits with the ammunition in the first filled quiver slot. Without a readable
--- weapon, damage and magic stay unknown.
+-- with half attacks decoded, THAC0 with its bonuses and the weapon's own, the average damage of a
+-- hit, whether it shoots and how far, and whether the weapon is magical (for Protection from
+-- Magical Weapons). A launcher hits with the ammunition in the first filled quiver slot; their
+-- to-hit bonuses add up, the ammunition's damage type counts, and the higher enchantment. For the
+-- caster's own weapon attack (combat-intent/weapons.lua) also the item and its ability (1 for
+-- the first), the ammunition, the damage type and the hitting item's flags and enchantment.
+-- Without a readable weapon, damage and magic stay unknown.
 function M.attack(g,sprite,reader)
     local apr=stat(g,sprite,M.combat.apr)
     if apr>5 and apr<=10 then apr=apr-5.5 end
     local out={apr=apr>0 and apr or nil,
         thac0=stat(g,sprite,M.combat.thac0)-stat(g,sprite,M.combat.thac0Right)-stat(g,sprite,M.combat.hitBonus)}
     local equipment=sprite.m_equipment
-    local record=itemAt(equipment,equipment and equipment.m_selectedWeapon,reader)
+    local record,resref=itemAt(equipment,equipment and equipment.m_selectedWeapon,reader)
     local abilities=record and type(record.abilities)=='table' and record.abilities or {}
-    local ability=abilities[number(equipment and equipment.m_selectedWeaponAbility)+1] or abilities[1]
+    local index=number(equipment and equipment.m_selectedWeaponAbility)+1
+    if type(abilities[index])~='table' then index=1 end
+    local ability=abilities[index]
     if type(ability)~='table' then return out end
     local damage=average(ability.dice,ability.sides)+number(ability.damageBonus)
     local magic=magical(g,record)
+    local toHit=number(ability.thac0)
+    out.item,out.ability,out.damageType=resref,index,ability.damageType
+    out.flags,out.enchantment=number(record.flags),number(record.enchantment)
     if ability.attackType==4 then
-        out.ranged=true
+        out.ranged,out.launcher=true,true
         for _,slot in ipairs(M.quiver) do
-            local ammo=itemAt(equipment,slot,reader)
+            local ammo,ammoRef=itemAt(equipment,slot,reader)
             local hit=ammo and type(ammo.abilities)=='table' and ammo.abilities[1]
             if type(hit)=='table' then
                 damage=damage+average(hit.dice,hit.sides)+number(hit.damageBonus)
+                toHit=toHit+number(hit.thac0)
                 magic=magic or magical(g,ammo)
+                out.ammo,out.damageType=ammoRef,hit.damageType
+                out.flags,out.enchantment=number(ammo.flags),math.max(out.enchantment,number(ammo.enchantment))
                 break
             end
         end
     elseif ability.attackType==2 then out.ranged=true end
     if out.ranged and number(ability.range)>0 then out.range=ability.range*targeting.rangeUnit end
+    out.thac0=out.thac0-toHit
     out.damage=math.max(0,damage+stat(g,sprite,M.combat.damageBonus)+stat(g,sprite,M.combat.damageRight))
     out.magical=magic
+    -- Plain ammunition from a magical launcher hits as magical.
+    if magic and band(g,out.flags,0x40)==0 and out.enchantment<=0 then out.flags=out.flags+0x40 end
     return out
 end
 
@@ -4222,6 +4453,13 @@ factories["adapters.eeex.choice"]=function(require)
 -- charge elsewhere. Once the charge is gone the strike is judged: did its target lose hit points,
 -- become disabled or carry an effect of the strike. A charge spent without effect is a miss of its
 -- touch spell on that enemy, as a cast that left its target untouched is.
+--
+-- Weapon attacks (D2c): the choice also gets the weapon in the caster's hand (sense.attack, with
+-- what its hit casts or applies, classified), its attacks a round and whether the magic weapon
+-- slot is taken. A weapon attack is AttackOneRound at EEex_Target after SCS's round timer, like
+-- a strike; the creature is held while it attacks, or while the timer runs and its target lives,
+-- and then whether its target lost hit points is recorded. A spell that conjures a weapon is cast
+-- on the caster.
 local sense=require('adapters.eeex.sense')
 local creature=require('adapters.eeex.creature')
 local resources=require('adapters.eeex.resources')
@@ -4229,6 +4467,7 @@ local directors=require('adapters.eeex.director')
 local spells=require('combat-intent.spells')
 local targeting=require('combat-intent.targeting')
 local defence=require('combat-intent.defence')
+local weapons=require('combat-intent.weapons')
 local choice=require('combat-intent.choice')
 local mind=require('combat-intent.mind')
 local rngs=require('kernel.rng')
@@ -4286,10 +4525,11 @@ function M.timerRunning(g,sprite,tick)
     return ok and type(value)=='number' and value>tick
 end
 
--- The response that casts decision's spell, or strikes with the charge in hand, or nil.
+-- The response that casts decision's spell, or strikes with the charge or attacks with the
+-- weapon in hand, or nil.
 function M.response(decision)
     if type(decision)~='table' or not valid(decision.resref) then return nil end
-    if decision.kind=='strike' then
+    if decision.kind=='strike' or decision.kind=='weapon' then
         local t=decision.target
         if type(t)~='number' or t<0 or t%1~=0 then return nil end
         return M.setTimer..'\nAttackOneRound(EEex_Target("'..M.targetName..'"))'
@@ -4328,14 +4568,16 @@ function M.new(g,options)
     -- lastDefence: the tick each creature last started a defence; known: the creatures that
     -- asked the engine (hooked mages and priests); stopCasts: what the holder of the running
     -- Time Stop started in it.
-    -- strikes: each creature's strike with a touch charge, until the charge is gone.
+    -- strikes: each creature's strike with a touch charge, until the charge is gone, or its
+    -- weapon attack (weapon=true), until it is over.
     local lastDefence,known,stopCasts,strikes={},{},{},{}
     local counts={decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
         hits=0,misses=0,errors=0,holds=0,frozen=0,marks=0,markFailures=0,defences=0,guarded=0,unguarded=0,
-        guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0}
+        guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0,arms=0,attacks=0,attackHits=0,
+        weaponFailures=0}
     local reasons={}
     local log,nextRow,size={},1,0
-    local root,sink,lastError,markError,guardError
+    local root,sink,lastError,markError,guardError,weaponError
     -- trace: labs see every decline as a 'declined' row in the sink (never in the log).
     local trace,lastReason,lastDetail=false,nil,nil
     local api={}
@@ -4359,6 +4601,11 @@ function M.new(g,options)
     local function get(id)
         local object=g.EEex_GameObject_Get(id)
         if object and g.EEex_GameObject_IsSprite(object,false) then return object end
+    end
+    -- The creature with id, dead or alive: a target that died still shows the hit points it lost.
+    local function any(id)
+        local object=g.EEex_GameObject_Get(id)
+        if object and g.EEex_GameObject_IsSprite(object,true) then return object end
     end
 
     -- A spell at a caster level, classified once.
@@ -4424,6 +4671,16 @@ function M.new(g,options)
                 end
             end
         end
+    end
+    -- The weapon in the creature's hand as an attack (combat-intent/weapons.lua's arms), or nil:
+    -- what sense.attack reads, and what a hit casts or applies (the weapon's ability, or the
+    -- ammunition a launcher shoots, classified). A launcher without ammunition is none.
+    local function arms(a)
+        if type(a)~='table' or type(a.item)~='string' or type(a.damage)~='number' or (a.launcher and not a.ammo) then return nil end
+        local strike
+        if a.ammo then strike=item(a.ammo)[1] else strike=item(a.item)[a.ability] end
+        return {item=a.item,damage=a.damage,damageType=a.damageType,apr=a.apr or weapons.baseApr,thac0=a.thac0,
+            ranged=a.ranged==true,range=a.range,flags=a.flags,enchantment=a.enchantment,strike=strike}
     end
     -- What the creature has ready: its spells with their classification, and the items it can
     -- drink or use from its quick slots and backpack.
@@ -4558,7 +4815,7 @@ function M.new(g,options)
     -- carries an effect of the strike. The touch spell it came from (when known) remembers it.
     local function struck(s,tick)
         strikes[s.caster]=nil
-        local target=get(s.target)
+        local target=any(s.target)
         local hit=false
         if target then
             hit=s.hp~=nil and target.m_baseStats.m_hitPoints<s.hp
@@ -4573,6 +4830,16 @@ function M.new(g,options)
             if hit then mine[key]=nil else mine[key]=(mine[key] or 0)+1 end
         end
         record({kind='strike',tick=tick,member=s.caster,item=s.item,spell=s.spell,target=s.target,hit=hit,started=s.tick})
+    end
+    -- A weapon attack that is over: whether its target lost hit points meanwhile (from any hand).
+    local function attacked(s,tick)
+        strikes[s.caster]=nil
+        local target=any(s.target)
+        local hp=target and target.m_baseStats.m_hitPoints
+        local hit=s.hp~=nil and type(hp)=='number' and hp<s.hp
+        if hit then counts.attackHits=counts.attackHits+1 end
+        record({kind='attack',tick=tick,member=s.caster,item=s.item,target=s.target,hit=hit,
+            lost=hit and s.hp-hp or 0,started=s.tick})
     end
 
     local function judge(tick)
@@ -4626,9 +4893,18 @@ function M.new(g,options)
             if director then director:release(id,tick) end
         end
         -- A strike runs while the creature swings or SCS's round timer runs (two rounds at most);
-        -- once its charge is gone it is judged.
+        -- once its charge is gone it is judged. A weapon attack runs while the creature attacks,
+        -- or while the timer runs and its target lives (two rounds at most).
         local s=strikes[id]
-        if s then
+        if s and s.weapon then
+            local target=get(s.target)
+            local alive=target~=nil and targeting.alive(sense.actor(g,target))
+            if tick-s.tick<M.strikeTicks and (M.ATTACKS[sprite.m_curAction.m_actionID] or
+                (alive and M.timerRunning(g,sprite,tick))) then
+                counts.holds=counts.holds+1;return {hold=true}
+            end
+            attacked(s,tick)
+        elseif s then
             if held(sprite)~=s.item then struck(s,tick)
             elseif tick-s.tick<M.strikeTicks and (M.ATTACKS[sprite.m_curAction.m_actionID] or M.timerRunning(g,sprite,tick)) then
                 counts.holds=counts.holds+1;return {hold=true}
@@ -4659,6 +4935,20 @@ function M.new(g,options)
         if g.EEex_Sprite_GetStat(sprite,M.alacrityStat)>0 then frame.self.alacrity=true end
         frame.self.thac0=sense.thac0(g,sprite)
         frame.self.charge=chargeIn(sprite,rows)
+        frame.self.magicItem=held(sprite)~=nil
+        -- A weapon that cannot be read leaves the caster without a weapon attack, nothing more.
+        local read,err=pcall(function()
+            local own=sense.attack(g,sprite,reader)
+            frame.self.apr=own.apr
+            frame.self.weapon=arms(own)
+        end)
+        if not read then
+            counts.weaponFailures=counts.weaponFailures+1
+            if not weaponError then
+                weaponError=tostring(err):sub(1,200)
+                record({kind='error',where='weapon',error=weaponError})
+            end
+        end
         local holder,left=timeStop()
         local input={tick=tick,family=family,frame=frame,spells=rows,items=carried,lastDefence=lastDefence[id],
             plan=director and director:plan(id,tick) or {},memory=memory[id] or {},mind=mindFor(sprite,family),rng=rng}
@@ -4683,6 +4973,7 @@ function M.new(g,options)
         if d.kind=='defence' then counts.defences=counts.defences+1 end
         if d.kind=='opener' then counts.openers=counts.openers+1 end
         if d.kind=='touch' then counts.touches=counts.touches+1 end
+        if d.kind=='arm' then counts.arms=counts.arms+1 end
         record({kind='choice',tick=tick,member=id,family=family,spell=d.resref,castKind=d.kind,mode=d.mode,
             target=d.target,point=d.point,score=d.score,worth=d.worth,hits=d.hits,how=why,top=top,
             focus=input.plan.focus,rule=d.rule,stop=input.timeStop and input.timeStop.left or nil,
@@ -4752,6 +5043,12 @@ function M.new(g,options)
                 hp=hp,tick=tick,sources=decision.sources,disable=decision.disable}
             counts.performed=counts.performed+1;counts.strikes=counts.strikes+1
             record({kind='swing',tick=tick,member=object.m_id,item=decision.spell,target=decision.target})
+            return true
+        end
+        if decision.kind=='weapon' then
+            strikes[object.m_id]={caster=object.m_id,item=decision.spell,weapon=true,target=decision.target,hp=hp,tick=tick}
+            counts.performed=counts.performed+1;counts.attacks=counts.attacks+1
+            record({kind='swing',tick=tick,member=object.m_id,item=decision.spell,target=decision.target,weapon=true})
             return true
         end
         pending[object.m_id]={caster=object.m_id,resref=decision.spell,kind=decision.kind,mode=decision.mode,
@@ -4846,7 +5143,7 @@ function M.new(g,options)
         for _,mine in pairs(memory) do for _ in pairs(mine) do remembered=remembered+1 end end
         return {enabled=enabled,missing=missing or false,trace=trace,counts=copy(counts),reasons=copy(reasons),
             pending=open,running=busy,judging=#judging,remembered=remembered,log=rows,lastError=lastError or false,
-            markError=markError or false,guardError=guardError or false}
+            markError=markError or false,guardError=guardError or false,weaponError=weaponError or false}
     end
     return api
 end

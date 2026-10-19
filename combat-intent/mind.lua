@@ -55,6 +55,8 @@ M.default={
     -- touchReach range units (SCS: 10).
     touch=true,
     touchReach=10,
+    -- Weapon attacks (D2c): the weapon in hand as an attack, and spells that conjure one.
+    weapons=true,
 }
 
 local function share(v) return type(v)=='number' and v==v and v>=0 and v<=1 end
@@ -71,6 +73,7 @@ local CHECKS={coordination=share,best=share,band=share,economy=amount,minValue=a
     castCost=amount,allySpells=resrefs,slowSpeed=amount,touchReach=amount,
     openers=function(v) return type(v)=='boolean' end,
     touch=function(v) return type(v)=='boolean' end,
+    weapons=function(v) return type(v)=='boolean' end,
     memory=function(v) return type(v)=='boolean' end,
     knowledge=function(v) return v=='scs' end}
 

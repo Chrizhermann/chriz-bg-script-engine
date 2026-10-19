@@ -740,4 +740,86 @@ g9.BGSE_Act(third9)
 assert(last9('swing',3).item=='TESTHRM' and ch9:inspect().counts.strikes==4)
 groups=groups+1
 
+-- 19. Weapon attacks (D2c). A mage with nothing ready attacks with the staff in its hand (THAC0
+-- 14 less the staff's 1), AttackOneRound at EEex_Target after SCS's round timer, and is held while
+-- it attacks; once that is over, the hit points its target lost are recorded. A target that died
+-- releases it. A mage with Melf's Minute Meteors casts them on itself, then throws them: five
+-- attacks a round, each with its fire; no second casting while the meteors are in its hand. A
+-- sling without bullets is no weapon.
+ITEMS.TESTSTAF=weapon('TESTSTAF',{flags=0},{dice=1,sides=6,damageType=2,thac0=1})
+ITEMS.TESTMET=weapon('TESTMET',{equipping={fx(1,{p1=5,p2=1,target=1,timing=2})}},{attackType=2,range=40,dice=1,sides=4,
+    damageType=4,thac0=2,charges=10,depletion=1,effects={fx(12,{dice=1,sides=4,p2=8*65536,timing=1})}})
+ITEMS.TESTSLNG=weapon('TESTSLNG',{flags=0},{attackType=4,dice=0,sides=0,range=60})
+records.TESTMMM=spl('TESTMMM',3,{fx(111,{target=1,p1=1,res='TESTMET',duration=60})},5,1)
+local g10=world()
+local fighter=g10.add(armed(sprite(1,0,0,255),35,'TESTSTAF'))
+fighter.stats[8],fighter.stats[7],fighter.stats[2]=1,14,8
+local foe=g10.add(sprite(11,60,0,2))
+foe.stats[2]=5
+local dir10=directors.new(g10,{reader=reader9})
+local ch10=choices.new(g10,{reader=reader9,director=dir10,seed=19})
+local rows10={}
+ch10:setSink(function(row) rows10[#rows10+1]=row end)
+runtime.install(g10,{director=dir10,choice=ch10,version='test'})
+local function last10(kind,member)
+    for n=#rows10,1,-1 do if rows10[n].kind==kind and (member==nil or rows10[n].member==member) then return rows10[n] end end
+end
+local own=sense.attack(g10,fighter,reader9)
+assert(own.item=='TESTSTAF' and own.ability==1 and own.thac0==13 and own.damage==3.5 and own.damageType==2 and own.flags==0)
+g10.ticks=100
+assert(g10.BGSE_Claim(fighter,'mage','s1')==true)
+local c10=last10('choice')
+assert(c10.castKind=='weapon' and c10.how=='weapon' and c10.spell=='TESTSTAF' and c10.target==11)
+-- The director's focus is that enemy: its worth counts half again.
+assert(c10.focus==11 and math.abs(c10.worth-1.5*0.65*3.5/40)<1e-9)
+g10.BGSE_Act(fighter)
+assert(g10.queued[#g10.queued].text=='SetGlobalTimer("castspell","LOCALS",ONE_ROUND)\nAttackOneRound(EEex_Target("BGSE"))')
+assert(fighter.aux.EEex_Target.BGSE==11 and last10('swing').weapon==true and ch10:inspect().counts.attacks==1)
+-- Held while it attacks.
+fighter.m_curAction=action(105,'',11);fighter.locals.castspell=190
+g10.ticks=130
+assert(g10.BGSE_Claim(fighter,'mage','s1')==true and ch10:inspect().counts.holds==1)
+-- The attack and SCS's timer are over; the enemy lost 4 hit points. It attacks again.
+fighter.m_curAction={m_actionID=0};fighter.locals.castspell=0
+foe.m_baseStats.m_hitPoints=36
+g10.ticks=200
+assert(g10.BGSE_Claim(fighter,'mage','s1')==true)
+assert(last10('attack').hit==true and last10('attack').lost==4 and ch10:inspect().counts.attackHits==1)
+assert(last10('choice').castKind=='weapon')
+g10.BGSE_Act(fighter)
+-- The enemy dies while SCS's timer still runs: the mage is released and the attack recorded.
+fighter.m_curAction={m_actionID=0};fighter.locals.castspell=400
+foe.m_baseStats.m_hitPoints=0;foe.state=0x800
+g10.ticks=260
+assert(g10.BGSE_Claim(fighter,'mage','s1')==false)
+assert(last10('attack').hit==true and last10('attack').lost==36 and ch10:inspect().counts.attackHits==2)
+-- A mage with the meteors ready, a staff in hand, and an enemy 300 away.
+local thrower=g10.add(armed(sprite(2,0,600,255),35,'TESTSTAF'))
+thrower.stats[8],thrower.stats[7],thrower.stats[2]=1,14,8
+learn(thrower,2,'TESTMMM')
+g10.add(sprite(12,300,600,2)).stats[2]=5
+g10.ticks=300
+assert(g10.BGSE_Claim(thrower,'mage','s1')==true)
+c10=last10('choice',2)
+assert(c10.castKind=='arm' and c10.spell=='TESTMMM' and c10.mode=='self' and c10.target==12)
+g10.BGSE_Act(thrower)
+assert(g10.queued[#g10.queued].text:find('SpellRES%("TESTMMM",Myself%)')~=nil and ch10:inspect().counts.arms==1)
+g10.listeners.started[1](thrower,action(31,'TESTMMM',2))
+thrower.m_curAction=action(31,'TESTMMM',2);thrower.locals.castspell=390;thrower.book[2][1].m_flags=0
+-- The meteors are in its hand: it throws them, five a round, at the enemy.
+g10.ticks=400;thrower.locals.castspell=0;thrower.m_curAction={m_actionID=0}
+thrower.items[34]={cResRef=str('TESTMET')};thrower.m_equipment.m_selectedWeapon=34;thrower.stats[8]=5
+assert(g10.BGSE_Claim(thrower,'mage','s1')==true)
+c10=last10('choice',2)
+assert(c10.castKind=='weapon' and c10.spell=='TESTMET' and c10.target==12)
+-- Five throws at THAC0 12 (14 less the meteors' 2) against armour class 5 hit 3.5 times; each
+-- deals 2.5 and 2.5 fire, 17.5 of 40 hit points.
+assert(math.abs(c10.worth-(c10.focus==12 and 1.5 or 1)*17.5/40)<1e-9)
+-- A sling without bullets is no weapon: with nothing else, the round goes to SCS.
+local slinger=g10.add(armed(sprite(3,0,1200,255),35,'TESTSLNG'))
+g10.add(sprite(13,60,1200,2))
+g10.ticks=500
+assert(g10.BGSE_Claim(slinger,'mage','s1')==false and last10('choice',3)==nil)
+groups=groups+1
+
 return groups

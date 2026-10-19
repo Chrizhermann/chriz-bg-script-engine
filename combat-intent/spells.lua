@@ -534,7 +534,8 @@ end
 -- A weapon the spell puts in the caster's hand (opcode 111), by the created item's first
 -- ability: how it attacks, how many hits it lasts and what a hit delivers (strike: that ability
 -- classified at the caster's level), with the item's flags and enchantment for weapon
--- immunities. It lasts one hit when the hit takes the item away (opcode
+-- immunities and the attacks a round the item sets or adds while equipped (opcode 1: SR's Melf's
+-- Minute Meteors set 5). It lasts one hit when the hit takes the item away (opcode
 -- 112: a touch charge), its charges times the items made when a spent charge makes it vanish,
 -- else as long as the item lasts (uses nil).
 local ATTACKS={[1]='melee',[2]='ranged',[3]='magical',[4]='launcher'}
@@ -551,11 +552,17 @@ local function weapon(c,state,e,p)
     local ability=type(item)=='table' and type(item.abilities)=='table' and item.abilities[1]
     if type(ability)~='table' then return state.miss(c,'ITM',e.res) end
     local n=uses(ability,e.p1)
+    local aprSet,aprAdd
+    for _,x in ipairs(type(item.equipping)=='table' and item.equipping or {}) do
+        if type(x)=='table' and x.opcode==1 and number(x.p1) then
+            if x.p2==1 then aprSet=x.p1 elseif x.p2==0 then aprAdd=(aprAdd or 0)+x.p1 end
+        end
+    end
     c.weapons=c.weapons or {}
     c.weapons[#c.weapons+1]={item=type(item.resref)=='string' and item.resref or e.res,
         attack=ATTACKS[ability.attackType] or 'none',range=ability.range,speed=ability.speed,
         toHit=ability.thac0,dice=ability.dice,sides=ability.sides,bonus=ability.damageBonus,
-        damageType=ability.damageType,flags=item.flags,enchantment=item.enchantment,
+        damageType=ability.damageType,flags=item.flags,enchantment=item.enchantment,aprSet=aprSet,aprAdd=aprAdd,
         uses=n,touch=(ability.attackType==1 and n==1) or nil,
         seconds=seconds(e),chance=p,strike=M.classify(item,1,state.lookup,{level=state.level,weapons=false})}
 end

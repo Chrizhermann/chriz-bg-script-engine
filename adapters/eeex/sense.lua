@@ -157,43 +157,58 @@ local function itemAt(equipment,slot,reader)
     local item=equipment.m_items:get(slot)
     if item==nil then return nil end
     local resref=name(item.cResRef)
-    return resref~='' and reader.get('ITM',resref) or nil
+    if resref=='' then return nil end
+    return reader.get('ITM',resref),resref
 end
 local function magical(g,record)
     return number(record.enchantment)>0 or band(g,number(record.flags),0x40)~=0
 end
 -- A creature's weapon as plain values (combat-intent/threat.lua's attack data): attacks a round
--- with half attacks decoded, THAC0 with its bonuses, the average damage of a hit, whether it
--- shoots and how far, and whether the weapon is magical (for Protection from Magical Weapons).
--- A launcher hits with the ammunition in the first filled quiver slot. Without a readable
--- weapon, damage and magic stay unknown.
+-- with half attacks decoded, THAC0 with its bonuses and the weapon's own, the average damage of a
+-- hit, whether it shoots and how far, and whether the weapon is magical (for Protection from
+-- Magical Weapons). A launcher hits with the ammunition in the first filled quiver slot; their
+-- to-hit bonuses add up, the ammunition's damage type counts, and the higher enchantment. For the
+-- caster's own weapon attack (combat-intent/weapons.lua) also the item and its ability (1 for
+-- the first), the ammunition, the damage type and the hitting item's flags and enchantment.
+-- Without a readable weapon, damage and magic stay unknown.
 function M.attack(g,sprite,reader)
     local apr=stat(g,sprite,M.combat.apr)
     if apr>5 and apr<=10 then apr=apr-5.5 end
     local out={apr=apr>0 and apr or nil,
         thac0=stat(g,sprite,M.combat.thac0)-stat(g,sprite,M.combat.thac0Right)-stat(g,sprite,M.combat.hitBonus)}
     local equipment=sprite.m_equipment
-    local record=itemAt(equipment,equipment and equipment.m_selectedWeapon,reader)
+    local record,resref=itemAt(equipment,equipment and equipment.m_selectedWeapon,reader)
     local abilities=record and type(record.abilities)=='table' and record.abilities or {}
-    local ability=abilities[number(equipment and equipment.m_selectedWeaponAbility)+1] or abilities[1]
+    local index=number(equipment and equipment.m_selectedWeaponAbility)+1
+    if type(abilities[index])~='table' then index=1 end
+    local ability=abilities[index]
     if type(ability)~='table' then return out end
     local damage=average(ability.dice,ability.sides)+number(ability.damageBonus)
     local magic=magical(g,record)
+    local toHit=number(ability.thac0)
+    out.item,out.ability,out.damageType=resref,index,ability.damageType
+    out.flags,out.enchantment=number(record.flags),number(record.enchantment)
     if ability.attackType==4 then
-        out.ranged=true
+        out.ranged,out.launcher=true,true
         for _,slot in ipairs(M.quiver) do
-            local ammo=itemAt(equipment,slot,reader)
+            local ammo,ammoRef=itemAt(equipment,slot,reader)
             local hit=ammo and type(ammo.abilities)=='table' and ammo.abilities[1]
             if type(hit)=='table' then
                 damage=damage+average(hit.dice,hit.sides)+number(hit.damageBonus)
+                toHit=toHit+number(hit.thac0)
                 magic=magic or magical(g,ammo)
+                out.ammo,out.damageType=ammoRef,hit.damageType
+                out.flags,out.enchantment=number(ammo.flags),math.max(out.enchantment,number(ammo.enchantment))
                 break
             end
         end
     elseif ability.attackType==2 then out.ranged=true end
     if out.ranged and number(ability.range)>0 then out.range=ability.range*targeting.rangeUnit end
+    out.thac0=out.thac0-toHit
     out.damage=math.max(0,damage+stat(g,sprite,M.combat.damageBonus)+stat(g,sprite,M.combat.damageRight))
     out.magical=magic
+    -- Plain ammunition from a magical launcher hits as magical.
+    if magic and band(g,out.flags,0x40)==0 and out.enchantment<=0 then out.flags=out.flags+0x40 end
     return out
 end
 

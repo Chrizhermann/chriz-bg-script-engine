@@ -23,10 +23,18 @@
 -- standing next to that enemy costs. A charge in hand is struck first, again until it lands.
 -- Neither in the caster's own Time Stop nor under Improved Alacrity, as SCS keeps weapons out of
 -- both.
+--
+-- Weapon attacks (D2c, combat-intent/weapons.lua; Christopher, 2026-10-20): the weapon in the
+-- caster's hand, conjured or not, is worth a round of its hits on the enemy it attacks, less what
+-- standing next to that enemy costs for melee. It spends nothing, so it needs no minimum worth:
+-- when no spell reaches minValue, the engine attacks instead of leaving the round to SCS. A spell
+-- that conjures a weapon is worth the hits the weapon deals in the rounds after, as many as it
+-- lasts within the horizon. Neither in the caster's own Time Stop nor under Improved Alacrity.
 local targeting=require('combat-intent.targeting')
 local defence=require('combat-intent.defence')
 local openers=require('combat-intent.openers')
 local touch=require('combat-intent.touch')
+local weapons=require('combat-intent.weapons')
 local ids=require('combat-intent.ids')
 local spells=require('combat-intent.spells')
 local M={}
@@ -359,6 +367,75 @@ local function touchOptions(input,row,spell,w,out,reject)
     end
 end
 
+-- The worth of hits of weapon arms on e (hits: those expected, over one round or more), and the
+-- hit points e is expected to take. A hit deals the weapon's own damage, which neither magic
+-- resistance nor a save lessens, and what it casts or applies, which both do; no spell
+-- protection stops the weapon, one against what its hit casts stops that part. The hits kill
+-- when those expected reach those needed, as likely as the last one lands (two swings that each
+-- hit four times in five, needing both: 0.6). The hit's disable counts as likelier the more hits
+-- land.
+local function hitsOn(input,arms,hits,e)
+    local hp,maxHp=e.hp,e.maxHp
+    if not number(hits) or hits<=0 or not number(hp) or not number(maxHp) or maxHp<=0 or hp<=0 then return 0,0 end
+    local per=number(arms.damage) and arms.damage>0 and arms.damage*resisted(e,weapons.DAMAGE[arms.damageType] or '') or 0
+    local roles=type(arms.strike)=='table' and spells.view(arms.strike,targeting.holds(e)) or nil
+    if type(roles)~='table' or targeting.protected(e,arms.strike) then roles=nil end
+    if roles and reaches(roles.damage) then
+        local role=roles.damage
+        local each=0
+        for label,v in pairs(type(role.types)=='table' and role.types or {}) do
+            if number(v) then each=each+v*resisted(e,label) end
+        end
+        local save=M.saveChance(role,e)
+        per=per+each*notResisted(e)*(role.saveForHalf and 1-save/2 or 1-save)
+    end
+    local worth,expected=0,0
+    if per>0 then
+        expected=math.min(hits*per,hp)
+        worth=expected/maxHp+input.mind.killBonus*clamp(hits-math.ceil(hp/per)+1,0,1)
+        local plan=input.plan
+        if type(plan)=='table' and plan.focus==e.id then worth=worth*(1+input.mind.focusBonus*input.mind.coordination) end
+    end
+    if roles and reaches(roles.disable) then
+        worth=worth+disableOn(input,{resref=arms.item or ''},roles.disable,e)*math.min(1,hits)
+    end
+    return worth,expected
+end
+
+-- Options of one ready spell that conjures a weapon (arms, combat-intent/weapons.lua): cast on
+-- the caster, worth the hits the weapon deals in the rounds after, as many as it lasts within
+-- the horizon, at the enemy in its reach where they are worth most. Cost: the spell's level, and
+-- for a melee weapon the hit points lost standing next to that enemy those rounds, times caution.
+local function armOptions(input,row,spell,arms,out,reject)
+    local frame=input.frame
+    local caster=frame.self
+    local mind=input.mind
+    local horizon=(number(mind.horizon) and mind.horizon or 18)/6
+    local rounds=math.min(number(arms.rounds) and arms.rounds or horizon,horizon)
+    if rounds<=0 then reject('no-worth');return end
+    local best,target,expected=0,nil,0
+    for _,e in ipairs(frame.enemies) do
+        local ok,why=weapons.reachable(caster,e,mind,arms)
+        if ok and weapons.immuneTo(e,arms) then ok,why=false,'weapon-immunity' end
+        if ok then
+            local worth,hp=hitsOn(input,arms,weapons.hits(arms.apr,arms.thac0,e)*rounds,e)
+            if worth>best or (worth==best and worth>0 and e.id<target) then best,target,expected=worth,e.id,hp end
+        else reject(why) end
+    end
+    if not target then reject('no-worth');return end
+    local level=number(row.level) and row.level or number(spell.level) and spell.level or 1
+    local cost=mind.economy*M.costPerLevel*level
+    local maxHp=number(caster.maxHp) and caster.maxHp>0 and caster.maxHp or nil
+    if not arms.ranged and maxHp then
+        for _,e in ipairs(frame.enemies) do
+            if e.id==target then cost=cost+mind.caution*weapons.exposure(frame,e)*rounds/maxHp end
+        end
+    end
+    out[#out+1]={resref=row.resref,kind='arm',mode='self',self=true,target=target,worth=best,cost=cost,
+        score=best-cost,hits={target},slack=0,expected={[target]=expected},
+        speed=number(spell.speed) and spell.speed or 0,item=arms.item}
+end
+
 -- The strike of the touch charge the caster holds (frame.self.charge, a weapon entry): at the
 -- enemy in reach where the hit is worth most times its chance to land, or nil. No minimum: the
 -- charge is spent already.
@@ -456,6 +533,10 @@ function M.options(input,rejected)
             if w and not weaponsOut(input) and type(input.frame.self.charge)~='table' then
                 touchOptions(input,row,spell,w,out,reject)
             end
+            local arms=not kind and not w and input.mind.weapons and weapons.conjured(spell,input.frame.self)
+            if arms and not weaponsOut(input) and not input.frame.self.magicItem then
+                armOptions(input,row,spell,arms,out,reject)
+            end
             if kind then
                 local seen,same={},{}
                 local list=aims(input,spell,mode)
@@ -478,6 +559,38 @@ function M.options(input,rejected)
                 end
             end
         end
+    end
+    table.sort(out,better)
+    return out
+end
+
+-- Attacks with the weapon in the caster's hand (frame.self.weapon, arms): at each enemy it
+-- reaches and can hurt, best first. Worth: a round of its hits; cost: for melee, the hit points
+-- the caster loses to the weapons around the target that round, times caution. Not while the
+-- caster holds a touch charge (the strike decides where that goes), in its own Time Stop or
+-- under Improved Alacrity.
+function M.weaponOptions(input,rejected)
+    local out={}
+    local function reject(why) if rejected then rejected[why]=(rejected[why] or 0)+1 end end
+    local frame=input.frame
+    local caster=frame.self
+    local arms=caster.weapon
+    if type(arms)~='table' or not number(arms.damage) or type(caster.charge)=='table' or weaponsOut(input) then return out end
+    local mind=input.mind
+    local maxHp=number(caster.maxHp) and caster.maxHp>0 and caster.maxHp or nil
+    for _,e in ipairs(frame.enemies) do
+        local ok,why=weapons.reachable(caster,e,mind,arms)
+        if ok and weapons.immuneTo(e,arms) then ok,why=false,'weapon-immunity' end
+        if ok then
+            local hits=weapons.hits(arms.apr,arms.thac0,e)
+            local worth,expected=hitsOn(input,arms,hits,e)
+            if worth>0 then
+                local cost=0
+                if not arms.ranged and maxHp then cost=mind.caution*weapons.exposure(frame,e)/maxHp end
+                out[#out+1]={resref=arms.item or 'WEAPON',kind='weapon',mode='creature',target=e.id,worth=worth,
+                    cost=cost,score=worth-cost,hits={e.id},slack=0,expected={[e.id]=expected},speed=0}
+            else reject(hits<=0 and 'absorbed' or 'no-worth') end
+        else reject(why) end
     end
     table.sort(out,better)
     return out
@@ -576,7 +689,21 @@ function M.decide(input)
     local options=M.options(input,rejected)
     for _,o in ipairs(defence.options(input,rejected)) do options[#options+1]=o end
     table.sort(options,better)
-    if #options==0 then return nil,'no-option',options,rejected end
+    -- A weapon attack spends nothing: it needs no minimum worth, and it is taken over a spell
+    -- only when it is worth more.
+    local swings=mind.weapons and M.weaponOptions(input,rejected) or {}
+    local swing=swings[1]
+    local function all()
+        local list={}
+        for _,o in ipairs(options) do list[#list+1]=o end
+        for _,o in ipairs(swings) do list[#list+1]=o end
+        table.sort(list,better)
+        return list
+    end
+    if #options==0 then
+        if swing and swing.score>0 then return swing,'weapon',all() end
+        return nil,'no-option',options,rejected
+    end
     -- Under Improved Alacrity a slow spell waits while a quick one reaches the minimum worth
     -- (SCS's slow spells and its compromise).
     if input.frame.self.alacrity==true and number(mind.slowSpeed) then
@@ -585,7 +712,11 @@ function M.decide(input)
         if quick[1] and quick[1].score>=mind.minValue then options=quick end
     end
     local best=options[1]
-    if best.score<mind.minValue then return nil,'nothing-good',options end
+    if best.score<mind.minValue then
+        if swing and swing.score>0 then return swing,'weapon',all() end
+        return nil,'nothing-good',options
+    end
+    if swing and swing.score>best.score then return swing,'weapon',all() end
     local rng=input.rng
     if not rng or rng:nextInt(1,1000)<=math.floor(mind.best*1000+0.5) then return best,'best',options end
     local floor=math.max(mind.minValue,best.score-math.abs(best.score)*mind.band)
