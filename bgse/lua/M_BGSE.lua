@@ -901,6 +901,33 @@ local function inherited(e,from)
     return x
 end
 
+-- A weapon the spell puts in the caster's hand (opcode 111), by the created item's first
+-- ability: how it attacks, how many hits it lasts and what a hit delivers (strike: that ability
+-- classified at the caster's level). It lasts one hit when the hit takes the item away (opcode
+-- 112: a touch charge), its charges times the items made when a spent charge makes it vanish,
+-- else as long as the item lasts (uses nil).
+local ATTACKS={[1]='melee',[2]='ranged',[3]='magical',[4]='launcher'}
+local function uses(ability,count)
+    for _,x in ipairs(type(ability.effects)=='table' and ability.effects or {}) do
+        if type(x)=='table' and x.opcode==112 then return 1 end
+    end
+    if number(ability.charges) and ability.charges>0 and ability.depletion==1 then
+        return math.max(number(count) and count or 1,1)*ability.charges
+    end
+end
+local function weapon(c,state,e,p)
+    local item=state.lookup('ITM',e.res)
+    local ability=type(item)=='table' and type(item.abilities)=='table' and item.abilities[1]
+    if type(ability)~='table' then return state.miss(c,'ITM',e.res) end
+    local n=uses(ability,e.p1)
+    c.weapons=c.weapons or {}
+    c.weapons[#c.weapons+1]={item=type(item.resref)=='string' and item.resref or e.res,
+        attack=ATTACKS[ability.attackType] or 'none',range=ability.range,speed=ability.speed,
+        toHit=ability.thac0,dice=ability.dice,sides=ability.sides,bonus=ability.damageBonus,
+        damageType=ability.damageType,uses=n,touch=(ability.attackType==1 and n==1) or nil,
+        seconds=seconds(e),chance=p,strike=M.classify(item,1,state.lookup,{level=state.level,weapons=false})}
+end
+
 local walk
 local function send(c,state,e,where,depth,p)
     local op=e.opcode
@@ -995,9 +1022,10 @@ walk=function(c,state,effects,where,depth,p,key,owner)
     end
     local outer,parent=c.owner,c.node
     c.owner=owner
-    -- Each record walked is a node; a conditional protection from it cuts what follows inside.
+    -- Each spell or item walked is a node; a conditional protection from it cuts what follows
+    -- inside.
     if key then
-        c.nodes[#c.nodes+1]={res=key:match('^SPL:(.+)$'),parent=parent}
+        c.nodes[#c.nodes+1]={res=key:match('^SPL:(.+)$') or key:match('^ITM:(.+)$'),parent=parent}
         c.node=#c.nodes
     end
     if type(effects)=='table' then
@@ -1029,6 +1057,7 @@ walk=function(c,state,effects,where,depth,p,key,owner)
                         c.log[#c.log+1]=cut
                     elseif H[e.opcode] then
                         H[e.opcode](c,e,who,q)
+                        if e.opcode==111 and who=='self' and state.weapons then weapon(c,state,e,q) end
                         -- The log replays what reaches others for one creature (M.view).
                         if who~='self' then
                             local when=c.when
@@ -1050,7 +1079,8 @@ local OFFENSIVE={damage=true,disable=true,debuff=true,removal=true}
 local HARMS_ALLIES={everyone=true,nonparty=true,casterGroup=true}
 
 -- Classify ability `index` (1-based) of a SPL or ITM record. options.level is the caster level
--- used for spells cast through other spells. c.sources names the record and every spell and EFF
+-- used for spells cast through other spells; options.weapons=false leaves created weapons
+-- unread (a strike is read without them). c.sources names the record and every spell and EFF
 -- file it delivers through: an effect it lands carries one of them as its source.
 function M.classify(record,index,lookup,options)
     options=options or {}
@@ -1072,7 +1102,7 @@ function M.classify(record,index,lookup,options)
             if lookup==nil then return nil end
             local ok,value=pcall(lookup,kind,key)
             if ok and type(value)=='table' then return value end
-        end,path={},count=0,level=options.level or 1}
+        end,path={},count=0,level=options.level or 1,weapons=options.weapons~=false}
     function state.miss(cl,kind,res) cl.partial=true;cl.reasons['missing:'..kind..':'..tostring(res)]=true end
     -- Projectiles 0 and 1 are none. Others without a PRO file are built into the engine (in
     -- MISSILE.IDS, not PROJECTL.IDS), so their shape is unknown here.
@@ -1151,14 +1181,17 @@ end
 local function never() return false end
 -- The roles for a creature that meets none of the spell's conditions.
 function M.common(c) return (M.view(c,never)) end
--- The SPLPROT rows among the spell's conditions, added to rows by key: what the adapter asks
--- the engine about each enemy.
+-- The SPLPROT rows among the spell's conditions and those of its weapons' strikes, added to
+-- rows by key: what the adapter asks the engine about each enemy.
 function M.rows(c,rows)
     rows=rows or {}
     if type(c)=='table' and type(c.conditions)=='table' then
         for _,f in ipairs(c.conditions) do
             if type(f)=='table' and f.row~=nil then rows[M.conditionKey(f)]=f end
         end
+    end
+    if type(c)=='table' and type(c.weapons)=='table' then
+        for _,w in ipairs(c.weapons) do M.rows(w.strike,rows) end
     end
     return rows
 end

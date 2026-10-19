@@ -466,4 +466,57 @@ c=classify(fireball,world({['PRO:99']=pro({radius=480})}))
 assert(c.roles.damage.filters.all)
 groups=groups+1
 
+-- Weapons a spell puts in the caster's hand (opcode 111, D2c), read from the created item's
+-- first ability. A hand like Spell Revisions' Harm: its one hit (the hand takes itself away with
+-- opcode 112) casts 90 magic damage that leaves at least 1 hit point, unless the target's race
+-- makes it immune (opcode 324, SPLPROT row 104).
+local function weaponAbility(fields)
+    local a={attackType=1,idRequired=0,location=1,target=1,targetCount=0,range=1,launcher=0,speed=0,
+        thac0=0,sides=0,school=0,dice=0,secondary=0,damageBonus=0,damageType=2,charges=0,depletion=0,
+        flags=0,projectile=1,isArrow=0,isBolt=0,isBullet=0,effects={}}
+    for k,v in pairs(fields) do a[k]=v end
+    return a
+end
+local harmHit=spl('TESTHRMD',{ability({fx(208,{p1=1,duration=1}),fx(12,{p1=90,p2=64*65536,timing=1})},
+    {range=1,speed=0})})
+local hand=itm('TESTHRM',28,{weaponAbility({thac0=4,charges=1,depletion=1,effects={
+    fx(324,{p1=156,p2=104,res='TESTHRM'}),fx(146,{res='TESTHRMD'}),fx(112,{target=1,res='TESTHRM',timing=1})}})})
+local harm=spl('TESTHARM',{ability({fx(111,{target=1,p1=1,res='TESTHRM',duration=60})},{target=5,range=1,speed=6})})
+local harmWorld=world({['ITM:TESTHRM']=hand,['SPL:TESTHRMD']=harmHit})
+c=classify(harm,harmWorld,{level=12})
+local w=c.weapons[1]
+assert(#c.weapons==1 and w.item=='TESTHRM' and w.attack=='melee' and w.uses==1 and w.touch==true)
+assert(w.toHit==4 and w.seconds==60 and w.range==1 and not c.partial)
+assert(c.roles.buff.kinds.weapon and c.roles.damage==nil)
+assert(w.strike.roles.damage.who.target and w.strike.roles.damage.types.magic==90 and not w.strike.partial)
+assert(w.strike.conditions and w.strike.conditions[1].row==104 and w.strike.conditions[1].value==156)
+-- The race that is immune keeps nothing of the hit; others take it.
+local immune=spells.view(w.strike,function() return true end)
+assert(immune.damage==nil)
+assert(spells.view(w.strike,function() return false end).damage.types.magic==90)
+-- The adapter asks about the strike's rows too.
+local rows=spells.rows(c)
+assert(rows[spells.conditionKey(w.strike.conditions[1])])
+-- Melf's Minute Meteors as Spell Revisions makes them: five at level 5, each thrown once (one
+-- charge that vanishes), 2d4 fire. Not a touch: they last five hits.
+local meteor=itm('TESTMET',24,{weaponAbility({attackType=2,range=30,thac0=5,charges=1,depletion=1,
+    effects={fx(12,{dice=2,sides=4,p2=8*65536,timing=1})}})})
+c=classify(spl('TESTMMM',{ability({fx(111,{target=1,p1=5,res='TESTMET',duration=50})},{target=5,range=1})}),
+    world({['ITM:TESTMET']=meteor}),{level=5})
+w=c.weapons[1]
+assert(w.attack=='ranged' and w.uses==5 and w.touch==nil and w.range==30 and w.seconds==50)
+assert(w.strike.roles.damage.types.fire==5)
+-- A blade with no charges lasts as long as the item (uses nil); an item that cannot be read
+-- leaves the spell partial and no weapon.
+local blade=itm('TESTBLD',20,{weaponAbility({dice=1,sides=8,effects={fx(12,{dice=1,sides=6,p2=8*65536,timing=1})}})})
+c=classify(spl('TESTBLAD',{ability({fx(111,{target=1,p1=1,res='TESTBLD',duration=240})},{target=5})}),
+    world({['ITM:TESTBLD']=blade}))
+assert(c.weapons[1].uses==nil and c.weapons[1].touch==nil and c.weapons[1].dice==1 and c.weapons[1].sides==8)
+c=classify(spl('TESTLOST',{ability({fx(111,{target=1,p1=1,res='TESTNONE',duration=60})},{target=5})}),world({}))
+assert(c.weapons==nil and c.partial and c.reasons['missing:ITM:TESTNONE'])
+-- Read without weapons (options.weapons=false), as a strike is.
+c=classify(harm,harmWorld,{weapons=false})
+assert(c.weapons==nil and c.roles.buff.kinds.weapon)
+groups=groups+1
+
 return groups
