@@ -333,6 +333,12 @@ otherwise disabled.)
   them nor gains anything by casting them as defences. Reading them needs the created item's
   abilities (opcode 111) and the on-hit effects (248, 249), and a plan to cast and then strike,
   as SCS does with Harm.
+- **Menu spells** (opcode 214): Protection from Elemental Energy, Polymorph Self, Shapechange and
+  Nahal's Reckless Dweomer let the caster pick a sub-spell (learned.md, section 9). The engine
+  leaves them out, as SCS's scripts do. Creatures mostly carry the elemental protections as the
+  sub-spells themselves, which the engine reads fully. Using the others needs a lab probe of
+  what opcode 214 does for a creature no player controls, and Christopher's choice of which
+  sub-spell to pick.
 - **Whom a fighter attacks.** The party fighters' AttackReevaluate names no target, so the threat
   picture guesses the nearest friend an enemy can reach. Decoding the action's object, as the
   director does for casts at a kind of creature (DIRECTOR-01), would name it.
