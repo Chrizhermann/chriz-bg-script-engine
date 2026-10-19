@@ -357,6 +357,42 @@ otherwise disabled.)
   Whether it should act on its best option instead is a question for Christopher; batch G2
   measures a minimum worth of 0.05.
 
+**Batch G2, 15 fights: D2a in the hard lab** (2026-10-20). G1's lab with the magic resistance
+set once (mode 1, 50 for all), the high group only, four modes:
+
+- SCS alone;
+- `own`: the engine with D1's defences and D2a's openers;
+- `base`: D1's defences without openers;
+- `low`: with openers and a minimum worth of 0.05.
+
+The run was stopped in its sixteenth fight, the fourth `low` one, because Christopher's own game
+started (no lab while he plays). G2's four trigger probes did not run.
+
+| Mode | Won | Length | Group hp lost | Group dead | Foes dead | Engine claims | Time Stops |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| SCS | 4 of 4 | 85 s | 60 | 0 | 5 of 5 | – | 11, SCS's |
+| own | 4 of 4 | 103 s | 24 | 0 | 5 of 5 | 96 in 4 fights | 16, the engine's |
+| base | 4 of 4 | 43 s | 112 | 0 | 5 of 5 | 59 in 4 fights | 1, SCS's |
+| low | 3 of 3 | 91 s | 77 | 0 | 5 of 5 | 68 in 3 fights | 10, the engine's |
+
+(Means per fight; length in game time.)
+
+- **D2a works in game.** In its four fights the engine cast Time Stop 16 times (each mage twice a
+  fight) and Improved Alacrity 4 times; in its own stops it cast 46 damage spells and 19
+  disables. No errors, no failed reads.
+- **With its openers the group lost the fewest hit points** (24 a fight against SCS's 60), but the
+  fights ran longest: each Time Stop freezes everyone else for 18 seconds of game time.
+- **Without openers** the engine took the mages' rounds for damage, so SCS seldom reached its
+  Time Stop. The fights ended twice as fast as SCS's and the group lost the most.
+- The engine claimed 59 to 96 rounds in a mode's fights, against 2 to 6 in G1, whose build had
+  neither D2a nor the magic resistance set once. Of the rounds it declined, 139 to 309 per mode
+  came while SCS's round timer ran and 16 to 77 because nothing was good enough. Most declines
+  (364 to 776 per mode) were the party fighters, whose family the choice does not handle.
+- A minimum worth of 0.05 left fewer rounds for lack of worth (16 in three fights against 77 in
+  four) and made no clear difference otherwise.
+- The high group won every fight in every mode. The hard lab does not press it enough to tell
+  the modes apart by wins; hit points lost and length do.
+
 ### D2: what SCS does
 
 Christopher's choice of 2026-10-19: D2 like SCS first, with a hard lab; touch spells and
@@ -407,10 +443,20 @@ SCS v35.21.
   MAGE18C's release two Melf's Acid Arrows; Minor Spell Deflection, Minor Globe of
   Invulnerability and Improved Invisibility; Stoneskin, Spell Deflection and Protection from
   Magical Weapons.
-- Offensive ones go through `SequencerManual`: the trigger's remover (`<name>B`) is cast, then
-  each spell on its own with `ReallyForceSpell`. "Use SequencerManual for anything with a saving
-  throw" (`caster_definitions.ssl`, line 1209).
-- Not during Alacrity; manual ones not in any Time Stop.
+- The innate (level 0, casting time 0, aimed at a creature) casts each of its spells at once at
+  its target (opcode 146, type 1), then removes itself (172) and returns after 1440 seconds
+  (171, delayed).
+- SCS releases them in four ways (`caster_definitions.ssl`, lines 1211-1366), each after its
+  round timer, none under Improved Alacrity, none at a target that cannot be targeted or carries
+  `DO_NOT_TARGET_SPELLS`:
+  - `Sequencer`: `ForceSpellRES(<innate>, target)`;
+  - `SequencerMyself`, for the defensive ones: `ForceSpellRES(<innate>, Myself)`;
+  - `SequencerManual`, "for anything with a saving throw" (line 1209):
+    `ReallyForceSpellRES(<innate>B, target)` removes the innate and, for one second, makes the
+    caster immune to silence, spell failure and deafness (opcodes 38, 60, 80) and casts 10 faster;
+    then each spell with `ReallyForceSpell(target, spell)`, `SmallWait(1)` between. Only while the
+    caster is not disabled and no Time Stop runs (`FIN_TIME_STOP_RUNNING`);
+  - `SequencerMarker`: `ApplySpellRES(<marker>, target)`, then `ForceSpellRES(<innate>, target)`.
 - SCS writes a wrong range into its triggers: `resolve_trigger_spells` reads the ability's effect
   count (offset 0x1E) as its range (offset 0x0E) (`caster_shared.tph`, line 1015). The lab's
   triggers read ranges of 1 to 9.
