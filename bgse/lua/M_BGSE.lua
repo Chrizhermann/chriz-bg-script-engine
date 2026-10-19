@@ -3994,8 +3994,10 @@ M.itemFirst,M.itemLast=15,33
 M.CASTS={[31]=true,[95]=true}
 M.required={'EEex_GameObject_Get','EEex_GameObject_IsSprite','EEex_Sprite_GetCastTimer',
     'EEex_Sprite_GetLocalInt','EEex_GetUDAux','EEex_Sprite_GetState','EEex_Sprite_GetStat'}
--- STATS.IDS: WIZARD_IMPROVED_ALACRITY (what SCS tests) and AURACLEANSING (opcode 188).
-M.alacrityStats={165,76}
+-- STATS.IDS: WIZARD_IMPROVED_ALACRITY, what SCS tests. Improved Alacrity (SPWI921, with and
+-- without Spell Revisions, and SCS's DW#QALAC) sets it with opcode 282 p2=9. AURACLEANSING is
+-- not used: an item could hold it for good.
+M.alacrityStat=165
 -- The game's Time Stop count falls by two a tick (learned.md, section 1): seconds = count/30.
 M.stopCount=30
 -- Casts remembered per caster in its own Time Stop.
@@ -4313,9 +4315,7 @@ function M.new(g,options)
             end
         end
         counts.decisions=counts.decisions+1
-        for _,n in ipairs(M.alacrityStats) do
-            if g.EEex_Sprite_GetStat(sprite,n)>0 then frame.self.alacrity=true end
-        end
+        if g.EEex_Sprite_GetStat(sprite,M.alacrityStat)>0 then frame.self.alacrity=true end
         local holder,left=timeStop()
         local input={tick=tick,family=family,frame=frame,spells=rows,items=carried,lastDefence=lastDefence[id],
             plan=director and director:plan(id,tick) or {},memory=memory[id] or {},mind=mindFor(sprite,family),rng=rng}

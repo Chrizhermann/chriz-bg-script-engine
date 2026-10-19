@@ -644,10 +644,12 @@ c8=turn8(400,'TESTHOLD')
 assert(c8.target==12)
 game8.m_nTimeStop,game8.m_nTimeStopCaster=0,-1
 caster.stats[165]=0
+-- Aura cleansing that an item could hold (AURACLEANSING) is not Improved Alacrity.
+caster.stats[76]=1
 -- Both openers are spent (with one left, the next Time Stop would follow, as SCS's do).
 for _,known in ipairs(caster.book[8]) do known.m_flags=0 end
 c8=turn8(500,'TESTHOLD')
-assert(c8.target==11 and c8.stop==nil)
+assert(c8.target==11 and c8.stop==nil and c8.alacrity==nil)
 assert(ch8:inspect().counts.openers==2)
 groups=groups+1
 
