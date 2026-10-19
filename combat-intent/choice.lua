@@ -17,9 +17,16 @@
 -- caster's own Time Stop its enemies stand frozen, and what it casts lands when time resumes:
 -- the enemies it has disabled in the stop count as disabled, the damage it dealt them as dealt.
 -- Under Improved Alacrity slow spells wait while a quick one is good enough, as SCS's do.
+--
+-- Touch charges (D2c, combat-intent/touch.lua): a touch spell is cast on the caster and aimed at
+-- the enemy it will strike, worth what its hit does there times the chance to hit, less what
+-- standing next to that enemy costs. A charge in hand is struck first, again until it lands.
+-- Neither in the caster's own Time Stop nor under Improved Alacrity, as SCS keeps weapons out of
+-- both.
 local targeting=require('combat-intent.targeting')
 local defence=require('combat-intent.defence')
 local openers=require('combat-intent.openers')
+local touch=require('combat-intent.touch')
 local ids=require('combat-intent.ids')
 local spells=require('combat-intent.spells')
 local M={}
@@ -143,10 +150,13 @@ local function remembered(input,resref,e,role)
     return 0.5^misses
 end
 
--- The worth of a damage role on e, and the hit points it is expected to take.
-local function damageOn(input,row,role,e)
+-- The worth of a damage role on e, and the hit points it is expected to take. With spare, e
+-- keeps at least one hit point (Harm cannot kill).
+local function damageOn(input,row,role,e,spare)
     local hp,maxHp=e.hp,e.maxHp
     if not number(hp) or not number(maxHp) or maxHp<=0 or hp<=0 then return 0,0 end
+    if spare then hp=hp-1 end
+    if hp<=0 then return 0,0 end
     local amount=0
     for label,v in pairs(type(role.types)=='table' and role.types or {}) do
         if number(v) then amount=amount+v*resisted(e,label) end
@@ -160,7 +170,7 @@ local function damageOn(input,row,role,e)
     -- The cast kills when the hit points it deals (halved on a save, if it allows half)
     -- reach those e has left.
     local kill=0
-    if amount>=hp then
+    if amount>=hp and not spare then
         kill=land*((role.saveForHalf and amount/2>=hp) and 1 or 1-save)
     end
     worth=worth+input.mind.killBonus*kill
@@ -304,6 +314,73 @@ local function evaluate(input,row,spell,kind,mode,aim)
     return option
 end
 
+-- What the hit of touch charge w does to e (the strike's roles for e's kind of creature): the
+-- worth of its damage and disable together, and the hit points it is expected to take. A strike
+-- that keeps e at one hit point or more (a minimum on e) cannot kill.
+local function strikeOn(input,row,w,e)
+    local roles=spells.view(w.strike,targeting.holds(e))
+    if type(roles)~='table' then return 0,0 end
+    local floor=roles.protection
+    local spare=type(floor)=='table' and type(floor.kinds)=='table' and floor.kinds.minimumHp and
+        type(floor.who)=='table' and floor.who.target and true or false
+    local worth,expected=0,0
+    if reaches(roles.damage) then worth,expected=damageOn(input,row,roles.damage,e,spare) end
+    if reaches(roles.disable) then worth=worth+disableOn(input,row,roles.disable,e) end
+    return worth,expected
+end
+-- Whether weapons are out for the caster: its own Time Stop or Improved Alacrity.
+local function weaponsOut(input)
+    return openers.ownStop(input)~=nil or input.frame.self.alacrity==true
+end
+
+-- Touch options of one ready spell: cast on the caster, aimed at each enemy in reach the charge
+-- would work on. Worth: the hit's worth times the chance to hit. Cost: the spell's level, and the
+-- caster's hit points lost to the weapons around the target while it strikes, times caution.
+local function touchOptions(input,row,spell,w,out,reject)
+    local frame=input.frame
+    local caster=frame.self
+    local mind=input.mind
+    local maxHp=number(caster.maxHp) and caster.maxHp>0 and caster.maxHp or nil
+    local level=number(row.level) and row.level or number(spell.level) and spell.level or 1
+    for _,e in ipairs(frame.enemies) do
+        local ok,why=touch.reachable(caster,e,mind)
+        if ok then why=touch.blocked(e,w) end
+        if ok and not why then
+            local worth,expected=strikeOn(input,row,w,e)
+            if worth>0 then
+                local p=touch.hitChance(caster,e,w)
+                local exposure=maxHp and mind.caution*touch.exposure(frame,e)*touch.exposedRounds/maxHp or 0
+                local cost=mind.economy*M.costPerLevel*level+exposure
+                out[#out+1]={resref=row.resref,kind='touch',mode='self',self=true,target=e.id,worth=worth*p,
+                    cost=cost,score=worth*p-cost,hits={e.id},slack=0,hit=p,expected={[e.id]=expected*p},
+                    speed=number(spell.speed) and spell.speed or 0,item=w.item}
+            else reject('no-worth') end
+        else reject(why) end
+    end
+end
+
+-- The strike of the touch charge the caster holds (frame.self.charge, a weapon entry): at the
+-- enemy in reach where the hit is worth most times its chance to land, or nil. No minimum: the
+-- charge is spent already.
+function M.strike(input)
+    local caster=input.frame.self
+    local w=caster.charge
+    if type(w)~='table' or type(w.strike)~='table' or weaponsOut(input) then return nil end
+    local best
+    for _,e in ipairs(input.frame.enemies) do
+        if touch.reachable(caster,e,input.mind) and not touch.blocked(e,w) then
+            local worth,expected=strikeOn(input,{resref=w.spell or w.item},w,e)
+            local p=touch.hitChance(caster,e,w)
+            local score=worth*p
+            if score>0 and (not best or score>best.score or (score==best.score and e.id<best.target)) then
+                best={resref=w.item,spell=w.spell,kind='strike',mode='creature',target=e.id,worth=score,cost=0,
+                    score=score,hits={e.id},slack=0,hit=p,expected={[e.id]=expected*p},speed=0}
+            end
+        end
+    end
+    return best
+end
+
 -- Where the spell can be aimed: enemies it can reach for creature spells; for point areas each
 -- such enemy's spot and the middle of the enemies around it; the caster for its own area.
 local function aims(input,spell,mode)
@@ -375,6 +452,10 @@ function M.options(input,rejected)
         if type(row)=='table' and number(row.ready) and row.ready>0 and row.usable then
             local spell=row.spell
             local kind,mode=M.attack(spell)
+            local w=not kind and input.mind.touch and touch.charge(spell)
+            if w and not weaponsOut(input) and type(input.frame.self.charge)~='table' then
+                touchOptions(input,row,spell,w,out,reject)
+            end
             if kind then
                 local seen,same={},{}
                 local list=aims(input,spell,mode)
@@ -474,14 +555,18 @@ function M.frozen(input)
     return view
 end
 
--- The attack, defence or opener to cast now, or nil and why; the options come along for the
--- log, and with 'no-option' the count of reasons the ready spells gave none.
+-- The attack, defence, opener or strike to do now, or nil and why; the options come along for
+-- the log, and with 'no-option' the count of reasons the ready spells gave none.
 function M.decide(input)
     if type(input)~='table' or type(input.frame)~='table' or type(input.frame.self)~='table' or
         type(input.frame.enemies)~='table' or type(input.mind)~='table' then return nil,'bad-input',{} end
     local why=M.urgent(input)
     if why then return nil,'urgent-'..why,{} end
     local mind=input.mind
+    if mind.touch then
+        local strike=M.strike(input)
+        if strike then return strike,'strike',{strike} end
+    end
     if mind.openers then
         local opener=openers.choose(input)
         if opener then return opener,'opener',{opener} end

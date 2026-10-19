@@ -533,7 +533,8 @@ end
 
 -- A weapon the spell puts in the caster's hand (opcode 111), by the created item's first
 -- ability: how it attacks, how many hits it lasts and what a hit delivers (strike: that ability
--- classified at the caster's level). It lasts one hit when the hit takes the item away (opcode
+-- classified at the caster's level), with the item's flags and enchantment for weapon
+-- immunities. It lasts one hit when the hit takes the item away (opcode
 -- 112: a touch charge), its charges times the items made when a spent charge makes it vanish,
 -- else as long as the item lasts (uses nil).
 local ATTACKS={[1]='melee',[2]='ranged',[3]='magical',[4]='launcher'}
@@ -554,7 +555,8 @@ local function weapon(c,state,e,p)
     c.weapons[#c.weapons+1]={item=type(item.resref)=='string' and item.resref or e.res,
         attack=ATTACKS[ability.attackType] or 'none',range=ability.range,speed=ability.speed,
         toHit=ability.thac0,dice=ability.dice,sides=ability.sides,bonus=ability.damageBonus,
-        damageType=ability.damageType,uses=n,touch=(ability.attackType==1 and n==1) or nil,
+        damageType=ability.damageType,flags=item.flags,enchantment=item.enchantment,
+        uses=n,touch=(ability.attackType==1 and n==1) or nil,
         seconds=seconds(e),chance=p,strike=M.classify(item,1,state.lookup,{level=state.level,weapons=false})}
 end
 
@@ -614,6 +616,13 @@ local function send(c,state,e,where,depth,p)
     if type(ability)~='table' then return state.miss(c,'SPL',res) end
     local to=receiver(e,where)
     if op==148 then to='point' end
+    -- What a cast delivers is checked against the receiver's spell protections by its own level,
+    -- school and secondary type (326 applies effects without a cast).
+    if op~=326 then
+        c.delivered=c.delivered or {}
+        c.delivered[#c.delivered+1]={resref=res,level=sub.level,school=sub.school,secondary=sub.secondary,
+            projectile=ability.projectile,opcode=op}
+    end
     local saved=c.times
     if op==333 then c.times=(saved or 1)*math.max(e.p1,1);c.approximate=true end
     if op==326 or op==366 then c.conditional=true end

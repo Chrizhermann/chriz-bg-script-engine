@@ -23,6 +23,15 @@
 -- whether the caster's Improved Alacrity runs. In the caster's own stop it learns what the
 -- casts it started in the stop will do when time resumes (their kind, targets and expected
 -- damage); the list is dropped when the stop ends.
+--
+-- Touch charges (D2c): a touch spell is cast like a defence, on the caster. The charge it puts in
+-- the magic weapon slot is found by the item there, read as the touch weapon of a spell the
+-- caster has memorized (at its level) or else as the item itself, and goes to the choice with
+-- the caster's THAC0. A strike is AttackOneRound at EEex_Target after SCS's round timer; the
+-- creature is held while it swings or the timer runs, so SCS's own touch block does not take the
+-- charge elsewhere. Once the charge is gone the strike is judged: did its target lose hit points,
+-- become disabled or carry an effect of the strike. A charge spent without effect is a miss of its
+-- touch spell on that enemy, as a cast that left its target untouched is.
 local sense=require('adapters.eeex.sense')
 local creature=require('adapters.eeex.creature')
 local resources=require('adapters.eeex.resources')
@@ -55,6 +64,12 @@ M.judgeLimit=64
 M.itemFirst,M.itemLast=15,33
 -- Casts of the engine's own: Spell (SpellRES) and SpellPoint (SpellPointRES).
 M.CASTS={[31]=true,[95]=true}
+-- Attack actions (ACTION.IDS): Attack, AttackNoSound, AttackOneRound, AttackReevaluate.
+M.ATTACKS={[3]=true,[98]=true,[105]=true,[134]=true}
+-- The magic weapon slot (SLOTS.IDS), where a spell's weapon goes, and how long the engine holds a
+-- creature for one strike at most (two rounds).
+M.magicSlot=34
+M.strikeTicks=180
 M.required={'EEex_GameObject_Get','EEex_GameObject_IsSprite','EEex_Sprite_GetCastTimer',
     'EEex_Sprite_GetLocalInt','EEex_GetUDAux','EEex_Sprite_GetState','EEex_Sprite_GetStat'}
 -- STATS.IDS: WIZARD_IMPROVED_ALACRITY, what SCS tests. Improved Alacrity (SPWI921, with and
@@ -81,9 +96,14 @@ function M.timerRunning(g,sprite,tick)
     return ok and type(value)=='number' and value>tick
 end
 
--- The response that casts decision's spell, or nil.
+-- The response that casts decision's spell, or strikes with the charge in hand, or nil.
 function M.response(decision)
     if type(decision)~='table' or not valid(decision.resref) then return nil end
+    if decision.kind=='strike' then
+        local t=decision.target
+        if type(t)~='number' or t<0 or t%1~=0 then return nil end
+        return M.setTimer..'\nAttackOneRound(EEex_Target("'..M.targetName..'"))'
+    end
     if decision.point then
         local p=decision.point
         if not whole(p.x) or not whole(p.y) then return nil end
@@ -118,10 +138,11 @@ function M.new(g,options)
     -- lastDefence: the tick each creature last started a defence; known: the creatures that
     -- asked the engine (hooked mages and priests); stopCasts: what the holder of the running
     -- Time Stop started in it.
-    local lastDefence,known,stopCasts={},{},{}
+    -- strikes: each creature's strike with a touch charge, until the charge is gone.
+    local lastDefence,known,stopCasts,strikes={},{},{},{}
     local counts={decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
         hits=0,misses=0,errors=0,holds=0,frozen=0,marks=0,markFailures=0,defences=0,guarded=0,unguarded=0,
-        guardFailures=0,openers=0}
+        guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0}
     local reasons={}
     local log,nextRow,size={},1,0
     local root,sink,lastError,markError,guardError
@@ -176,6 +197,43 @@ function M.new(g,options)
             items[resref]=list;itemCount=itemCount+1
         end
         return items[resref]
+    end
+    -- The item in the creature's magic weapon slot, or nil.
+    local function held(sprite)
+        local ok,resref=pcall(function()
+            local item=sprite.m_equipment.m_items:get(M.magicSlot)
+            return item and text(item.cResRef:get()) or nil
+        end)
+        if ok and valid(resref) then return resref end
+    end
+    -- The touch charge the creature holds, or nil: the touch weapon of a spell it has memorized
+    -- whose item is in its magic weapon slot (read at the caster's level), else that item read on
+    -- its own when its first ability is a melee hit that takes the item away (opcode 112).
+    local function chargeIn(sprite,rows)
+        local resref=held(sprite)
+        if not resref then return nil end
+        for _,row in ipairs(rows) do
+            for _,w in ipairs(row.spell and type(row.spell.weapons)=='table' and row.spell.weapons or {}) do
+                if w.touch and w.item==resref then
+                    local c={}
+                    for k,v in pairs(w) do c[k]=v end
+                    c.spell=row.resref
+                    return c
+                end
+            end
+        end
+        local record=reader.get('ITM',resref)
+        local ability=record and type(record.abilities)=='table' and record.abilities[1]
+        if type(ability)~='table' or ability.attackType~=1 then return nil end
+        for _,e in ipairs(type(ability.effects)=='table' and ability.effects or {}) do
+            if type(e)=='table' and e.opcode==112 then
+                local strike=item(resref)[1]
+                if strike then
+                    return {item=resref,touch=true,uses=1,attack='melee',toHit=ability.thac0,strike=strike,
+                        flags=record.flags,enchantment=record.enchantment}
+                end
+            end
+        end
     end
     -- What the creature has ready: its spells with their classification, and the items it can
     -- drink or use from its quick slots and backpack.
@@ -306,6 +364,27 @@ function M.new(g,options)
         else counts.misses=counts.misses+1;mine[key]=(mine[key] or 0)+1 end
         record({kind='outcome',tick=a.ended,member=a.caster,spell=a.resref,target=a.target,hit=hit,misses=mine[key]})
     end
+    -- A strike whose charge is gone: whether its target lost hit points, became disabled or
+    -- carries an effect of the strike. The touch spell it came from (when known) remembers it.
+    local function struck(s,tick)
+        strikes[s.caster]=nil
+        local target=get(s.target)
+        local hit=false
+        if target then
+            hit=s.hp~=nil and target.m_baseStats.m_hitPoints<s.hp
+            if not hit and s.disable then hit=targeting.disabled(sense.actor(g,target)) end
+            if not hit then hit=carries(target,{resref=s.item,sources=s.sources}) end
+        end
+        if hit then counts.strikeHits=counts.strikeHits+1 else counts.strikeMisses=counts.strikeMisses+1 end
+        if s.spell then
+            local key=s.spell..':'..s.target
+            local mine=memory[s.caster] or {}
+            memory[s.caster]=mine
+            if hit then mine[key]=nil else mine[key]=(mine[key] or 0)+1 end
+        end
+        record({kind='strike',tick=tick,member=s.caster,item=s.item,spell=s.spell,target=s.target,hit=hit,started=s.tick})
+    end
+
     local function judge(tick)
         watch(tick)
         for id,a in pairs(running) do
@@ -356,6 +435,15 @@ function M.new(g,options)
             record({kind='lost',tick=tick,member=id,spell=p.resref,target=p.target,queued=p.tick})
             if director then director:release(id,tick) end
         end
+        -- A strike runs while the creature swings or SCS's round timer runs (two rounds at most);
+        -- once its charge is gone it is judged.
+        local s=strikes[id]
+        if s then
+            if held(sprite)~=s.item then struck(s,tick)
+            elseif tick-s.tick<M.strikeTicks and (M.ATTACKS[sprite.m_curAction.m_actionID] or M.timerRunning(g,sprite,tick)) then
+                counts.holds=counts.holds+1;return {hold=true}
+            else strikes[id]=nil end
+        end
         -- The round is free once SCS's timer has run out, even while the casting aura of the
         -- last cast still runs: SCS's timer counts a round from the cast's queueing, the aura
         -- from its start, so the aura nearly always outlasts the timer. A queued cast waits for
@@ -379,6 +467,8 @@ function M.new(g,options)
         end
         counts.decisions=counts.decisions+1
         if g.EEex_Sprite_GetStat(sprite,M.alacrityStat)>0 then frame.self.alacrity=true end
+        frame.self.thac0=sense.thac0(g,sprite)
+        frame.self.charge=chargeIn(sprite,rows)
         local holder,left=timeStop()
         local input={tick=tick,family=family,frame=frame,spells=rows,items=carried,lastDefence=lastDefence[id],
             plan=director and director:plan(id,tick) or {},memory=memory[id] or {},mind=mindFor(sprite,family),rng=rng}
@@ -402,6 +492,7 @@ function M.new(g,options)
         counts.claims=counts.claims+1
         if d.kind=='defence' then counts.defences=counts.defences+1 end
         if d.kind=='opener' then counts.openers=counts.openers+1 end
+        if d.kind=='touch' then counts.touches=counts.touches+1 end
         record({kind='choice',tick=tick,member=id,family=family,spell=d.resref,castKind=d.kind,mode=d.mode,
             target=d.target,point=d.point,score=d.score,worth=d.worth,hits=d.hits,how=why,top=top,
             focus=input.plan.focus,rule=d.rule,stop=input.timeStop and input.timeStop.left or nil,
@@ -413,9 +504,16 @@ function M.new(g,options)
         end
         local spell
         for _,row in ipairs(rows) do if row.resref==d.resref then spell=row.spell end end
+        local sources=spell and spell.sources or nil
+        local disable
+        if d.kind=='strike' then
+            local strike=frame.self.charge.strike
+            sources=strike.sources
+            disable=type(strike.roles)=='table' and type(strike.roles.disable)=='table' or nil
+        end
         return {own=true,response=response,spell=d.resref,kind=d.kind,mode=d.mode,target=d.target,point=d.point,
             self=d.self,hits=d.hits,castTicks=spell and type(spell.speed)=='number' and spell.speed*9 or nil,
-            sources=spell and spell.sources or nil,expected=d.expected}
+            sources=sources,expected=d.expected,disable=disable,charge=d.kind=='strike' and d.spell or nil}
     end
     -- From the gate, each time a hooked script asks: nil (SCS's round), {hold=true} while the
     -- engine's queued cast has not started, or the decision.
@@ -458,6 +556,13 @@ function M.new(g,options)
             end
             names[M.targetName]=decision.target
             hp=seen.hp
+        end
+        if decision.kind=='strike' then
+            strikes[object.m_id]={caster=object.m_id,item=decision.spell,spell=decision.charge,target=decision.target,
+                hp=hp,tick=tick,sources=decision.sources,disable=decision.disable}
+            counts.performed=counts.performed+1;counts.strikes=counts.strikes+1
+            record({kind='swing',tick=tick,member=object.m_id,item=decision.spell,target=decision.target})
+            return true
         end
         pending[object.m_id]={caster=object.m_id,resref=decision.spell,kind=decision.kind,mode=decision.mode,
             target=decision.target,point=decision.point,hits=decision.hits,tick=tick,hp=hp,
@@ -539,7 +644,7 @@ function M.new(g,options)
     end
     function api:invalidate()
         pending,running,judging,memory,stop,resumed={},{},{},{},nil,nil
-        lastDefence,known,stopCasts={},{},{}
+        lastDefence,known,stopCasts,strikes={},{},{},{}
     end
     function api:inspect()
         local copy=function(t) local c={};for k,v in pairs(t) do c[k]=v end;return c end

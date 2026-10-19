@@ -482,6 +482,63 @@ Like SCS first; per enemy later.
 - D2b: the trigger probe and point 4.
 - D2c: point 5.
 
+### D2c as built: touch charges (2026-10-20)
+
+**Reading** (`combat-intent/spells.lua`): a spell that creates an item for the caster (opcode
+111) carries it as a weapon: attack type, range, speed, THAC0 bonus, damage, the item's flags
+and enchantment, how many hits it lasts, and what one hit does (the item's ability read as a
+strike, its sub-spells included). A melee weapon whose hit removes it (opcode 112) is a **touch
+charge**. In the SR lab these are the Cause Wounds spells, Harm, Slay Living, Shocking Grasp and
+Chill Touch; Ghoul Touch lasts several hits and is not one.
+
+**The touch option** (`combat-intent/touch.lua`, `choice.lua`): cast on the caster, aimed at one
+enemy.
+
+- The enemy is alive, seen, without sanctuary and within `touchReach` of the caster (10 range
+  units, as SCS).
+- The strike would work there: no Mirror Image or Stoneskin skin takes the hit, no immunity to
+  weapons (opcode 120) keeps the hand off, and no spell protection stops the strike or a spell
+  it casts. One is enough, so a charge is not spent on a hit that does half its work. SR's Chill
+  Touch hand is not magical: Protection from Magical Weapons lets it through, Protection from
+  Normal Weapons does not.
+- Worth: what the hit does to that enemy (damage and disable), times the chance to hit (the
+  caster's THAC0 less the hand's bonus, against the enemy's armour class). A hit that leaves its
+  target at least one hit point (Harm's opcode 208) cannot kill and counts the hit points above
+  one.
+- Cost: the spell's level, and the caster's hit points lost to melee weapons that reach the
+  target's spot but not its own, for one and a half rounds, times caution. The threat picture's
+  round would not tell the spots apart: in it every melee enemy within a round's walk strikes
+  wherever the caster stands.
+- None in the caster's own Time Stop or under Improved Alacrity (SCS keeps weapons out of both),
+  and none while it holds a charge.
+
+**The strike.** The adapter finds a charge by the item in the magic weapon slot (SLOTS.IDS 34):
+the touch weapon of a spell the caster has memorized, read at its level, or else the item itself
+when its melee hit removes it (SCS's own casts, scrolls). With a charge, the engine strikes
+before anything else, at the reachable enemy where the hit is worth most times its chance. There
+is no minimum: the charge is spent already.
+
+- The response sets SCS's round timer, then `AttackOneRound` at `EEex_Target`. SCS picks the
+  enemy with the worst armour class; the engine weighs the hit.
+- While the creature swings or the timer runs, two rounds at most, the engine holds it, so SCS's
+  own touch block does not take the charge elsewhere.
+- Once the hand is gone, the strike is judged: did the target lose hit points, become disabled or
+  carry an effect of the strike. A swing that misses leaves the hand, and the creature swings
+  again. A charge spent without effect counts as a miss of its touch spell on that enemy, like a
+  cast that left its target untouched, so the engine does not cast it there again.
+- The log has `swing` and `strike` rows; the counts are `touches`, `strikes`, `strikeHits` and
+  `strikeMisses`.
+- Profile: `touch` (a switch) and `touchReach`.
+
+**Not yet seen in a lab.** A probe must show that the hand lands in slot 34, that
+`AttackOneRound` at `EEex_Target` strikes, that the hit removes the hand, and that SR's Harm deals
+its 90 damage.
+
+**Conjured weapons** (Melf's Minute Meteors, Flame Blade, Black Blade of Disaster and the like)
+are read, but the choice does not use them yet. SCS's melee blocks attack with them in the rounds
+the engine leaves to SCS. How the engine should weigh an attack with them against a cast is
+Christopher's call.
+
 ### D3
 
 - **Removing enemy protections:** Breach, Dispel Magic, Spell Thrust and the like. They are
@@ -493,11 +550,11 @@ Like SCS first; per enemy later.
   example when a threat appears before the cast starts. To think through together.
 - **Quick single-target spells for allies,** such as Resist Fear and Remove Paralysis
   (Christopher's examples). Exceptions to agree with him, with their casting times.
-- **Touch spells and conjured weapons.** The classifier reads 57 wizard and priest spells of the
-  SR lab as a weapon or on-hit buff on the caster (learned.md, section 9): the Cause Wounds
-  spells, Harm, Slay Living, Shocking Grasp, Chill Touch, Melf's Minute Meteors, Spiritual
-  Hammer, Black Blade of Disaster, the shapeshifts and others. The engine neither attacks with
-  them nor gains anything by casting them as defences. Planned as D2c (above).
+- **Conjured weapons and on-hit buffs.** The classifier reads 57 wizard and priest spells of the
+  SR lab as a weapon or on-hit buff on the caster (learned.md, section 9). The engine uses the
+  touch charges among them (D2c, above). It does not yet attack with conjured weapons such as
+  Melf's Minute Meteors, Spiritual Hammer or Black Blade of Disaster, nor cast them or the
+  shapeshifts.
 - **Menu spells** (opcode 214): Protection from Elemental Energy, Polymorph Self, Shapechange and
   Nahal's Reckless Dweomer let the caster pick a sub-spell (learned.md, section 9). The engine
   leaves them out, as SCS's scripts do. Creatures mostly carry the elemental protections as the

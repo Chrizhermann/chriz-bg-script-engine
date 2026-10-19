@@ -653,4 +653,91 @@ assert(c8.target==11 and c8.stop==nil and c8.alacrity==nil)
 assert(ch8:inspect().counts.openers==2)
 groups=groups+1
 
+-- 18. Touch charges (D2c). A priest with Harm casts it on itself, aimed at the enemy it will
+-- strike; with the hand in its magic weapon slot it strikes that enemy at once (SCS's round timer,
+-- then AttackOneRound at EEex_Target) and is held while it swings; once the hand is gone the
+-- strike is judged by the hit points the enemy lost. A swing that missed is followed by another;
+-- a charge spent on an enemy left untouched is a miss of the touch spell there. A hand from a
+-- spell the priest has not memorized is read from the item.
+records.TESTHRMD=spl('TESTHRMD',6,{fx(208,{p1=1,duration=1}),fx(12,{p1=90,p2=64*65536,timing=1})},1,1)
+records.TESTHARM=spl('TESTHARM',6,{fx(111,{target=1,p1=1,res='TESTHRM',duration=60})},5,1)
+ITEMS.TESTHRM=weapon('TESTHRM',{itemType=28},{dice=0,sides=0,thac0=4,
+    effects={fx(146,{res='TESTHRMD',timing=1}),fx(112,{target=1,res='TESTHRM',timing=1})}})
+local reader9={problems={},get=reader.get,
+    lookup=function(kind,key) if kind=='ITM' then return ITEMS[key] end return reader.lookup(kind,key) end}
+local g9=world()
+local healer=g9.add(sprite(1,0,0,255,{levels={[7]='S2'}}))
+healer.stats[7],healer.stats[2]=10,5
+learn(healer,5,'TESTHARM')
+g9.add(sprite(11,100,0,2)).stats[2]=5
+local dir9=directors.new(g9,{reader=reader9})
+local ch9=choices.new(g9,{reader=reader9,director=dir9,seed=17})
+local rows9={}
+ch9:setSink(function(row) rows9[#rows9+1]=row end)
+runtime.install(g9,{director=dir9,choice=ch9,version='test'})
+local function last9(kind,member)
+    for n=#rows9,1,-1 do if rows9[n].kind==kind and (member==nil or rows9[n].member==member) then return rows9[n] end end
+end
+g9.ticks=100
+assert(g9.BGSE_Claim(healer,'priest','s2')==true)
+local c9=last9('choice')
+assert(c9.spell=='TESTHARM' and c9.castKind=='touch' and c9.mode=='self' and c9.target==11)
+g9.BGSE_Act(healer)
+assert(g9.queued[#g9.queued].text:find('SpellRES%("TESTHARM",Myself%)')~=nil and ch9:inspect().counts.touches==1)
+g9.listeners.started[1](healer,action(31,'TESTHARM',1))
+healer.m_curAction=action(31,'TESTHARM',1);healer.locals.castspell=190;healer.book[5][1].m_flags=0
+-- The hand is in the magic weapon slot: the priest strikes.
+g9.ticks=200;healer.locals.castspell=0;healer.m_curAction={m_actionID=0}
+healer.items[34]={cResRef=str('TESTHRM')}
+assert(g9.BGSE_Claim(healer,'priest','s2')==true)
+c9=last9('choice')
+assert(c9.spell=='TESTHRM' and c9.castKind=='strike' and c9.how=='strike' and c9.target==11)
+g9.BGSE_Act(healer)
+assert(g9.queued[#g9.queued].text=='SetGlobalTimer("castspell","LOCALS",ONE_ROUND)\nAttackOneRound(EEex_Target("BGSE"))')
+assert(healer.aux.EEex_Target.BGSE==11 and last9('swing').target==11 and ch9:inspect().counts.strikes==1)
+-- Held while it swings and SCS's timer runs: SCS's own touch block does not take the charge
+-- elsewhere.
+g9.listeners.started[1](healer,action(105,'',11))
+healer.m_curAction=action(105,'',11);healer.locals.castspell=290
+g9.ticks=230
+assert(g9.BGSE_Claim(healer,'priest','s2')==true and ch9:inspect().counts.holds==1)
+-- The hand is gone and the enemy down to one hit point: the strike landed. Nothing else is ready.
+healer.items[34]=nil;healer.m_curAction={m_actionID=0};healer.locals.castspell=0
+g9.objects[11].m_baseStats.m_hitPoints=1
+g9.ticks=300
+assert(g9.BGSE_Claim(healer,'priest','s2')==false)
+assert(last9('strike').hit==true and last9('strike').item=='TESTHRM' and last9('strike').spell=='TESTHARM')
+assert(ch9:inspect().counts.strikeHits==1 and ch9:inspect().remembered==0)
+-- A second priest whose script cast its Harm.
+local other9=g9.add(sprite(2,0,600,255,{levels={[7]='S2'}}))
+other9.stats[7],other9.stats[2]=10,5
+learn(other9,5,'TESTHARM');other9.book[5][1].m_flags=0
+other9.items[34]={cResRef=str('TESTHRM')}
+g9.add(sprite(12,100,600,2)).stats[2]=5
+g9.ticks=400
+assert(g9.BGSE_Claim(other9,'priest','s2')==true and last9('choice',2).castKind=='strike' and last9('choice',2).target==12)
+g9.BGSE_Act(other9)
+other9.m_curAction=action(105,'',12)
+-- The swing is over, SCS's timer too, and the hand is still there: it swings again.
+g9.ticks=500;other9.m_curAction={m_actionID=0}
+assert(g9.BGSE_Claim(other9,'priest','s2')==true and last9('choice',2).castKind=='strike')
+g9.BGSE_Act(other9)
+assert(ch9:inspect().counts.strikes==3)
+-- The hand is gone and the enemy untouched: a miss of Harm on it.
+other9.items[34]=nil
+g9.ticks=520
+assert(g9.BGSE_Claim(other9,'priest','s2')==false)
+assert(last9('strike',2).hit==false and last9('strike',2).spell=='TESTHARM' and ch9:inspect().counts.strikeMisses==1)
+assert(ch9:inspect().remembered==1)
+-- A third priest holds a hand from a spell it has not memorized (a scroll, a forced cast).
+local third9=g9.add(sprite(3,0,1200,255,{levels={[7]='S2'}}))
+third9.stats[7],third9.stats[2]=10,5
+third9.items[34]={cResRef=str('TESTHRM')}
+g9.add(sprite(13,100,1200,2)).stats[2]=5
+g9.ticks=600
+assert(g9.BGSE_Claim(third9,'priest','s2')==true and last9('choice',3).castKind=='strike' and last9('choice',3).target==13)
+g9.BGSE_Act(third9)
+assert(last9('swing',3).item=='TESTHRM' and ch9:inspect().counts.strikes==4)
+groups=groups+1
+
 return groups

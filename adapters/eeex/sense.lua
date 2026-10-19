@@ -28,7 +28,7 @@ M.resists={fire=14,cold=15,electricity=16,acid=17,magicfire=19,magiccold=20,slas
 M.levels={34,68,69}
 -- Effect opcodes that protect against spells (combat-intent/targeting.lua matches them).
 M.protections={}
-for _,op in ipairs({83,101,102,197,198,199,200,201,202,203,204,205,206,207,223,226,227,228,259,318,324}) do
+for _,op in ipairs({83,101,102,120,197,198,199,200,201,202,203,204,205,206,207,223,226,227,228,259,318,324}) do
     M.protections[op]=true
 end
 -- Effects read per list at most, so a creature with a runaway effect list costs little.
@@ -61,17 +61,23 @@ local function name(field)
     return ok and type(v)=='string' and text(v) or ''
 end
 
--- The plain facts every frame carries for one creature: also its armour class and the creature
--- its current action is aimed at (-1 for none).
+-- The plain facts every frame carries for one creature: also its armour class, the creature
+-- its current action is aimed at (-1 for none), and its Stoneskin skins and Mirror Images.
 function M.actor(g,sprite)
     local state=g.EEex_Sprite_GetState(sprite)
     local action=sprite.m_curAction
     local actee=action.m_acteeID and action.m_acteeID.m_Instance
+    local mirror=sprite.m_nMirrorImages
     return {id=sprite.m_id,x=sprite.m_pos.x,y=sprite.m_pos.y,ea=sprite.m_typeAI.m_EnemyAlly,
         state=state,held=stat(g,sprite,M.stats.held),sanctuary=stat(g,sprite,M.stats.sanctuary),
         hp=sprite.m_baseStats.m_hitPoints,maxHp=stat(g,sprite,M.stats.maxHp),
         mr=stat(g,sprite,M.stats.mr),action=action.m_actionID,ac=stat(g,sprite,M.combat.ac),
-        actee=type(actee)=='number' and actee or -1}
+        actee=type(actee)=='number' and actee or -1,skins=stat(g,sprite,M.combat.stoneskins),
+        mirror=type(mirror)=='number' and mirror or 0}
+end
+-- A creature's THAC0 with its right-hand and general hit bonuses (as M.attack counts it).
+function M.thac0(g,sprite)
+    return stat(g,sprite,M.combat.thac0)-stat(g,sprite,M.combat.thac0Right)-stat(g,sprite,M.combat.hitBonus)
 end
 
 -- Creature IDS values, saving throws, resistances, level and the spell protections in both

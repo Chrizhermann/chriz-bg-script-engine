@@ -903,7 +903,8 @@ end
 
 -- A weapon the spell puts in the caster's hand (opcode 111), by the created item's first
 -- ability: how it attacks, how many hits it lasts and what a hit delivers (strike: that ability
--- classified at the caster's level). It lasts one hit when the hit takes the item away (opcode
+-- classified at the caster's level), with the item's flags and enchantment for weapon
+-- immunities. It lasts one hit when the hit takes the item away (opcode
 -- 112: a touch charge), its charges times the items made when a spent charge makes it vanish,
 -- else as long as the item lasts (uses nil).
 local ATTACKS={[1]='melee',[2]='ranged',[3]='magical',[4]='launcher'}
@@ -924,7 +925,8 @@ local function weapon(c,state,e,p)
     c.weapons[#c.weapons+1]={item=type(item.resref)=='string' and item.resref or e.res,
         attack=ATTACKS[ability.attackType] or 'none',range=ability.range,speed=ability.speed,
         toHit=ability.thac0,dice=ability.dice,sides=ability.sides,bonus=ability.damageBonus,
-        damageType=ability.damageType,uses=n,touch=(ability.attackType==1 and n==1) or nil,
+        damageType=ability.damageType,flags=item.flags,enchantment=item.enchantment,
+        uses=n,touch=(ability.attackType==1 and n==1) or nil,
         seconds=seconds(e),chance=p,strike=M.classify(item,1,state.lookup,{level=state.level,weapons=false})}
 end
 
@@ -984,6 +986,13 @@ local function send(c,state,e,where,depth,p)
     if type(ability)~='table' then return state.miss(c,'SPL',res) end
     local to=receiver(e,where)
     if op==148 then to='point' end
+    -- What a cast delivers is checked against the receiver's spell protections by its own level,
+    -- school and secondary type (326 applies effects without a cast).
+    if op~=326 then
+        c.delivered=c.delivered or {}
+        c.delivered[#c.delivered+1]={resref=res,level=sub.level,school=sub.school,secondary=sub.secondary,
+            projectile=ability.projectile,opcode=op}
+    end
     local saved=c.times
     if op==333 then c.times=(saved or 1)*math.max(e.p1,1);c.approximate=true end
     if op==326 or op==366 then c.conditional=true end
@@ -1511,6 +1520,10 @@ M.default={
     -- one reaches minValue (SCS's slow spells).
     openers=true,
     slowSpeed=6,
+    -- Touch charges (D2c): touch spells cast and struck by the engine, at enemies within
+    -- touchReach range units (SCS: 10).
+    touch=true,
+    touchReach=10,
 }
 
 local function share(v) return type(v)=='number' and v==v and v>=0 and v<=1 end
@@ -1524,8 +1537,9 @@ local function resrefs(v)
 end
 local CHECKS={coordination=share,best=share,band=share,economy=amount,minValue=amount,
     focusBonus=amount,killBonus=amount,caution=amount,horizon=amount,redefend=amount,acute=share,
-    castCost=amount,allySpells=resrefs,slowSpeed=amount,
+    castCost=amount,allySpells=resrefs,slowSpeed=amount,touchReach=amount,
     openers=function(v) return type(v)=='boolean' end,
+    touch=function(v) return type(v)=='boolean' end,
     memory=function(v) return type(v)=='boolean' end,
     knowledge=function(v) return v=='scs' end}
 
@@ -1821,6 +1835,121 @@ function M.choose(input)
     -- Improved Alacrity when it is down, also as the first cast in the caster's own Time Stop.
     if quickener and not alacrity then return option(quickener,'alacrity') end
     return nil,'waiting'
+end
+return M
+end
+factories["combat-intent.touch"]=function(require)
+-- Touch charges (step 3, D2c; DEFENCE-01): spells that put a weapon of one hit in the caster's
+-- hand, such as Spell Revisions' Harm, the Cause Wounds spells, Slay Living, Shocking Grasp and
+-- Chill Touch (combat-intent/spells.lua reads them: a weapon entry with touch=true). The caster
+-- casts the spell on itself, walks up and strikes; the hit delivers the charge.
+--
+-- As SCS's touch attacks do (priest/ssl/combatblocks/touch_attacks.ssl and
+-- meleeblocks/touchattack.ssl): only at an enemy within reach, which the strike can hit and the
+-- charge can work on; and the strike follows at once, again and again until the charge lands
+-- (Christopher, 2026-10-19: Harm is very strong, so choose the moment with care and make sure it
+-- lands and deals its damage). Plain values only; nothing here touches the engine.
+local targeting=require('combat-intent.targeting')
+local threat=require('combat-intent.threat')
+local M={}
+-- Rounds the caster stands in reach of its target's friends: the strike, and another after a
+-- miss now and then.
+M.exposedRounds=1.5
+local UNSEEN=targeting.STATE.invisible+targeting.STATE.improvedInvisible
+
+local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
+
+-- The touch charge a classified spell gives, or nil: its first weapon of one melee hit.
+function M.charge(spell)
+    if type(spell)~='table' or type(spell.weapons)~='table' then return nil end
+    for _,w in ipairs(spell.weapons) do
+        if type(w)=='table' and w.touch==true and type(w.strike)=='table' then return w end
+    end
+end
+
+-- How far, in world units, the caster goes for a strike: the profile's touchReach in range
+-- units (SCS: within 10).
+function M.reach(mind)
+    return (type(mind)=='table' and number(mind.touchReach) and mind.touchReach or 0)*targeting.rangeUnit
+end
+
+-- Whether the caster can go for e: alive, no sanctuary, seen, within reach. Else false and why.
+function M.reachable(caster,e,mind)
+    if not targeting.alive(e) then return false,'dead' end
+    if number(e.sanctuary) and e.sanctuary>0 then return false,'sanctuary' end
+    if targeting.has(e.state,UNSEEN) and not caster.seeInvisible then return false,'invisible' end
+    local d=targeting.distance(caster,e)
+    if d==math.huge then return false,'no-position' end
+    if d>M.reach(mind) then return false,'out-of-reach' end
+    return true
+end
+
+-- The chance a swing of w hits e: a d20 against the caster's THAC0 less the weapon's bonus, and
+-- e's armour class.
+function M.hitChance(caster,e,w)
+    local thac0=number(caster.thac0) and caster.thac0 or nil
+    if thac0 and number(w.toHit) then thac0=thac0-w.toHit end
+    return threat.hitChance(thac0,e.ac)
+end
+
+-- Item flags (ITM header): two-handed, cursed, magical, silver, cold iron.
+local FLAG={twoHanded=0x2,cursed=0x10,magical=0x40,silver=0x100,coldIron=0x200}
+
+-- Whether an immunity to weapons (opcode 120, by its type p2) keeps weapon w off. Type 0 keeps
+-- off weapons up to +p1, as combat-intent/defence.lua reads it; a weapon is magical with the flag
+-- or an enchantment (SR's Chill Touch hand is neither). Unknown types count as keeping it off.
+local function immune(p,w)
+    local flags=number(w.flags) and w.flags or 0
+    local plus=number(w.enchantment) and w.enchantment or 0
+    local magical=plus>0 or targeting.has(flags,FLAG.magical)
+    local silver,cold=targeting.has(flags,FLAG.silver),targeting.has(flags,FLAG.coldIron)
+    local two,cursed=targeting.has(flags,FLAG.twoHanded),targeting.has(flags,FLAG.cursed)
+    local by={[0]=plus<=(number(p.p1) and p.p1 or 0),[1]=magical,[2]=not magical,[3]=silver,[4]=not silver,
+        [5]=not silver and not magical,[6]=two,[7]=not two,[8]=cursed,[9]=not cursed,[10]=cold,[11]=not cold}
+    local v=by[p.p2]
+    if v==nil then return true end
+    return v
+end
+
+-- Why the charge would not work on e, or nil: a hit takes a Mirror Image or a Stoneskin skin
+-- instead, e is immune to the hand as a weapon (opcode 120), or a spell protection stops the
+-- strike or a spell it casts (Spell Turning, Deflection, a globe: one is enough, so the charge is
+-- not spent on a hit that does half its work). Unknown protections count as protecting.
+function M.blocked(e,w)
+    if number(e.mirror) and e.mirror>0 then return 'mirror' end
+    if number(e.skins) and e.skins>0 then return 'stoneskin' end
+    if type(e.protections)~='table' then return 'protected' end
+    for _,p in ipairs(e.protections) do
+        if type(p)=='table' and p.opcode==120 and immune(p,w) then return 'weapon-immunity' end
+    end
+    if targeting.protected(e,w.strike) then return 'protected' end
+    for _,d in ipairs(type(w.strike.delivered)=='table' and w.strike.delivered or {}) do
+        if targeting.protected(e,d) then return 'protected' end
+    end
+end
+
+-- Hit points a round the caster takes at spot from melee weapons that reach it already: living
+-- enemies not disabled within a weapon's reach (combat-intent/threat.lua), whatever they attack
+-- now, against the caster's armour class.
+local function melee(frame,spot)
+    local hp=0
+    for _,o in ipairs(frame.enemies) do
+        if targeting.alive(o) and not targeting.disabled(o) then
+            local a=threat.attack(o)
+            if not a.ranged and targeting.distance(o,spot)<=threat.reach then
+                hp=hp+a.apr*threat.hitChance(a.thac0,frame.self.ac)*a.damage
+            end
+        end
+    end
+    return hp
+end
+
+-- Hit points a round the caster would take more standing next to e than where it stands: the
+-- melee at e's spot (e's own among it) less the melee at the caster's. Not threat.picture's
+-- round: in it every melee enemy within a round's walk strikes wherever the caster stands.
+-- Ranged weapons reach the caster anywhere and do not count.
+function M.exposure(frame,e)
+    return math.max(0,melee(frame,e)-melee(frame,frame.self))
 end
 return M
 end
@@ -2307,9 +2436,16 @@ factories["combat-intent.choice"]=function(require)
 -- caster's own Time Stop its enemies stand frozen, and what it casts lands when time resumes:
 -- the enemies it has disabled in the stop count as disabled, the damage it dealt them as dealt.
 -- Under Improved Alacrity slow spells wait while a quick one is good enough, as SCS's do.
+--
+-- Touch charges (D2c, combat-intent/touch.lua): a touch spell is cast on the caster and aimed at
+-- the enemy it will strike, worth what its hit does there times the chance to hit, less what
+-- standing next to that enemy costs. A charge in hand is struck first, again until it lands.
+-- Neither in the caster's own Time Stop nor under Improved Alacrity, as SCS keeps weapons out of
+-- both.
 local targeting=require('combat-intent.targeting')
 local defence=require('combat-intent.defence')
 local openers=require('combat-intent.openers')
+local touch=require('combat-intent.touch')
 local ids=require('combat-intent.ids')
 local spells=require('combat-intent.spells')
 local M={}
@@ -2433,10 +2569,13 @@ local function remembered(input,resref,e,role)
     return 0.5^misses
 end
 
--- The worth of a damage role on e, and the hit points it is expected to take.
-local function damageOn(input,row,role,e)
+-- The worth of a damage role on e, and the hit points it is expected to take. With spare, e
+-- keeps at least one hit point (Harm cannot kill).
+local function damageOn(input,row,role,e,spare)
     local hp,maxHp=e.hp,e.maxHp
     if not number(hp) or not number(maxHp) or maxHp<=0 or hp<=0 then return 0,0 end
+    if spare then hp=hp-1 end
+    if hp<=0 then return 0,0 end
     local amount=0
     for label,v in pairs(type(role.types)=='table' and role.types or {}) do
         if number(v) then amount=amount+v*resisted(e,label) end
@@ -2450,7 +2589,7 @@ local function damageOn(input,row,role,e)
     -- The cast kills when the hit points it deals (halved on a save, if it allows half)
     -- reach those e has left.
     local kill=0
-    if amount>=hp then
+    if amount>=hp and not spare then
         kill=land*((role.saveForHalf and amount/2>=hp) and 1 or 1-save)
     end
     worth=worth+input.mind.killBonus*kill
@@ -2594,6 +2733,73 @@ local function evaluate(input,row,spell,kind,mode,aim)
     return option
 end
 
+-- What the hit of touch charge w does to e (the strike's roles for e's kind of creature): the
+-- worth of its damage and disable together, and the hit points it is expected to take. A strike
+-- that keeps e at one hit point or more (a minimum on e) cannot kill.
+local function strikeOn(input,row,w,e)
+    local roles=spells.view(w.strike,targeting.holds(e))
+    if type(roles)~='table' then return 0,0 end
+    local floor=roles.protection
+    local spare=type(floor)=='table' and type(floor.kinds)=='table' and floor.kinds.minimumHp and
+        type(floor.who)=='table' and floor.who.target and true or false
+    local worth,expected=0,0
+    if reaches(roles.damage) then worth,expected=damageOn(input,row,roles.damage,e,spare) end
+    if reaches(roles.disable) then worth=worth+disableOn(input,row,roles.disable,e) end
+    return worth,expected
+end
+-- Whether weapons are out for the caster: its own Time Stop or Improved Alacrity.
+local function weaponsOut(input)
+    return openers.ownStop(input)~=nil or input.frame.self.alacrity==true
+end
+
+-- Touch options of one ready spell: cast on the caster, aimed at each enemy in reach the charge
+-- would work on. Worth: the hit's worth times the chance to hit. Cost: the spell's level, and the
+-- caster's hit points lost to the weapons around the target while it strikes, times caution.
+local function touchOptions(input,row,spell,w,out,reject)
+    local frame=input.frame
+    local caster=frame.self
+    local mind=input.mind
+    local maxHp=number(caster.maxHp) and caster.maxHp>0 and caster.maxHp or nil
+    local level=number(row.level) and row.level or number(spell.level) and spell.level or 1
+    for _,e in ipairs(frame.enemies) do
+        local ok,why=touch.reachable(caster,e,mind)
+        if ok then why=touch.blocked(e,w) end
+        if ok and not why then
+            local worth,expected=strikeOn(input,row,w,e)
+            if worth>0 then
+                local p=touch.hitChance(caster,e,w)
+                local exposure=maxHp and mind.caution*touch.exposure(frame,e)*touch.exposedRounds/maxHp or 0
+                local cost=mind.economy*M.costPerLevel*level+exposure
+                out[#out+1]={resref=row.resref,kind='touch',mode='self',self=true,target=e.id,worth=worth*p,
+                    cost=cost,score=worth*p-cost,hits={e.id},slack=0,hit=p,expected={[e.id]=expected*p},
+                    speed=number(spell.speed) and spell.speed or 0,item=w.item}
+            else reject('no-worth') end
+        else reject(why) end
+    end
+end
+
+-- The strike of the touch charge the caster holds (frame.self.charge, a weapon entry): at the
+-- enemy in reach where the hit is worth most times its chance to land, or nil. No minimum: the
+-- charge is spent already.
+function M.strike(input)
+    local caster=input.frame.self
+    local w=caster.charge
+    if type(w)~='table' or type(w.strike)~='table' or weaponsOut(input) then return nil end
+    local best
+    for _,e in ipairs(input.frame.enemies) do
+        if touch.reachable(caster,e,input.mind) and not touch.blocked(e,w) then
+            local worth,expected=strikeOn(input,{resref=w.spell or w.item},w,e)
+            local p=touch.hitChance(caster,e,w)
+            local score=worth*p
+            if score>0 and (not best or score>best.score or (score==best.score and e.id<best.target)) then
+                best={resref=w.item,spell=w.spell,kind='strike',mode='creature',target=e.id,worth=score,cost=0,
+                    score=score,hits={e.id},slack=0,hit=p,expected={[e.id]=expected*p},speed=0}
+            end
+        end
+    end
+    return best
+end
+
 -- Where the spell can be aimed: enemies it can reach for creature spells; for point areas each
 -- such enemy's spot and the middle of the enemies around it; the caster for its own area.
 local function aims(input,spell,mode)
@@ -2665,6 +2871,10 @@ function M.options(input,rejected)
         if type(row)=='table' and number(row.ready) and row.ready>0 and row.usable then
             local spell=row.spell
             local kind,mode=M.attack(spell)
+            local w=not kind and input.mind.touch and touch.charge(spell)
+            if w and not weaponsOut(input) and type(input.frame.self.charge)~='table' then
+                touchOptions(input,row,spell,w,out,reject)
+            end
             if kind then
                 local seen,same={},{}
                 local list=aims(input,spell,mode)
@@ -2764,14 +2974,18 @@ function M.frozen(input)
     return view
 end
 
--- The attack, defence or opener to cast now, or nil and why; the options come along for the
--- log, and with 'no-option' the count of reasons the ready spells gave none.
+-- The attack, defence, opener or strike to do now, or nil and why; the options come along for
+-- the log, and with 'no-option' the count of reasons the ready spells gave none.
 function M.decide(input)
     if type(input)~='table' or type(input.frame)~='table' or type(input.frame.self)~='table' or
         type(input.frame.enemies)~='table' or type(input.mind)~='table' then return nil,'bad-input',{} end
     local why=M.urgent(input)
     if why then return nil,'urgent-'..why,{} end
     local mind=input.mind
+    if mind.touch then
+        local strike=M.strike(input)
+        if strike then return strike,'strike',{strike} end
+    end
     if mind.openers then
         local opener=openers.choose(input)
         if opener then return opener,'opener',{opener} end
@@ -3339,7 +3553,7 @@ M.resists={fire=14,cold=15,electricity=16,acid=17,magicfire=19,magiccold=20,slas
 M.levels={34,68,69}
 -- Effect opcodes that protect against spells (combat-intent/targeting.lua matches them).
 M.protections={}
-for _,op in ipairs({83,101,102,197,198,199,200,201,202,203,204,205,206,207,223,226,227,228,259,318,324}) do
+for _,op in ipairs({83,101,102,120,197,198,199,200,201,202,203,204,205,206,207,223,226,227,228,259,318,324}) do
     M.protections[op]=true
 end
 -- Effects read per list at most, so a creature with a runaway effect list costs little.
@@ -3372,17 +3586,23 @@ local function name(field)
     return ok and type(v)=='string' and text(v) or ''
 end
 
--- The plain facts every frame carries for one creature: also its armour class and the creature
--- its current action is aimed at (-1 for none).
+-- The plain facts every frame carries for one creature: also its armour class, the creature
+-- its current action is aimed at (-1 for none), and its Stoneskin skins and Mirror Images.
 function M.actor(g,sprite)
     local state=g.EEex_Sprite_GetState(sprite)
     local action=sprite.m_curAction
     local actee=action.m_acteeID and action.m_acteeID.m_Instance
+    local mirror=sprite.m_nMirrorImages
     return {id=sprite.m_id,x=sprite.m_pos.x,y=sprite.m_pos.y,ea=sprite.m_typeAI.m_EnemyAlly,
         state=state,held=stat(g,sprite,M.stats.held),sanctuary=stat(g,sprite,M.stats.sanctuary),
         hp=sprite.m_baseStats.m_hitPoints,maxHp=stat(g,sprite,M.stats.maxHp),
         mr=stat(g,sprite,M.stats.mr),action=action.m_actionID,ac=stat(g,sprite,M.combat.ac),
-        actee=type(actee)=='number' and actee or -1}
+        actee=type(actee)=='number' and actee or -1,skins=stat(g,sprite,M.combat.stoneskins),
+        mirror=type(mirror)=='number' and mirror or 0}
+end
+-- A creature's THAC0 with its right-hand and general hit bonuses (as M.attack counts it).
+function M.thac0(g,sprite)
+    return stat(g,sprite,M.combat.thac0)-stat(g,sprite,M.combat.thac0Right)-stat(g,sprite,M.combat.hitBonus)
 end
 
 -- Creature IDS values, saving throws, resistances, level and the spell protections in both
@@ -3993,6 +4213,15 @@ factories["adapters.eeex.choice"]=function(require)
 -- whether the caster's Improved Alacrity runs. In the caster's own stop it learns what the
 -- casts it started in the stop will do when time resumes (their kind, targets and expected
 -- damage); the list is dropped when the stop ends.
+--
+-- Touch charges (D2c): a touch spell is cast like a defence, on the caster. The charge it puts in
+-- the magic weapon slot is found by the item there, read as the touch weapon of a spell the
+-- caster has memorized (at its level) or else as the item itself, and goes to the choice with
+-- the caster's THAC0. A strike is AttackOneRound at EEex_Target after SCS's round timer; the
+-- creature is held while it swings or the timer runs, so SCS's own touch block does not take the
+-- charge elsewhere. Once the charge is gone the strike is judged: did its target lose hit points,
+-- become disabled or carry an effect of the strike. A charge spent without effect is a miss of its
+-- touch spell on that enemy, as a cast that left its target untouched is.
 local sense=require('adapters.eeex.sense')
 local creature=require('adapters.eeex.creature')
 local resources=require('adapters.eeex.resources')
@@ -4025,6 +4254,12 @@ M.judgeLimit=64
 M.itemFirst,M.itemLast=15,33
 -- Casts of the engine's own: Spell (SpellRES) and SpellPoint (SpellPointRES).
 M.CASTS={[31]=true,[95]=true}
+-- Attack actions (ACTION.IDS): Attack, AttackNoSound, AttackOneRound, AttackReevaluate.
+M.ATTACKS={[3]=true,[98]=true,[105]=true,[134]=true}
+-- The magic weapon slot (SLOTS.IDS), where a spell's weapon goes, and how long the engine holds a
+-- creature for one strike at most (two rounds).
+M.magicSlot=34
+M.strikeTicks=180
 M.required={'EEex_GameObject_Get','EEex_GameObject_IsSprite','EEex_Sprite_GetCastTimer',
     'EEex_Sprite_GetLocalInt','EEex_GetUDAux','EEex_Sprite_GetState','EEex_Sprite_GetStat'}
 -- STATS.IDS: WIZARD_IMPROVED_ALACRITY, what SCS tests. Improved Alacrity (SPWI921, with and
@@ -4051,9 +4286,14 @@ function M.timerRunning(g,sprite,tick)
     return ok and type(value)=='number' and value>tick
 end
 
--- The response that casts decision's spell, or nil.
+-- The response that casts decision's spell, or strikes with the charge in hand, or nil.
 function M.response(decision)
     if type(decision)~='table' or not valid(decision.resref) then return nil end
+    if decision.kind=='strike' then
+        local t=decision.target
+        if type(t)~='number' or t<0 or t%1~=0 then return nil end
+        return M.setTimer..'\nAttackOneRound(EEex_Target("'..M.targetName..'"))'
+    end
     if decision.point then
         local p=decision.point
         if not whole(p.x) or not whole(p.y) then return nil end
@@ -4088,10 +4328,11 @@ function M.new(g,options)
     -- lastDefence: the tick each creature last started a defence; known: the creatures that
     -- asked the engine (hooked mages and priests); stopCasts: what the holder of the running
     -- Time Stop started in it.
-    local lastDefence,known,stopCasts={},{},{}
+    -- strikes: each creature's strike with a touch charge, until the charge is gone.
+    local lastDefence,known,stopCasts,strikes={},{},{},{}
     local counts={decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
         hits=0,misses=0,errors=0,holds=0,frozen=0,marks=0,markFailures=0,defences=0,guarded=0,unguarded=0,
-        guardFailures=0,openers=0}
+        guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0}
     local reasons={}
     local log,nextRow,size={},1,0
     local root,sink,lastError,markError,guardError
@@ -4146,6 +4387,43 @@ function M.new(g,options)
             items[resref]=list;itemCount=itemCount+1
         end
         return items[resref]
+    end
+    -- The item in the creature's magic weapon slot, or nil.
+    local function held(sprite)
+        local ok,resref=pcall(function()
+            local item=sprite.m_equipment.m_items:get(M.magicSlot)
+            return item and text(item.cResRef:get()) or nil
+        end)
+        if ok and valid(resref) then return resref end
+    end
+    -- The touch charge the creature holds, or nil: the touch weapon of a spell it has memorized
+    -- whose item is in its magic weapon slot (read at the caster's level), else that item read on
+    -- its own when its first ability is a melee hit that takes the item away (opcode 112).
+    local function chargeIn(sprite,rows)
+        local resref=held(sprite)
+        if not resref then return nil end
+        for _,row in ipairs(rows) do
+            for _,w in ipairs(row.spell and type(row.spell.weapons)=='table' and row.spell.weapons or {}) do
+                if w.touch and w.item==resref then
+                    local c={}
+                    for k,v in pairs(w) do c[k]=v end
+                    c.spell=row.resref
+                    return c
+                end
+            end
+        end
+        local record=reader.get('ITM',resref)
+        local ability=record and type(record.abilities)=='table' and record.abilities[1]
+        if type(ability)~='table' or ability.attackType~=1 then return nil end
+        for _,e in ipairs(type(ability.effects)=='table' and ability.effects or {}) do
+            if type(e)=='table' and e.opcode==112 then
+                local strike=item(resref)[1]
+                if strike then
+                    return {item=resref,touch=true,uses=1,attack='melee',toHit=ability.thac0,strike=strike,
+                        flags=record.flags,enchantment=record.enchantment}
+                end
+            end
+        end
     end
     -- What the creature has ready: its spells with their classification, and the items it can
     -- drink or use from its quick slots and backpack.
@@ -4276,6 +4554,27 @@ function M.new(g,options)
         else counts.misses=counts.misses+1;mine[key]=(mine[key] or 0)+1 end
         record({kind='outcome',tick=a.ended,member=a.caster,spell=a.resref,target=a.target,hit=hit,misses=mine[key]})
     end
+    -- A strike whose charge is gone: whether its target lost hit points, became disabled or
+    -- carries an effect of the strike. The touch spell it came from (when known) remembers it.
+    local function struck(s,tick)
+        strikes[s.caster]=nil
+        local target=get(s.target)
+        local hit=false
+        if target then
+            hit=s.hp~=nil and target.m_baseStats.m_hitPoints<s.hp
+            if not hit and s.disable then hit=targeting.disabled(sense.actor(g,target)) end
+            if not hit then hit=carries(target,{resref=s.item,sources=s.sources}) end
+        end
+        if hit then counts.strikeHits=counts.strikeHits+1 else counts.strikeMisses=counts.strikeMisses+1 end
+        if s.spell then
+            local key=s.spell..':'..s.target
+            local mine=memory[s.caster] or {}
+            memory[s.caster]=mine
+            if hit then mine[key]=nil else mine[key]=(mine[key] or 0)+1 end
+        end
+        record({kind='strike',tick=tick,member=s.caster,item=s.item,spell=s.spell,target=s.target,hit=hit,started=s.tick})
+    end
+
     local function judge(tick)
         watch(tick)
         for id,a in pairs(running) do
@@ -4326,6 +4625,15 @@ function M.new(g,options)
             record({kind='lost',tick=tick,member=id,spell=p.resref,target=p.target,queued=p.tick})
             if director then director:release(id,tick) end
         end
+        -- A strike runs while the creature swings or SCS's round timer runs (two rounds at most);
+        -- once its charge is gone it is judged.
+        local s=strikes[id]
+        if s then
+            if held(sprite)~=s.item then struck(s,tick)
+            elseif tick-s.tick<M.strikeTicks and (M.ATTACKS[sprite.m_curAction.m_actionID] or M.timerRunning(g,sprite,tick)) then
+                counts.holds=counts.holds+1;return {hold=true}
+            else strikes[id]=nil end
+        end
         -- The round is free once SCS's timer has run out, even while the casting aura of the
         -- last cast still runs: SCS's timer counts a round from the cast's queueing, the aura
         -- from its start, so the aura nearly always outlasts the timer. A queued cast waits for
@@ -4349,6 +4657,8 @@ function M.new(g,options)
         end
         counts.decisions=counts.decisions+1
         if g.EEex_Sprite_GetStat(sprite,M.alacrityStat)>0 then frame.self.alacrity=true end
+        frame.self.thac0=sense.thac0(g,sprite)
+        frame.self.charge=chargeIn(sprite,rows)
         local holder,left=timeStop()
         local input={tick=tick,family=family,frame=frame,spells=rows,items=carried,lastDefence=lastDefence[id],
             plan=director and director:plan(id,tick) or {},memory=memory[id] or {},mind=mindFor(sprite,family),rng=rng}
@@ -4372,6 +4682,7 @@ function M.new(g,options)
         counts.claims=counts.claims+1
         if d.kind=='defence' then counts.defences=counts.defences+1 end
         if d.kind=='opener' then counts.openers=counts.openers+1 end
+        if d.kind=='touch' then counts.touches=counts.touches+1 end
         record({kind='choice',tick=tick,member=id,family=family,spell=d.resref,castKind=d.kind,mode=d.mode,
             target=d.target,point=d.point,score=d.score,worth=d.worth,hits=d.hits,how=why,top=top,
             focus=input.plan.focus,rule=d.rule,stop=input.timeStop and input.timeStop.left or nil,
@@ -4383,9 +4694,16 @@ function M.new(g,options)
         end
         local spell
         for _,row in ipairs(rows) do if row.resref==d.resref then spell=row.spell end end
+        local sources=spell and spell.sources or nil
+        local disable
+        if d.kind=='strike' then
+            local strike=frame.self.charge.strike
+            sources=strike.sources
+            disable=type(strike.roles)=='table' and type(strike.roles.disable)=='table' or nil
+        end
         return {own=true,response=response,spell=d.resref,kind=d.kind,mode=d.mode,target=d.target,point=d.point,
             self=d.self,hits=d.hits,castTicks=spell and type(spell.speed)=='number' and spell.speed*9 or nil,
-            sources=spell and spell.sources or nil,expected=d.expected}
+            sources=sources,expected=d.expected,disable=disable,charge=d.kind=='strike' and d.spell or nil}
     end
     -- From the gate, each time a hooked script asks: nil (SCS's round), {hold=true} while the
     -- engine's queued cast has not started, or the decision.
@@ -4428,6 +4746,13 @@ function M.new(g,options)
             end
             names[M.targetName]=decision.target
             hp=seen.hp
+        end
+        if decision.kind=='strike' then
+            strikes[object.m_id]={caster=object.m_id,item=decision.spell,spell=decision.charge,target=decision.target,
+                hp=hp,tick=tick,sources=decision.sources,disable=decision.disable}
+            counts.performed=counts.performed+1;counts.strikes=counts.strikes+1
+            record({kind='swing',tick=tick,member=object.m_id,item=decision.spell,target=decision.target})
+            return true
         end
         pending[object.m_id]={caster=object.m_id,resref=decision.spell,kind=decision.kind,mode=decision.mode,
             target=decision.target,point=decision.point,hits=decision.hits,tick=tick,hp=hp,
@@ -4509,7 +4834,7 @@ function M.new(g,options)
     end
     function api:invalidate()
         pending,running,judging,memory,stop,resumed={},{},{},{},nil,nil
-        lastDefence,known,stopCasts={},{},{}
+        lastDefence,known,stopCasts,strikes={},{},{},{}
     end
     function api:inspect()
         local copy=function(t) local c={};for k,v in pairs(t) do c[k]=v end;return c end

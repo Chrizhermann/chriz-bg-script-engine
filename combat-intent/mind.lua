@@ -51,6 +51,10 @@ M.default={
     -- one reaches minValue (SCS's slow spells).
     openers=true,
     slowSpeed=6,
+    -- Touch charges (D2c): touch spells cast and struck by the engine, at enemies within
+    -- touchReach range units (SCS: 10).
+    touch=true,
+    touchReach=10,
 }
 
 local function share(v) return type(v)=='number' and v==v and v>=0 and v<=1 end
@@ -64,8 +68,9 @@ local function resrefs(v)
 end
 local CHECKS={coordination=share,best=share,band=share,economy=amount,minValue=amount,
     focusBonus=amount,killBonus=amount,caution=amount,horizon=amount,redefend=amount,acute=share,
-    castCost=amount,allySpells=resrefs,slowSpeed=amount,
+    castCost=amount,allySpells=resrefs,slowSpeed=amount,touchReach=amount,
     openers=function(v) return type(v)=='boolean' end,
+    touch=function(v) return type(v)=='boolean' end,
     memory=function(v) return type(v)=='boolean' end,
     knowledge=function(v) return v=='scs' end}
 
