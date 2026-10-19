@@ -311,13 +311,134 @@ otherwise disabled.)
   Chaotic Commands, magic resistance) and enemy casters with protections. The same lab would
   serve D2's openers and D3's removals.
 
-### D2 and D3
+### D2: what SCS does
 
-- **D2, openers like SCS:**
-  - Time Stop when the party or a strong enemy is seen, then quick attacks;
-  - Improved Alacrity;
-  - sequencers and spell triggers, judged by the spells they release.
-- **D3, removing enemy protections:** Breach, Dispel Magic, Spell Thrust and the like. They are
+Christopher's choice of 2026-10-19: D2 like SCS first, with a hard lab; touch spells and
+conjured weapons as a combo with it. Read in the installed SCS source **[src]**; line numbers are
+SCS v35.21.
+
+**Time Stop** (`mage/ssl/generalblocks/renew.ssl`, lines 139-264):
+
+- Priority 1, right after what makes the mage unable to act.
+- Cast when the mage sees one of the party ("don't waste timestop on riff-raff", line 151) and no
+  Time Stop of its own runs.
+- Not during its own Improved Alacrity. A spell marked `/*slowspell*/` needs Alacrity down,
+  unless the mage's action list ran empty while it runs (`alacritycompromise`;
+  `mage/mage_shared.tph`, line 363).
+- Before it, when it can, the mage dispels the party's protections (lines 113-134; D3).
+
+**In its own Time Stop** (18 seconds in the lab, learned.md section 1):
+
+- Game time runs on, so SCS's round timer works as usual. While the timer runs, the mage waits:
+  "in timestops, don't use missiles or melee (a little cheesy, and also it wastes time)"
+  (`mage/ssl/meleeblocks/standard_mage.ssl`, lines 203-213).
+- Then its blocks run as usual, except those gated by `!CheckSpellState(Myself,TIME_STOP)`:
+  - the first dispel and Wish;
+  - attacks on the party's defences;
+  - Power Word Kill, Stun and Blind, and Trap the Soul;
+  - the conjured blades, and Horrid Wilting on summons;
+  - its renewal of defences, apart from the basic ones at the end.
+- What depends on the target's state now is left out: effects land only when time resumes.
+
+**Improved Alacrity** (`mage/ssl/combatblocks/alacrity.ssl`):
+
+- Fifth in the core list, so it is the first core spell in a Time Stop: the first dispel and
+  Wish before it are gated.
+- Cast when an enemy is seen and Alacrity is down.
+- SCS's own version (`DW#QALAC`) is an innate: casting time 9, then 12 seconds of aura
+  cleansing.
+- While it runs:
+  - the round timer is cleared at once (`alacrity_kill_timer.ssl`, right below our hook);
+  - slow spells wait;
+  - sequencers and weapon attacks are off (`caster_shared/caster_definitions.ssl`, lines
+    1213-1491).
+
+**Sequencers and triggers:**
+
+- SCS gives its casters generated innates (`DW#MS*`, `DW#SQ*`, `DW#TG*`). Each releases two or
+  three spells at once through opcode 146 (`caster_shared/caster_shared.tph`, lines 859-925).
+- Each high mage of the lab has one Minor Sequencer, one Spell Sequencer and one Spell Trigger.
+  MAGE18C's release two Melf's Acid Arrows; Minor Spell Deflection, Minor Globe of
+  Invulnerability and Improved Invisibility; Stoneskin, Spell Deflection and Protection from
+  Magical Weapons.
+- Offensive ones go through `SequencerManual`: the trigger's remover (`<name>B`) is cast, then
+  each spell on its own with `ReallyForceSpell`. "Use SequencerManual for anything with a saving
+  throw" (`caster_definitions.ssl`, line 1209).
+- Not during Alacrity; manual ones not in any Time Stop.
+- SCS writes a wrong range into its triggers: `resolve_trigger_spells` reads the ability's effect
+  count (offset 0x1E) as its range (offset 0x0E) (`caster_shared.tph`, line 1015). The lab's
+  triggers read ranges of 1 to 9.
+
+**Touch spells and conjured weapons:**
+
+- **Harm** (`priest/ssl/combatblocks/touch_attacks.ssl`, lines 43-56): a party member within 10;
+  not protected by Protection from Magical Weapons, spell turning, magic resistance, immunity to
+  necromancy or magic damage resistance; above 10% of its hit points; the priest not shapeshifted
+  and without a touch charge yet.
+- Then the strike (`priest/ssl/meleeblocks/touchattack.ssl`): Attack the enemy with the worst
+  armour class within 10, with the same exclusions and none with Mirror Image. It has no round
+  timer, "so that the priest will attack until the power is triggered or lost".
+- Mages cast Vampiric Touch directly at close enemies. Conjured weapons serve SCS's melee blocks
+  between casts; Melf's Minute Meteors use SCS's own item `dw#melf` (`melfsetup.ssl`).
+
+**What the engine does today:** in batch F3, SCS still cast Time Stop 33 times, Improved
+Alacrity 9 times and its triggers about 30 times, in rounds the engine left to it. The engine
+never chose them:
+
+- Time Stop is no attack.
+- Improved Alacrity's casting speed is worth nothing to D1.
+- The triggers' wrong ranges keep most of them out of reach.
+
+### D2: the engine's design (2026-10-20)
+
+Like SCS first; per enemy later.
+
+1. **Openers as rules** (`combat-intent/openers.lua`). They are checked before the ranking, as
+   SCS's order puts them before attacks:
+   - **Time Stop** when the caster sees an enemy that is not a summon or an illusion, no Time
+     Stop runs, and its Improved Alacrity is down;
+   - **Improved Alacrity** (aura cleansing, opcode 188) when an enemy is seen and it is down; in
+     the caster's own Time Stop it comes first;
+   - a profile switch, `openers`, so labs can compare.
+2. **The caster's own Time Stop.** The adapter reports who holds a Time Stop and the seconds
+   left.
+   - Enemies are frozen: a cast that ends within the stop cannot be interrupted, and aims stay
+     where they are.
+   - What the caster cast during the stop lands when time resumes. Targets of its disables count
+     as disabled, and its expected damage comes off their hit points, so it neither repeats a
+     disable nor overkills.
+   - Left out, as SCS does: spells whose SPLPROT check reads the target's hit points (the power
+     words), weapons and touch charges.
+   - Defences count only for the time after the stop.
+3. **Under Improved Alacrity:** a spell with casting time 6 or more waits while a quicker option
+   reaches the minimum worth (SCS's slow spells and its compromise; profile `slowSpeed`). No
+   triggers.
+4. **Triggers, after a lab probe:**
+   - read as their spells together (the classifier already does), with the reach of their
+     shortest-range spell instead of the wrong range;
+   - released as SCS does: offensive ones through its manual way, the others with
+     `ForceSpellRES` at the caster;
+   - the probe checks whether `SpellRES`, `ForceSpellRES` and `ReallyForceSpellRES` walk to the
+     wrong range, spend the innate and land.
+5. **Touch spells and conjured weapons** (the combo):
+   - read the created item (opcode 111) and its on-hit effects, per install;
+   - cast a touch spell only when an enemy is within reach and the strike can follow at once;
+   - strike, check that it landed (hit points, effects), and strike again while the charge
+     lasts;
+   - Harm only on a target the caster can hit, without Mirror Image, Stoneskin or weapon
+     immunity, and when it is worth it;
+   - a conjured weapon is worth the damage it deals between casts, which SCS's melee blocks
+     deal.
+
+**Order of building:**
+
+- D2a: points 1 to 3, with lab batch G2 in the hard lab.
+- D2b: the trigger probe and point 4.
+- D2c: point 5.
+
+### D3
+
+- **Removing enemy protections:** Breach, Dispel Magic, Spell Thrust and the like. They are
   worth what they open for the group's attacks.
 
 ### Open
@@ -330,9 +451,7 @@ otherwise disabled.)
   SR lab as a weapon or on-hit buff on the caster (learned.md, section 9): the Cause Wounds
   spells, Harm, Slay Living, Shocking Grasp, Chill Touch, Melf's Minute Meteors, Spiritual
   Hammer, Black Blade of Disaster, the shapeshifts and others. The engine neither attacks with
-  them nor gains anything by casting them as defences. Reading them needs the created item's
-  abilities (opcode 111) and the on-hit effects (248, 249), and a plan to cast and then strike,
-  as SCS does with Harm.
+  them nor gains anything by casting them as defences. Planned as D2c (above).
 - **Menu spells** (opcode 214): Protection from Elemental Energy, Polymorph Self, Shapechange and
   Nahal's Reckless Dweomer let the caster pick a sub-spell (learned.md, section 9). The engine
   leaves them out, as SCS's scripts do. Creatures mostly carry the elemental protections as the
