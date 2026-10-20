@@ -52,6 +52,8 @@ local hand=conjure('TESTHAND',1,'TESTHND',60)
 local half=conjure('TESTHALS',1,'TESTHALF',60)
 local bolt=classify(spl('TESTBOLT',3,{fx(12,{p2=8*65536,dice=6,sides=6})}))
 local dart=classify(spl('TESTDART',1,{fx(12,{p2=64*65536,dice=1,sides=4,p1=1})}))
+local cure=classify(spl('TESTCURE',1,{fx(17,{p1=8})}))
+local monsters=classify(spl('TESTSUMM',3,{fx(67,{target=1,res='TESTMON',p2=0})},{target=4}))
 
 local function enemy(id,fields)
     local e={id=id,x=100+id*10,y=100,hp=60,maxHp=60,state=0,held=0,sanctuary=0,mr=0,action=0,ac=5,
@@ -159,6 +161,21 @@ i.frame.enemies={enemy(11,{x=200,hp=4,mr=50})}
 d,why=choice.decide(i)
 assert(why=='weapon' and d.kind=='weapon' and d.target==11)
 i.frame.enemies={enemy(11,{x=200})}
+-- A healing or summoning spell ready, which the engine does not cast yet: SCS keeps the round
+-- the engine would only attack in, not one with a cast worth it.
+i.spells={row('TESTCURE',cure,1)}
+d,why,list=choice.decide(i)
+assert(d==nil and why=='scs-heal' and list[1].kind=='weapon')
+i.spells={row('TESTSUMM',monsters,3),row('TESTDART',dart,1)}
+assert(choice.scsSpell(i)=='summon' and select(2,choice.decide(i))=='scs-summon')
+i.spells={row('TESTSUMM',monsters,3),row('TESTBOLT',bolt,3)}
+assert(choice.decide(i).resref=='TESTBOLT')
+i.spells={row('TESTCURE',cure,1)}
+i.spells[1].ready=0
+assert(choice.decide(i).kind=='weapon')
+i.spells={row('TESTCURE',cure,1)}
+i.mind=mind.new({keepScsSpells=false})
+assert(choice.decide(i).kind=='weapon')
 i.mind=mind.new({weapons=false})
 i.spells={row('TESTDART',dart,1)}
 assert(select(2,choice.decide(i))=='nothing-good')
@@ -193,9 +210,10 @@ i.mind=mind.new({weapons=false})
 assert(#choice.options(i)==0)
 groups=groups+1
 
--- 6. The profile: weapons is a switch.
+-- 6. The profile: weapons and keepScsSpells are switches.
 assert(mind.new().weapons==true and mind.new({weapons=false}).weapons==false)
 assert(select(2,mind.new({weapons=1}))=='weapons')
+assert(mind.new().keepScsSpells==true and select(2,mind.new({keepScsSpells='yes'}))=='keepScsSpells')
 groups=groups+1
 
 return groups

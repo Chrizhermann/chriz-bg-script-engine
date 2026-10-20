@@ -607,6 +607,11 @@ without ammunition is no weapon.
   touch strike), for one round, times caution. A weapon attack spends nothing else.
 - **No minimum worth.** When no cast reaches `minValue`, the engine attacks instead of leaving the
   round to SCS; a weapon attack worth more than the best cast is taken over it.
+- **SCS keeps some of those rounds.** In rounds without a cast worth it, SCS used to cast what the
+  engine does not cast yet: summons, Breach and Dispel Magic, healing, raising, cures. So while the
+  caster has such a spell ready, the engine leaves a round it would only attack in to SCS (decline
+  `scs-summon`, `scs-removal`, `scs-heal`, `scs-raise` or `scs-cure`), until those spells become
+  engine actions (Christopher, 2026-10-20). Profile switch `keepScsSpells`.
 - None with a touch charge in hand (the strike decides where that goes), in the caster's own
   Time Stop or under Improved Alacrity.
 
@@ -630,15 +635,9 @@ the hold. The log has `swing` rows with `weapon=true` and `attack` rows; the cou
 `attacks` and `attackHits`. A strike's target that died now counts as hit (it was a miss before,
 because a dead creature was not read).
 
-**Open, for Christopher:**
-
-- In rounds where no cast reaches `minValue`, SCS used to cast what the engine does not cast yet
-  (summons, Breach and Dispel Magic, cures, raising). The engine now attacks with a weapon in
-  those rounds. Either that stays and those spells become engine actions next, or SCS keeps
-  such rounds until they are.
-- A conjured weapon counts the damage of the rounds after the cast, while a cast counts its own
-  round. Those rounds are spent attacking, not casting. Whether that should cost something is to
-  be seen in the lab.
+**Open:** a conjured weapon counts the damage of the rounds after the cast, while a cast counts
+its own round. Those rounds are spent attacking, not casting. Whether that should cost something
+is to be seen in the lab.
 
 **Not yet seen in a lab.** A fight must show that `AttackOneRound` at `EEex_Target` attacks
 with the selected weapon, that a conjured weapon lands in slot 34 and is selected, and how

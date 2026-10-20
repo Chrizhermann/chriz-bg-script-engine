@@ -1533,6 +1533,9 @@ M.default={
     touchReach=10,
     -- Weapon attacks (D2c): the weapon in hand as an attack, and spells that conjure one.
     weapons=true,
+    -- Instead of no cast, a weapon attack waits while the caster has a spell ready that the
+    -- engine does not cast yet (summons, removal, healing, raising, curing); SCS keeps the round.
+    keepScsSpells=true,
 }
 
 local function share(v) return type(v)=='number' and v==v and v>=0 and v<=1 end
@@ -1550,6 +1553,7 @@ local CHECKS={coordination=share,best=share,band=share,economy=amount,minValue=a
     openers=function(v) return type(v)=='boolean' end,
     touch=function(v) return type(v)=='boolean' end,
     weapons=function(v) return type(v)=='boolean' end,
+    keepScsSpells=function(v) return type(v)=='boolean' end,
     memory=function(v) return type(v)=='boolean' end,
     knowledge=function(v) return v=='scs' end}
 
@@ -2534,6 +2538,9 @@ factories["combat-intent.choice"]=function(require)
 -- when no spell reaches minValue, the engine attacks instead of leaving the round to SCS. A spell
 -- that conjures a weapon is worth the hits the weapon deals in the rounds after, as many as it
 -- lasts within the horizon. Neither in the caster's own Time Stop nor under Improved Alacrity.
+-- Until the engine casts summons, protection removal, healing, raising and curing itself, SCS
+-- keeps a round the engine would only attack in while the caster has such a spell ready
+-- (Christopher, 2026-10-20; profile keepScsSpells).
 local targeting=require('combat-intent.targeting')
 local defence=require('combat-intent.defence')
 local openers=require('combat-intent.openers')
@@ -3100,6 +3107,20 @@ function M.weaponOptions(input,rejected)
     return out
 end
 
+-- The kind of spell the caster has ready that the engine does not cast yet and SCS may use
+-- (removal, heal, raise, cure, summon), or nil.
+function M.scsSpell(input)
+    for _,row in ipairs(type(input.spells)=='table' and input.spells or {}) do
+        if type(row)=='table' and number(row.ready) and row.ready>0 and row.usable and
+            type(row.spell)=='table' and type(row.spell.roles)=='table' then
+            for _,name in ipairs(OTHER) do
+                local role=row.spell.roles[name]
+                if type(role)=='table' and type(role.who)=='table' and next(role.who)~=nil then return name end
+            end
+        end
+    end
+end
+
 -- Healing the caster has ready: for itself, and for others.
 function M.heals(input)
     local own,others=false,false
@@ -3194,7 +3215,8 @@ function M.decide(input)
     for _,o in ipairs(defence.options(input,rejected)) do options[#options+1]=o end
     table.sort(options,better)
     -- A weapon attack spends nothing: it needs no minimum worth, and it is taken over a spell
-    -- only when it is worth more.
+    -- only when it is worth more. Instead of no cast at all it waits while the caster has a spell
+    -- ready that the engine does not cast yet: SCS keeps that round ('scs-' and the kind).
     local swings=mind.weapons and M.weaponOptions(input,rejected) or {}
     local swing=swings[1]
     local function all()
@@ -3204,9 +3226,16 @@ function M.decide(input)
         table.sort(list,better)
         return list
     end
+    local function instead()
+        if not swing or swing.score<=0 then return nil end
+        local kept=mind.keepScsSpells and M.scsSpell(input)
+        if kept then return nil,'scs-'..kept end
+        return swing
+    end
     if #options==0 then
-        if swing and swing.score>0 then return swing,'weapon',all() end
-        return nil,'no-option',options,rejected
+        local s,kept=instead()
+        if s then return s,'weapon',all() end
+        return nil,kept or 'no-option',kept and all() or options,rejected
     end
     -- Under Improved Alacrity a slow spell waits while a quick one reaches the minimum worth
     -- (SCS's slow spells and its compromise).
@@ -3217,8 +3246,9 @@ function M.decide(input)
     end
     local best=options[1]
     if best.score<mind.minValue then
-        if swing and swing.score>0 then return swing,'weapon',all() end
-        return nil,'nothing-good',options
+        local s,kept=instead()
+        if s then return s,'weapon',all() end
+        return nil,kept or 'nothing-good',kept and all() or options
     end
     if swing and swing.score>best.score then return swing,'weapon',all() end
     local rng=input.rng

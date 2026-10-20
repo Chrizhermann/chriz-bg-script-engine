@@ -57,6 +57,9 @@ M.default={
     touchReach=10,
     -- Weapon attacks (D2c): the weapon in hand as an attack, and spells that conjure one.
     weapons=true,
+    -- Instead of no cast, a weapon attack waits while the caster has a spell ready that the
+    -- engine does not cast yet (summons, removal, healing, raising, curing); SCS keeps the round.
+    keepScsSpells=true,
 }
 
 local function share(v) return type(v)=='number' and v==v and v>=0 and v<=1 end
@@ -74,6 +77,7 @@ local CHECKS={coordination=share,best=share,band=share,economy=amount,minValue=a
     openers=function(v) return type(v)=='boolean' end,
     touch=function(v) return type(v)=='boolean' end,
     weapons=function(v) return type(v)=='boolean' end,
+    keepScsSpells=function(v) return type(v)=='boolean' end,
     memory=function(v) return type(v)=='boolean' end,
     knowledge=function(v) return v=='scs' end}
 
