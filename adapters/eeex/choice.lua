@@ -536,7 +536,7 @@ function M.new(g,options)
             input.timeStop={caster=holder,left=left}
             if holder==id then input.stopCasts=stopCasts[id] or {} end
         end
-        local d,why,options,rejected=choice.decide(input)
+        local d,why,options,rejected,kept=choice.decide(input)
         lastDetail=rejected
         local top={}
         for i=1,math.min(3,#options) do
@@ -546,7 +546,7 @@ function M.new(g,options)
         if not d then
             if why~='no-option' then
                 record({kind='decline',tick=tick,member=id,family=family,reason=why,top=top,charge=lastCharge,
-                    rejected=lastCharge and rejected or nil})
+                    rejected=lastCharge and rejected or nil,kept=kept})
             end
             return decline(why)
         end

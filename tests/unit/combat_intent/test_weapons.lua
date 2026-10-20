@@ -161,11 +161,14 @@ i.frame.enemies={enemy(11,{x=200,hp=4,mr=50})}
 d,why=choice.decide(i)
 assert(why=='weapon' and d.kind=='weapon' and d.target==11)
 i.frame.enemies={enemy(11,{x=200})}
--- A healing or summoning spell ready, which the engine does not cast yet: SCS keeps the round
--- the engine would only attack in, not one with a cast worth it.
+-- A healing or summoning spell ready, which the engine does not cast yet, that fits now: SCS
+-- keeps the round the engine would only attack in, not one with a cast worth it. The healing fits
+-- once the caster is below half its hit points; the decline names it.
 i.spells={row('TESTCURE',cure,1)}
+assert(choice.decide(i).kind=='weapon')
+i.frame.self.hp=25
 d,why,list=choice.decide(i)
-assert(d==nil and why=='scs-heal' and list[1].kind=='weapon')
+assert(d==nil and why=='scs-heal' and list[1].kind=='weapon' and select(5,choice.decide(i))=='TESTCURE')
 i.spells={row('TESTSUMM',monsters,3),row('TESTDART',dart,1)}
 assert(choice.scsSpell(i)=='summon' and select(2,choice.decide(i))=='scs-summon')
 i.spells={row('TESTSUMM',monsters,3),row('TESTBOLT',bolt,3)}
@@ -176,6 +179,7 @@ assert(choice.decide(i).kind=='weapon')
 i.spells={row('TESTCURE',cure,1)}
 i.mind=mind.new({keepScsSpells=false})
 assert(choice.decide(i).kind=='weapon')
+i.frame.self.hp=60
 i.mind=mind.new({weapons=false})
 i.spells={row('TESTDART',dart,1)}
 assert(select(2,choice.decide(i))=='nothing-good')
@@ -214,6 +218,111 @@ groups=groups+1
 assert(mind.new().weapons==true and mind.new({weapons=false}).weapons==false)
 assert(select(2,mind.new({weapons=1}))=='weapons')
 assert(mind.new().keepScsSpells==true and select(2,mind.new({keepScsSpells='yes'}))=='keepScsSpells')
+groups=groups+1
+
+-- 7. Only a spell that fits now keeps the round for SCS (Christopher, 2026-10-20). A cure: the
+-- caster or an ally it reaches has the condition (Vocalize only for a silenced caster itself); a
+-- curse shows nowhere, so a curse removal alone never fits. Raising: an ally lies dead with a body,
+-- not a summons; a petrified one is cured instead. Healing on the caster alone counts only its own
+-- hit points. Removal: an enemy has a protection from a spell with time left (an item's does not
+-- count), skins, images, a protective state or sanctuary, or is summoned; not a removal on the
+-- caster itself, nor one of clouds. Summons always fit.
+local vocal=classify(spl('TESTVOC',2,{fx(48,{target=1})},{target=5}))
+local free=classify(spl('TESTFREE',3,{fx(162)}))
+local antidote=classify(spl('TESTNEUT',4,{fx(11)}))
+local uncurse=classify(spl('TESTCURS',3,{fx(26)}))
+local restore=classify(spl('TESTREST',7,{fx(224)}))
+local unstone=classify(spl('TESTSTON',6,{fx(43)}))
+local raise=classify(spl('TESTRAIS',5,{fx(32)},{target=3}))
+local selfHeal=classify(spl('TESTSELH',1,{fx(17,{p1=8,target=1})},{target=5}))
+local dispel=classify(spl('TESTDISP',3,{fx(58,{p1=10})}))
+local strip=classify(spl('TESTSTRP',5,{fx(337,{p2=120})}))
+local unsanct=classify(spl('TESTUNSA',4,{fx(160)}))
+local unsummon=classify(spl('TESTUNSU',5,{fx(68)}))
+local purge=classify(spl('TESTPURG',3,{fx(116)}))
+local ownDispel=classify(spl('TESTOWND',3,{fx(58,{target=1,p1=10})},{target=5}))
+local sweet=classify(spl('TESTAIR',3,{fx(273)}))
+i=input({spells={row('TESTVOC',vocal,2)}})
+i.frame.self.weapon=MACE
+local ally={id=2,x=120,y=100,hp=60,maxHp=60,state=0,held=0,drained=0}
+i.frame.allies={ally}
+i.frame.enemies={enemy(11,{x=200})}
+local function fit(s,name) return choice.fits(i,name,s.roles[name]) end
+assert(vocal.roles.cure.who.self and not fit(vocal,'cure') and choice.scsSpell(i)==nil)
+i.frame.self.state=choice.SILENCED
+assert(fit(vocal,'cure') and choice.scsSpell(i)=='cure')
+i.frame.self.state=0
+ally.state=choice.SILENCED
+assert(not fit(vocal,'cure'))
+ally.state=0
+assert(not fit(free,'cure'))
+ally.held=1
+assert(fit(free,'cure'))
+ally.held=0
+ally.state=targeting.STATE.helpless
+assert(fit(free,'cure') and not fit(antidote,'cure'))
+ally.state=0x4000
+assert(fit(antidote,'cure') and not fit(uncurse,'cure'))
+ally.state=0
+ally.drained=2
+assert(fit(restore,'cure'))
+ally.drained=0
+-- The dead: sense.lua lists dead allies apart (frame.fallen).
+assert(not fit(raise,'raise') and not fit(unstone,'cure'))
+i.frame.fallen={{id=3,x=130,y=100,state=0x800,gender=1}}
+assert(fit(raise,'raise') and not fit(unstone,'cure'))
+i.frame.fallen[1].state=0x880
+assert(fit(unstone,'cure') and not fit(raise,'raise'))
+i.frame.fallen[1].state=0x900
+assert(not fit(raise,'raise') and not fit(unstone,'cure'))
+i.frame.fallen={{id=3,x=130,y=100,state=0x800,gender=6}}
+assert(not fit(raise,'raise'))
+i.frame.fallen=nil
+-- Healing: the caster below half, an ally below three quarters.
+ally.hp=10
+assert(not fit(selfHeal,'heal') and fit(cure,'heal'))
+ally.hp=50
+assert(not fit(cure,'heal'))
+i.frame.self.hp=20
+assert(fit(selfHeal,'heal'))
+i.frame.self.hp=60
+ally.hp=60
+-- Removal.
+local e=i.frame.enemies[1]
+assert(not fit(dispel,'removal') and not fit(strip,'removal'))
+e.protections={{opcode=120,p1=0,p2=0,res='',timed=false}}
+assert(not fit(dispel,'removal') and not fit(strip,'removal'))
+e.protections[1].timed=true
+assert(fit(dispel,'removal') and fit(strip,'removal') and not fit(ownDispel,'removal'))
+e.protections={{opcode=102,p1=5,p2=0,res='',timed=true}}
+assert(fit(dispel,'removal') and not fit(strip,'removal'))
+e.protections={}
+e.skins=3
+assert(fit(dispel,'removal'))
+e.skins=0
+e.mirror=2
+assert(fit(dispel,'removal'))
+e.mirror=0
+e.state=0x20000000
+assert(fit(dispel,'removal'))
+e.state=0
+assert(not fit(unsanct,'removal') and not fit(unsummon,'removal') and not fit(purge,'removal'))
+e.sanctuary=1
+assert(fit(unsanct,'removal'))
+e.sanctuary=0
+e.ids.gender=6
+assert(fit(unsummon,'removal'))
+e.ids.gender=1
+e.state=targeting.STATE.improvedInvisible
+assert(fit(purge,'removal') and fit(dispel,'removal'))
+e.state=0
+assert(not fit(sweet,'removal') and fit(monsters,'summon'))
+-- With nothing that fits, the caster attacks; a protection on the enemy gives the round to SCS.
+i.spells={row('TESTVOC',vocal,2),row('TESTFREE',free,3),row('TESTDISP',dispel,3),row('TESTRAIS',raise,5)}
+d,why=choice.decide(i)
+assert(why=='weapon' and d.kind=='weapon' and choice.scsSpell(i)==nil)
+e.protections={{opcode=102,p1=5,p2=0,res='',timed=true}}
+assert(select(2,choice.decide(i))=='scs-removal' and select(5,choice.decide(i))=='TESTDISP')
 groups=groups+1
 
 return groups

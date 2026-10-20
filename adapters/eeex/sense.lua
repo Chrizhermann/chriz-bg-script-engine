@@ -3,7 +3,7 @@
 -- trigger counts them) and minus the invisible ones unless it sees invisible creatures. That
 -- search walks only the area's front list; creatures lying down (asleep, unconscious) are in
 -- the back list with the dead, and one counts as seen when the same search from where it lies
--- finds this creature. Sides
+-- finds this creature; the dead allies seen that way are listed apart (frame.fallen). Sides
 -- follow the engine's EA groups: for a creature on the evil side (EA 200 and up) the good side
 -- (EA 2 to 30) are enemies and the evil side are allies. With details, each enemy also carries
 -- its creature IDS values, saves, resistances, level and the spell protections a script can
@@ -16,8 +16,8 @@ local M={}
 -- A sprite's default visual range in EEex's area search.
 M.sightRange=448
 M.GOOD_CUTOFF,M.EVIL_CUTOFF=30,200
--- STATS.IDS: MAXHITPOINTS, RESISTMAGIC, HELD, SANCTUARY, SEEINVISIBLE, TRUE_SIGHT.
-M.stats={maxHp=1,mr=18,held=58,sanctuary=63,seeInvisible=81,trueSight=118}
+-- STATS.IDS: MAXHITPOINTS, RESISTMAGIC, HELD, SANCTUARY, SEEINVISIBLE, TRUE_SIGHT, LEVELDRAIN.
+M.stats={maxHp=1,mr=18,held=58,sanctuary=63,seeInvisible=81,trueSight=118,levelDrain=200}
 -- STATE_INVISIBLE and STATE_IMPROVEDINVISIBILITY; STATE_BLIND.
 M.unseen,M.blind=0x400010,0x40000
 -- STATS.IDS: the saving throws, resistances and levels SCS's attack blocks read about their
@@ -33,8 +33,12 @@ for _,op in ipairs({83,101,102,120,197,198,199,200,201,202,203,204,205,206,207,2
 end
 -- Effects read per list at most, so a creature with a runaway effect list costs little.
 M.maxEffects=1024
--- Searches from lying creatures per frame at most (each one is an area search).
+-- Searches from lying creatures per frame at most (each one is an area search), and from dead
+-- allies.
 M.maxLying=32
+M.maxFallen=8
+-- m_durationType of an effect with time left (the lab's effect timing, learned.md).
+M.timedEffect=4096
 -- STATS.IDS for the defence slice: ARMORCLASS, THAC0, NUMBEROFATTACKS, DAMAGEBONUS,
 -- THAC0BONUSRIGHT, DAMAGEBONUSRIGHT, STONESKINS, HITBONUS. In the lab the right-hand bonuses
 -- held strength, proficiency and the weapon's own bonus to hit (probe F: a fighter with 18
@@ -62,7 +66,8 @@ local function name(field)
 end
 
 -- The plain facts every frame carries for one creature: also its armour class, the creature
--- its current action is aimed at (-1 for none), and its Stoneskin skins and Mirror Images.
+-- its current action is aimed at (-1 for none), its Stoneskin skins and Mirror Images, and the
+-- levels drained from it.
 function M.actor(g,sprite)
     local state=g.EEex_Sprite_GetState(sprite)
     local action=sprite.m_curAction
@@ -73,7 +78,7 @@ function M.actor(g,sprite)
         hp=sprite.m_baseStats.m_hitPoints,maxHp=stat(g,sprite,M.stats.maxHp),
         mr=stat(g,sprite,M.stats.mr),action=action.m_actionID,ac=stat(g,sprite,M.combat.ac),
         actee=type(actee)=='number' and actee or -1,skins=stat(g,sprite,M.combat.stoneskins),
-        mirror=type(mirror)=='number' and mirror or 0}
+        mirror=type(mirror)=='number' and mirror or 0,drained=stat(g,sprite,M.stats.levelDrain)}
 end
 -- A creature's THAC0 with its right-hand and general hit bonuses (as M.attack counts it).
 function M.thac0(g,sprite)
@@ -81,7 +86,8 @@ function M.thac0(g,sprite)
 end
 
 -- Creature IDS values, saving throws, resistances, level and the spell protections in both
--- effect lists.
+-- effect lists. A protection with time left (from a spell or a potion, not an item or the
+-- creature itself) is marked timed.
 function M.details(g,sprite,entry)
     local t=sprite.m_typeAI
     entry.ids={ea=t.m_EnemyAlly,general=t.m_General,race=t.m_Race,class=t.m_Class,
@@ -93,14 +99,14 @@ function M.details(g,sprite,entry)
     for _,n in ipairs(M.levels) do level=math.max(level,stat(g,sprite,n)) end
     entry.level=level
     local found={}
-    for _,list in ipairs({sprite.m_timedEffectList,sprite.m_equipedEffectList}) do
+    for n,list in ipairs({sprite.m_timedEffectList,sprite.m_equipedEffectList}) do
         local seen=0
         g.EEex_Utility_IterateCPtrList(list,function(effect)
             seen=seen+1
             if seen>M.maxEffects then return true end
             if M.protections[effect.m_effectId] then
                 found[#found+1]={opcode=effect.m_effectId,p1=effect.m_effectAmount,p2=effect.m_dWFlags,
-                    res=text(effect.m_res:get())}
+                    res=text(effect.m_res:get()),timed=n==1 and effect.m_durationType==M.timedEffect}
             end
         end)
     end
@@ -290,10 +296,11 @@ function M.side(ea)
     if ea>=2 and ea<=M.GOOD_CUTOFF then return 'good' end
 end
 
--- The living creatures lying in the area's back list that this creature sees: the area search
--- from where each one lies, with this creature's terrain table for line of sight, finds it.
--- consider(object) files a sprite as ally or enemy; seen holds the ids already filed.
-local function lying(g,sprite,self,seen,consider)
+-- The creatures lying in the area's back list that this creature sees: the area search from
+-- where each one lies, with this creature's terrain table for line of sight, finds it. A living
+-- one goes to consider(object), which files it as ally or enemy; a dead ally goes to fallen, as
+-- its id, position, state and gender. seen holds the ids already filed.
+local function lying(g,sprite,self,seen,consider,fallen)
     local area=sprite.m_pArea
     local back=area and area.m_lVertSortBack
     if not back then return end
@@ -301,17 +308,25 @@ local function lying(g,sprite,self,seen,consider)
     g.EEex_Utility_IterateCPtrList(back,function(id) ids[#ids+1]=id end)
     local ok,terrain=pcall(function() return sprite:virtual_GetVisibleTerrainTable() end)
     if not ok then terrain=nil end
-    local searches=0
+    local own=M.side(self.ea)
+    local searches,dead=0,0
     for _,id in ipairs(ids) do
-        if searches>=M.maxLying then return end
         local object=not seen[id] and id~=self.id and g.EEex_GameObject_Get(id)
-        if object and g.EEex_GameObject_IsSprite(object,false) and M.side(object.m_typeAI.m_EnemyAlly)~=nil then
-            seen[id]=true
-            searches=searches+1
-            local found=false
-            g.EEex_Area_ForAllOfTypeStringInRange(area,object.m_pos.x,object.m_pos.y,'[ANYONE]',M.sightRange,
-                function(other) if other~=nil and other.m_id==self.id then found=true end end,1,0,terrain)
-            if found then consider(object) end
+        if object and g.EEex_GameObject_IsSprite(object,true) then
+            local side=M.side(object.m_typeAI.m_EnemyAlly)
+            local living=g.EEex_GameObject_IsSprite(object,false)
+            if side~=nil and ((living and searches<M.maxLying) or (not living and side==own and dead<M.maxFallen)) then
+                seen[id]=true
+                if living then searches=searches+1 else dead=dead+1 end
+                local found=false
+                g.EEex_Area_ForAllOfTypeStringInRange(area,object.m_pos.x,object.m_pos.y,'[ANYONE]',M.sightRange,
+                    function(other) if other~=nil and other.m_id==self.id then found=true end end,1,0,terrain)
+                if found and living then consider(object)
+                elseif found then
+                    fallen[#fallen+1]={id=object.m_id,x=object.m_pos.x,y=object.m_pos.y,
+                        state=g.EEex_Sprite_GetState(object),gender=object.m_typeAI.m_Gender}
+                end
+            end
         end
     end
 end
@@ -324,7 +339,7 @@ function M.frame(g,sprite,tick,detailed)
     if side==nil then return nil end
     self.seeInvisible=stat(g,sprite,M.stats.seeInvisible)>0 or stat(g,sprite,M.stats.trueSight)>0
     local area=sprite.m_pArea
-    local frame={tick=tick,area=area and text(area.m_resref:get()) or '',self=self,enemies={},allies={}}
+    local frame={tick=tick,area=area and text(area.m_resref:get()) or '',self=self,enemies={},allies={},fallen={}}
     if band(g,self.state,M.blind)~=0 then return frame end
     local seen={}
     local function consider(object)
@@ -344,9 +359,10 @@ function M.frame(g,sprite,tick,detailed)
         seen[object.m_id]=true
         consider(object)
     end,1,0)
-    lying(g,sprite,self,seen,consider)
+    lying(g,sprite,self,seen,consider,frame.fallen)
     table.sort(frame.enemies,function(a,b) return a.id<b.id end)
     table.sort(frame.allies,function(a,b) return a.id<b.id end)
+    table.sort(frame.fallen,function(a,b) return a.id<b.id end)
     return frame
 end
 return M

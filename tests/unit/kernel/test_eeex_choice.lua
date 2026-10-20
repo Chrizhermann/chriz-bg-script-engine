@@ -820,6 +820,17 @@ local slinger=g10.add(armed(sprite(3,0,1200,255),35,'TESTSLNG'))
 g10.add(sprite(13,60,1200,2))
 g10.ticks=500
 assert(g10.BGSE_Claim(slinger,'mage','s1')==false and last10('choice',3)==nil)
+-- A mage with a summons ready and a staff in hand: SCS keeps the round, and the decline names the
+-- spell it keeps it for.
+records.TESTSUMN=spl('TESTSUMN',3,{fx(67,{target=1,res='TESTMON'})},5,1)
+local summoner=g10.add(armed(sprite(4,0,1800,255),35,'TESTSTAF'))
+summoner.stats[8],summoner.stats[7],summoner.stats[2]=1,14,8
+learn(summoner,3,'TESTSUMN')
+g10.add(sprite(14,60,1800,2)).stats[2]=5
+g10.ticks=600
+assert(g10.BGSE_Claim(summoner,'mage','s1')==false)
+local kept=last10('decline',4)
+assert(kept and kept.reason=='scs-summon' and kept.kept=='TESTSUMN' and kept.top[1].kind=='weapon')
 groups=groups+1
 
 return groups

@@ -127,6 +127,19 @@ local f=sense.frame(g,m1,100,true)
 assert(f.area=='AR0001' and f.self.id==1 and #f.allies==1 and f.allies[1].id==2)
 assert(#f.enemies==3 and f.enemies[1].id==11 and f.enemies[3].id==13)
 assert(#f.enemies[3].protections==1 and f.enemies[3].protections[1].p2==175 and f.enemies[1].ids.general==1)
+-- A protection with time left is marked timed; one from an item is not. Drained levels come along.
+local spell,worn=effect(102,5,0),effect(120,0,0)
+spell.m_durationType,worn.m_durationType=4096,2
+g.objects[13].m_timedEffectList={effect(101,0,175),spell}
+g.objects[13].m_equipedEffectList={worn}
+m2.stats[200]=2
+f=sense.frame(g,m1,100,true)
+local p=f.enemies[3].protections
+assert(#p==3 and p[1].timed==false and p[2].opcode==102 and p[2].timed==true and p[3].opcode==120 and p[3].timed==false)
+assert(f.allies[1].drained==2 and f.self.drained==0 and #f.fallen==0)
+g.objects[13].m_timedEffectList={effect(101,0,175),effect(12,5,0)}
+g.objects[13].m_equipedEffectList={}
+m2.stats[200]=nil
 assert(f.enemies[2].hp==5 and f.enemies[2].maxHp==20 and sense.frame(g,m1,100,false).enemies[1].ids==nil)
 -- Lying down (15 asleep, 16 dead) means the back list, which the area search leaves out: a
 -- living one counts as seen when the search from where it lies finds the observer.
@@ -135,9 +148,18 @@ g.add(sprite(16,130,0,2,{lying=true,state=0x800}))
 AREA.m_lVertSortBack={16,15}
 f=sense.frame(g,m1,100,true)
 assert(#f.enemies==4 and f.enemies[4].id==15 and f.enemies[4].state==0x1 and f.enemies[4].ids.class==1)
-assert(g.searchesFromLying==1)
+assert(g.searchesFromLying==1 and #f.fallen==0)
+-- A dead ally seen the same way is listed apart with its state and gender; a dead enemy is not.
+g.add(sprite(17,140,0,255,{lying=true,state=0x880}))
+AREA.m_lVertSortBack={16,15,17}
+f=sense.frame(g,m1,100,true)
+assert(#f.fallen==1 and f.fallen[1].id==17 and f.fallen[1].state==0x880 and f.fallen[1].gender==1)
+assert(#f.allies==1 and #f.enemies==4 and g.searchesFromLying==3)
+AREA.m_lVertSortBack={16,15}
 g.wall=true
 assert(#sense.frame(g,m1,100,false).enemies==3)
+AREA.m_lVertSortBack={16,15,17}
+assert(#sense.frame(g,m1,100,false).fallen==0)
 g.wall=nil
 AREA.m_lVertSortBack={}
 m1.stats[81]=1

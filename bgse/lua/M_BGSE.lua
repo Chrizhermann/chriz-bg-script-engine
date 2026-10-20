@@ -1534,7 +1534,8 @@ M.default={
     -- Weapon attacks (D2c): the weapon in hand as an attack, and spells that conjure one.
     weapons=true,
     -- Instead of no cast, a weapon attack waits while the caster has a spell ready that the
-    -- engine does not cast yet (summons, removal, healing, raising, curing); SCS keeps the round.
+    -- engine does not cast yet (summons, removal, healing, raising, curing) and that fits now
+    -- (combat-intent/choice.lua, M.fits); SCS keeps the round.
     keepScsSpells=true,
 }
 
@@ -2539,8 +2540,8 @@ factories["combat-intent.choice"]=function(require)
 -- that conjures a weapon is worth the hits the weapon deals in the rounds after, as many as it
 -- lasts within the horizon. Neither in the caster's own Time Stop nor under Improved Alacrity.
 -- Until the engine casts summons, protection removal, healing, raising and curing itself, SCS
--- keeps a round the engine would only attack in while the caster has such a spell ready
--- (Christopher, 2026-10-20; profile keepScsSpells).
+-- keeps a round the engine would only attack in while the caster has such a spell ready that fits
+-- now (M.fits; Christopher, 2026-10-20: "nur wenn jetzt sinnvoll"; profile keepScsSpells).
 local targeting=require('combat-intent.targeting')
 local defence=require('combat-intent.defence')
 local openers=require('combat-intent.openers')
@@ -2575,6 +2576,24 @@ M.RESIST={fire='fire',cold='cold',electricity='electricity',acid='acid',magic='m
 -- curing, raising and summoning are other decisions (later slices).
 local OTHER={'removal','heal','raise','cure','summon'}
 local GLOBAL={everyone=true,nonparty=true,casterGroup=true,party=true}
+-- What makes such a spell fit now (M.fits). The STATE.IDS bit each cured condition shows in; holds
+-- also set the HELD stat, level drain the LEVELDRAIN stat, and a petrified ally lies among the
+-- fallen. Curses, deafness, imprisonment, fatigue and the casting pause show in nothing the engine
+-- reads, so a cure for those alone does not fit.
+M.CURED={sleep=0x1,berserk=0x2,panic=0x4,stun=0x8,hold=0x20,silence=0x1000,poison=0x4000,blind=0x40000,
+    disease=0x80000,feeblemind=0x100000,confusion=0x80000000}
+-- STATE_STONE_DEATH; frozen and exploding deaths (STATE_FROZEN_DEATH, STATE_EXPLODING_DEATH)
+-- leave no body to raise or cure.
+M.STONE,M.SHATTERED=0x80,0x140
+-- Protective states a dispel or a stripping spell takes away: invisible, nondetection, improved
+-- invisibility, blur, mirror image.
+M.SHIELDED=0x60600010
+-- GENDER.IDS: SUMMONED, ILLUSIONARY, SUMMONED_DEMON.
+M.SUMMONED={[6]=true,[7]=true,[9]=true}
+-- Removed opcodes that show without an effect entry: Stoneskin's skins, Mirror Image's images,
+-- invisibility, blur and nondetection as states.
+local SHOWS={[218]='skins',[314]='skins',[119]='mirror',[159]='mirror'}
+local SHOWN_STATE={[20]=0x400010,[65]=0x20000000,[69]=0x200000}
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
 local function clamp(v,a,b) if v<a then return a elseif v>b then return b end return v end
@@ -3114,15 +3133,115 @@ function M.weaponOptions(input,rejected)
     return out
 end
 
--- The kind of spell the caster has ready that the engine does not cast yet and SCS may use
--- (removal, heal, raise, cure, summon), or nil.
+local function list(t) return type(t)=='table' and t or {} end
+-- Whether a role reaches creatures other than its caster.
+local function others(role)
+    for who in pairs(role.who) do if who~='self' then return true end end
+    return false
+end
+local function ails(f,label)
+    if label=='hold' and number(f.held) and f.held>0 then return true end
+    if label=='drain' then return number(f.drained) and f.drained>0 end
+    local bit=M.CURED[label]
+    return bit~=nil and targeting.has(f.state,bit)
+end
+-- A protection from a spell with time left (sense.lua marks it timed; an item's does not count),
+-- Stoneskin skins, Mirror Images or a protective state: what a dispel or a stripping spell takes.
+local function shielded(e)
+    if (number(e.skins) and e.skins>0) or (number(e.mirror) and e.mirror>0) or targeting.has(e.state,M.SHIELDED) then
+        return true
+    end
+    for _,p in ipairs(list(e.protections)) do if type(p)=='table' and p.timed then return true end end
+    return false
+end
+-- Whether an enemy carries an effect of opcode op that a removal by opcode takes away.
+local function carries(e,op)
+    local field=SHOWS[op]
+    if field then return number(e[field]) and e[field]>0 end
+    if SHOWN_STATE[op] then return targeting.has(e.state,SHOWN_STATE[op]) end
+    for _,p in ipairs(list(e.protections)) do if type(p)=='table' and p.timed and p.opcode==op then return true end end
+    return false
+end
+local function summoned(e) return type(e.ids)=='table' and M.SUMMONED[e.ids.gender]==true end
+-- Whether an enemy has what a removal of each kind takes away. Clouds show in nothing the engine
+-- reads: a removal of clouds alone does not fit.
+local REMOVED={dispel=shielded,schools=shielded,secondaries=shielded,
+    invisibility=function(e) return targeting.has(e.state,UNSEEN) end,
+    nondetection=function(e) return targeting.has(e.state,0x200000) end,
+    sanctuary=function(e) return number(e.sanctuary) and e.sanctuary>0 end,
+    summons=summoned,destroy=summoned,replace=summoned}
+
+-- Whether a role of a spell the engine leaves to SCS fits now (Christopher, 2026-10-20): a summons
+-- always; healing when the caster is below its selfHealth line or an ally it reaches below
+-- allyHealth (where SCS's priests heal: the profile's defer); raising when an ally it sees lies
+-- dead with a body, not a summons; curing when the caster or an ally it reaches has a condition
+-- the spell cures; removal when an enemy it sees has what the spell takes away. A spell on the
+-- caster alone reaches only the caster.
+function M.fits(input,name,role)
+    if type(role)~='table' or type(role.who)~='table' or next(role.who)==nil then return false end
+    if name=='summon' then return true end
+    local frame=input.frame
+    local caster=frame.self
+    local wide=others(role)
+    local friends={caster}
+    if wide then
+        for _,a in ipairs(list(frame.allies)) do if targeting.alive(a) then friends[#friends+1]=a end end
+    end
+    if name=='heal' then
+        local defer=type(input.mind.defer)=='table' and input.mind.defer or {}
+        for _,f in ipairs(friends) do
+            local line=f==caster and defer.selfHealth or defer.allyHealth
+            if targeting.health(f)<(number(line) and line or 1) then return true end
+        end
+        return false
+    end
+    local fallen=wide and list(frame.fallen) or {}
+    if name=='raise' then
+        for _,f in ipairs(fallen) do
+            if type(f)=='table' and not targeting.has(f.state,M.STONE+M.SHATTERED) and not M.SUMMONED[f.gender] then
+                return true
+            end
+        end
+        return false
+    end
+    local kinds=list(role.kinds)
+    if name=='cure' then
+        for label in pairs(kinds) do
+            for _,f in ipairs(friends) do if ails(f,label) then return true end end
+            if label=='petrify' then
+                for _,f in ipairs(fallen) do
+                    if type(f)=='table' and targeting.has(f.state,M.STONE) and not targeting.has(f.state,M.SHATTERED) then
+                        return true
+                    end
+                end
+            end
+        end
+        return false
+    end
+    if name=='removal' and wide then
+        for _,e in ipairs(frame.enemies) do
+            if targeting.alive(e) then
+                for label in pairs(kinds) do
+                    local test=REMOVED[label]
+                    if test and test(e) then return true end
+                    if label=='opcodes' then
+                        for op in pairs(list(role.opcodes)) do if carries(e,op) then return true end end
+                    end
+                end
+            end
+        end
+    end
+    return false
+end
+
+-- The kind and resref of a spell the caster has ready that the engine does not cast yet (removal,
+-- heal, raise, cure, summon) and that fits now (M.fits), or nil.
 function M.scsSpell(input)
     for _,row in ipairs(type(input.spells)=='table' and input.spells or {}) do
         if type(row)=='table' and number(row.ready) and row.ready>0 and row.usable and
             type(row.spell)=='table' and type(row.spell.roles)=='table' then
             for _,name in ipairs(OTHER) do
-                local role=row.spell.roles[name]
-                if type(role)=='table' and type(role.who)=='table' and next(role.who)~=nil then return name end
+                if M.fits(input,name,row.spell.roles[name]) then return name,row.resref end
             end
         end
     end
@@ -3201,7 +3320,8 @@ function M.frozen(input)
 end
 
 -- The attack, defence, opener or strike to do now, or nil and why; the options come along for
--- the log, and with 'no-option' the count of reasons the ready spells gave none.
+-- the log, and with 'no-option' the count of reasons the ready spells gave none. When SCS keeps
+-- the round for a spell that fits now, that spell's resref comes last.
 function M.decide(input)
     if type(input)~='table' or type(input.frame)~='table' or type(input.frame.self)~='table' or
         type(input.frame.enemies)~='table' or type(input.mind)~='table' then return nil,'bad-input',{} end
@@ -3223,7 +3343,8 @@ function M.decide(input)
     table.sort(options,better)
     -- A weapon attack spends nothing: it needs no minimum worth, and it is taken over a spell
     -- only when it is worth more. Instead of no cast at all it waits while the caster has a spell
-    -- ready that the engine does not cast yet: SCS keeps that round ('scs-' and the kind).
+    -- ready that the engine does not cast yet and that fits now: SCS keeps that round ('scs-' and
+    -- the kind).
     local swings=mind.weapons and M.weaponOptions(input,rejected) or {}
     local swing=swings[1]
     local function all()
@@ -3235,14 +3356,16 @@ function M.decide(input)
     end
     local function instead()
         if not swing or swing.score<=0 then return nil end
-        local kept=mind.keepScsSpells and M.scsSpell(input)
-        if kept then return nil,'scs-'..kept end
+        if mind.keepScsSpells then
+            local kind,spell=M.scsSpell(input)
+            if kind then return nil,'scs-'..kind,spell end
+        end
         return swing
     end
     if #options==0 then
-        local s,kept=instead()
+        local s,kept,spell=instead()
         if s then return s,'weapon',all() end
-        return nil,kept or 'no-option',kept and all() or options,rejected
+        return nil,kept or 'no-option',kept and all() or options,rejected,spell
     end
     -- Under Improved Alacrity a slow spell waits while a quick one reaches the minimum worth
     -- (SCS's slow spells and its compromise).
@@ -3253,9 +3376,9 @@ function M.decide(input)
     end
     local best=options[1]
     if best.score<mind.minValue then
-        local s,kept=instead()
+        local s,kept,spell=instead()
         if s then return s,'weapon',all() end
-        return nil,kept or 'nothing-good',kept and all() or options,rejected
+        return nil,kept or 'nothing-good',kept and all() or options,rejected,spell
     end
     if swing and swing.score>best.score then return swing,'weapon',all() end
     local rng=input.rng
@@ -3781,7 +3904,7 @@ factories["adapters.eeex.sense"]=function(require)
 -- trigger counts them) and minus the invisible ones unless it sees invisible creatures. That
 -- search walks only the area's front list; creatures lying down (asleep, unconscious) are in
 -- the back list with the dead, and one counts as seen when the same search from where it lies
--- finds this creature. Sides
+-- finds this creature; the dead allies seen that way are listed apart (frame.fallen). Sides
 -- follow the engine's EA groups: for a creature on the evil side (EA 200 and up) the good side
 -- (EA 2 to 30) are enemies and the evil side are allies. With details, each enemy also carries
 -- its creature IDS values, saves, resistances, level and the spell protections a script can
@@ -3794,8 +3917,8 @@ local M={}
 -- A sprite's default visual range in EEex's area search.
 M.sightRange=448
 M.GOOD_CUTOFF,M.EVIL_CUTOFF=30,200
--- STATS.IDS: MAXHITPOINTS, RESISTMAGIC, HELD, SANCTUARY, SEEINVISIBLE, TRUE_SIGHT.
-M.stats={maxHp=1,mr=18,held=58,sanctuary=63,seeInvisible=81,trueSight=118}
+-- STATS.IDS: MAXHITPOINTS, RESISTMAGIC, HELD, SANCTUARY, SEEINVISIBLE, TRUE_SIGHT, LEVELDRAIN.
+M.stats={maxHp=1,mr=18,held=58,sanctuary=63,seeInvisible=81,trueSight=118,levelDrain=200}
 -- STATE_INVISIBLE and STATE_IMPROVEDINVISIBILITY; STATE_BLIND.
 M.unseen,M.blind=0x400010,0x40000
 -- STATS.IDS: the saving throws, resistances and levels SCS's attack blocks read about their
@@ -3811,8 +3934,12 @@ for _,op in ipairs({83,101,102,120,197,198,199,200,201,202,203,204,205,206,207,2
 end
 -- Effects read per list at most, so a creature with a runaway effect list costs little.
 M.maxEffects=1024
--- Searches from lying creatures per frame at most (each one is an area search).
+-- Searches from lying creatures per frame at most (each one is an area search), and from dead
+-- allies.
 M.maxLying=32
+M.maxFallen=8
+-- m_durationType of an effect with time left (the lab's effect timing, learned.md).
+M.timedEffect=4096
 -- STATS.IDS for the defence slice: ARMORCLASS, THAC0, NUMBEROFATTACKS, DAMAGEBONUS,
 -- THAC0BONUSRIGHT, DAMAGEBONUSRIGHT, STONESKINS, HITBONUS. In the lab the right-hand bonuses
 -- held strength, proficiency and the weapon's own bonus to hit (probe F: a fighter with 18
@@ -3840,7 +3967,8 @@ local function name(field)
 end
 
 -- The plain facts every frame carries for one creature: also its armour class, the creature
--- its current action is aimed at (-1 for none), and its Stoneskin skins and Mirror Images.
+-- its current action is aimed at (-1 for none), its Stoneskin skins and Mirror Images, and the
+-- levels drained from it.
 function M.actor(g,sprite)
     local state=g.EEex_Sprite_GetState(sprite)
     local action=sprite.m_curAction
@@ -3851,7 +3979,7 @@ function M.actor(g,sprite)
         hp=sprite.m_baseStats.m_hitPoints,maxHp=stat(g,sprite,M.stats.maxHp),
         mr=stat(g,sprite,M.stats.mr),action=action.m_actionID,ac=stat(g,sprite,M.combat.ac),
         actee=type(actee)=='number' and actee or -1,skins=stat(g,sprite,M.combat.stoneskins),
-        mirror=type(mirror)=='number' and mirror or 0}
+        mirror=type(mirror)=='number' and mirror or 0,drained=stat(g,sprite,M.stats.levelDrain)}
 end
 -- A creature's THAC0 with its right-hand and general hit bonuses (as M.attack counts it).
 function M.thac0(g,sprite)
@@ -3859,7 +3987,8 @@ function M.thac0(g,sprite)
 end
 
 -- Creature IDS values, saving throws, resistances, level and the spell protections in both
--- effect lists.
+-- effect lists. A protection with time left (from a spell or a potion, not an item or the
+-- creature itself) is marked timed.
 function M.details(g,sprite,entry)
     local t=sprite.m_typeAI
     entry.ids={ea=t.m_EnemyAlly,general=t.m_General,race=t.m_Race,class=t.m_Class,
@@ -3871,14 +4000,14 @@ function M.details(g,sprite,entry)
     for _,n in ipairs(M.levels) do level=math.max(level,stat(g,sprite,n)) end
     entry.level=level
     local found={}
-    for _,list in ipairs({sprite.m_timedEffectList,sprite.m_equipedEffectList}) do
+    for n,list in ipairs({sprite.m_timedEffectList,sprite.m_equipedEffectList}) do
         local seen=0
         g.EEex_Utility_IterateCPtrList(list,function(effect)
             seen=seen+1
             if seen>M.maxEffects then return true end
             if M.protections[effect.m_effectId] then
                 found[#found+1]={opcode=effect.m_effectId,p1=effect.m_effectAmount,p2=effect.m_dWFlags,
-                    res=text(effect.m_res:get())}
+                    res=text(effect.m_res:get()),timed=n==1 and effect.m_durationType==M.timedEffect}
             end
         end)
     end
@@ -4068,10 +4197,11 @@ function M.side(ea)
     if ea>=2 and ea<=M.GOOD_CUTOFF then return 'good' end
 end
 
--- The living creatures lying in the area's back list that this creature sees: the area search
--- from where each one lies, with this creature's terrain table for line of sight, finds it.
--- consider(object) files a sprite as ally or enemy; seen holds the ids already filed.
-local function lying(g,sprite,self,seen,consider)
+-- The creatures lying in the area's back list that this creature sees: the area search from
+-- where each one lies, with this creature's terrain table for line of sight, finds it. A living
+-- one goes to consider(object), which files it as ally or enemy; a dead ally goes to fallen, as
+-- its id, position, state and gender. seen holds the ids already filed.
+local function lying(g,sprite,self,seen,consider,fallen)
     local area=sprite.m_pArea
     local back=area and area.m_lVertSortBack
     if not back then return end
@@ -4079,17 +4209,25 @@ local function lying(g,sprite,self,seen,consider)
     g.EEex_Utility_IterateCPtrList(back,function(id) ids[#ids+1]=id end)
     local ok,terrain=pcall(function() return sprite:virtual_GetVisibleTerrainTable() end)
     if not ok then terrain=nil end
-    local searches=0
+    local own=M.side(self.ea)
+    local searches,dead=0,0
     for _,id in ipairs(ids) do
-        if searches>=M.maxLying then return end
         local object=not seen[id] and id~=self.id and g.EEex_GameObject_Get(id)
-        if object and g.EEex_GameObject_IsSprite(object,false) and M.side(object.m_typeAI.m_EnemyAlly)~=nil then
-            seen[id]=true
-            searches=searches+1
-            local found=false
-            g.EEex_Area_ForAllOfTypeStringInRange(area,object.m_pos.x,object.m_pos.y,'[ANYONE]',M.sightRange,
-                function(other) if other~=nil and other.m_id==self.id then found=true end end,1,0,terrain)
-            if found then consider(object) end
+        if object and g.EEex_GameObject_IsSprite(object,true) then
+            local side=M.side(object.m_typeAI.m_EnemyAlly)
+            local living=g.EEex_GameObject_IsSprite(object,false)
+            if side~=nil and ((living and searches<M.maxLying) or (not living and side==own and dead<M.maxFallen)) then
+                seen[id]=true
+                if living then searches=searches+1 else dead=dead+1 end
+                local found=false
+                g.EEex_Area_ForAllOfTypeStringInRange(area,object.m_pos.x,object.m_pos.y,'[ANYONE]',M.sightRange,
+                    function(other) if other~=nil and other.m_id==self.id then found=true end end,1,0,terrain)
+                if found and living then consider(object)
+                elseif found then
+                    fallen[#fallen+1]={id=object.m_id,x=object.m_pos.x,y=object.m_pos.y,
+                        state=g.EEex_Sprite_GetState(object),gender=object.m_typeAI.m_Gender}
+                end
+            end
         end
     end
 end
@@ -4102,7 +4240,7 @@ function M.frame(g,sprite,tick,detailed)
     if side==nil then return nil end
     self.seeInvisible=stat(g,sprite,M.stats.seeInvisible)>0 or stat(g,sprite,M.stats.trueSight)>0
     local area=sprite.m_pArea
-    local frame={tick=tick,area=area and text(area.m_resref:get()) or '',self=self,enemies={},allies={}}
+    local frame={tick=tick,area=area and text(area.m_resref:get()) or '',self=self,enemies={},allies={},fallen={}}
     if band(g,self.state,M.blind)~=0 then return frame end
     local seen={}
     local function consider(object)
@@ -4122,9 +4260,10 @@ function M.frame(g,sprite,tick,detailed)
         seen[object.m_id]=true
         consider(object)
     end,1,0)
-    lying(g,sprite,self,seen,consider)
+    lying(g,sprite,self,seen,consider,frame.fallen)
     table.sort(frame.enemies,function(a,b) return a.id<b.id end)
     table.sort(frame.allies,function(a,b) return a.id<b.id end)
+    table.sort(frame.fallen,function(a,b) return a.id<b.id end)
     return frame
 end
 return M
@@ -4994,7 +5133,7 @@ function M.new(g,options)
             input.timeStop={caster=holder,left=left}
             if holder==id then input.stopCasts=stopCasts[id] or {} end
         end
-        local d,why,options,rejected=choice.decide(input)
+        local d,why,options,rejected,kept=choice.decide(input)
         lastDetail=rejected
         local top={}
         for i=1,math.min(3,#options) do
@@ -5004,7 +5143,7 @@ function M.new(g,options)
         if not d then
             if why~='no-option' then
                 record({kind='decline',tick=tick,member=id,family=family,reason=why,top=top,charge=lastCharge,
-                    rejected=lastCharge and rejected or nil})
+                    rejected=lastCharge and rejected or nil,kept=kept})
             end
             return decline(why)
         end

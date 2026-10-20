@@ -607,10 +607,40 @@ without ammunition is no weapon.
 - **No minimum worth.** When no cast reaches `minValue`, the engine attacks instead of leaving the
   round to SCS; a weapon attack worth more than the best cast is taken over it.
 - **SCS keeps some of those rounds.** In rounds without a cast worth it, SCS used to cast what the
-  engine does not cast yet: summons, Breach and Dispel Magic, healing, raising, cures. So while the
-  caster has such a spell ready, the engine leaves a round it would only attack in to SCS (decline
-  `scs-summon`, `scs-removal`, `scs-heal`, `scs-raise` or `scs-cure`), until those spells become
-  engine actions (Christopher, 2026-10-20). Profile switch `keepScsSpells`.
+  engine does not cast yet: summons, Breach and Dispel Magic, healing, raising, cures. So the
+  engine leaves a round it would only attack in to SCS while the caster has such a spell ready
+  that fits now (decline `scs-summon`, `scs-removal`, `scs-heal`, `scs-raise` or `scs-cure`, the
+  spell logged as `kept`), until those spells become engine actions. The first version counted any
+  such spell ready and kept 60 rounds in batch G3, most for cures nobody needed (Vocalize kept 20
+  of one mage's), so only a spell that fits counts (Christopher, 2026-10-20: "nur wenn jetzt
+  sinnvoll"). Profile switch `keepScsSpells`. A spell fits (`choice.fits`):
+  - a summons: always;
+  - healing: the caster is below `defer.selfHealth` or an ally it reaches below
+    `defer.allyHealth` (where SCS's priests heal: 50% and 75%);
+  - raising: an ally it sees lies dead with a body (not frozen, petrified or exploded), not a
+    summons;
+  - a cure: the caster or an ally it reaches has the condition: its state, the HELD stat for
+    holds, LEVELDRAIN for drained levels, a petrified ally among the dead. Curses, deafness,
+    imprisonment, fatigue and the casting pause show in nothing the engine reads, so a cure for
+    those alone never fits;
+  - removal: an enemy it sees has what the spell takes away. For a dispel and the spells that
+    strip schools or types: a protection from a spell with time left (not an item's), Stoneskin
+    skins, Mirror Images, invisibility, nondetection or blur. By opcode: an effect of that opcode.
+    Sanctuary; invisibility; a summoned or illusory enemy for unsummoning and banishing. Clouds
+    never.
+  - A spell on the caster alone reaches only the caster: Vocalize fits only when the caster itself
+    is silenced, and then SCS's silenced rule has given it the round already.
+
+  For this, sense lists the dead allies a creature sees (`frame.fallen`: id, position, state and
+  gender, from the area's back list and searched like sleepers, at most eight a frame), reads
+  each creature's drained levels, and marks an enemy's protections with time left (`timed`:
+  `m_durationType` 4096 in its timed list).
+
+  Open: Spell Revisions' Greater Command wakes its sleepers after 6 seconds with a cure, which the
+  classifier reads as a cure role, so the engine does not cast it, and it keeps a round only when
+  an ally sleeps. Spells SR delivers through a helper creature (Ice Storm, Suffocate, Gust of
+  Wind, Shocking Grasp) carry a summon role and keep the round whenever ready; the engine cannot
+  cast the first three yet.
 - None with a touch charge in hand (the strike decides where that goes), in the caster's own
   Time Stop or under Improved Alacrity.
 

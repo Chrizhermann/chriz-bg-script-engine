@@ -58,7 +58,8 @@ M.default={
     -- Weapon attacks (D2c): the weapon in hand as an attack, and spells that conjure one.
     weapons=true,
     -- Instead of no cast, a weapon attack waits while the caster has a spell ready that the
-    -- engine does not cast yet (summons, removal, healing, raising, curing); SCS keeps the round.
+    -- engine does not cast yet (summons, removal, healing, raising, curing) and that fits now
+    -- (combat-intent/choice.lua, M.fits); SCS keeps the round.
     keepScsSpells=true,
 }
 
