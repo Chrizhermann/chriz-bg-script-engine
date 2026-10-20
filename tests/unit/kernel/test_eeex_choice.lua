@@ -90,7 +90,7 @@ local function world()
     return g
 end
 local function fx(op,fields)
-    local e={opcode=op,target=2,power=0,p1=0,p2=0,timing=0,resist=0,duration=0,prob1=100,prob2=0,
+    local e={opcode=op,target=2,power=0,p1=0,p2=0,timing=0,resist=1,duration=0,prob1=100,prob2=0,
         res='',dice=0,sides=0,save=0,saveBonus=0,special=0}
     for k,v in pairs(fields or {}) do e[k]=v end
     return e
@@ -782,8 +782,8 @@ groups=groups+1
 -- it attacks; once that is over, the hit points its target lost are recorded. A target that died
 -- releases it. A mage with Melf's Minute Meteors casts them on itself, then throws them: five
 -- attacks a round, each with its fire; no second casting while the meteors are in its hand. A
--- sling without bullets is no weapon. A removal that fits (an enemy that is summoned) keeps the
--- round for SCS.
+-- sling without bullets is no weapon. A summoned enemy is sent away by the engine's own removal
+-- (D3d).
 ITEMS.TESTSTAF=weapon('TESTSTAF',{flags=0},{dice=1,sides=6,damageType=2,thac0=1})
 ITEMS.TESTMET=weapon('TESTMET',{equipping={fx(1,{p1=5,p2=1,target=1,timing=2})}},{attackType=2,range=40,dice=1,sides=4,
     damageType=4,thac0=2,charges=10,depletion=1,effects={fx(12,{dice=1,sides=4,p2=8*65536,timing=1})}})
@@ -859,7 +859,7 @@ g10.add(sprite(13,60,1200,2))
 g10.ticks=500
 assert(g10.BGSE_Claim(slinger,'mage','s1')==false and last10('choice',3)==nil)
 -- A mage with a spell that sends summoned creatures away, a staff in hand and a summoned enemy:
--- SCS keeps the round, and the decline names the spell it keeps it for.
+-- the engine casts it at that enemy, worth a kill.
 records.TESTUNSU=spl('TESTUNSU',5,{fx(68)},1,2)
 local unsummoner=g10.add(armed(sprite(4,0,1800,255),35,'TESTSTAF'))
 unsummoner.stats[8],unsummoner.stats[7],unsummoner.stats[2]=1,14,8
@@ -868,9 +868,10 @@ local summonedFoe=g10.add(sprite(14,60,1800,2))
 summonedFoe.stats[2]=5
 summonedFoe.m_typeAI.m_Gender=6
 g10.ticks=600
-assert(g10.BGSE_Claim(unsummoner,'mage','s1')==false)
-local kept=last10('decline',4)
-assert(kept and kept.reason=='scs-removal' and kept.kept=='TESTUNSU' and kept.top[1].kind=='weapon')
+assert(g10.BGSE_Claim(unsummoner,'mage','s1')==true)
+local unsummon=last10('choice',4)
+assert(unsummon and unsummon.castKind=='removal' and unsummon.spell=='TESTUNSU' and unsummon.target==14 and
+    unsummon.mode=='creature' and ch10:inspect().counts.removals==1)
 groups=groups+1
 
 -- 20. Releases (D2b). A mage with SCS's kind of sequencer (an innate that casts two bolts at its
@@ -971,6 +972,58 @@ learn(voidCaster,2,'TESTVOID')
 g12.add(sprite(12,200,1200,2))
 g12.ticks=200
 assert(g12.BGSE_Claim(voidCaster,'mage','s1')==false and ch12:inspect().counts.summons==1)
+groups=groups+1
+
+-- 22. Protection removal (D3d). A mage with Breach and a fighter ally with a magical sword at an
+-- enemy whose Protection from Magical Weapons (a timed effect of secondary type 7) keeps the sword
+-- out: the engine reads the enemy's effects (sense.wards, each classified once) and breaches it
+-- with SpellRES at EEex_Target; once the cast is over and the protection gone, the removal took.
+records.TESTBRCH=spl('TESTBRCH',5,{fx(221,{p1=9,p2=7,resist=2})},1,2)
+local g13=world()
+local breacher=g13.add(sprite(1,0,0,255))
+learn(breacher,4,'TESTBRCH')
+local warded=g13.add(sprite(11,60,0,2))
+warded.stats[2]=5
+local function pfmw()
+    return {m_effectId=120,m_durationType=4096,m_duration=100+9000,m_effectAmount=0,m_dWFlags=1,m_res=str(''),
+        m_sourceRes=str('TESTPFMW'),m_school=0,m_secondaryType=7,m_spellLevel=8,m_casterLevel=15,m_flags=1,
+        m_numDice=0,m_diceSize=0,m_special=0}
+end
+warded.m_timedEffectList={pfmw()}
+g13.add(armed(sprite(2,30,0,255),35,'TESTSWRD'))
+local wards=sense.wards(g13,warded,100,function() return {} end)
+assert(#wards==1 and wards[1].opcode==120 and wards[1].source=='TESTPFMW' and wards[1].secondary==7 and
+    wards[1].power==8 and wards[1].level==15 and wards[1].dispellable and wards[1].timed and not wards[1].lasting)
+local dir13=directors.new(g13,{reader=reader})
+local ch13=choices.new(g13,{reader=reader,director=dir13,seed=22})
+local rows13={}
+ch13:setSink(function(row) rows13[#rows13+1]=row end)
+runtime.install(g13,{director=dir13,choice=ch13,version='test'})
+local function last13(kind)
+    for n=#rows13,1,-1 do if rows13[n].kind==kind then return rows13[n] end end
+end
+g13.ticks=100
+assert(g13.BGSE_Claim(breacher,'mage','s1')==true)
+local c13=last13('choice')
+assert(c13.castKind=='removal' and c13.spell=='TESTBRCH' and c13.mode=='creature' and c13.target==11)
+assert(ch13:inspect().counts.removals==1 and ch13:inspect().counts.wardFailures==0)
+g13.BGSE_Act(breacher)
+assert(g13.queued[#g13.queued].text=='SetGlobalTimer("castspell","LOCALS",ONE_ROUND)\nSpellRES("TESTBRCH",EEex_Target("BGSE"))')
+g13.listeners.started[1](breacher,action(31,'TESTBRCH',11))
+-- The cast is over and the protection is gone.
+breacher.m_curAction={m_actionID=0};breacher.book[4][1].m_flags=0
+warded.m_timedEffectList={}
+g13.ticks=130
+g13.BGSE_Claim(breacher,'mage','s1')
+g13.ticks=165
+g13.BGSE_Claim(breacher,'mage','s1')
+local s13=last13('strip')
+assert(s13 and s13.spell=='TESTBRCH' and s13.enemies==1 and s13.took==1 and ch13:inspect().counts.stripped==1)
+-- Without the protection there is nothing to breach: the mage casts no removal.
+g13.ticks=300
+breacher.book[4][1].m_flags=1
+g13.BGSE_Claim(breacher,'mage','s1')
+assert(ch13:inspect().counts.removals==1)
 groups=groups+1
 
 return groups

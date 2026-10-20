@@ -48,6 +48,20 @@ eat magic, go at an enemy spellcaster. SCS summons one Deva at a time and choose
 the caster's alignment and the fiends already around; apart from that it counts no summons. Its
 preparation blocks also summon before a fight, out of sight of the enemy (pre-buffs).
 
+**Protection removal** (`mage/ssl/combatblocks/attacks_on_pc_defences.ssl`,
+`attack_antimagic.ssl`, `first_dispel.ssl`, `remove_magic.ssl`, `kill_summons.ssl`; trigger blocks
+in `ssl/library.slb`): SCS's mages breach an enemy with Stoneskin or protections from weapons,
+damage or effects (`BreachTarget`; first those marked `PRIORITY_BREACH`: Chaotic Commands, Death
+Ward, Protection from Magic Energy, PfMW). Spell Shield goes to Warding Whip, Secret Word, Spell
+Thrust, Pierce Magic or Ruby Ray; turnings and other spell protections to the Breach, Power Word
+Silence and Secret Word sequencer, Secret Word, Spell Strike, Ruby Ray, Warding Whip or Spell
+Thrust; magic resistance from 40 up to Lower Resistance (also three at once). Dispel Magic goes at
+an enemy with protections, enhancements or Stoneskin (`DispelTarget`), opportunistically early in
+a fight (`first_dispel`), but not while one of the party is disabled, in an Insect Plague, under
+Malison or (with Spell Revisions) turning to stone (`AvoidDispel`, `AvoidDispellingMalison`): the
+dispel would free them too. Death Spell kills summoned creatures up to level 8. Timers of 12 to
+18 seconds keep such casts apart.
+
 ## The engine's design
 
 ### Healing and curing (D3a, D3b; built 2026-10-20)
@@ -139,3 +153,62 @@ markers, helpers or creatures without a weapon.
 
 Open for Christopher: SCS summons one Deva at a time and picks Summon Fiend by alignment; the engine
 has no such rules yet. SCS also summons before a fight (pre-buffs), which stays as it is.
+
+### Protection removal (D3d; built 2026-10-20)
+
+`combat-intent/removal.lua`. Removals compete with attacks, defences, care and summons every round,
+on the attack's scale. Instead of SCS's fixed targets and timers, worth decides, seen from the
+other side of combat-intent/defence.lua:
+
+- **What it opens:** the enemy's loss under the caster's side's pressure over the horizon, with
+  the protections it would lose gone, less with them (`defence.loss`; the side's pressure pictures
+  the caster and its allies as the attackers, `removal.pressure`: weapons in hand, a caster's
+  spells). PfMW on an enemy two fighters cannot hurt is worth much; on one no friend attacks with a
+  weapon, nothing.
+- **Its buffs:** what the enemy's haste, extra attacks and bonuses would take from a friend with
+  its weapon (`defence.offense`).
+- **What it frees:** the conditions the caster's side holds the enemy in, each worth what freeing
+  a friend of it is worth for the time it has left (combat-intent/care.lua), and the weapon harm
+  it gets back once a Slow or a penalty is gone. A dispel on a held enemy is worth less than
+  nothing: SCS's `AvoidDispel` falls out of the sum, enemy by enemy.
+- **Summoned enemies:** unsummoned or destroyed, a kill (Banishment's own condition, summoned
+  creatures, holds by the spell's view of each enemy).
+- **Chance:** a dispel takes each effect as likely as the engine's rule makes it (49% at the
+  effect's caster level, 5% more a level above, 10% less a level below, none from five levels
+  below, 99% at most); the removal lands as likely as magic resistance lets it (only when its
+  effects can be resisted), the saving throw and its own chance.
+- **What it takes** (IESDP): a dispel each effect that can be dispelled; Breach's kind (opcodes
+  220, 221) every effect of each spell or item with a matching effect, up to the power level, but
+  those that last after death; Secret Word's kind (229, 230) the matching effects of the first
+  spell and the first item with such an effect above power 0; a removal by opcode (337) those
+  effects. Stoneskin skins, Mirror Images and invisibility go with the spell that gave them.
+- **Spell protections:** globes, turnings, deflections and traps compare the power of the effects
+  a spell delivers, also of spells it casts at the target, not its level. Secret Word, Spell
+  Thrust, Pierce Magic, Ruby Ray of Reversal, Khelben's Warding Whip, Pierce Shield, Spellstrike
+  and Dispel Magic deliver power 0 and pass them; Breach delivers power 5 and a turning of level 5
+  stops it, which is why SCS strips spell protections first. This holds for every spell the engine
+  weighs now, attacks too (`targeting.protected`).
+- **Where:** at an enemy it can see in range, at a point near the enemies it should reach (each
+  enemy's spot and the middle of those around it), or around the caster; an area that does not
+  spare friends waits while one stands in it. An area counts every enemy in it, also those it would
+  free.
+- **Attacks that also remove** stay attacks and add their removal's worth on each enemy they hit:
+  Chromatic Orb's haste removal, Disintegrate's destruction of some creatures.
+- **In game:** when a ready spell removes something from enemies, the adapter reads each enemy's
+  active effects (`sense.wards`: opcode, parameter 2, source, school, secondary type, power,
+  caster level, dispellable, timed, item, lasting after death, seconds left) and classifies each
+  once by its fields. A removal is judged when it ends: did an enemy it was for lose effects,
+  skins, images or its invisibility, or vanish (`strip` rows, counts `stripped`, `unstripped`).
+- **SCS keeps no rounds any more.** With removal done, the profile switch `keepScsSpells` and its
+  fitting rule are gone (DEFENCE-01); SCS's scripts never raise, so nothing is left to keep.
+
+In the SR lab, 54 wizard and priest spells have a removal role: the engine casts 31 as removals and
+12 as attacks with a removal; 2 are cures that would harm the caster's side as removals, 2 areas
+for allies, 2 on the caster only, 3 changes of shape and 2 innates with unknown projectiles (host
+census, nothing ran). Cures with a removal (Break Enchantment takes the Disabling type) are worth
+less than nothing on an enemy and stay cures.
+
+Not yet: invisible enemies the caster does not see are not in its frame, so an invisibility purge
+or True Seeing has no worth unless the caster sees them (they would need to be remembered), and
+debuff spells (Slow, Malison) are not cast for their debuff. A removal claims nothing in the group:
+two casters may breach the same enemy while the first cast is under way.

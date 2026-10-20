@@ -9,7 +9,7 @@ local spells=require('combat-intent.spells')
 local groups=0
 
 local function fx(op,fields)
-    local e={opcode=op,target=2,power=0,p1=0,p2=0,timing=0,resist=0,duration=0,prob1=100,prob2=0,
+    local e={opcode=op,target=2,power=0,p1=0,p2=0,timing=0,resist=1,duration=0,prob1=100,prob2=0,
         res='',dice=0,sides=0,save=0,saveBonus=0,special=0}
     for k,v in pairs(fields or {}) do e[k]=v end
     return e
@@ -31,7 +31,7 @@ end
 -- least one hit point; Shocking Grasp: 10 electricity damage and a stun; a conjured blade that
 -- lasts as long as it lasts.
 local RECORDS={
-    ['SPL:TESTHRMD']=spl('TESTHRMD',6,{fx(208,{p1=1,duration=1}),fx(12,{p1=90,p2=64*65536,timing=1})},{range=1,speed=0}),
+    ['SPL:TESTHRMD']=spl('TESTHRMD',6,{fx(208,{p1=1,duration=1,power=6}),fx(12,{p1=90,p2=64*65536,timing=1,power=6})},{range=1,speed=0}),
     ['ITM:TESTHRM']=hand('TESTHRM',{fx(146,{res='TESTHRMD'}),fx(112,{target=1,res='TESTHRM',timing=1})}),
     ['ITM:TESTGRSP']=hand('TESTGRSP',{fx(12,{p1=10,p2=4*65536,timing=1}),fx(45,{duration=6}),fx(112,{target=1,res='TESTGRSP',timing=1})}),
     ['ITM:TESTBLD']=hand('TESTBLD',{fx(12,{dice=1,sides=6,p2=8*65536,timing=1})},{charges=0,depletion=0})}

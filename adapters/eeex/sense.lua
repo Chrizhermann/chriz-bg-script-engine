@@ -296,6 +296,44 @@ function M.guard(g,sprite,tick,classify)
         mirror=type(mirror)=='number' and mirror or 0,sources=sources,recast=recast,conditions=conditions,poison=poison}
 end
 
+-- What a removal can take from a creature (combat-intent/removal.lua): each of its active effects
+-- as plain values, in list order: its opcode and parameter 2, the spell or item it comes from
+-- (source), its school, secondary type, power and caster level, whether a dispel can take it
+-- (m_flags bit 0, as EEex's EEex_HasDispellableEffect tests), whether it runs on time (timed, with
+-- the seconds left), comes with an item (equipped) or lasts after death (lasting: timing 9, which
+-- removals by type and opcode leave), and its roles: classify(effect) of the effect alone, a plain
+-- effect record (callers may cache by its fields). Delivered effects (what they delivered is in the
+-- list already) and ones about to end are left out.
+function M.wards(g,sprite,tick,classify)
+    local out={}
+    for n,effects in ipairs({sprite.m_timedEffectList,sprite.m_equipedEffectList}) do
+        local seen=0
+        g.EEex_Utility_IterateCPtrList(effects,function(e)
+            seen=seen+1
+            if seen>M.maxEffects then return true end
+            local op=e.m_effectId
+            if type(op)~='number' or M.delivered[op] then return end
+            local kind=e.m_durationType
+            local timing,duration,left
+            if kind==4096 then
+                left=(number(e.m_duration)-tick)/15
+                if left<M.expiring then return end
+                timing,duration=0,math.floor(left)
+            elseif kind==1 or kind==9 then timing,duration,left=1,0,math.huge
+            elseif kind==2 then timing,duration,left=2,0,math.huge
+            else return end
+            local effect={opcode=op,target=1,power=number(e.m_spellLevel),p1=number(e.m_effectAmount),
+                p2=number(e.m_dWFlags),timing=timing,resist=0,duration=duration,prob1=100,prob2=0,res=name(e.m_res),
+                dice=number(e.m_numDice),sides=number(e.m_diceSize),save=0,saveBonus=0,special=number(e.m_special)}
+            out[#out+1]={opcode=op,p2=effect.p2,source=name(e.m_sourceRes),school=number(e.m_school),
+                secondary=number(e.m_secondaryType),power=number(e.m_spellLevel),level=number(e.m_casterLevel),
+                dispellable=band(g,number(e.m_flags),1)~=0,timed=n==1 and kind==4096,equipped=n==2,
+                lasting=kind==9,left=left,roles=classify(effect)}
+        end)
+    end
+    return out
+end
+
 -- Adds what the defence slice weighs to a frame read with details: each friend's guard (false
 -- if it could not be read), the weapons of enemies and allies, and whether each enemy sees
 -- invisible creatures. A creature whose engine data fails keeps what it has; returns the count

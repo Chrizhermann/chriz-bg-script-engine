@@ -28,6 +28,7 @@ M.rangeUnit=16
 local KEEP_ROLES={'removal','heal','raise','cure','summon'}
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
+local function clamp(v,a,b) if v<a then return a elseif v>b then return b end return v end
 local function bits(v) if not number(v) then return 0 end return math.floor(v)%4294967296 end
 -- True when value and mask share a bit (plain Lua 5.1 has no bit library).
 function M.has(value,mask)
@@ -57,6 +58,26 @@ function M.distance(a,b)
         not number(b.x) or not number(b.y) then return math.huge end
     local dx,dy=a.x-b.x,(a.y-b.y)*4/3
     return math.sqrt(dx*dx+dy*dy)
+end
+
+-- The chance e makes its saving throw against role: a d20 plus the effect's bonus reaching the
+-- best of e's saves the role allows. Unknown saves count as even odds.
+function M.saveChance(role,e)
+    if type(role)~='table' or type(role.save)~='table' or next(role.save)==nil then return 0 end
+    local best
+    for name in pairs(role.save) do
+        local v=type(e)=='table' and type(e.saves)=='table' and e.saves[name]
+        if number(v) and (best==nil or v<best) then best=v end
+    end
+    if not best then return 0.5 end
+    local bonus=number(role.saveBonus) and role.saveBonus or 0
+    return clamp((21-(best-bonus))/20,0.05,0.95)
+end
+-- The share of a role's casts at e that its magic resistance lets through: all of them when no
+-- effect of the role is resisted (role.resisted false, combat-intent/spells.lua).
+function M.landing(role,e)
+    if type(role)=='table' and role.resisted==false then return 1 end
+    return 1-clamp(type(e)=='table' and number(e.mr) and e.mr or 0,0,100)/100
 end
 
 local function reaches(role) return type(role)=='table' and type(role.who)=='table' and (role.who.target or role.who.area) end
@@ -122,9 +143,12 @@ end
 local EPSILON=1e-9
 
 -- Spell protections that would stop this spell: turning, deflection, traps and globes by
--- level, school or secondary type; immunity or bounce by opcode or projectile; protection
--- from this very spell. protections holds {opcode, p1, p2, res} rows.
-local BY_LEVEL={[199]=true,[200]=true,[201]=true,[259]=true}
+-- power level, school or secondary type; immunity or bounce by opcode or projectile; protection
+-- from this very spell. protections holds {opcode, p1, p2, res} rows. Globes (102) and 199 name
+-- their power level in parameter 1, 200, 201 and Spell Trap (259) in parameter 2; each compares
+-- the power of the effects the spell delivers (spell.power; the spell's level when unknown), and
+-- the last four let effects through that pass turnings (spell.unbounced; IESDP).
+local BOUNCES={[199]=1,[200]=2,[201]=2,[259]=2}
 local BY_SCHOOL={[202]=true,[204]=true,[223]=true,[227]=true}
 local BY_SECONDARY={[203]=true,[205]=true,[226]=true,[228]=true}
 local BY_RESOURCE={[206]=true,[207]=true,[318]=true,[324]=true}
@@ -133,17 +157,28 @@ local function stops(p,spell)
     local opcodes=type(spell.opcodes)=='table' and spell.opcodes or {}
     if op==101 or op==198 then return opcodes[p.p2]==true end
     if op==83 or op==197 then return number(spell.projectile) and (p.p2==spell.projectile or p.p2+1==spell.projectile) end
-    if op==102 then return p.p1==spell.level end
-    if BY_LEVEL[op] then return p.p2==spell.level end
+    local power=number(spell.power) and spell.power or spell.level
+    if op==102 then return p.p1==power end
+    if BOUNCES[op] then
+        if spell.unbounced then return false end
+        return (BOUNCES[op]==1 and p.p1 or p.p2)==power
+    end
     if BY_SCHOOL[op] then return number(spell.school) and spell.school>0 and p.p2==spell.school end
     if BY_SECONDARY[op] then return number(spell.secondary) and spell.secondary>0 and p.p2==spell.secondary end
     if BY_RESOURCE[op] then return type(p.res)=='string' and p.res~='' and p.res==spell.resref end
     return false
 end
+-- A spell another one casts at the target (spell.delivered, combat-intent/spells.lua) meets the
+-- target's protections again by its own power, school and secondary type: either stops the whole.
 function M.protected(target,spell)
     if type(target.protections)~='table' then return true end
     for _,p in ipairs(target.protections) do
-        if type(p)=='table' and stops(p,spell) then return true end
+        if type(p)=='table' then
+            if stops(p,spell) then return true end
+            for _,d in ipairs(type(spell.delivered)=='table' and spell.delivered or {}) do
+                if type(d)=='table' and d.to~='self' and stops(p,d) then return true end
+            end
+        end
     end
     return false
 end

@@ -613,9 +613,9 @@ without ammunition is no weapon.
   spell logged as `kept`), until those spells become engine actions. The first version counted any
   such spell ready and kept 60 rounds in batch G3, most for cures nobody needed (Vocalize kept 20
   of one mage's), so only a spell that fits counts (Christopher, 2026-10-20: "nur wenn jetzt
-  sinnvoll"). Profile switch `keepScsSpells`. Since D3 healing, cures (D3a, D3b) and summons (D3c)
-  are the engine's own (SUPPORT-01); only removal and raising still keep rounds. A spell fitted
-  (`choice.fits`):
+  sinnvoll"). Profile switch `keepScsSpells`. Since D3 healing, cures (D3a, D3b), summons (D3c)
+  and protection removal (D3d) are the engine's own (SUPPORT-01), and SCS's scripts never raise:
+  the rule and the switch are gone (2026-10-20). A spell fitted (`choice.fits`):
   - a summons: always;
   - healing: the caster is below `defer.selfHealth` or an ally it reaches below
     `defer.allyHealth` (where SCS's priests heal: 50% and 75%);

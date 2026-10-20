@@ -56,10 +56,6 @@ M.default={
     -- Summons (D3c): no more summoning once this many summoned allies are in view (the game's own
     -- limit for summoned creatures is five).
     summonCap=5,
-    -- Instead of no cast, a weapon attack waits while the caster has a spell ready that the
-    -- engine does not cast yet (removal, raising) and that fits now (combat-intent/choice.lua,
-    -- M.fits); SCS keeps the round.
-    keepScsSpells=true,
 }
 
 local function share(v) return type(v)=='number' and v==v and v>=0 and v<=1 end
@@ -77,7 +73,6 @@ local CHECKS={coordination=share,best=share,band=share,economy=amount,minValue=a
     openers=function(v) return type(v)=='boolean' end,
     touch=function(v) return type(v)=='boolean' end,
     weapons=function(v) return type(v)=='boolean' end,
-    keepScsSpells=function(v) return type(v)=='boolean' end,
     memory=function(v) return type(v)=='boolean' end,
     knowledge=function(v) return v=='scs' end}
 

@@ -92,6 +92,9 @@ local function add(c,name,who,e,p)
     end
     r.chance=math.max(r.chance,p)
     r.power=math.max(r.power,e.power)
+    -- Magic resistance stops an effect that can be dispelled and does not ignore it (resistance
+    -- field bit 0 without bit 1, IESDP); the role is resisted when any of its effects is.
+    r.resisted=r.resisted==true or (number(e.resist) and e.resist%4==1) or false
     local saves=saveNames(e.save)
     if saves then
         r.save=r.save or {}
@@ -122,6 +125,21 @@ local function kind(c,name,label,who,e,p)
     return r
 end
 local function tally(t,key,value) t[key]=(t[key] or 0)+value end
+-- What spell protections by level (opcodes 102, 199, 200, 201, 259) compare: the power of the
+-- effects a spell delivers, not its level (IESDP), so removals that deliver power 0 pass them.
+-- The highest power of effects that reach others, and whether all of them pass turnings,
+-- deflections and traps (resistance field bit 2, EE). nil when none reaches others.
+local function strength(effects)
+    local power,unbounced
+    for _,e in ipairs(type(effects)=='table' and effects or {}) do
+        if type(e)=='table' and e.target~=1 and e.target~=9 and number(e.power) then
+            power=math.max(power or 0,e.power)
+            local passes=number(e.resist) and math.floor(e.resist/4)%2==1 or false
+            if unbounced==nil then unbounced=passes else unbounced=unbounced and passes end
+        end
+    end
+    return power,unbounced
+end
 local function set(r,field) r[field]=r[field] or {};return r[field] end
 
 -- A stat change helps or hurts by its sign; percentage modes compare against 100.
@@ -398,14 +416,24 @@ H[58]=function(c,e,who,p)
     local mode=e.p2%65536
     r.dispel={mode=mode==0 and 'always' or mode==1 and 'caster' or 'fixed',level=e.p1}
 end
-local function strip(field)
+-- 220 and 221 take every spell of a school or secondary type up to a power level (schools,
+-- secondaries: type to level); 229 and 230 only the first such spell and the first such item they
+-- find (single.schools, single.secondaries; IESDP).
+local function strip(field,one)
     return function(c,e,who,p)
         local r=kind(c,'removal',field,who,e,p)
-        local t=set(r,field);t[e.p2]=math.max(t[e.p2] or 0,e.p1)
+        local t=one and set(set(r,'single'),field) or set(r,field)
+        t[e.p2]=math.max(t[e.p2] or 0,e.p1)
     end
 end
-H[220]=strip('schools');H[229]=strip('schools');H[221]=strip('secondaries');H[230]=strip('secondaries')
-H[337]=function(c,e,who,p) local r=kind(c,'removal','opcodes',who,e,p);set(r,'opcodes')[e.p2]=true end
+H[220]=strip('schools');H[229]=strip('schools',true);H[221]=strip('secondaries');H[230]=strip('secondaries',true)
+-- 337 takes the effects of an opcode (parameter 2) whose parameter 2 is parameter 1, any for -1:
+-- opcodes holds each opcode's set of such values.
+H[337]=function(c,e,who,p)
+    local r=kind(c,'removal','opcodes',who,e,p)
+    local ops=set(r,'opcodes')
+    ops[e.p2]=ops[e.p2] or {};ops[e.p2][e.p1]=true
+end
 local REMOVES={[47]='invisibility',[68]='summons',[70]='nondetection',[116]='invisibility',
     [136]='invisibility',[160]='sanctuary',[273]='cloud'}
 for op,label in pairs(REMOVES) do H[op]=function(c,e,who,p) kind(c,'removal',label,who,e,p) end end
@@ -705,12 +733,13 @@ local function send(c,state,e,where,depth,p)
     if type(ability)~='table' then return state.miss(c,'SPL',res) end
     local to=receiver(e,where)
     if op==148 then to='point' end
-    -- What a cast delivers is checked against the receiver's spell protections by its own level,
-    -- school and secondary type (326 applies effects without a cast).
+    -- What a cast delivers is checked against the receiver's spell protections by its own power,
+    -- school and secondary type (326 applies effects without a cast). to: who receives it.
     if op~=326 then
         c.delivered=c.delivered or {}
+        local power,unbounced=strength(ability.effects)
         c.delivered[#c.delivered+1]={resref=res,level=sub.level,school=sub.school,secondary=sub.secondary,
-            projectile=ability.projectile,opcode=op}
+            projectile=ability.projectile,opcode=op,power=power,unbounced=unbounced,to=to}
     end
     local saved=c.times
     if op==333 then c.times=(saved or 1)*math.max(e.p1,1);c.approximate=true end
@@ -873,6 +902,7 @@ function M.classify(record,index,lookup,options)
     c.level=record.level;c.spellType=record.spellType;c.itemType=record.itemType
     c.school=record.school or ability.school;c.secondary=record.secondary or ability.secondary
     c.range=ability.range;c.speed=ability.speed;c.projectile=ability.projectile
+    c.power,c.unbounced=strength(ability.effects)
     local hostile=record.kind=='ITM' and ability.flags or record.flags
     c.hostile=number(hostile) and math.floor(hostile/1024)%2==1 or false
     local targets={[1]='creature',[2]='item',[3]='dead',[4]='point',[5]='self',[7]='self'}

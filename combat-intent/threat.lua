@@ -106,11 +106,13 @@ function M.picture(frame)
     for _,e in ipairs(frame.enemies) do
         if targeting.alive(e) and not targeting.disabled(e) then
             local a=M.attack(e)
-            -- Weapons: the friend it is aimed at, else the nearest one it can reach this round.
+            -- Weapons: the friend it is aimed at, else the nearest one it can reach this round. A
+            -- creature whose attack is false has none (a caster with nothing in hand, as
+            -- combat-intent/removal.lua pictures its own side).
             local reach=a.ranged and (a.range or math.huge) or M.reach+M.stride
-            local target=byId[e.actee]
+            local target=e.attack~=false and byId[e.actee] or nil
             if target and (targeting.distance(e,target)>reach or not sees(e,target)) then target=nil end
-            if not target then
+            if not target and e.attack~=false then
                 local best=math.huge
                 for _,f in ipairs(friends) do
                     local d=targeting.distance(e,f)

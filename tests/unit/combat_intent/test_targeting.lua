@@ -5,7 +5,7 @@ local spells=require('combat-intent.spells')
 local groups=0
 
 local function fx(op,fields)
-    local e={opcode=op,target=2,power=0,p1=0,p2=0,timing=0,resist=0,duration=0,prob1=100,prob2=0,
+    local e={opcode=op,target=2,power=0,p1=0,p2=0,timing=0,resist=1,duration=0,prob1=100,prob2=0,
         res='',dice=0,sides=0,save=0,saveBonus=0,special=0}
     for k,v in pairs(fields or {}) do e[k]=v end
     return e
@@ -106,12 +106,36 @@ assert(legal(enemy(),srHold,caster,held)=='unknown-filter')
 groups=groups+1
 
 -- 4. Protections by opcode, projectile, level, school, secondary type and resource, against a
--- hold of any creature.
-local anyHold=spell('TESTHOLD',{fx(175,{duration=30})},nil,{school=5})
+-- hold of any creature. Levels are the power of what the spell delivers (IESDP): globes and 199
+-- name it in parameter 1, turnings, deflections and traps in parameter 2. Power 0 passes them all;
+-- effects that pass turnings (resistance bit 2) pass all but globes.
+local anyHold=spell('TESTHOLD',{fx(175,{duration=30,power=3})},nil,{school=5})
 local function shielded(p) return legal(enemy({protections={p}}),anyHold) end
 assert(shielded({opcode=101,p2=175})=='protected' and shielded({opcode=101,p2=12})=='ok')
 assert(shielded({opcode=102,p1=3})=='protected' and shielded({opcode=102,p1=4})=='ok')
 assert(shielded({opcode=200,p1=10,p2=3})=='protected' and shielded({opcode=259,p1=8,p2=2})=='ok')
+assert(shielded({opcode=199,p1=3})=='protected' and shielded({opcode=199,p1=0,p2=3})=='ok')
+assert(anyHold.power==3 and anyHold.unbounced==false)
+local quiet=spell('TESTQHLD',{fx(175,{duration=30,power=0})})
+assert(quiet.power==0 and not targeting.protected(enemy({protections={{opcode=200,p1=10,p2=3},{opcode=102,p1=3}}}),quiet))
+local passing=spell('TESTPHLD',{fx(175,{duration=30,power=3,resist=5})})
+assert(passing.unbounced==true and not targeting.protected(enemy({protections={{opcode=201,p1=10,p2=3}}}),passing))
+assert(targeting.protected(enemy({protections={{opcode=102,p1=3}}}),passing))
+-- A spell another casts at the target meets its protections again by its own power: Secret Word's
+-- sub-spells (power 0) pass a turning, a sub-spell of power 4 behind a cast of power 0 (Chromatic
+-- Orb's kind) does not; one the spell casts on its caster does not count.
+local subs={['SPL:TESTSUB0']={kind='SPL',resref='TESTSUB0',name=0,flags=0,spellType=1,exclusion=0,school=0,
+    secondary=1,level=4,casting={},abilities={{form=1,flags=0,location=2,target=1,targetCount=0,range=30,minLevel=1,
+    speed=1,projectile=1,effects={fx(230,{p1=9,p2=1,power=0})}}}},
+    ['SPL:TESTSUB4']={kind='SPL',resref='TESTSUB4',name=0,flags=0,spellType=1,exclusion=0,school=0,secondary=10,
+    level=4,casting={},abilities={{form=1,flags=0,location=2,target=1,targetCount=0,range=30,minLevel=1,speed=1,
+    projectile=1,effects={fx(12,{p1=10,power=4})}}}}}
+local turnedAt4={protections={{opcode=200,p1=10,p2=4}}}
+local secret=spell('TESTWORD',{fx(146,{p2=1,res='TESTSUB0',power=0})},nil,{level=4},nil,subs)
+local orb=spell('TESTORB',{fx(146,{p2=1,res='TESTSUB4',power=0})},nil,{level=4},nil,subs)
+local selfish=spell('TESTSELF',{fx(12,{p1=10,power=0}),fx(146,{target=1,p2=1,res='TESTSUB4',power=0})},nil,{level=4},nil,subs)
+assert(not targeting.protected(enemy(turnedAt4),secret) and targeting.protected(enemy(turnedAt4),orb))
+assert(not targeting.protected(enemy(turnedAt4),selfish))
 assert(shielded({opcode=204,p2=5})=='protected' and shielded({opcode=204,p2=8})=='ok')
 assert(shielded({opcode=206,res='TESTHOLD'})=='protected' and shielded({opcode=206,res='OTHER'})=='ok')
 assert(shielded({opcode=83,p2=1})=='protected' and shielded({opcode=197,p2=2})=='protected')

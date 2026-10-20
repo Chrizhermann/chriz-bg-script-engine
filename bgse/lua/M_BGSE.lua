@@ -462,6 +462,9 @@ local function add(c,name,who,e,p)
     end
     r.chance=math.max(r.chance,p)
     r.power=math.max(r.power,e.power)
+    -- Magic resistance stops an effect that can be dispelled and does not ignore it (resistance
+    -- field bit 0 without bit 1, IESDP); the role is resisted when any of its effects is.
+    r.resisted=r.resisted==true or (number(e.resist) and e.resist%4==1) or false
     local saves=saveNames(e.save)
     if saves then
         r.save=r.save or {}
@@ -492,6 +495,21 @@ local function kind(c,name,label,who,e,p)
     return r
 end
 local function tally(t,key,value) t[key]=(t[key] or 0)+value end
+-- What spell protections by level (opcodes 102, 199, 200, 201, 259) compare: the power of the
+-- effects a spell delivers, not its level (IESDP), so removals that deliver power 0 pass them.
+-- The highest power of effects that reach others, and whether all of them pass turnings,
+-- deflections and traps (resistance field bit 2, EE). nil when none reaches others.
+local function strength(effects)
+    local power,unbounced
+    for _,e in ipairs(type(effects)=='table' and effects or {}) do
+        if type(e)=='table' and e.target~=1 and e.target~=9 and number(e.power) then
+            power=math.max(power or 0,e.power)
+            local passes=number(e.resist) and math.floor(e.resist/4)%2==1 or false
+            if unbounced==nil then unbounced=passes else unbounced=unbounced and passes end
+        end
+    end
+    return power,unbounced
+end
 local function set(r,field) r[field]=r[field] or {};return r[field] end
 
 -- A stat change helps or hurts by its sign; percentage modes compare against 100.
@@ -768,14 +786,24 @@ H[58]=function(c,e,who,p)
     local mode=e.p2%65536
     r.dispel={mode=mode==0 and 'always' or mode==1 and 'caster' or 'fixed',level=e.p1}
 end
-local function strip(field)
+-- 220 and 221 take every spell of a school or secondary type up to a power level (schools,
+-- secondaries: type to level); 229 and 230 only the first such spell and the first such item they
+-- find (single.schools, single.secondaries; IESDP).
+local function strip(field,one)
     return function(c,e,who,p)
         local r=kind(c,'removal',field,who,e,p)
-        local t=set(r,field);t[e.p2]=math.max(t[e.p2] or 0,e.p1)
+        local t=one and set(set(r,'single'),field) or set(r,field)
+        t[e.p2]=math.max(t[e.p2] or 0,e.p1)
     end
 end
-H[220]=strip('schools');H[229]=strip('schools');H[221]=strip('secondaries');H[230]=strip('secondaries')
-H[337]=function(c,e,who,p) local r=kind(c,'removal','opcodes',who,e,p);set(r,'opcodes')[e.p2]=true end
+H[220]=strip('schools');H[229]=strip('schools',true);H[221]=strip('secondaries');H[230]=strip('secondaries',true)
+-- 337 takes the effects of an opcode (parameter 2) whose parameter 2 is parameter 1, any for -1:
+-- opcodes holds each opcode's set of such values.
+H[337]=function(c,e,who,p)
+    local r=kind(c,'removal','opcodes',who,e,p)
+    local ops=set(r,'opcodes')
+    ops[e.p2]=ops[e.p2] or {};ops[e.p2][e.p1]=true
+end
 local REMOVES={[47]='invisibility',[68]='summons',[70]='nondetection',[116]='invisibility',
     [136]='invisibility',[160]='sanctuary',[273]='cloud'}
 for op,label in pairs(REMOVES) do H[op]=function(c,e,who,p) kind(c,'removal',label,who,e,p) end end
@@ -1075,12 +1103,13 @@ local function send(c,state,e,where,depth,p)
     if type(ability)~='table' then return state.miss(c,'SPL',res) end
     local to=receiver(e,where)
     if op==148 then to='point' end
-    -- What a cast delivers is checked against the receiver's spell protections by its own level,
-    -- school and secondary type (326 applies effects without a cast).
+    -- What a cast delivers is checked against the receiver's spell protections by its own power,
+    -- school and secondary type (326 applies effects without a cast). to: who receives it.
     if op~=326 then
         c.delivered=c.delivered or {}
+        local power,unbounced=strength(ability.effects)
         c.delivered[#c.delivered+1]={resref=res,level=sub.level,school=sub.school,secondary=sub.secondary,
-            projectile=ability.projectile,opcode=op}
+            projectile=ability.projectile,opcode=op,power=power,unbounced=unbounced,to=to}
     end
     local saved=c.times
     if op==333 then c.times=(saved or 1)*math.max(e.p1,1);c.approximate=true end
@@ -1243,6 +1272,7 @@ function M.classify(record,index,lookup,options)
     c.level=record.level;c.spellType=record.spellType;c.itemType=record.itemType
     c.school=record.school or ability.school;c.secondary=record.secondary or ability.secondary
     c.range=ability.range;c.speed=ability.speed;c.projectile=ability.projectile
+    c.power,c.unbounced=strength(ability.effects)
     local hostile=record.kind=='ITM' and ability.flags or record.flags
     c.hostile=number(hostile) and math.floor(hostile/1024)%2==1 or false
     local targets={[1]='creature',[2]='item',[3]='dead',[4]='point',[5]='self',[7]='self'}
@@ -1389,6 +1419,7 @@ M.rangeUnit=16
 local KEEP_ROLES={'removal','heal','raise','cure','summon'}
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
+local function clamp(v,a,b) if v<a then return a elseif v>b then return b end return v end
 local function bits(v) if not number(v) then return 0 end return math.floor(v)%4294967296 end
 -- True when value and mask share a bit (plain Lua 5.1 has no bit library).
 function M.has(value,mask)
@@ -1418,6 +1449,26 @@ function M.distance(a,b)
         not number(b.x) or not number(b.y) then return math.huge end
     local dx,dy=a.x-b.x,(a.y-b.y)*4/3
     return math.sqrt(dx*dx+dy*dy)
+end
+
+-- The chance e makes its saving throw against role: a d20 plus the effect's bonus reaching the
+-- best of e's saves the role allows. Unknown saves count as even odds.
+function M.saveChance(role,e)
+    if type(role)~='table' or type(role.save)~='table' or next(role.save)==nil then return 0 end
+    local best
+    for name in pairs(role.save) do
+        local v=type(e)=='table' and type(e.saves)=='table' and e.saves[name]
+        if number(v) and (best==nil or v<best) then best=v end
+    end
+    if not best then return 0.5 end
+    local bonus=number(role.saveBonus) and role.saveBonus or 0
+    return clamp((21-(best-bonus))/20,0.05,0.95)
+end
+-- The share of a role's casts at e that its magic resistance lets through: all of them when no
+-- effect of the role is resisted (role.resisted false, combat-intent/spells.lua).
+function M.landing(role,e)
+    if type(role)=='table' and role.resisted==false then return 1 end
+    return 1-clamp(type(e)=='table' and number(e.mr) and e.mr or 0,0,100)/100
 end
 
 local function reaches(role) return type(role)=='table' and type(role.who)=='table' and (role.who.target or role.who.area) end
@@ -1483,9 +1534,12 @@ end
 local EPSILON=1e-9
 
 -- Spell protections that would stop this spell: turning, deflection, traps and globes by
--- level, school or secondary type; immunity or bounce by opcode or projectile; protection
--- from this very spell. protections holds {opcode, p1, p2, res} rows.
-local BY_LEVEL={[199]=true,[200]=true,[201]=true,[259]=true}
+-- power level, school or secondary type; immunity or bounce by opcode or projectile; protection
+-- from this very spell. protections holds {opcode, p1, p2, res} rows. Globes (102) and 199 name
+-- their power level in parameter 1, 200, 201 and Spell Trap (259) in parameter 2; each compares
+-- the power of the effects the spell delivers (spell.power; the spell's level when unknown), and
+-- the last four let effects through that pass turnings (spell.unbounced; IESDP).
+local BOUNCES={[199]=1,[200]=2,[201]=2,[259]=2}
 local BY_SCHOOL={[202]=true,[204]=true,[223]=true,[227]=true}
 local BY_SECONDARY={[203]=true,[205]=true,[226]=true,[228]=true}
 local BY_RESOURCE={[206]=true,[207]=true,[318]=true,[324]=true}
@@ -1494,17 +1548,28 @@ local function stops(p,spell)
     local opcodes=type(spell.opcodes)=='table' and spell.opcodes or {}
     if op==101 or op==198 then return opcodes[p.p2]==true end
     if op==83 or op==197 then return number(spell.projectile) and (p.p2==spell.projectile or p.p2+1==spell.projectile) end
-    if op==102 then return p.p1==spell.level end
-    if BY_LEVEL[op] then return p.p2==spell.level end
+    local power=number(spell.power) and spell.power or spell.level
+    if op==102 then return p.p1==power end
+    if BOUNCES[op] then
+        if spell.unbounced then return false end
+        return (BOUNCES[op]==1 and p.p1 or p.p2)==power
+    end
     if BY_SCHOOL[op] then return number(spell.school) and spell.school>0 and p.p2==spell.school end
     if BY_SECONDARY[op] then return number(spell.secondary) and spell.secondary>0 and p.p2==spell.secondary end
     if BY_RESOURCE[op] then return type(p.res)=='string' and p.res~='' and p.res==spell.resref end
     return false
 end
+-- A spell another one casts at the target (spell.delivered, combat-intent/spells.lua) meets the
+-- target's protections again by its own power, school and secondary type: either stops the whole.
 function M.protected(target,spell)
     if type(target.protections)~='table' then return true end
     for _,p in ipairs(target.protections) do
-        if type(p)=='table' and stops(p,spell) then return true end
+        if type(p)=='table' then
+            if stops(p,spell) then return true end
+            for _,d in ipairs(type(spell.delivered)=='table' and spell.delivered or {}) do
+                if type(d)=='table' and d.to~='self' and stops(p,d) then return true end
+            end
+        end
     end
     return false
 end
@@ -1676,10 +1741,6 @@ M.default={
     -- Summons (D3c): no more summoning once this many summoned allies are in view (the game's own
     -- limit for summoned creatures is five).
     summonCap=5,
-    -- Instead of no cast, a weapon attack waits while the caster has a spell ready that the
-    -- engine does not cast yet (removal, raising) and that fits now (combat-intent/choice.lua,
-    -- M.fits); SCS keeps the round.
-    keepScsSpells=true,
 }
 
 local function share(v) return type(v)=='number' and v==v and v>=0 and v<=1 end
@@ -1697,7 +1758,6 @@ local CHECKS={coordination=share,best=share,band=share,economy=amount,minValue=a
     openers=function(v) return type(v)=='boolean' end,
     touch=function(v) return type(v)=='boolean' end,
     weapons=function(v) return type(v)=='boolean' end,
-    keepScsSpells=function(v) return type(v)=='boolean' end,
     memory=function(v) return type(v)=='boolean' end,
     knowledge=function(v) return v=='scs' end}
 
@@ -1830,11 +1890,13 @@ function M.picture(frame)
     for _,e in ipairs(frame.enemies) do
         if targeting.alive(e) and not targeting.disabled(e) then
             local a=M.attack(e)
-            -- Weapons: the friend it is aimed at, else the nearest one it can reach this round.
+            -- Weapons: the friend it is aimed at, else the nearest one it can reach this round. A
+            -- creature whose attack is false has none (a caster with nothing in hand, as
+            -- combat-intent/removal.lua pictures its own side).
             local reach=a.ranged and (a.range or math.huge) or M.reach+M.stride
-            local target=byId[e.actee]
+            local target=e.attack~=false and byId[e.actee] or nil
             if target and (targeting.distance(e,target)>reach or not sees(e,target)) then target=nil end
-            if not target then
+            if not target and e.attack~=false then
                 local best=math.huge
                 for _,f in ipairs(friends) do
                     local d=targeting.distance(e,f)
@@ -2172,16 +2234,14 @@ end
 -- Why the charge would not work on e, or nil: a hit takes a Mirror Image or a Stoneskin skin
 -- instead, e is immune to the hand as a weapon (opcode 120), or a spell protection stops the
 -- strike or a spell it casts (Spell Turning, Deflection, a globe: one is enough, so the charge is
--- not spent on a hit that does half its work). Unknown protections count as protecting.
+-- not spent on a hit that does half its work; targeting.protected). Unknown protections count as
+-- protecting.
 function M.blocked(e,w)
     if number(e.mirror) and e.mirror>0 then return 'mirror' end
     if number(e.skins) and e.skins>0 then return 'stoneskin' end
     if type(e.protections)~='table' then return 'protected' end
     if weapons.immuneTo(e,w) then return 'weapon-immunity' end
     if targeting.protected(e,w.strike) then return 'protected' end
-    for _,d in ipairs(type(w.strike.delivered)=='table' and w.strike.delivered or {}) do
-        if targeting.protected(e,d) then return 'protected' end
-    end
 end
 
 -- Hit points a round the caster would take more standing next to e than where it stands
@@ -3287,6 +3347,448 @@ function M.options(input,rejected)
 end
 return M
 end
+factories["combat-intent.removal"]=function(require)
+-- The engine's own protection removal for one caster (step 3, D3d; Christopher, 2026-10-20: "Mach
+-- alles"; on improving on SCS: "Wir können uns da gerne an SCS orientieren, aber ich bin auch offen
+-- für eine bessere Implementierung"). SCS is the blueprint ([src] mage/ssl/combatblocks/
+-- attacks_on_pc_defences.ssl, attack_antimagic.ssl, first_dispel.ssl, remove_magic.ssl,
+-- kill_summons.ssl): its mages breach an enemy whose protections from weapons, damage or effects or
+-- whose Stoneskin keep their side out; take down Spell Shield, turnings and Spell Immunity with
+-- Secret Word, Spell Thrust, Ruby Ray, Spell Strike, Pierce Magic or Warding Whip; lower magic
+-- resistance from 40 up; dispel enemies with protections or enhancements, but not while their side
+-- holds an enemy disabled or under Malison, which the dispel would free; and kill summoned
+-- creatures with Death Spell. Fixed timers of 12 to 18 seconds keep such casts apart.
+--
+-- Here worth decides instead, on the attack's scale, as combat-intent/defence.lua weighs
+-- protections, seen from the other side:
+-- - what the removal opens for the caster's whole side: the share of the enemy, the kill bonus and
+--   the rounds out of the fight that the side's weapons and spells take from it over the horizon
+--   once the protections are gone, less what they take with them (defence.loss under the side's
+--   pressure on that enemy, M.pressure: the friends as attackers, as combat-intent/threat.lua
+--   pictures enemies);
+-- - the share of a friend the enemy's own buffs (haste, extra attacks, bonuses) would take with its
+--   weapon, as defence.offense weighs a buff;
+-- - less what the removal takes from the caster's side: the conditions its side holds the enemy in
+--   (as freeing a friend of them is worth, combat-intent/care.lua) and the harm the enemy's weapon
+--   gets back once its slowing and penalties are gone;
+-- - a summoned enemy unsummoned or destroyed counts as a kill.
+-- All of it as likely as the removal lands: magic resistance unless all its effects ignore it, the
+-- saving throw, the effect's own chance. A spell protection by level stops a removal only by the
+-- power of what it delivers (power 0 passes; combat-intent/targeting.lua).
+--
+-- What a removal takes follows the engine (IESDP):
+-- - a dispel (opcode 58) takes each effect that can be dispelled (resistance field bit 0), with a
+--   chance of 49% plus 5% a level the dispel is above the effect's caster level, less 10% a level
+--   below, 99% at most (always for type 0);
+-- - a removal by school or secondary type (220, 221) takes, for each effect of that type up to its
+--   power level, every effect of the same spell or item (source) up to that power, but those that
+--   last after death; the single kind (229, 230) takes the matching effects of the first spell and
+--   of the first item with a matching effect above power 0;
+-- - a removal by opcode (337) takes those effects (with a matching parameter 2 unless it names -1);
+-- - a purge of invisibility takes the invisible state.
+-- Stoneskin skins and Mirror Images go with the spell that gave them. Inputs are plain values: each
+-- enemy's wards (adapters/eeex/sense.lua, M.wards) and the frame. Nothing here touches the engine.
+local targeting=require('combat-intent.targeting')
+local threat=require('combat-intent.threat')
+local defence=require('combat-intent.defence')
+local care=require('combat-intent.care')
+local ids=require('combat-intent.ids')
+local spells=require('combat-intent.spells')
+local M={}
+M.ROUND=6
+M.speedSeconds=0.6
+M.costPerLevel=0.03
+-- Allies keep this much room beyond an area's edge (as for attacks).
+M.allyMargin=32
+-- GENDER.IDS: summoned, illusionary and demonic summoned creatures.
+M.SUMMONED={[6]=true,[7]=true,[9]=true}
+-- Opcodes of Stoneskin's skins, Mirror Images and invisibility, which the engine counts apart.
+M.SKINS={[218]=true,[314]=true}
+M.MIRROR={[119]=true,[159]=true}
+M.INVISIBLE={[20]=true}
+-- Opcode 58 (IESDP): 49% base, 5% a level above the effect's caster level, 10% a level below, 99%
+-- at most.
+M.dispelBase,M.dispelAbove,M.dispelBelow,M.dispelMax=0.49,0.05,0.10,0.99
+-- The kinds of removal weighed here; clouds (zones), sanctuary, nondetection and replacing a
+-- creature are not.
+M.KINDS={dispel=true,schools=true,secondaries=true,opcodes=true,invisibility=true,summons=true,destroy=true}
+local UNSEEN=targeting.STATE.invisible+targeting.STATE.improvedInvisible
+local FRIENDS={self=true,party=true,everyone=true,casterGroup=true}
+
+local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
+local function list(t) return type(t)=='table' and t or {} end
+local function clamp(v,a,b) if v<a then return a elseif v>b then return b end return v end
+local function range(spell) return number(spell.range) and spell.range*targeting.rangeUnit or 0 end
+local function summoned(e) return type(e.ids)=='table' and M.SUMMONED[e.ids.gender]==true end
+
+-- The removal role of a spell the engine weighs, or nil and why not: none, an unread spell, only
+-- kinds weighed elsewhere, one that reaches no enemy, harms the caster's side or has a shape the
+-- engine cannot place.
+function M.removal(spell)
+    if type(spell)~='table' or type(spell.roles)~='table' then return nil,'unclassified' end
+    local r=spell.roles.removal
+    if type(r)~='table' or type(r.who)~='table' or next(r.who)==nil then return nil,'no-removal' end
+    local weighed=false
+    for k in pairs(list(r.kinds)) do if M.KINDS[k] then weighed=true end end
+    if not weighed then return nil,'other-removal' end
+    if not (r.who.target or r.who.area) then return nil,'no-enemy' end
+    if spell.partial then return nil,'partial' end
+    local a=type(spell.area)=='table' and spell.area or nil
+    if r.who.area and not r.who.target and a and a.filter=='allies' then return nil,'allies-area' end
+    for _,name in ipairs({'damage','disable','debuff'}) do
+        local x=spell.roles[name]
+        if type(x)=='table' and type(x.who)=='table' then
+            for who in pairs(x.who) do if FRIENDS[who] then return nil,'harms-friends' end end
+        end
+    end
+    if spell.projectileUnknown and not targeting.builtinSingle[spell.projectile] then return nil,'unknown-projectile' end
+    if a and (a.cone or a.line or a.rectangle or not (number(a.radius) and a.radius>0)) then return nil,'unknown-shape' end
+    return r
+end
+
+-- The chance of a dispel of the given level against an effect of caster level of.
+function M.dispelChance(level,of)
+    if not number(level) then return 0 end
+    of=number(of) and of or level
+    local p
+    if level>=of then p=M.dispelBase+M.dispelAbove*(level-of) else p=M.dispelBase-M.dispelBelow*(of-level) end
+    return clamp(p,0,M.dispelMax)
+end
+
+-- What removal r takes of wards (an enemy's, in list order), cast at caster level level: the
+-- chance each ward goes, by index, and whether the invisible state goes.
+function M.taken(r,wards,level)
+    local chance={}
+    local function take(i,p) chance[i]=math.max(chance[i] or 0,p) end
+    local kinds=list(r.kinds)
+    if kinds.dispel and type(r.dispel)=='table' then
+        local at=r.dispel.mode=='fixed' and r.dispel.level or level
+        for i,w in ipairs(wards) do
+            if type(w)=='table' and w.dispellable then take(i,r.dispel.mode=='always' and 1 or M.dispelChance(at,w.level)) end
+        end
+    end
+    -- Type 0 (none) marks no spell.
+    for field,key in pairs({schools='school',secondaries='secondary'}) do
+        local caps=list(r[field])
+        local single=type(r.single)=='table' and list(r.single[field]) or {}
+        local swept,spellOf,itemOf={},{},{}
+        for i,w in ipairs(wards) do
+            local value=type(w)=='table' and w[key]
+            if number(value) and value~=0 and number(w.power) and w.power>=0 then
+                local s=type(w.source)=='string' and w.source or ''
+                local cap=caps[value]
+                if number(cap) and w.power<=cap then
+                    if s~='' then swept[s]=math.max(swept[s] or -1,cap) else take(i,1) end
+                end
+                local one=single[value]
+                if number(one) and w.power<=one and w.power>0 and s~='' then
+                    if w.equipped then itemOf[value]=itemOf[value] or s else spellOf[value]=spellOf[value] or s end
+                end
+            end
+        end
+        for i,w in ipairs(wards) do
+            if type(w)=='table' and type(w.source)=='string' and w.source~='' and number(w.power) then
+                local cap=swept[w.source]
+                if cap and w.power<=cap and not w.lasting then take(i,1) end
+                local value=w[key]
+                local one=number(value) and single[value]
+                if number(one) and w.power<=one and (spellOf[value]==w.source or itemOf[value]==w.source) then take(i,1) end
+            end
+        end
+    end
+    local ops=list(r.opcodes)
+    for i,w in ipairs(wards) do
+        local params=type(w)=='table' and ops[w.opcode]
+        if type(params)=='table' and not w.lasting and (params[-1] or params[w.p2]) then take(i,1) end
+    end
+    return chance,kinds.invisibility==true
+end
+
+-- Enemy e's shield from its wards, all but those gone (a set of indices): what defence.blocks
+-- weighs. Stoneskin skins, Mirror Images and invisibility are the engine's counts and states;
+-- they go with the spell that gave them. Magic resistance is e's own, less what the gone wards
+-- added. Also the armour the gone wards gave (e's armour class holds it now) and whether e is
+-- seen once they are gone.
+function M.shield(e,wards,gone,visible)
+    local s=defence.shield(nil)
+    local armor,mr,skins,mirror,unseen=0,0,false,false,false
+    for i,w in ipairs(wards) do
+        if type(w)=='table' then
+            local ws=defence.shield(w.roles)
+            if gone and gone[i] then
+                armor=armor+ws.armor;mr=mr+ws.mr
+                if M.SKINS[w.opcode] or ws.stoneskin>0 then skins=true end
+                if M.MIRROR[w.opcode] or ws.mirror>0 then mirror=true end
+                if M.INVISIBLE[w.opcode] or ws.invisible then unseen=true end
+            else s=defence.union(s,ws) end
+        end
+    end
+    s.armor=0
+    s.stoneskin=skins and 0 or (number(e.skins) and e.skins or 0)
+    s.mirror=mirror and 0 or (number(e.mirror) and e.mirror or 0)
+    s.mr=math.max(0,(number(e.mr) and e.mr or 0)-mr)
+    local seen=visible or unseen
+    s.invisible,s.improved=false,false
+    if not seen then
+        if targeting.has(e.state,targeting.STATE.improvedInvisible) then s.invisible,s.improved=true,true
+        elseif targeting.has(e.state,targeting.STATE.invisible) then s.invisible=true end
+    end
+    return s,armor,seen
+end
+
+-- The caster's side's pressure on enemy target: threat.picture's entry for it, with the friends
+-- (the caster and its living allies, with their attack data, levels and classes) as the attackers
+-- and the living enemies as the side they spread over. The caster strikes with the weapon in its
+-- hand, or not at all without one.
+function M.pressure(frame,target)
+    local attackers={}
+    local caster=frame.self
+    if targeting.alive(caster) then
+        local c={}
+        for k,v in pairs(caster) do c[k]=v end
+        local w=caster.weapon
+        c.attack=false
+        if type(w)=='table' and number(w.damage) then
+            local flags=number(w.flags) and w.flags or 0
+            c.attack={apr=number(w.apr) and w.apr or caster.apr,thac0=number(w.thac0) and w.thac0 or caster.thac0,
+                damage=w.damage,ranged=w.ranged==true,range=w.range,
+                magical=(number(w.enchantment) and w.enchantment>0) or math.floor(flags/64)%2==1}
+        end
+        attackers[1]=c
+    end
+    for _,a in ipairs(list(frame.allies)) do if targeting.alive(a) then attackers[#attackers+1]=a end end
+    local others={}
+    for _,e in ipairs(list(frame.enemies)) do
+        if e.id~=target.id and targeting.alive(e) then others[#others+1]=e end
+    end
+    return threat.picture({self=target,allies=others,enemies=attackers})[target.id]
+end
+
+-- Two buff roles as one: every kind of either, amounts added.
+local function buffs(a,b)
+    local out={kinds={},amounts={}}
+    local function add(r)
+        if type(r)~='table' then return end
+        for k,v in pairs(list(r.kinds)) do if v then out.kinds[k]=true end end
+        for k,v in pairs(list(r.amounts)) do if number(v) then out.amounts[k]=(out.amounts[k] or 0)+v end end
+    end
+    add(a);add(b)
+    return out
+end
+
+-- What the removal takes from the caster's side on e over r rounds, given the chance each ward
+-- goes: the conditions it holds e in, each worth what freeing a friend of it is worth for what is
+-- left of it (care.CONDITION; those that hinder only casters a fifth on others), and the weapon
+-- harm e gets back once a slowing or a penalty to its attacks, hits or damage is gone (its
+-- current attack holds them; defence.offense of their reverse, against the friends).
+function M.lost(e,wards,chance,friends,r)
+    local worth=0
+    local health=targeting.health(e)
+    for i,p in pairs(chance) do
+        local w=wards[i]
+        if p>0 and type(w)=='table' and type(w.roles)=='table' then
+            local factor=0
+            for _,name in ipairs({'disable','debuff'}) do
+                local role=w.roles[name]
+                for label in pairs(type(role)=='table' and list(role.kinds) or {}) do
+                    local f=care.CONDITION[label] or 0
+                    if care.CASTERS_ONLY[label] and not ids.caster(e) then f=f*0.2 end
+                    factor=math.max(factor,f)
+                end
+            end
+            if factor>0 then
+                local left=number(w.left) and w.left or math.huge
+                worth=worth+p*factor*clamp(math.min(left,r*M.ROUND)/care.fullSeconds,0,1)*(0.5+0.5*health)
+            end
+            local d=w.roles.debuff
+            if type(d)=='table' then
+                local slow=list(d.kinds).slow==true
+                local back={kinds={haste=slow,improvedHaste=slow},amounts={}}
+                for _,k in ipairs({'attacks','thac0','damage','luck'}) do
+                    local v=type(d.amounts)=='table' and d.amounts[k]
+                    if number(v) then back.amounts[k]=v end
+                end
+                worth=worth+p*defence.offense(back,e,{enemies=friends},r)
+            end
+        end
+    end
+    return worth
+end
+
+-- The worth of a removal spell on enemy e once it lands, r rounds before the horizon ends, and the
+-- reason when it is none. It can be below zero: then the removal frees e of more than it opens.
+function M.on(input,spell,e,r)
+    local mind=input.mind
+    local killBonus=number(mind.killBonus) and mind.killBonus or 0
+    local roles,key=spells.view(spell,targeting.holds(e))
+    if type(roles)~='table' or (type(key)=='string' and key:find('?',1,true)) then return 0,'unknown-filter' end
+    local role=roles.removal
+    if type(role)~='table' or type(role.who)~='table' or not (role.who.target or role.who.area) then return 0,'filter' end
+    if targeting.protected(e,spell) then return 0,'protected' end
+    local kinds=list(role.kinds)
+    local land=targeting.landing(role,e)*(1-targeting.saveChance(role,e))*clamp(number(role.chance) and role.chance or 1,0,1)
+    if land<=0 then return 0,'resisted' end
+    -- Unsummoned or destroyed: out of the fight for good, as a kill. Unsummoning takes summons only.
+    if kinds.destroy or (kinds.summons and summoned(e)) then return land*(targeting.health(e)+killBonus) end
+    if r<=0 then return 0,'no-time' end
+    local wards=type(e.wards)=='table' and e.wards or {}
+    local chance,purge=M.taken(role,wards,input.frame.self.level)
+    local gone,n,sum=nil,0,0
+    for i,p in pairs(chance) do
+        if p>0 then gone=gone or {};gone[i]=true;n=n+1;sum=sum+p end
+    end
+    local hidden=targeting.has(e.state,UNSEEN)
+    if not gone and not (purge and hidden) then return 0,'nothing' end
+    local before=M.shield(e,wards,nil,false)
+    local after,armor,seen=M.shield(e,wards,gone,purge)
+    local changed=e
+    if armor~=0 or (seen and hidden) then
+        changed={}
+        for k,v in pairs(e) do changed[k]=v end
+        changed.ac=(number(e.ac) and e.ac or 10)+armor
+        if seen and hidden then
+            local state=number(e.state) and e.state or 0
+            if targeting.has(state,targeting.STATE.invisible) then state=state-targeting.STATE.invisible end
+            if targeting.has(state,targeting.STATE.improvedInvisible) then state=state-targeting.STATE.improvedInvisible end
+            changed.state=state
+        end
+    end
+    local frame=input.frame
+    local t0=M.pressure(frame,e)
+    local t1=changed==e and t0 or M.pressure(frame,changed)
+    local opened=0
+    if t0 and t1 then
+        opened=math.max(0,defence.loss(after,changed,t1,r,killBonus)-defence.loss(before,e,t0,r,killBonus))
+    end
+    local buff
+    for i in pairs(gone or {}) do
+        local w=wards[i]
+        if type(w)=='table' and type(w.roles)=='table' and type(w.roles.buff)=='table' then buff=buffs(buff,w.roles.buff) end
+    end
+    local friends=threat.friends(frame)
+    if buff then opened=opened+defence.offense(buff,e,{enemies=friends},r) end
+    -- What opens is weighed by the mean chance of what goes; what it frees e of, ward by ward.
+    local worth=(opened*(n>0 and sum/n or 1)-M.lost(e,wards,chance,friends,r))*land
+    if worth==0 then return 0,'no-worth' end
+    return worth,worth<0 and 'frees' or nil
+end
+
+-- Whether e can be aimed at directly: alive, no sanctuary, seen, in range.
+local function aimable(caster,e,spell)
+    if not targeting.alive(e) then return false end
+    if number(e.sanctuary) and e.sanctuary>0 then return false end
+    if targeting.has(e.state,UNSEEN) and not caster.seeInvisible then return false end
+    return targeting.distance(caster,e)<=range(spell)
+end
+
+-- Where the spell can go: an enemy it can aim at (with the enemies around it for an area), each
+-- enemy's spot and the middle of the enemies around it for an area at a point, the caster's spot
+-- for its own area.
+local function aims(input,spell)
+    local frame=input.frame
+    local caster=frame.self
+    local a=type(spell.area)=='table' and spell.area or nil
+    local out={}
+    if spell.target=='self' then
+        if a then out[1]={point={x=caster.x,y=caster.y},self=true} end
+        return out
+    end
+    for _,e in ipairs(list(frame.enemies)) do
+        if spell.target=='creature' then
+            if aimable(caster,e,spell) then out[#out+1]={enemy=e,point={x=e.x,y=e.y}} end
+        elseif spell.target=='point' and a then
+            if targeting.alive(e) and number(e.x) and number(e.y) then
+                if targeting.distance(caster,e)<=range(spell) then out[#out+1]={point={x=e.x,y=e.y}} end
+                local sx,sy,n=0,0,0
+                for _,o in ipairs(frame.enemies) do
+                    if targeting.alive(o) and number(o.x) and number(o.y) and targeting.distance(e,o)<=a.radius then
+                        sx,sy,n=sx+o.x,sy+o.y,n+1
+                    end
+                end
+                if n>1 then
+                    local m={x=sx/n,y=sy/n}
+                    if targeting.distance(caster,m)<=range(spell) then out[#out+1]={point=m} end
+                end
+            end
+        end
+    end
+    return out
+end
+
+-- Every removal the caster can cast now, best aim per spell: {resref, kind='removal', mode, worth,
+-- cost, score, hits (the enemies it opens), slack=0, speed, and target, point or self}. An area
+-- counts every enemy in it, also those it would free. attack (optional) names the spells
+-- combat-intent/choice.lua weighs as attacks, with their removal (left out here). rejected
+-- (optional) counts why ready removal spells gave none.
+function M.options(input,rejected,attack)
+    local out={}
+    local function reject(why) if rejected then rejected['removal-'..why]=(rejected['removal-'..why] or 0)+1 end end
+    local mind=input.mind
+    local frame=input.frame
+    if type(frame)~='table' or type(frame.self)~='table' or type(mind)~='table' then return out end
+    local caster=frame.self
+    local horizon=number(mind.horizon) and mind.horizon or 18
+    local pictures
+    for _,row in ipairs(list(input.spells)) do
+        if type(row)=='table' and number(row.ready) and row.ready>0 and row.usable and not (attack and attack(row.spell)) then
+            local spell=row.spell
+            local role,why=M.removal(spell)
+            if not role then
+                if why=='partial' or why=='harms-friends' or why=='unknown-projectile' or why=='unknown-shape' then reject(why) end
+            else
+                local cast=(number(spell.speed) and spell.speed or 0)*M.speedSeconds
+                local r=math.max(0,horizon-cast)/M.ROUND
+                local a=type(spell.area)=='table' and spell.area or nil
+                local best,reason
+                for _,aim in ipairs(aims(input,spell)) do
+                    local worth,hits,blocked=0,{},false
+                    if a and (not aim.enemy or role.who.area) then
+                        local center=aim.point
+                        if a.filter~='enemies' then
+                            for _,ally in ipairs(list(frame.allies)) do
+                                if targeting.alive(ally) and targeting.distance(center,ally)<=a.radius+M.allyMargin then blocked=true end
+                            end
+                            if not aim.self and targeting.distance(center,caster)<=a.radius+M.allyMargin then blocked=true end
+                            if aim.self and not a.skipsCenter then blocked=true end
+                        end
+                        if not blocked then
+                            for _,e in ipairs(list(frame.enemies)) do
+                                if targeting.alive(e) and targeting.distance(center,e)<=a.radius then
+                                    local w,no=M.on(input,spell,e,r)
+                                    worth=worth+w
+                                    if w>0 then hits[#hits+1]=e.id else reason=reason or no end
+                                end
+                            end
+                        else reason=reason or 'ally-in-area' end
+                    elseif aim.enemy then
+                        local w,no=M.on(input,spell,aim.enemy,r)
+                        if w>0 then worth=w;hits[1]=aim.enemy.id else reason=reason or no end
+                    end
+                    if worth>0 and #hits>0 and (not best or worth>best.worth) then best={aim=aim,worth=worth,hits=hits} end
+                end
+                if not best then reject(reason or 'out-of-reach')
+                else
+                    pictures=pictures or threat.picture(frame)
+                    local through=defence.through(input,pictures[caster.id],cast)
+                    local level=number(row.level) and row.level or number(spell.level) and spell.level or 1
+                    local cost=(number(mind.economy) and mind.economy or 1)*M.costPerLevel*level+
+                        (number(mind.castCost) and mind.castCost or 0)*cast
+                    local value=best.worth*through
+                    local option={resref=row.resref,kind='removal',worth=value,cost=cost,score=value-cost,hits=best.hits,
+                        slack=0,speed=number(spell.speed) and spell.speed or 0,release=spell.release or nil}
+                    local aim=best.aim
+                    if aim.self then option.self=true;option.mode='self-area'
+                    elseif aim.enemy then option.target=aim.enemy.id;option.mode='creature'
+                    else option.point={x=math.floor(aim.point.x+0.5),y=math.floor(aim.point.y+0.5)};option.mode='point-area' end
+                    out[#out+1]=option
+                end
+            end
+        end
+    end
+    return out
+end
+return M
+end
 factories["combat-intent.choice"]=function(require)
 -- The engine's own choice of an attack spell and its target or aim point for one caster (step
 -- 3, second slice; Christopher's answers of 2026-10-18 are in the plan). Inputs are plain
@@ -3332,13 +3834,16 @@ factories["combat-intent.choice"]=function(require)
 -- Summons (D3c): the creatures a summoning spell brings, by their fight on the caster's side,
 -- compete on the same scale (combat-intent/summons.lua).
 --
--- Until the engine removes protections and raises itself, SCS keeps a round the engine would only
--- attack in while the caster has such a spell ready that fits now (M.fits; Christopher,
--- 2026-10-20: "nur wenn jetzt sinnvoll"; profile keepScsSpells).
+-- Protection removal (D3d): breaching, dispelling and stripping enemies and unsummoning summoned
+-- ones compete on the same scale (combat-intent/removal.lua). An attack that also removes (Spell
+-- Revisions' Chromatic Orb takes haste, Disintegrate destroys some creatures) stays an attack and
+-- adds what its removal is worth on each enemy it hits. The engine takes every round it has a
+-- cast or a weapon attack for; SCS keeps none for spells of its own (its scripts never raise).
 local targeting=require('combat-intent.targeting')
 local defence=require('combat-intent.defence')
 local care=require('combat-intent.care')
 local summons=require('combat-intent.summons')
+local removal=require('combat-intent.removal')
 local openers=require('combat-intent.openers')
 local touch=require('combat-intent.touch')
 local weapons=require('combat-intent.weapons')
@@ -3367,30 +3872,12 @@ M.CASTERS_ONLY={feeblemind=true,silence=true,nocast=true}
 M.RESIST={fire='fire',cold='cold',electricity='electricity',acid='acid',magic='magic',
     magicfire='magicfire',magiccold='magiccold',slashing='slashing',crushing='crushing',
     piercing='piercing',missile='missile',poison='poison'}
--- Roles that make a spell something other than an attack: protection removal, healing,
--- curing, raising and summoning are other decisions. Of these SCS may still keep a round for
--- removal and raising (M.scsSpell).
+-- Roles that make a spell something other than an attack: healing, curing, raising, summoning,
+-- and protection removal unless the spell also attacks, are other decisions.
 local OTHER={'removal','heal','raise','cure','summon'}
-local KEPT={'removal','raise'}
 local GLOBAL={everyone=true,nonparty=true,casterGroup=true,party=true}
--- What makes such a spell fit now (M.fits). The STATE.IDS bit each cured condition shows in; holds
--- also set the HELD stat, level drain the LEVELDRAIN stat, and a petrified ally lies among the
--- fallen. Curses, deafness, imprisonment, fatigue and the casting pause show in nothing the engine
--- reads, so a cure for those alone does not fit.
-M.CURED={sleep=0x1,berserk=0x2,panic=0x4,stun=0x8,hold=0x20,silence=0x1000,poison=0x4000,blind=0x40000,
-    disease=0x80000,feeblemind=0x100000,confusion=0x80000000}
--- STATE_STONE_DEATH; frozen and exploding deaths (STATE_FROZEN_DEATH, STATE_EXPLODING_DEATH)
--- leave no body to raise or cure.
-M.STONE,M.SHATTERED=0x80,0x140
--- Protective states a dispel or a stripping spell takes away: invisible, nondetection, improved
--- invisibility, blur, mirror image.
-M.SHIELDED=0x60600010
 -- GENDER.IDS: SUMMONED, ILLUSIONARY, SUMMONED_DEMON.
-M.SUMMONED={[6]=true,[7]=true,[9]=true}
--- Removed opcodes that show without an effect entry: Stoneskin's skins, Mirror Image's images,
--- invisibility, blur and nondetection as states.
-local SHOWS={[218]='skins',[314]='skins',[119]='mirror',[159]='mirror'}
-local SHOWN_STATE={[20]=0x400010,[65]=0x20000000,[69]=0x200000}
+M.SUMMONED=removal.SUMMONED
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
 local function clamp(v,a,b) if v<a then return a elseif v>b then return b end return v end
@@ -3403,8 +3890,10 @@ end
 function M.attack(spell)
     if type(spell)~='table' or type(spell.roles)~='table' then return nil,'unclassified' end
     if spell.partial then return nil,'partial' end
+    local roles=targeting.kindRoles(spell)
+    local attacks=reaches(roles.disable) or reaches(roles.damage)
     for _,name in ipairs(OTHER) do
-        if benefits(spell.roles[name]) then return nil,'role-'..name end
+        if benefits(spell.roles[name]) and not (name=='removal' and attacks) then return nil,'role-'..name end
     end
     for _,name in ipairs({'damage','disable','debuff'}) do
         local r=spell.roles[name]
@@ -3416,7 +3905,6 @@ function M.attack(spell)
     if type(spell.roles.disable)=='table' and spell.roles.disable.kinds and spell.roles.disable.kinds.timestop then
         return nil,'time-stop'
     end
-    local roles=targeting.kindRoles(spell)
     local kind=reaches(roles.disable) and 'disable' or reaches(roles.damage) and 'damage' or nil
     if not kind then return nil,'no-attack' end
     local a=spell.area
@@ -3459,9 +3947,10 @@ local function resisted(e,label)
     if not number(r) then return 1 end
     return math.max(0,1-r/100)
 end
-local function notResisted(e) return 1-clamp(number(e.mr) and e.mr or 0,0,100)/100 end
--- The chance e makes its saving throw against role: a d20 plus the effect's bonus reaching the
--- best of e's saves the role allows. Unknown saves count as even odds.
+-- The chance e makes its saving throw against role (targeting.saveChance), and the share of casts
+-- its magic resistance lets through (targeting.landing).
+M.saveChance=targeting.saveChance
+local landing=targeting.landing
 -- How long a condition holds on e when e gets a save every bf.every seconds to break free
 -- (breakFree, combat-intent/spells.lua: Spell Revisions' Greater Command): the first stretch for
 -- sure, each later one while every save so far failed, up to the condition's duration.
@@ -3477,17 +3966,6 @@ function M.brokenFree(duration,bf,e)
         stay=stay*(1-s)
     end
     return held
-end
-function M.saveChance(role,e)
-    if type(role.save)~='table' or next(role.save)==nil then return 0 end
-    local best
-    for name in pairs(role.save) do
-        local v=type(e.saves)=='table' and e.saves[name]
-        if number(v) and (best==nil or v<best) then best=v end
-    end
-    if not best then return 0.5 end
-    local bonus=number(role.saveBonus) and role.saveBonus or 0
-    return clamp((21-(best-bonus))/20,0.05,0.95)
 end
 -- How much of a remembered failure still counts: a spell that missed e without a save and
 -- without magic resistance to blame met an immunity.
@@ -3514,7 +3992,7 @@ local function damageOn(input,row,role,e,spare)
     end
     if number(role.percent) then amount=amount+maxHp*role.percent/100 end
     if amount<=0 then return 0,0 end
-    local land=notResisted(e)
+    local land=landing(role,e)
     local save=M.saveChance(role,e)
     local expected=amount*land*(role.saveForHalf and 1-save/2 or 1-save)
     local worth=math.min(expected,hp)/maxHp
@@ -3567,7 +4045,7 @@ local function disableOn(input,row,role,e)
     local worth=forGood and factor*(health+input.mind.killBonus) or factor*length*(0.5+0.5*health)
     -- The chance it lands: magic resistance, the saving throw, and the effect's own chance (an
     -- elf keeps out nine charms in ten).
-    local chance=notResisted(e)*(1-M.saveChance(role,e))*clamp(number(role.chance) and role.chance or 1,0,1)
+    local chance=landing(role,e)*(1-M.saveChance(role,e))*clamp(number(role.chance) and role.chance or 1,0,1)
     return worth*chance*remembered(input,row.resref,e,role)
 end
 
@@ -3603,6 +4081,15 @@ local function worthOn(input,row,kind,roles,e)
     return disableOn(input,row,roles.disable,e),0
 end
 
+-- What an attack's removal (combat-intent/removal.lua) adds on e, over the rounds left after the
+-- cast: below zero when it frees e of more than it opens.
+local function stripped(input,spell,e)
+    if not reaches(spell.roles.removal) then return 0 end
+    local horizon=number(input.mind.horizon) and input.mind.horizon or 18
+    local cast=(number(spell.speed) and spell.speed or 0)*removal.speedSeconds
+    return (removal.on(input,spell,e,math.max(0,horizon-cast)/removal.ROUND))
+end
+
 -- One option: the spell aimed at a creature or a point, its worth, cost and score, or nil
 -- and why it is no option.
 local function evaluate(input,row,spell,kind,mode,aim)
@@ -3616,6 +4103,7 @@ local function evaluate(input,row,spell,kind,mode,aim)
         if not roles then return nil,why end
         if kind=='disable' and targeting.disabled(e) then return nil,'disabled' end
         worth,expected[e.id]=worthOn(input,row,kind,roles,e)
+        worth=worth+stripped(input,spell,e)
         hits[1]=e.id
     else
         local center=aim.point
@@ -3625,6 +4113,7 @@ local function evaluate(input,row,spell,kind,mode,aim)
             local roles=e and affects(spell,e,kind)
             if not roles then return nil,'shape' end
             worth,expected[e.id]=worthOn(input,row,kind,roles,e)
+            worth=worth+stripped(input,spell,e)
             hits[1]=e.id
         else
             local inside,near=shape(spell,caster,center,aim.point)
@@ -3646,6 +4135,7 @@ local function evaluate(input,row,spell,kind,mode,aim)
                 local roles=targeting.alive(e) and inside(e) and affects(spell,e,kind)
                 if roles then
                     local w,hp=worthOn(input,row,kind,roles,e)
+                    w=w+stripped(input,spell,e)
                     if w>0 then
                         worth=worth+w;hits[#hits+1]=e.id;expected[e.id]=hp
                         slack=math.min(slack,a.radius-targeting.distance(a.cone and caster or center,e))
@@ -3733,7 +4223,7 @@ local function hitsOn(input,arms,hits,e)
             if number(v) then each=each+v*resisted(e,label) end
         end
         local save=M.saveChance(role,e)
-        per=per+each*notResisted(e)*(role.saveForHalf and 1-save/2 or 1-save)
+        per=per+each*landing(role,e)*(role.saveForHalf and 1-save/2 or 1-save)
     end
     local worth,expected=0,0
     if per>0 then
@@ -3949,109 +4439,6 @@ function M.weaponOptions(input,rejected)
     return out
 end
 
-local function list(t) return type(t)=='table' and t or {} end
--- Whether a role reaches creatures other than its caster.
-local function others(role)
-    for who in pairs(role.who) do if who~='self' then return true end end
-    return false
-end
-local function ails(f,label)
-    if label=='hold' and number(f.held) and f.held>0 then return true end
-    if label=='drain' then return number(f.drained) and f.drained>0 end
-    local bit=M.CURED[label]
-    return bit~=nil and targeting.has(f.state,bit)
-end
--- A protection from a spell with time left (sense.lua marks it timed; an item's does not count),
--- Stoneskin skins, Mirror Images or a protective state: what a dispel or a stripping spell takes.
-local function shielded(e)
-    if (number(e.skins) and e.skins>0) or (number(e.mirror) and e.mirror>0) or targeting.has(e.state,M.SHIELDED) then
-        return true
-    end
-    for _,p in ipairs(list(e.protections)) do if type(p)=='table' and p.timed then return true end end
-    return false
-end
--- Whether an enemy carries an effect of opcode op that a removal by opcode takes away.
-local function carries(e,op)
-    local field=SHOWS[op]
-    if field then return number(e[field]) and e[field]>0 end
-    if SHOWN_STATE[op] then return targeting.has(e.state,SHOWN_STATE[op]) end
-    for _,p in ipairs(list(e.protections)) do if type(p)=='table' and p.timed and p.opcode==op then return true end end
-    return false
-end
-local function summoned(e) return type(e.ids)=='table' and M.SUMMONED[e.ids.gender]==true end
--- Whether an enemy has what a removal of each kind takes away. Clouds show in nothing the engine
--- reads: a removal of clouds alone does not fit.
-local REMOVED={dispel=shielded,schools=shielded,secondaries=shielded,
-    invisibility=function(e) return targeting.has(e.state,UNSEEN) end,
-    nondetection=function(e) return targeting.has(e.state,0x200000) end,
-    sanctuary=function(e) return number(e.sanctuary) and e.sanctuary>0 end,
-    summons=summoned,destroy=summoned,replace=summoned}
-
--- Whether a role of a spell the engine leaves to SCS fits now (Christopher, 2026-10-20): raising
--- when an ally it sees lies dead with a body, not a summons; curing when the caster or an ally it
--- reaches has a condition the spell cures; removal when an enemy it sees has what the spell takes
--- away. A spell on the caster alone reaches only the caster.
-function M.fits(input,name,role)
-    if type(role)~='table' or type(role.who)~='table' or next(role.who)==nil then return false end
-    local frame=input.frame
-    local caster=frame.self
-    local wide=others(role)
-    local friends={caster}
-    if wide then
-        for _,a in ipairs(list(frame.allies)) do if targeting.alive(a) then friends[#friends+1]=a end end
-    end
-    local fallen=wide and list(frame.fallen) or {}
-    if name=='raise' then
-        for _,f in ipairs(fallen) do
-            if type(f)=='table' and not targeting.has(f.state,M.STONE+M.SHATTERED) and not M.SUMMONED[f.gender] then
-                return true
-            end
-        end
-        return false
-    end
-    local kinds=list(role.kinds)
-    if name=='cure' then
-        for label in pairs(kinds) do
-            for _,f in ipairs(friends) do if ails(f,label) then return true end end
-            if label=='petrify' then
-                for _,f in ipairs(fallen) do
-                    if type(f)=='table' and targeting.has(f.state,M.STONE) and not targeting.has(f.state,M.SHATTERED) then
-                        return true
-                    end
-                end
-            end
-        end
-        return false
-    end
-    if name=='removal' and wide then
-        for _,e in ipairs(frame.enemies) do
-            if targeting.alive(e) then
-                for label in pairs(kinds) do
-                    local test=REMOVED[label]
-                    if test and test(e) then return true end
-                    if label=='opcodes' then
-                        for op in pairs(list(role.opcodes)) do if carries(e,op) then return true end end
-                    end
-                end
-            end
-        end
-    end
-    return false
-end
-
--- The kind and resref of a spell the caster has ready that the engine does not cast yet (removal,
--- raise) and that fits now (M.fits), or nil.
-function M.scsSpell(input)
-    for _,row in ipairs(type(input.spells)=='table' and input.spells or {}) do
-        if type(row)=='table' and number(row.ready) and row.ready>0 and row.usable and
-            type(row.spell)=='table' and type(row.spell.roles)=='table' then
-            for _,name in ipairs(KEPT) do
-                if M.fits(input,name,row.spell.roles[name]) then return name,row.resref end
-            end
-        end
-    end
-end
-
 -- The input without its releases (sequencers and triggers): under Improved Alacrity SCS keeps
 -- them for later (caster_definitions.ssl), and so does the engine.
 function M.unreleased(input)
@@ -4101,9 +4488,9 @@ function M.frozen(input)
     return view
 end
 
--- The attack, defence, heal or cure, summons, opener or strike to do now, or nil and why; the options come along for
--- the log, and with 'no-option' the count of reasons the ready spells gave none. When SCS keeps
--- the round for a spell that fits now, that spell's resref comes last.
+-- The attack, defence, heal or cure, summons, removal, opener, strike or weapon attack to do now,
+-- or nil and why; the options come along for the log, and without a choice the count of reasons
+-- the ready spells gave none.
 function M.decide(input)
     if type(input)~='table' or type(input.frame)~='table' or type(input.frame.self)~='table' or
         type(input.frame.enemies)~='table' or type(input.mind)~='table' then return nil,'bad-input',{} end
@@ -4123,11 +4510,10 @@ function M.decide(input)
     for _,o in ipairs(defence.options(input,rejected)) do options[#options+1]=o end
     for _,o in ipairs(care.options(input,rejected)) do options[#options+1]=o end
     for _,o in ipairs(summons.options(input,rejected)) do options[#options+1]=o end
+    for _,o in ipairs(removal.options(input,rejected,function(s) return M.attack(s)~=nil end)) do options[#options+1]=o end
     table.sort(options,better)
     -- A weapon attack spends nothing: it needs no minimum worth, and it is taken over a spell
-    -- only when it is worth more. Instead of no cast at all it waits while the caster has a spell
-    -- ready that the engine does not cast yet and that fits now: SCS keeps that round ('scs-' and
-    -- the kind).
+    -- only when it is worth more.
     local swings=mind.weapons and M.weaponOptions(input,rejected) or {}
     local swing=swings[1]
     local function all()
@@ -4137,18 +4523,10 @@ function M.decide(input)
         table.sort(list,better)
         return list
     end
-    local function instead()
-        if not swing or swing.score<=0 then return nil end
-        if mind.keepScsSpells then
-            local kind,spell=M.scsSpell(input)
-            if kind then return nil,'scs-'..kind,spell end
-        end
-        return swing
-    end
+    local swinging=swing~=nil and swing.score>0
     if #options==0 then
-        local s,kept,spell=instead()
-        if s then return s,'weapon',all() end
-        return nil,kept or 'no-option',kept and all() or options,rejected,spell
+        if swinging then return swing,'weapon',all() end
+        return nil,'no-option',options,rejected
     end
     -- Under Improved Alacrity a slow spell waits while a quick one reaches the minimum worth
     -- (SCS's slow spells and its compromise).
@@ -4159,9 +4537,8 @@ function M.decide(input)
     end
     local best=options[1]
     if best.score<mind.minValue then
-        local s,kept,spell=instead()
-        if s then return s,'weapon',all() end
-        return nil,kept or 'nothing-good',kept and all() or options,rejected,spell
+        if swinging then return swing,'weapon',all() end
+        return nil,'nothing-good',options,rejected
     end
     if swing and swing.score>best.score then return swing,'weapon',all() end
     local rng=input.rng
@@ -5005,6 +5382,44 @@ function M.guard(g,sprite,tick,classify)
         mirror=type(mirror)=='number' and mirror or 0,sources=sources,recast=recast,conditions=conditions,poison=poison}
 end
 
+-- What a removal can take from a creature (combat-intent/removal.lua): each of its active effects
+-- as plain values, in list order: its opcode and parameter 2, the spell or item it comes from
+-- (source), its school, secondary type, power and caster level, whether a dispel can take it
+-- (m_flags bit 0, as EEex's EEex_HasDispellableEffect tests), whether it runs on time (timed, with
+-- the seconds left), comes with an item (equipped) or lasts after death (lasting: timing 9, which
+-- removals by type and opcode leave), and its roles: classify(effect) of the effect alone, a plain
+-- effect record (callers may cache by its fields). Delivered effects (what they delivered is in the
+-- list already) and ones about to end are left out.
+function M.wards(g,sprite,tick,classify)
+    local out={}
+    for n,effects in ipairs({sprite.m_timedEffectList,sprite.m_equipedEffectList}) do
+        local seen=0
+        g.EEex_Utility_IterateCPtrList(effects,function(e)
+            seen=seen+1
+            if seen>M.maxEffects then return true end
+            local op=e.m_effectId
+            if type(op)~='number' or M.delivered[op] then return end
+            local kind=e.m_durationType
+            local timing,duration,left
+            if kind==4096 then
+                left=(number(e.m_duration)-tick)/15
+                if left<M.expiring then return end
+                timing,duration=0,math.floor(left)
+            elseif kind==1 or kind==9 then timing,duration,left=1,0,math.huge
+            elseif kind==2 then timing,duration,left=2,0,math.huge
+            else return end
+            local effect={opcode=op,target=1,power=number(e.m_spellLevel),p1=number(e.m_effectAmount),
+                p2=number(e.m_dWFlags),timing=timing,resist=0,duration=duration,prob1=100,prob2=0,res=name(e.m_res),
+                dice=number(e.m_numDice),sides=number(e.m_diceSize),save=0,saveBonus=0,special=number(e.m_special)}
+            out[#out+1]={opcode=op,p2=effect.p2,source=name(e.m_sourceRes),school=number(e.m_school),
+                secondary=number(e.m_secondaryType),power=number(e.m_spellLevel),level=number(e.m_casterLevel),
+                dispellable=band(g,number(e.m_flags),1)~=0,timed=n==1 and kind==4096,equipped=n==2,
+                lasting=kind==9,left=left,roles=classify(effect)}
+        end)
+    end
+    return out
+end
+
 -- Adds what the defence slice weighs to a frame read with details: each friend's guard (false
 -- if it could not be read), the weapons of enemies and allies, and whether each enemy sees
 -- invisible creatures. A creature whose engine data fails keeps what it has; returns the count
@@ -5497,6 +5912,11 @@ factories["adapters.eeex.choice"]=function(require)
 -- the ammunition in its first filled quiver slot (read once per creature). A summons is cast at a
 -- point, on the caster or at an enemy; once it ends it is judged by whether summoned allies the
 -- caster did not see before now stand in its view.
+--
+-- Protection removal (D3d): when a ready spell removes something from enemies, the choice also gets
+-- each enemy's active effects (sense.wards), each classified on its own and cached by its fields. A
+-- removal is cast at an enemy, a point or on the caster; once it ends it is judged by whether an
+-- enemy it was for lost effects, skins, images or its invisibility, or is gone.
 local sense=require('adapters.eeex.sense')
 local creature=require('adapters.eeex.creature')
 local resources=require('adapters.eeex.resources')
@@ -5619,6 +6039,8 @@ function M.new(g,options)
         if type(rawget(g,name))~='function' then missing=missing or name end
     end
     local cache,cached,items,itemCount={},0,{},0
+    -- singles: single effects classified on their own (sense.wards), by their fields.
+    local singles,singleCount={},0
     -- profiles: each summoned creature as a fighter, by resref (false when it cannot be read).
     local profiles,profileCount={},0
     local pending,running,judging,memory={},{},{},{}
@@ -5632,10 +6054,10 @@ function M.new(g,options)
         hits=0,misses=0,errors=0,holds=0,frozen=0,marks=0,markFailures=0,defences=0,guarded=0,unguarded=0,
         guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0,arms=0,attacks=0,attackHits=0,
         weaponFailures=0,releases=0,heals=0,cures=0,potions=0,cared=0,uncared=0,summons=0,conjured=0,
-        unconjured=0}
+        unconjured=0,removals=0,stripped=0,unstripped=0,wardFailures=0}
     local reasons={}
     local log,nextRow,size={},1,0
-    local root,sink,lastError,markError,guardError,weaponError
+    local root,sink,lastError,markError,guardError,weaponError,wardError
     -- trace: labs see every decline as a 'declined' row in the sink (never in the log).
     local trace,lastReason,lastDetail,lastCharge=false,nil,nil,nil
     local api={}
@@ -5680,6 +6102,41 @@ function M.new(g,options)
     end
     -- A creature's active effects, classified as one record for what protects it (sense.guard).
     local function effectsOf(record) return spells.classify(record,1,reader.lookup,{level=1}) end
+    -- One active effect on its own (sense.wards), classified once by its fields: its roles. A pause
+    -- of six seconds or less on a creature itself is no role, so the key tells short from long.
+    local function single(effect)
+        local key=table.concat({effect.opcode,tostring(effect.p1),tostring(effect.p2),tostring(effect.timing),
+            tostring(effect.res),tostring(effect.dice),tostring(effect.sides),tostring(effect.special),
+            (type(effect.duration)=='number' and effect.duration>6) and 'L' or 'S'},':')
+        local roles=singles[key]
+        if roles==nil then
+            if singleCount>=M.cacheLimit then singles,singleCount={},0 end
+            local record={kind='SPL',resref='',name=0,flags=0,spellType=0,exclusion=0,school=0,secondary=0,level=1,
+                casting={},abilities={{form=1,flags=0,location=2,target=5,targetCount=0,range=0,minLevel=1,speed=0,
+                projectile=1,effects={effect}}}}
+            local c=spells.classify(record,1,reader.lookup,{level=1})
+            roles=type(c)=='table' and type(c.roles)=='table' and c.roles or {}
+            singles[key]=roles;singleCount=singleCount+1
+        end
+        return roles
+    end
+    local function none() return {} end
+    -- Whether a ready spell removes something from enemies.
+    local function strips(rows)
+        for _,row in ipairs(rows) do
+            local r=type(row.spell)=='table' and type(row.spell.roles)=='table' and row.spell.roles.removal
+            if type(r)=='table' and type(r.who)=='table' and (r.who.target or r.who.area) and
+                type(row.ready)=='number' and row.ready>0 and row.usable then return true end
+        end
+        return false
+    end
+    -- What shows of a creature's protections: the count of its active effects, its skins, images
+    -- and state.
+    local function shown(object,tick)
+        local ok,list=pcall(sense.wards,g,object,tick,none)
+        local actor=sense.actor(g,object)
+        return {effects=ok and #list or nil,skins=actor.skins,mirror=actor.mirror,state=actor.state}
+    end
     -- An item's first three abilities, classified once.
     local function item(resref)
         if items[resref]==nil then
@@ -5896,6 +6353,27 @@ function M.new(g,options)
         if a.castTicks and a.ended-a.started<a.castTicks-M.interruptSlack then
             counts.interrupted=counts.interrupted+1;return
         end
+        if a.kind=='removal' then
+            -- An enemy it was for that lost effects, skins, images or its invisibility, or is gone.
+            local took=0
+            local enemies=type(a.hits)=='table' and a.hits or {}
+            for _,id in ipairs(enemies) do
+                local before=type(a.before)=='table' and a.before[id]
+                if before then
+                    local object=get(id)
+                    if not object then took=took+1
+                    else
+                        local now=shown(object,a.ended)
+                        if (now.effects and before.effects and now.effects<before.effects) or (now.skins or 0)<(before.skins or 0)
+                            or (now.mirror or 0)<(before.mirror or 0) or (targeting.has(before.state,UNSEEN) and
+                            not targeting.has(now.state,UNSEEN)) then took=took+1 end
+                    end
+                end
+            end
+            if took>0 then counts.stripped=counts.stripped+1 else counts.unstripped=counts.unstripped+1 end
+            record({kind='strip',tick=a.ended,member=a.caster,spell=a.resref,mode=a.mode,enemies=#enemies,took=took})
+            return
+        end
         if M.CARE[a.kind] then
             local helped=0
             local friends=type(a.hits)=='table' and a.hits or {}
@@ -6075,6 +6553,24 @@ function M.new(g,options)
                 record({kind='error',where='guard',error=guardError})
             end
         end
+        -- What a removal could take from each enemy, read only when a ready spell removes; an enemy
+        -- whose effects cannot be read keeps none (its removal is worth nothing).
+        if strips(rows) then
+            for _,e in ipairs(frame.enemies) do
+                local object=get(e.id)
+                if object then
+                    local ok,value=pcall(sense.wards,g,object,tick,single)
+                    if ok then e.wards=value
+                    else
+                        counts.wardFailures=counts.wardFailures+1
+                        if not wardError then
+                            wardError=tostring(value):sub(1,200)
+                            record({kind='error',where='wards',error=wardError})
+                        end
+                    end
+                end
+            end
+        end
         counts.decisions=counts.decisions+1
         if g.EEex_Sprite_GetStat(sprite,M.alacrityStat)>0 then frame.self.alacrity=true end
         frame.self.thac0=sense.thac0(g,sprite)
@@ -6102,7 +6598,7 @@ function M.new(g,options)
             input.timeStop={caster=holder,left=left}
             if holder==id then input.stopCasts=stopCasts[id] or {} end
         end
-        local d,why,options,rejected,kept=choice.decide(input)
+        local d,why,options,rejected=choice.decide(input)
         lastDetail=rejected
         local top={}
         for i=1,math.min(3,#options) do
@@ -6112,7 +6608,7 @@ function M.new(g,options)
         if not d then
             if why~='no-option' then
                 record({kind='decline',tick=tick,member=id,family=family,reason=why,top=top,charge=lastCharge,
-                    rejected=lastCharge and rejected or nil,kept=kept})
+                    rejected=lastCharge and rejected or nil})
             end
             return decline(why)
         end
@@ -6127,6 +6623,7 @@ function M.new(g,options)
         if d.kind=='cure' then counts.cures=counts.cures+1 end
         if d.use then counts.potions=counts.potions+1 end
         if d.kind=='summon' then counts.summons=counts.summons+1 end
+        if d.kind=='removal' then counts.removals=counts.removals+1 end
         if d.release then counts.releases=counts.releases+1 end
         record({kind='choice',tick=tick,member=id,family=family,spell=d.resref,castKind=d.kind,mode=d.mode,
             target=d.target,point=d.point,score=d.score,worth=d.worth,hits=d.hits,how=why,top=top,
@@ -6146,6 +6643,14 @@ function M.new(g,options)
             before={}
             for _,a in ipairs(frame.allies) do
                 if type(a.ids)=='table' and choice.SUMMONED[a.ids.gender] then before[a.id]=true end
+            end
+        end
+        -- A removal is judged by what shows of its enemies' protections after it and before.
+        if d.kind=='removal' then
+            before={}
+            for _,h in ipairs(d.hits or {}) do
+                local object=get(h)
+                if object then before[h]=shown(object,tick) end
             end
         end
         if M.CARE[d.kind] then
@@ -6316,7 +6821,8 @@ function M.new(g,options)
         for _,mine in pairs(memory) do for _ in pairs(mine) do remembered=remembered+1 end end
         return {enabled=enabled,missing=missing or false,trace=trace,counts=copy(counts),reasons=copy(reasons),
             pending=open,running=busy,judging=#judging,remembered=remembered,log=rows,lastError=lastError or false,
-            markError=markError or false,guardError=guardError or false,weaponError=weaponError or false}
+            markError=markError or false,guardError=guardError or false,weaponError=weaponError or false,
+            wardError=wardError or false}
     end
     return api
 end

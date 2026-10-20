@@ -9,7 +9,7 @@ local spells=require('combat-intent.spells')
 local groups=0
 
 local function fx(op,fields)
-    local e={opcode=op,target=1,power=0,p1=0,p2=0,timing=0,resist=0,duration=60,prob1=100,prob2=0,
+    local e={opcode=op,target=1,power=0,p1=0,p2=0,timing=0,resist=1,duration=60,prob1=100,prob2=0,
         res='',dice=0,sides=0,save=0,saveBonus=0,special=0}
     for k,v in pairs(fields or {}) do e[k]=v end
     return e

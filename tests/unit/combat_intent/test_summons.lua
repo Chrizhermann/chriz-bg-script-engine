@@ -8,7 +8,7 @@ local spells=require('combat-intent.spells')
 local groups=0
 
 local function fx(op,fields)
-    local e={opcode=op,target=2,power=0,p1=0,p2=0,timing=0,resist=0,duration=0,prob1=100,prob2=0,
+    local e={opcode=op,target=2,power=0,p1=0,p2=0,timing=0,resist=1,duration=0,prob1=100,prob2=0,
         res='',dice=0,sides=0,save=0,saveBonus=0,special=0}
     for k,v in pairs(fields or {}) do e[k]=v end
     return e
@@ -213,8 +213,8 @@ rejected={}
 assert(#summons.options(i,rejected)==0 and rejected['summon-image']==1 and rejected['summon-hostile']==1)
 groups=groups+1
 
--- 7. In the choice: a summons competes with attacks and defences; summons keep no round for SCS
--- (a weak enemy in reach of the caster's mace).
+-- 7. In the choice: a summons competes with attacks and defences; without the creatures it brings
+-- the caster attacks (a weak enemy in reach of the caster's mace).
 i=input()
 i.frame.enemies[1].x=200
 i.frame.enemies[1].attack={apr=0.5,thac0=20,damage=1}
@@ -223,7 +223,7 @@ local d,how=choice.decide(i)
 assert(how=='best' and d.kind=='summon' and d.resref=='TESTHORD')
 i.creatures={}
 d,how=choice.decide(i)
-assert(d.kind=='weapon' and how=='weapon' and choice.scsSpell(i)==nil)
+assert(d.kind=='weapon' and how=='weapon')
 groups=groups+1
 
 return groups

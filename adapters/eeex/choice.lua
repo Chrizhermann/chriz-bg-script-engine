@@ -55,6 +55,11 @@
 -- the ammunition in its first filled quiver slot (read once per creature). A summons is cast at a
 -- point, on the caster or at an enemy; once it ends it is judged by whether summoned allies the
 -- caster did not see before now stand in its view.
+--
+-- Protection removal (D3d): when a ready spell removes something from enemies, the choice also gets
+-- each enemy's active effects (sense.wards), each classified on its own and cached by its fields. A
+-- removal is cast at an enemy, a point or on the caster; once it ends it is judged by whether an
+-- enemy it was for lost effects, skins, images or its invisibility, or is gone.
 local sense=require('adapters.eeex.sense')
 local creature=require('adapters.eeex.creature')
 local resources=require('adapters.eeex.resources')
@@ -177,6 +182,8 @@ function M.new(g,options)
         if type(rawget(g,name))~='function' then missing=missing or name end
     end
     local cache,cached,items,itemCount={},0,{},0
+    -- singles: single effects classified on their own (sense.wards), by their fields.
+    local singles,singleCount={},0
     -- profiles: each summoned creature as a fighter, by resref (false when it cannot be read).
     local profiles,profileCount={},0
     local pending,running,judging,memory={},{},{},{}
@@ -190,10 +197,10 @@ function M.new(g,options)
         hits=0,misses=0,errors=0,holds=0,frozen=0,marks=0,markFailures=0,defences=0,guarded=0,unguarded=0,
         guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0,arms=0,attacks=0,attackHits=0,
         weaponFailures=0,releases=0,heals=0,cures=0,potions=0,cared=0,uncared=0,summons=0,conjured=0,
-        unconjured=0}
+        unconjured=0,removals=0,stripped=0,unstripped=0,wardFailures=0}
     local reasons={}
     local log,nextRow,size={},1,0
-    local root,sink,lastError,markError,guardError,weaponError
+    local root,sink,lastError,markError,guardError,weaponError,wardError
     -- trace: labs see every decline as a 'declined' row in the sink (never in the log).
     local trace,lastReason,lastDetail,lastCharge=false,nil,nil,nil
     local api={}
@@ -238,6 +245,41 @@ function M.new(g,options)
     end
     -- A creature's active effects, classified as one record for what protects it (sense.guard).
     local function effectsOf(record) return spells.classify(record,1,reader.lookup,{level=1}) end
+    -- One active effect on its own (sense.wards), classified once by its fields: its roles. A pause
+    -- of six seconds or less on a creature itself is no role, so the key tells short from long.
+    local function single(effect)
+        local key=table.concat({effect.opcode,tostring(effect.p1),tostring(effect.p2),tostring(effect.timing),
+            tostring(effect.res),tostring(effect.dice),tostring(effect.sides),tostring(effect.special),
+            (type(effect.duration)=='number' and effect.duration>6) and 'L' or 'S'},':')
+        local roles=singles[key]
+        if roles==nil then
+            if singleCount>=M.cacheLimit then singles,singleCount={},0 end
+            local record={kind='SPL',resref='',name=0,flags=0,spellType=0,exclusion=0,school=0,secondary=0,level=1,
+                casting={},abilities={{form=1,flags=0,location=2,target=5,targetCount=0,range=0,minLevel=1,speed=0,
+                projectile=1,effects={effect}}}}
+            local c=spells.classify(record,1,reader.lookup,{level=1})
+            roles=type(c)=='table' and type(c.roles)=='table' and c.roles or {}
+            singles[key]=roles;singleCount=singleCount+1
+        end
+        return roles
+    end
+    local function none() return {} end
+    -- Whether a ready spell removes something from enemies.
+    local function strips(rows)
+        for _,row in ipairs(rows) do
+            local r=type(row.spell)=='table' and type(row.spell.roles)=='table' and row.spell.roles.removal
+            if type(r)=='table' and type(r.who)=='table' and (r.who.target or r.who.area) and
+                type(row.ready)=='number' and row.ready>0 and row.usable then return true end
+        end
+        return false
+    end
+    -- What shows of a creature's protections: the count of its active effects, its skins, images
+    -- and state.
+    local function shown(object,tick)
+        local ok,list=pcall(sense.wards,g,object,tick,none)
+        local actor=sense.actor(g,object)
+        return {effects=ok and #list or nil,skins=actor.skins,mirror=actor.mirror,state=actor.state}
+    end
     -- An item's first three abilities, classified once.
     local function item(resref)
         if items[resref]==nil then
@@ -454,6 +496,27 @@ function M.new(g,options)
         if a.castTicks and a.ended-a.started<a.castTicks-M.interruptSlack then
             counts.interrupted=counts.interrupted+1;return
         end
+        if a.kind=='removal' then
+            -- An enemy it was for that lost effects, skins, images or its invisibility, or is gone.
+            local took=0
+            local enemies=type(a.hits)=='table' and a.hits or {}
+            for _,id in ipairs(enemies) do
+                local before=type(a.before)=='table' and a.before[id]
+                if before then
+                    local object=get(id)
+                    if not object then took=took+1
+                    else
+                        local now=shown(object,a.ended)
+                        if (now.effects and before.effects and now.effects<before.effects) or (now.skins or 0)<(before.skins or 0)
+                            or (now.mirror or 0)<(before.mirror or 0) or (targeting.has(before.state,UNSEEN) and
+                            not targeting.has(now.state,UNSEEN)) then took=took+1 end
+                    end
+                end
+            end
+            if took>0 then counts.stripped=counts.stripped+1 else counts.unstripped=counts.unstripped+1 end
+            record({kind='strip',tick=a.ended,member=a.caster,spell=a.resref,mode=a.mode,enemies=#enemies,took=took})
+            return
+        end
         if M.CARE[a.kind] then
             local helped=0
             local friends=type(a.hits)=='table' and a.hits or {}
@@ -633,6 +696,24 @@ function M.new(g,options)
                 record({kind='error',where='guard',error=guardError})
             end
         end
+        -- What a removal could take from each enemy, read only when a ready spell removes; an enemy
+        -- whose effects cannot be read keeps none (its removal is worth nothing).
+        if strips(rows) then
+            for _,e in ipairs(frame.enemies) do
+                local object=get(e.id)
+                if object then
+                    local ok,value=pcall(sense.wards,g,object,tick,single)
+                    if ok then e.wards=value
+                    else
+                        counts.wardFailures=counts.wardFailures+1
+                        if not wardError then
+                            wardError=tostring(value):sub(1,200)
+                            record({kind='error',where='wards',error=wardError})
+                        end
+                    end
+                end
+            end
+        end
         counts.decisions=counts.decisions+1
         if g.EEex_Sprite_GetStat(sprite,M.alacrityStat)>0 then frame.self.alacrity=true end
         frame.self.thac0=sense.thac0(g,sprite)
@@ -660,7 +741,7 @@ function M.new(g,options)
             input.timeStop={caster=holder,left=left}
             if holder==id then input.stopCasts=stopCasts[id] or {} end
         end
-        local d,why,options,rejected,kept=choice.decide(input)
+        local d,why,options,rejected=choice.decide(input)
         lastDetail=rejected
         local top={}
         for i=1,math.min(3,#options) do
@@ -670,7 +751,7 @@ function M.new(g,options)
         if not d then
             if why~='no-option' then
                 record({kind='decline',tick=tick,member=id,family=family,reason=why,top=top,charge=lastCharge,
-                    rejected=lastCharge and rejected or nil,kept=kept})
+                    rejected=lastCharge and rejected or nil})
             end
             return decline(why)
         end
@@ -685,6 +766,7 @@ function M.new(g,options)
         if d.kind=='cure' then counts.cures=counts.cures+1 end
         if d.use then counts.potions=counts.potions+1 end
         if d.kind=='summon' then counts.summons=counts.summons+1 end
+        if d.kind=='removal' then counts.removals=counts.removals+1 end
         if d.release then counts.releases=counts.releases+1 end
         record({kind='choice',tick=tick,member=id,family=family,spell=d.resref,castKind=d.kind,mode=d.mode,
             target=d.target,point=d.point,score=d.score,worth=d.worth,hits=d.hits,how=why,top=top,
@@ -704,6 +786,14 @@ function M.new(g,options)
             before={}
             for _,a in ipairs(frame.allies) do
                 if type(a.ids)=='table' and choice.SUMMONED[a.ids.gender] then before[a.id]=true end
+            end
+        end
+        -- A removal is judged by what shows of its enemies' protections after it and before.
+        if d.kind=='removal' then
+            before={}
+            for _,h in ipairs(d.hits or {}) do
+                local object=get(h)
+                if object then before[h]=shown(object,tick) end
             end
         end
         if M.CARE[d.kind] then
@@ -874,7 +964,8 @@ function M.new(g,options)
         for _,mine in pairs(memory) do for _ in pairs(mine) do remembered=remembered+1 end end
         return {enabled=enabled,missing=missing or false,trace=trace,counts=copy(counts),reasons=copy(reasons),
             pending=open,running=busy,judging=#judging,remembered=remembered,log=rows,lastError=lastError or false,
-            markError=markError or false,guardError=guardError or false,weaponError=weaponError or false}
+            markError=markError or false,guardError=guardError or false,weaponError=weaponError or false,
+            wardError=wardError or false}
     end
     return api
 end

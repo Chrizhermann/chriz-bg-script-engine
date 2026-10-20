@@ -42,13 +42,16 @@
 -- Summons (D3c): the creatures a summoning spell brings, by their fight on the caster's side,
 -- compete on the same scale (combat-intent/summons.lua).
 --
--- Until the engine removes protections and raises itself, SCS keeps a round the engine would only
--- attack in while the caster has such a spell ready that fits now (M.fits; Christopher,
--- 2026-10-20: "nur wenn jetzt sinnvoll"; profile keepScsSpells).
+-- Protection removal (D3d): breaching, dispelling and stripping enemies and unsummoning summoned
+-- ones compete on the same scale (combat-intent/removal.lua). An attack that also removes (Spell
+-- Revisions' Chromatic Orb takes haste, Disintegrate destroys some creatures) stays an attack and
+-- adds what its removal is worth on each enemy it hits. The engine takes every round it has a
+-- cast or a weapon attack for; SCS keeps none for spells of its own (its scripts never raise).
 local targeting=require('combat-intent.targeting')
 local defence=require('combat-intent.defence')
 local care=require('combat-intent.care')
 local summons=require('combat-intent.summons')
+local removal=require('combat-intent.removal')
 local openers=require('combat-intent.openers')
 local touch=require('combat-intent.touch')
 local weapons=require('combat-intent.weapons')
@@ -77,30 +80,12 @@ M.CASTERS_ONLY={feeblemind=true,silence=true,nocast=true}
 M.RESIST={fire='fire',cold='cold',electricity='electricity',acid='acid',magic='magic',
     magicfire='magicfire',magiccold='magiccold',slashing='slashing',crushing='crushing',
     piercing='piercing',missile='missile',poison='poison'}
--- Roles that make a spell something other than an attack: protection removal, healing,
--- curing, raising and summoning are other decisions. Of these SCS may still keep a round for
--- removal and raising (M.scsSpell).
+-- Roles that make a spell something other than an attack: healing, curing, raising, summoning,
+-- and protection removal unless the spell also attacks, are other decisions.
 local OTHER={'removal','heal','raise','cure','summon'}
-local KEPT={'removal','raise'}
 local GLOBAL={everyone=true,nonparty=true,casterGroup=true,party=true}
--- What makes such a spell fit now (M.fits). The STATE.IDS bit each cured condition shows in; holds
--- also set the HELD stat, level drain the LEVELDRAIN stat, and a petrified ally lies among the
--- fallen. Curses, deafness, imprisonment, fatigue and the casting pause show in nothing the engine
--- reads, so a cure for those alone does not fit.
-M.CURED={sleep=0x1,berserk=0x2,panic=0x4,stun=0x8,hold=0x20,silence=0x1000,poison=0x4000,blind=0x40000,
-    disease=0x80000,feeblemind=0x100000,confusion=0x80000000}
--- STATE_STONE_DEATH; frozen and exploding deaths (STATE_FROZEN_DEATH, STATE_EXPLODING_DEATH)
--- leave no body to raise or cure.
-M.STONE,M.SHATTERED=0x80,0x140
--- Protective states a dispel or a stripping spell takes away: invisible, nondetection, improved
--- invisibility, blur, mirror image.
-M.SHIELDED=0x60600010
 -- GENDER.IDS: SUMMONED, ILLUSIONARY, SUMMONED_DEMON.
-M.SUMMONED={[6]=true,[7]=true,[9]=true}
--- Removed opcodes that show without an effect entry: Stoneskin's skins, Mirror Image's images,
--- invisibility, blur and nondetection as states.
-local SHOWS={[218]='skins',[314]='skins',[119]='mirror',[159]='mirror'}
-local SHOWN_STATE={[20]=0x400010,[65]=0x20000000,[69]=0x200000}
+M.SUMMONED=removal.SUMMONED
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
 local function clamp(v,a,b) if v<a then return a elseif v>b then return b end return v end
@@ -113,8 +98,10 @@ end
 function M.attack(spell)
     if type(spell)~='table' or type(spell.roles)~='table' then return nil,'unclassified' end
     if spell.partial then return nil,'partial' end
+    local roles=targeting.kindRoles(spell)
+    local attacks=reaches(roles.disable) or reaches(roles.damage)
     for _,name in ipairs(OTHER) do
-        if benefits(spell.roles[name]) then return nil,'role-'..name end
+        if benefits(spell.roles[name]) and not (name=='removal' and attacks) then return nil,'role-'..name end
     end
     for _,name in ipairs({'damage','disable','debuff'}) do
         local r=spell.roles[name]
@@ -126,7 +113,6 @@ function M.attack(spell)
     if type(spell.roles.disable)=='table' and spell.roles.disable.kinds and spell.roles.disable.kinds.timestop then
         return nil,'time-stop'
     end
-    local roles=targeting.kindRoles(spell)
     local kind=reaches(roles.disable) and 'disable' or reaches(roles.damage) and 'damage' or nil
     if not kind then return nil,'no-attack' end
     local a=spell.area
@@ -169,9 +155,10 @@ local function resisted(e,label)
     if not number(r) then return 1 end
     return math.max(0,1-r/100)
 end
-local function notResisted(e) return 1-clamp(number(e.mr) and e.mr or 0,0,100)/100 end
--- The chance e makes its saving throw against role: a d20 plus the effect's bonus reaching the
--- best of e's saves the role allows. Unknown saves count as even odds.
+-- The chance e makes its saving throw against role (targeting.saveChance), and the share of casts
+-- its magic resistance lets through (targeting.landing).
+M.saveChance=targeting.saveChance
+local landing=targeting.landing
 -- How long a condition holds on e when e gets a save every bf.every seconds to break free
 -- (breakFree, combat-intent/spells.lua: Spell Revisions' Greater Command): the first stretch for
 -- sure, each later one while every save so far failed, up to the condition's duration.
@@ -187,17 +174,6 @@ function M.brokenFree(duration,bf,e)
         stay=stay*(1-s)
     end
     return held
-end
-function M.saveChance(role,e)
-    if type(role.save)~='table' or next(role.save)==nil then return 0 end
-    local best
-    for name in pairs(role.save) do
-        local v=type(e.saves)=='table' and e.saves[name]
-        if number(v) and (best==nil or v<best) then best=v end
-    end
-    if not best then return 0.5 end
-    local bonus=number(role.saveBonus) and role.saveBonus or 0
-    return clamp((21-(best-bonus))/20,0.05,0.95)
 end
 -- How much of a remembered failure still counts: a spell that missed e without a save and
 -- without magic resistance to blame met an immunity.
@@ -224,7 +200,7 @@ local function damageOn(input,row,role,e,spare)
     end
     if number(role.percent) then amount=amount+maxHp*role.percent/100 end
     if amount<=0 then return 0,0 end
-    local land=notResisted(e)
+    local land=landing(role,e)
     local save=M.saveChance(role,e)
     local expected=amount*land*(role.saveForHalf and 1-save/2 or 1-save)
     local worth=math.min(expected,hp)/maxHp
@@ -277,7 +253,7 @@ local function disableOn(input,row,role,e)
     local worth=forGood and factor*(health+input.mind.killBonus) or factor*length*(0.5+0.5*health)
     -- The chance it lands: magic resistance, the saving throw, and the effect's own chance (an
     -- elf keeps out nine charms in ten).
-    local chance=notResisted(e)*(1-M.saveChance(role,e))*clamp(number(role.chance) and role.chance or 1,0,1)
+    local chance=landing(role,e)*(1-M.saveChance(role,e))*clamp(number(role.chance) and role.chance or 1,0,1)
     return worth*chance*remembered(input,row.resref,e,role)
 end
 
@@ -313,6 +289,15 @@ local function worthOn(input,row,kind,roles,e)
     return disableOn(input,row,roles.disable,e),0
 end
 
+-- What an attack's removal (combat-intent/removal.lua) adds on e, over the rounds left after the
+-- cast: below zero when it frees e of more than it opens.
+local function stripped(input,spell,e)
+    if not reaches(spell.roles.removal) then return 0 end
+    local horizon=number(input.mind.horizon) and input.mind.horizon or 18
+    local cast=(number(spell.speed) and spell.speed or 0)*removal.speedSeconds
+    return (removal.on(input,spell,e,math.max(0,horizon-cast)/removal.ROUND))
+end
+
 -- One option: the spell aimed at a creature or a point, its worth, cost and score, or nil
 -- and why it is no option.
 local function evaluate(input,row,spell,kind,mode,aim)
@@ -326,6 +311,7 @@ local function evaluate(input,row,spell,kind,mode,aim)
         if not roles then return nil,why end
         if kind=='disable' and targeting.disabled(e) then return nil,'disabled' end
         worth,expected[e.id]=worthOn(input,row,kind,roles,e)
+        worth=worth+stripped(input,spell,e)
         hits[1]=e.id
     else
         local center=aim.point
@@ -335,6 +321,7 @@ local function evaluate(input,row,spell,kind,mode,aim)
             local roles=e and affects(spell,e,kind)
             if not roles then return nil,'shape' end
             worth,expected[e.id]=worthOn(input,row,kind,roles,e)
+            worth=worth+stripped(input,spell,e)
             hits[1]=e.id
         else
             local inside,near=shape(spell,caster,center,aim.point)
@@ -356,6 +343,7 @@ local function evaluate(input,row,spell,kind,mode,aim)
                 local roles=targeting.alive(e) and inside(e) and affects(spell,e,kind)
                 if roles then
                     local w,hp=worthOn(input,row,kind,roles,e)
+                    w=w+stripped(input,spell,e)
                     if w>0 then
                         worth=worth+w;hits[#hits+1]=e.id;expected[e.id]=hp
                         slack=math.min(slack,a.radius-targeting.distance(a.cone and caster or center,e))
@@ -443,7 +431,7 @@ local function hitsOn(input,arms,hits,e)
             if number(v) then each=each+v*resisted(e,label) end
         end
         local save=M.saveChance(role,e)
-        per=per+each*notResisted(e)*(role.saveForHalf and 1-save/2 or 1-save)
+        per=per+each*landing(role,e)*(role.saveForHalf and 1-save/2 or 1-save)
     end
     local worth,expected=0,0
     if per>0 then
@@ -659,109 +647,6 @@ function M.weaponOptions(input,rejected)
     return out
 end
 
-local function list(t) return type(t)=='table' and t or {} end
--- Whether a role reaches creatures other than its caster.
-local function others(role)
-    for who in pairs(role.who) do if who~='self' then return true end end
-    return false
-end
-local function ails(f,label)
-    if label=='hold' and number(f.held) and f.held>0 then return true end
-    if label=='drain' then return number(f.drained) and f.drained>0 end
-    local bit=M.CURED[label]
-    return bit~=nil and targeting.has(f.state,bit)
-end
--- A protection from a spell with time left (sense.lua marks it timed; an item's does not count),
--- Stoneskin skins, Mirror Images or a protective state: what a dispel or a stripping spell takes.
-local function shielded(e)
-    if (number(e.skins) and e.skins>0) or (number(e.mirror) and e.mirror>0) or targeting.has(e.state,M.SHIELDED) then
-        return true
-    end
-    for _,p in ipairs(list(e.protections)) do if type(p)=='table' and p.timed then return true end end
-    return false
-end
--- Whether an enemy carries an effect of opcode op that a removal by opcode takes away.
-local function carries(e,op)
-    local field=SHOWS[op]
-    if field then return number(e[field]) and e[field]>0 end
-    if SHOWN_STATE[op] then return targeting.has(e.state,SHOWN_STATE[op]) end
-    for _,p in ipairs(list(e.protections)) do if type(p)=='table' and p.timed and p.opcode==op then return true end end
-    return false
-end
-local function summoned(e) return type(e.ids)=='table' and M.SUMMONED[e.ids.gender]==true end
--- Whether an enemy has what a removal of each kind takes away. Clouds show in nothing the engine
--- reads: a removal of clouds alone does not fit.
-local REMOVED={dispel=shielded,schools=shielded,secondaries=shielded,
-    invisibility=function(e) return targeting.has(e.state,UNSEEN) end,
-    nondetection=function(e) return targeting.has(e.state,0x200000) end,
-    sanctuary=function(e) return number(e.sanctuary) and e.sanctuary>0 end,
-    summons=summoned,destroy=summoned,replace=summoned}
-
--- Whether a role of a spell the engine leaves to SCS fits now (Christopher, 2026-10-20): raising
--- when an ally it sees lies dead with a body, not a summons; curing when the caster or an ally it
--- reaches has a condition the spell cures; removal when an enemy it sees has what the spell takes
--- away. A spell on the caster alone reaches only the caster.
-function M.fits(input,name,role)
-    if type(role)~='table' or type(role.who)~='table' or next(role.who)==nil then return false end
-    local frame=input.frame
-    local caster=frame.self
-    local wide=others(role)
-    local friends={caster}
-    if wide then
-        for _,a in ipairs(list(frame.allies)) do if targeting.alive(a) then friends[#friends+1]=a end end
-    end
-    local fallen=wide and list(frame.fallen) or {}
-    if name=='raise' then
-        for _,f in ipairs(fallen) do
-            if type(f)=='table' and not targeting.has(f.state,M.STONE+M.SHATTERED) and not M.SUMMONED[f.gender] then
-                return true
-            end
-        end
-        return false
-    end
-    local kinds=list(role.kinds)
-    if name=='cure' then
-        for label in pairs(kinds) do
-            for _,f in ipairs(friends) do if ails(f,label) then return true end end
-            if label=='petrify' then
-                for _,f in ipairs(fallen) do
-                    if type(f)=='table' and targeting.has(f.state,M.STONE) and not targeting.has(f.state,M.SHATTERED) then
-                        return true
-                    end
-                end
-            end
-        end
-        return false
-    end
-    if name=='removal' and wide then
-        for _,e in ipairs(frame.enemies) do
-            if targeting.alive(e) then
-                for label in pairs(kinds) do
-                    local test=REMOVED[label]
-                    if test and test(e) then return true end
-                    if label=='opcodes' then
-                        for op in pairs(list(role.opcodes)) do if carries(e,op) then return true end end
-                    end
-                end
-            end
-        end
-    end
-    return false
-end
-
--- The kind and resref of a spell the caster has ready that the engine does not cast yet (removal,
--- raise) and that fits now (M.fits), or nil.
-function M.scsSpell(input)
-    for _,row in ipairs(type(input.spells)=='table' and input.spells or {}) do
-        if type(row)=='table' and number(row.ready) and row.ready>0 and row.usable and
-            type(row.spell)=='table' and type(row.spell.roles)=='table' then
-            for _,name in ipairs(KEPT) do
-                if M.fits(input,name,row.spell.roles[name]) then return name,row.resref end
-            end
-        end
-    end
-end
-
 -- The input without its releases (sequencers and triggers): under Improved Alacrity SCS keeps
 -- them for later (caster_definitions.ssl), and so does the engine.
 function M.unreleased(input)
@@ -811,9 +696,9 @@ function M.frozen(input)
     return view
 end
 
--- The attack, defence, heal or cure, summons, opener or strike to do now, or nil and why; the options come along for
--- the log, and with 'no-option' the count of reasons the ready spells gave none. When SCS keeps
--- the round for a spell that fits now, that spell's resref comes last.
+-- The attack, defence, heal or cure, summons, removal, opener, strike or weapon attack to do now,
+-- or nil and why; the options come along for the log, and without a choice the count of reasons
+-- the ready spells gave none.
 function M.decide(input)
     if type(input)~='table' or type(input.frame)~='table' or type(input.frame.self)~='table' or
         type(input.frame.enemies)~='table' or type(input.mind)~='table' then return nil,'bad-input',{} end
@@ -833,11 +718,10 @@ function M.decide(input)
     for _,o in ipairs(defence.options(input,rejected)) do options[#options+1]=o end
     for _,o in ipairs(care.options(input,rejected)) do options[#options+1]=o end
     for _,o in ipairs(summons.options(input,rejected)) do options[#options+1]=o end
+    for _,o in ipairs(removal.options(input,rejected,function(s) return M.attack(s)~=nil end)) do options[#options+1]=o end
     table.sort(options,better)
     -- A weapon attack spends nothing: it needs no minimum worth, and it is taken over a spell
-    -- only when it is worth more. Instead of no cast at all it waits while the caster has a spell
-    -- ready that the engine does not cast yet and that fits now: SCS keeps that round ('scs-' and
-    -- the kind).
+    -- only when it is worth more.
     local swings=mind.weapons and M.weaponOptions(input,rejected) or {}
     local swing=swings[1]
     local function all()
@@ -847,18 +731,10 @@ function M.decide(input)
         table.sort(list,better)
         return list
     end
-    local function instead()
-        if not swing or swing.score<=0 then return nil end
-        if mind.keepScsSpells then
-            local kind,spell=M.scsSpell(input)
-            if kind then return nil,'scs-'..kind,spell end
-        end
-        return swing
-    end
+    local swinging=swing~=nil and swing.score>0
     if #options==0 then
-        local s,kept,spell=instead()
-        if s then return s,'weapon',all() end
-        return nil,kept or 'no-option',kept and all() or options,rejected,spell
+        if swinging then return swing,'weapon',all() end
+        return nil,'no-option',options,rejected
     end
     -- Under Improved Alacrity a slow spell waits while a quick one reaches the minimum worth
     -- (SCS's slow spells and its compromise).
@@ -869,9 +745,8 @@ function M.decide(input)
     end
     local best=options[1]
     if best.score<mind.minValue then
-        local s,kept,spell=instead()
-        if s then return s,'weapon',all() end
-        return nil,kept or 'nothing-good',kept and all() or options,rejected,spell
+        if swinging then return swing,'weapon',all() end
+        return nil,'nothing-good',options,rejected
     end
     if swing and swing.score>best.score then return swing,'weapon',all() end
     local rng=input.rng

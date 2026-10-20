@@ -44,16 +44,14 @@ end
 -- Why the charge would not work on e, or nil: a hit takes a Mirror Image or a Stoneskin skin
 -- instead, e is immune to the hand as a weapon (opcode 120), or a spell protection stops the
 -- strike or a spell it casts (Spell Turning, Deflection, a globe: one is enough, so the charge is
--- not spent on a hit that does half its work). Unknown protections count as protecting.
+-- not spent on a hit that does half its work; targeting.protected). Unknown protections count as
+-- protecting.
 function M.blocked(e,w)
     if number(e.mirror) and e.mirror>0 then return 'mirror' end
     if number(e.skins) and e.skins>0 then return 'stoneskin' end
     if type(e.protections)~='table' then return 'protected' end
     if weapons.immuneTo(e,w) then return 'weapon-immunity' end
     if targeting.protected(e,w.strike) then return 'protected' end
-    for _,d in ipairs(type(w.strike.delivered)=='table' and w.strike.delivered or {}) do
-        if targeting.protected(e,d) then return 'protected' end
-    end
 end
 
 -- Hit points a round the caster would take more standing next to e than where it stands
