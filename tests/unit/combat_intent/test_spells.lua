@@ -180,9 +180,18 @@ assert(classify(summon,world({})).roles.summon.hostile)
 c=one(fx(127,{p1=2,p2=6,target=1}),{target=5})
 assert(c.roles.summon.count==2 and c.roles.summon.hostile)
 assert(not one(fx(127,{p1=2,p2=1,target=1}),{target=5}).roles.summon.hostile)
+assert(not c.roles.summon.fromFile)
+summon.abilities[1].effects[1].p2=2
+c=classify(summon,world({}))
+assert(c.roles.summon.fromFile.MONST1 and not c.roles.summon.hostile)
 c=one(fx(151,{res='CHICKEN'}))
 assert(c.roles.removal.kinds.replace and c.roles.summon.creatures.CHICKEN==1 and c.offensive)
+assert(c.roles.summon.fromFile.CHICKEN)
 assert(not one(fx(151,{res='CHICKEN',p2=3})).roles.removal)
+-- Replacing the caster itself changes its shape: no creature joins.
+c=one(fx(151,{res='WOLF',p2=1,target=1}),{target=5})
+assert(c.roles.summon.kinds.transform and not c.roles.summon.creatures and not c.roles.summon.kinds.creature)
+assert(one(fx(151,{res='WOLF',p2=3,target=1}),{target=5}).roles.summon.creatures.WOLF==1)
 groups=groups+1
 
 -- Unknown opcodes are counted; probability windows weigh amounts and chance.

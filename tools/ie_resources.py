@@ -364,7 +364,37 @@ def parse_pro(data, resref):
     return record
 
 
-PARSERS = {'SPL': parse_spl, 'ITM': parse_itm, 'EFF': parse_eff, 'PRO': parse_pro}
+def parse_cre(data, resref):
+    """Parse the parts of a CRE V1.0 creature the engine weighs (a summoned creature's fight):
+    hit points, armour class, THAC0, attacks, saves, level, strength, IDS values, its items, the
+    40 item slots (item indices, 65535 for empty; SLOTS order: weapons at 9 to 12) and the opcodes
+    of its own effects."""
+    _check(data, b'CRE V1.0', 0x2D4)
+    slots_off, items_off, items_count = _unpack('<III', data, 0x2B8)
+    _table_end(data, items_off, 20, items_count, 'item')
+    _table_end(data, slots_off, 2, 40, 'slot')
+    items = [_resref(data[items_off + 20 * i:items_off + 20 * i + 8]) for i in range(items_count)]
+    slots = list(_unpack('<40H', data, slots_off))
+    # Its own effects' opcodes (version 1 blocks of 264 bytes, else 48).
+    fx_off, fx_count = _unpack('<II', data, 0x2C4)
+    wide = data[0x33] == 1
+    _table_end(data, fx_off, 264 if wide else 48, fx_count, 'effect')
+    opcodes = [_unpack('<I', data, fx_off + 264 * i + 8)[0] if wide else _unpack('<H', data, fx_off + 48 * i)[0]
+               for i in range(fx_count)]
+    hp, max_hp = _unpack('<hh', data, 0x24)
+    return {
+        'kind': 'CRE', 'resref': resref.upper(), 'hp': hp, 'maxHp': max_hp,
+        'ac': _unpack('<h', data, 0x48)[0], 'thac0': data[0x52], 'apr': data[0x53],
+        'saves': {'death': data[0x54], 'wand': data[0x55], 'poly': data[0x56], 'breath': data[0x57],
+                  'spell': data[0x58]},
+        'level': max(data[0x234], data[0x235], data[0x236]), 'strength': data[0x238],
+        'strengthExtra': data[0x239], 'ea': data[0x270], 'general': data[0x271], 'race': data[0x272],
+        'class': data[0x273], 'specific': data[0x274], 'gender': data[0x275], 'alignment': data[0x27B],
+        'items': items, 'slots': slots, 'opcodes': opcodes,
+    }
+
+
+PARSERS = {'SPL': parse_spl, 'ITM': parse_itm, 'EFF': parse_eff, 'PRO': parse_pro, 'CRE': parse_cre}
 
 
 # --- command line ---------------------------------------------------------------------------

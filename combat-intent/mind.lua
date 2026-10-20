@@ -53,9 +53,12 @@ M.default={
     touchReach=10,
     -- Weapon attacks (D2c): the weapon in hand as an attack, and spells that conjure one.
     weapons=true,
+    -- Summons (D3c): no more summoning once this many summoned allies are in view (the game's own
+    -- limit for summoned creatures is five).
+    summonCap=5,
     -- Instead of no cast, a weapon attack waits while the caster has a spell ready that the
-    -- engine does not cast yet (summons, removal, raising) and that fits now
-    -- (combat-intent/choice.lua, M.fits); SCS keeps the round.
+    -- engine does not cast yet (removal, raising) and that fits now (combat-intent/choice.lua,
+    -- M.fits); SCS keeps the round.
     keepScsSpells=true,
 }
 
@@ -70,7 +73,7 @@ local function resrefs(v)
 end
 local CHECKS={coordination=share,best=share,band=share,economy=amount,minValue=amount,
     focusBonus=amount,killBonus=amount,caution=amount,horizon=amount,redefend=amount,acute=share,
-    castCost=amount,allySpells=resrefs,slowSpeed=amount,touchReach=amount,
+    castCost=amount,allySpells=resrefs,slowSpeed=amount,touchReach=amount,summonCap=amount,
     openers=function(v) return type(v)=='boolean' end,
     touch=function(v) return type(v)=='boolean' end,
     weapons=function(v) return type(v)=='boolean' end,

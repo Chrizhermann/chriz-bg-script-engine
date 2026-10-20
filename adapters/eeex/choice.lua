@@ -49,6 +49,12 @@
 -- allies it helps in the group as soon as it is chosen, so that another member leaves them to it.
 -- Once it ends it is judged by whether a friend it was for gained hit points or lost a disabling
 -- condition.
+--
+-- Summons (D3c): the choice also gets each creature the caster's ready summoning spells name, as
+-- combat-intent/summons.lua profiles it from its CRE file, the weapon in its first weapon slot and
+-- the ammunition in its first filled quiver slot (read once per creature). A summons is cast at a
+-- point, on the caster or at an enemy; once it ends it is judged by whether summoned allies the
+-- caster did not see before now stand in its view.
 local sense=require('adapters.eeex.sense')
 local creature=require('adapters.eeex.creature')
 local resources=require('adapters.eeex.resources')
@@ -58,6 +64,7 @@ local targeting=require('combat-intent.targeting')
 local defence=require('combat-intent.defence')
 local weapons=require('combat-intent.weapons')
 local choice=require('combat-intent.choice')
+local summons=require('combat-intent.summons')
 local mind=require('combat-intent.mind')
 local rngs=require('kernel.rng')
 local M={}
@@ -97,6 +104,9 @@ M.ATTACKS={[3]=true,[98]=true,[105]=true,[134]=true}
 -- creature for one strike at most (two rounds).
 M.magicSlot=34
 M.strikeTicks=180
+-- A CRE file's item slots (its own order, from 0): the first weapon slot and the quiver slots.
+M.creWeapon=9
+M.creQuiver={13,14,15}
 M.required={'EEex_GameObject_Get','EEex_GameObject_IsSprite','EEex_Sprite_GetCastTimer',
     'EEex_Sprite_GetLocalInt','EEex_GetUDAux','EEex_Sprite_GetState','EEex_Sprite_GetStat'}
 -- STATS.IDS: WIZARD_IMPROVED_ALACRITY, what SCS tests. Improved Alacrity (SPWI921, with and
@@ -167,6 +177,8 @@ function M.new(g,options)
         if type(rawget(g,name))~='function' then missing=missing or name end
     end
     local cache,cached,items,itemCount={},0,{},0
+    -- profiles: each summoned creature as a fighter, by resref (false when it cannot be read).
+    local profiles,profileCount={},0
     local pending,running,judging,memory={},{},{},{}
     -- lastDefence: the tick each creature last started a defence; known: the creatures that
     -- asked the engine (hooked mages and priests); stopCasts: what the holder of the running
@@ -177,7 +189,8 @@ function M.new(g,options)
     local counts={decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
         hits=0,misses=0,errors=0,holds=0,frozen=0,marks=0,markFailures=0,defences=0,guarded=0,unguarded=0,
         guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0,arms=0,attacks=0,attackHits=0,
-        weaponFailures=0,releases=0,heals=0,cures=0,potions=0,cared=0,uncared=0}
+        weaponFailures=0,releases=0,heals=0,cures=0,potions=0,cared=0,uncared=0,summons=0,conjured=0,
+        unconjured=0}
     local reasons={}
     local log,nextRow,size={},1,0
     local root,sink,lastError,markError,guardError,weaponError
@@ -284,6 +297,57 @@ function M.new(g,options)
         if a.ammo then strike=item(a.ammo)[1] else strike=item(a.item)[a.ability] end
         return {item=a.item,damage=a.damage,damageType=a.damageType,apr=a.apr or weapons.baseApr,thac0=a.thac0,
             ranged=a.ranged==true,range=a.range,flags=a.flags,enchantment=a.enchantment,strike=strike}
+    end
+    -- A summoned creature as a fighter (combat-intent/summons.lua), read once: its CRE file, the
+    -- weapon in its first weapon slot and, for a launcher, the ammunition in its first filled
+    -- quiver slot. nil when it cannot be read.
+    local function profile(resref)
+        local known=profiles[resref]
+        if known==nil then
+            local ok,value=pcall(function()
+                local cre=reader.get('CRE',resref)
+                if not cre then return nil end
+                local function at(slot)
+                    local index=type(cre.slots)=='table' and cre.slots[slot+1]
+                    local name=type(index)=='number' and index~=65535 and type(cre.items)=='table' and cre.items[index+1]
+                    return type(name)=='string' and name~='' and reader.get('ITM',name) or nil
+                end
+                local ammo
+                for _,slot in ipairs(M.creQuiver) do
+                    ammo=at(slot)
+                    if ammo then break end
+                end
+                return summons.profile(cre,at(M.creWeapon),ammo)
+            end)
+            known=ok and value or false
+            if profileCount<M.cacheLimit then profiles[resref]=known;profileCount=profileCount+1 end
+        end
+        return known or nil
+    end
+    -- The creatures the caster's ready summoning spells name, by resref.
+    local function summoned(rows)
+        local out={}
+        for _,row in ipairs(rows) do
+            local role=type(row.spell)=='table' and type(row.spell.roles)=='table' and row.spell.roles.summon
+            if type(role)=='table' and type(role.creatures)=='table' and type(row.ready)=='number' and row.ready>0 then
+                for resref in pairs(role.creatures) do
+                    if valid(resref) and out[resref]==nil then out[resref]=profile(resref) or false end
+                end
+            end
+        end
+        for resref,c in pairs(out) do if c==false then out[resref]=nil end end
+        return out
+    end
+    -- The ids of the summoned allies (GENDER.IDS SUMMONED, ILLUSIONARY, SUMMONED_DEMON) a
+    -- creature sees now.
+    local function summonedAllies(sprite,tick)
+        local out={}
+        local frame=sense.frame(g,sprite,tick,false)
+        for _,a in ipairs(frame and frame.allies or {}) do
+            local object=get(a.id)
+            if object and choice.SUMMONED[object.m_typeAI.m_Gender] then out[a.id]=true end
+        end
+        return out
     end
     -- What the creature has ready: its spells with their classification, and the items it can
     -- drink or use from its quick slots and backpack.
@@ -409,6 +473,20 @@ function M.new(g,options)
             if helped>0 then counts.cared=counts.cared+1 else counts.uncared=counts.uncared+1 end
             record({kind='care',tick=a.ended,member=a.caster,spell=a.resref,castKind=a.kind,mode=a.mode,
                 friends=#friends,helped=helped})
+            return
+        end
+        if a.kind=='summon' then
+            -- A caster that fell since sees nothing to judge by.
+            local caster=get(a.caster)
+            if not caster then return end
+            local joined=0
+            local ok,now=pcall(summonedAllies,caster,a.ended)
+            for id in pairs(ok and now or {}) do
+                if not (type(a.before)=='table' and a.before[id]) then joined=joined+1 end
+            end
+            if joined>0 then counts.conjured=counts.conjured+1 else counts.unconjured=counts.unconjured+1 end
+            record({kind='conjure',tick=a.ended,member=a.caster,spell=a.resref,mode=a.mode,expected=a.count,
+                joined=joined,read=ok or nil})
             return
         end
         if not defending and (not a.target or a.mode~='creature') then return end
@@ -576,7 +654,8 @@ function M.new(g,options)
         end
         local holder,left=timeStop()
         local input={tick=tick,family=family,frame=frame,spells=rows,items=carried,lastDefence=lastDefence[id],
-            plan=director and director:plan(id,tick) or {},memory=memory[id] or {},mind=mindFor(sprite,family),rng=rng}
+            plan=director and director:plan(id,tick) or {},memory=memory[id] or {},mind=mindFor(sprite,family),rng=rng,
+            creatures=summoned(rows)}
         if holder~=nil then
             input.timeStop={caster=holder,left=left}
             if holder==id then input.stopCasts=stopCasts[id] or {} end
@@ -605,11 +684,12 @@ function M.new(g,options)
         if d.kind=='heal' then counts.heals=counts.heals+1 end
         if d.kind=='cure' then counts.cures=counts.cures+1 end
         if d.use then counts.potions=counts.potions+1 end
+        if d.kind=='summon' then counts.summons=counts.summons+1 end
         if d.release then counts.releases=counts.releases+1 end
         record({kind='choice',tick=tick,member=id,family=family,spell=d.resref,castKind=d.kind,mode=d.mode,
             target=d.target,point=d.point,score=d.score,worth=d.worth,hits=d.hits,how=why,top=top,
             focus=input.plan.focus,rule=d.rule,stop=input.timeStop and input.timeStop.left or nil,
-            alacrity=frame.self.alacrity or nil,release=d.release,use=d.use})
+            alacrity=frame.self.alacrity or nil,release=d.release,use=d.use,creatures=d.creatures,count=d.count})
         -- A disable claims its targets in the group at once, so that another member deciding
         -- before this cast starts leaves them alone; any other decision gives earlier claims back.
         if director then
@@ -619,6 +699,13 @@ function M.new(g,options)
         for _,row in ipairs(rows) do if row.resref==d.resref then spell=row.spell end end
         local sources=spell and spell.sources or nil
         local before
+        -- A summons is judged by the summoned allies the caster sees after it and not before.
+        if d.kind=='summon' then
+            before={}
+            for _,a in ipairs(frame.allies) do
+                if type(a.ids)=='table' and choice.SUMMONED[a.ids.gender] then before[a.id]=true end
+            end
+        end
         if M.CARE[d.kind] then
             before={}
             local friends={[frame.self.id]=frame.self}
@@ -637,7 +724,7 @@ function M.new(g,options)
         return {own=true,response=response,spell=d.resref,kind=d.kind,mode=d.mode,target=d.target,point=d.point,
             self=d.self,hits=d.hits,castTicks=spell and type(spell.speed)=='number' and spell.speed*9 or nil,
             sources=sources,expected=d.expected,disable=disable,charge=d.kind=='strike' and d.spell or nil,
-            use=d.use,before=before}
+            use=d.use,before=before,count=d.count}
     end
     -- From the gate, each time a hooked script asks: nil (SCS's round), {hold=true} while the
     -- engine's queued cast has not started, or the decision.
@@ -696,7 +783,8 @@ function M.new(g,options)
         end
         pending[object.m_id]={caster=object.m_id,resref=decision.spell,kind=decision.kind,mode=decision.mode,
             target=decision.target,point=decision.point,hits=decision.hits,tick=tick,hp=hp,
-            castTicks=decision.castTicks,sources=decision.sources,expected=decision.expected,before=decision.before}
+            castTicks=decision.castTicks,sources=decision.sources,expected=decision.expected,before=decision.before,
+            count=decision.count}
         counts.performed=counts.performed+1
         return true
     end

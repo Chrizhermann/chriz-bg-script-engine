@@ -39,12 +39,16 @@
 -- caster and its allies, and potions, compete on the same scale (combat-intent/care.lua). The
 -- engine no longer leaves a hurt group or a silenced caster to SCS.
 --
--- Until the engine casts summons, protection removal and raising itself, SCS keeps a round the
--- engine would only attack in while the caster has such a spell ready that fits now (M.fits;
--- Christopher, 2026-10-20: "nur wenn jetzt sinnvoll"; profile keepScsSpells).
+-- Summons (D3c): the creatures a summoning spell brings, by their fight on the caster's side,
+-- compete on the same scale (combat-intent/summons.lua).
+--
+-- Until the engine removes protections and raises itself, SCS keeps a round the engine would only
+-- attack in while the caster has such a spell ready that fits now (M.fits; Christopher,
+-- 2026-10-20: "nur wenn jetzt sinnvoll"; profile keepScsSpells).
 local targeting=require('combat-intent.targeting')
 local defence=require('combat-intent.defence')
 local care=require('combat-intent.care')
+local summons=require('combat-intent.summons')
 local openers=require('combat-intent.openers')
 local touch=require('combat-intent.touch')
 local weapons=require('combat-intent.weapons')
@@ -75,9 +79,9 @@ M.RESIST={fire='fire',cold='cold',electricity='electricity',acid='acid',magic='m
     piercing='piercing',missile='missile',poison='poison'}
 -- Roles that make a spell something other than an attack: protection removal, healing,
 -- curing, raising and summoning are other decisions. Of these SCS may still keep a round for
--- removal, raising and summoning (M.scsSpell).
+-- removal and raising (M.scsSpell).
 local OTHER={'removal','heal','raise','cure','summon'}
-local KEPT={'removal','raise','summon'}
+local KEPT={'removal','raise'}
 local GLOBAL={everyone=true,nonparty=true,casterGroup=true,party=true}
 -- What makes such a spell fit now (M.fits). The STATE.IDS bit each cured condition shows in; holds
 -- also set the HELD stat, level drain the LEVELDRAIN stat, and a petrified ally lies among the
@@ -693,13 +697,12 @@ local REMOVED={dispel=shielded,schools=shielded,secondaries=shielded,
     sanctuary=function(e) return number(e.sanctuary) and e.sanctuary>0 end,
     summons=summoned,destroy=summoned,replace=summoned}
 
--- Whether a role of a spell the engine leaves to SCS fits now (Christopher, 2026-10-20): a summons
--- always; raising when an ally it sees lies dead with a body, not a summons; curing when the
--- caster or an ally it reaches has a condition the spell cures; removal when an enemy it sees has
--- what the spell takes away. A spell on the caster alone reaches only the caster.
+-- Whether a role of a spell the engine leaves to SCS fits now (Christopher, 2026-10-20): raising
+-- when an ally it sees lies dead with a body, not a summons; curing when the caster or an ally it
+-- reaches has a condition the spell cures; removal when an enemy it sees has what the spell takes
+-- away. A spell on the caster alone reaches only the caster.
 function M.fits(input,name,role)
     if type(role)~='table' or type(role.who)~='table' or next(role.who)==nil then return false end
-    if name=='summon' then return true end
     local frame=input.frame
     local caster=frame.self
     local wide=others(role)
@@ -747,7 +750,7 @@ function M.fits(input,name,role)
 end
 
 -- The kind and resref of a spell the caster has ready that the engine does not cast yet (removal,
--- raise, summon) and that fits now (M.fits), or nil.
+-- raise) and that fits now (M.fits), or nil.
 function M.scsSpell(input)
     for _,row in ipairs(type(input.spells)=='table' and input.spells or {}) do
         if type(row)=='table' and number(row.ready) and row.ready>0 and row.usable and
@@ -808,7 +811,7 @@ function M.frozen(input)
     return view
 end
 
--- The attack, defence, heal or cure, opener or strike to do now, or nil and why; the options come along for
+-- The attack, defence, heal or cure, summons, opener or strike to do now, or nil and why; the options come along for
 -- the log, and with 'no-option' the count of reasons the ready spells gave none. When SCS keeps
 -- the round for a spell that fits now, that spell's resref comes last.
 function M.decide(input)
@@ -829,6 +832,7 @@ function M.decide(input)
     local options=M.options(input,rejected)
     for _,o in ipairs(defence.options(input,rejected)) do options[#options+1]=o end
     for _,o in ipairs(care.options(input,rejected)) do options[#options+1]=o end
+    for _,o in ipairs(summons.options(input,rejected)) do options[#options+1]=o end
     table.sort(options,better)
     -- A weapon attack spends nothing: it needs no minimum worth, and it is taken over a spell
     -- only when it is worth more. Instead of no cast at all it waits while the caster has a spell

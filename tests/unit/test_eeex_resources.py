@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from tools import ie_resources as ie
-from test_ie_resources import (build_eff, build_itm, build_pro, build_spl, far_tables, fx,
+from test_ie_resources import (build_cre, build_eff, build_itm, build_pro, build_spl, far_tables, fx,
                                itm_ability, spl_ability)
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -79,8 +79,9 @@ FILES = {'SPL:SPWI304': SPL, 'SPL:NULREF': NUL, 'SPL:EMPTY': build_spl([], []), 
          'SPL:BADSIG': b'XXXX' + SPL[4:], 'SPL:SHORT': SPL[:0x40], 'SPL:TINY': b'SPL',
          'SPL:PASTEND': build_spl([spl_ability(count=2, index=0)], [fx()]),
          'ITM:CUT': build_itm([itm_ability(), itm_ability()], [])[:-1],
-         'PRO:AREACUT': build_pro(3)[:0x200]}
-PARSE = {'SPL': ie.parse_spl, 'ITM': ie.parse_itm, 'EFF': ie.parse_eff, 'PRO': ie.parse_pro}
+         'PRO:AREACUT': build_pro(3)[:0x200], 'CRE:SUMMON': build_cre(), 'CRE:NARROW': build_cre(wide=False),
+         'CRE:CUT': build_cre()[:-2]}
+PARSE = {'SPL': ie.parse_spl, 'ITM': ie.parse_itm, 'EFF': ie.parse_eff, 'PRO': ie.parse_pro, 'CRE': ie.parse_cre}
 
 
 def runtime(backend, natives=True):
@@ -96,7 +97,7 @@ def test_records_match_the_host_parser(backend, natives):
     lua = runtime(backend, natives)
     get = lua.eval('reader.get')
     for key in ('SPL:SPWI304', 'SPL:NULREF', 'SPL:EMPTY', 'SPL:FAR', 'ITM:FAR', 'SPL:LATIN',
-                'ITM:POTN08', 'EFF:AB', 'PRO:FIREBALL', 'PRO:ARROW'):
+                'ITM:POTN08', 'EFF:AB', 'PRO:FIREBALL', 'PRO:ARROW', 'CRE:SUMMON', 'CRE:NARROW'):
         kind, resref = key.split(':')
         assert to_py(lua, get(kind, resref.lower())) == PARSE[kind](FILES[key], resref), key
     assert lua.eval('outside') is False and list(lua.eval('reader.problems').values()) == []
@@ -106,7 +107,7 @@ def test_records_match_the_host_parser(backend, natives):
 def test_malformed_resources_are_nil_with_a_problem_and_no_stray_read(backend):
     lua = runtime(backend)
     get = lua.eval('reader.get')
-    bad = ('SPL:BADSIG', 'SPL:SHORT', 'SPL:TINY', 'SPL:PASTEND', 'ITM:CUT', 'PRO:AREACUT')
+    bad = ('SPL:BADSIG', 'SPL:SHORT', 'SPL:TINY', 'SPL:PASTEND', 'ITM:CUT', 'PRO:AREACUT', 'CRE:CUT')
     for key in bad:
         kind, resref = key.split(':')
         with pytest.raises(ie.FormatError):

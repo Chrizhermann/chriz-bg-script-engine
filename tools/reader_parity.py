@@ -70,7 +70,7 @@ def main(root, backend='luajit21'):
     lua.execute(FAKE, game.get, lua.table_from([lua.table_from([n - 1, r]) for n, r in sorted(projectiles.items())]))
     get, reset = lua.eval('reader.get'), lua.eval('reader.reset')
     failed = False
-    for kind in ('SPL', 'ITM', 'EFF', 'PRO'):
+    for kind in ('SPL', 'ITM', 'EFF', 'PRO', 'CRE'):
         names = [n for n in game.names(kind) if 0 < len(n) <= 8]
         same = absent = 0
         differ = []

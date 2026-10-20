@@ -417,12 +417,21 @@ local function summon(c,e,who,p)
     r.count=(r.count or 0)+p
     return r
 end
--- Mode 5 aligns the summons against the receiver, so a summons cast on oneself is hostile.
-H[67]=function(c,e,who,p) local r=summon(c,e,who,p);if e.p2==5 and who=='self' then r.hostile=true end end
--- Types 0-2 remove or kill the creature that is replaced.
+-- Modes 0, 1 and 3 align the summons with the receiver, mode 5 against it (so a summons cast on
+-- oneself is hostile), and the other modes take its side from its own file (fromFile; IESDP: Wish's
+-- genie is neutral).
+H[67]=function(c,e,who,p)
+    local r=summon(c,e,who,p)
+    if e.p2==5 and who=='self' then r.hostile=true end
+    if e.p2~=0 and e.p2~=1 and e.p2~=3 and e.p2~=5 and e.res~='' then set(r,'fromFile')[e.res]=true end
+end
+-- Types 0-2 remove or kill the creature that is replaced: on the caster itself that is a change of
+-- shape (transform), no summons. The new creature's side is its file's.
 H[151]=function(c,e,who,p)
-    summon(c,e,who,p)
-    if e.p2<=2 and who~='self' then kind(c,'removal','replace',who,e,p) end
+    if e.p2<=2 and who=='self' then kind(c,'summon','transform',who,e,p);return end
+    local r=summon(c,e,who,p)
+    if e.res~='' then set(r,'fromFile')[e.res]=true end
+    if e.p2<=2 then kind(c,'removal','replace',who,e,p) end
 end
 -- Types 5-9 summon from the hostile tables.
 H[127]=function(c,e,who,p)

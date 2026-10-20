@@ -25,6 +25,21 @@ local function average(dice,sides)
     return dice*(sides+1)/2
 end
 
+-- The average damage an item ability's own effects add to a hit: opcode 12 in its normal mode on
+-- the creature hit, its amount and dice, times its chance (as combat-intent/spells.lua weighs
+-- probability windows). A summoned jelly's acid and an elemental's fire come this way.
+function M.onHit(ability)
+    local total=0
+    for _,e in ipairs(type(ability)=='table' and type(ability.effects)=='table' and ability.effects or {}) do
+        if type(e)=='table' and e.opcode==12 and e.target==2 and number(e.p2) and e.p2%65536==0 then
+            local high=number(e.prob1) and math.min(e.prob1,100) or 100
+            local chance=math.max(0,math.min(1,(high-(number(e.prob2) and e.prob2 or 0)+1)/101))
+            total=total+math.max(0,(number(e.p1) and e.p1 or 0)+average(e.dice,e.sides))*chance
+        end
+    end
+    return total
+end
+
 -- Whether an immunity to weapons (opcode 120, by its type p2) keeps weapon w off (its flags and
 -- enchantment). Type 0 keeps off weapons up to +p1, as combat-intent/defence.lua reads it; a
 -- weapon is magical with the flag or an enchantment (SR's Chill Touch hand is neither). Unknown

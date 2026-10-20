@@ -1,4 +1,4 @@
--- In-game twin of tools/ie_resources.py: the same SPL, ITM, EFF and PRO records, read from the
+-- In-game twin of tools/ie_resources.py: the same SPL, ITM, EFF, PRO and CRE records, read from the
 -- engine's resource table through EEex (Fetch, then Demand, as EEex_Resource_Demand does; CRes
 -- has no Release, so each resource is demanded once and cached). A raw read past a resource's
 -- end would crash the game instead of raising, so every read is checked against the size the
@@ -136,7 +136,31 @@ local function pro(v,resref)
     return r
 end
 
-local PARSERS={SPL=spl,ITM=itm,EFF=eff,PRO=pro}
+-- The parts of a creature the engine weighs (a summoned creature's fight): hit points, armour
+-- class, THAC0, attacks, saves, level, strength, IDS values, its items, the 40 item slots (item
+-- indices, 65535 for empty; SLOTS order: weapons at 9 to 12) and the opcodes of its own effects.
+local function cre(v,resref)
+    check(v,'CRE V1.0',0x2D4)
+    local slotsOff,itemsOff,itemCount=v.u32(0x2B8),v.u32(0x2BC),v.u32(0x2C0)
+    tableEnd(v,itemsOff,20,itemCount,'item')
+    tableEnd(v,slotsOff,2,40,'slot')
+    local items,slots={},{}
+    for i=0,itemCount-1 do items[i+1]=v.resref(itemsOff+20*i) end
+    for i=0,39 do slots[i+1]=v.u16(slotsOff+2*i) end
+    -- Its own effects' opcodes (version 1 blocks of 264 bytes, else 48).
+    local fxOff,fxCount=v.u32(0x2C4),v.u32(0x2C8)
+    local wide=v.u8(0x33)==1
+    tableEnd(v,fxOff,wide and 264 or 48,fxCount,'effect')
+    local opcodes={}
+    for i=0,fxCount-1 do opcodes[i+1]=wide and v.u32(fxOff+264*i+8) or v.u16(fxOff+48*i) end
+    return {kind='CRE',resref=resref,hp=v.i16(0x24),maxHp=v.i16(0x26),ac=v.i16(0x48),thac0=v.u8(0x52),
+        apr=v.u8(0x53),saves={death=v.u8(0x54),wand=v.u8(0x55),poly=v.u8(0x56),breath=v.u8(0x57),spell=v.u8(0x58)},
+        level=math.max(v.u8(0x234),v.u8(0x235),v.u8(0x236)),strength=v.u8(0x238),strengthExtra=v.u8(0x239),
+        ea=v.u8(0x270),general=v.u8(0x271),race=v.u8(0x272),class=v.u8(0x273),specific=v.u8(0x274),
+        gender=v.u8(0x275),alignment=v.u8(0x27B),items=items,slots=slots,opcodes=opcodes}
+end
+
+local PARSERS={SPL=spl,ITM=itm,EFF=eff,PRO=pro,CRE=cre}
 
 -- reader.get(kind, resref), reader.projectile(field value) and reader.lookup(kind, key), the
 -- callable spells.classify takes (PRO by projectile field value, the rest by resref).

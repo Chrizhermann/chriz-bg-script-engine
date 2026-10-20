@@ -53,7 +53,7 @@ local half=conjure('TESTHALS',1,'TESTHALF',60)
 local bolt=classify(spl('TESTBOLT',3,{fx(12,{p2=8*65536,dice=6,sides=6})}))
 local dart=classify(spl('TESTDART',1,{fx(12,{p2=64*65536,dice=1,sides=4,p1=1})}))
 local cure=classify(spl('TESTCURE',1,{fx(17,{p1=8})}))
-local monsters=classify(spl('TESTSUMM',3,{fx(67,{target=1,res='TESTMON',p2=0})},{target=4}))
+local dispel=classify(spl('TESTDISP',3,{fx(58,{p1=10})}))
 
 local function enemy(id,fields)
     local e={id=id,x=100+id*10,y=100,hp=60,maxHp=60,state=0,held=0,sanctuary=0,mr=0,action=0,ac=5,
@@ -162,24 +162,26 @@ d,why=choice.decide(i)
 assert(why=='weapon' and d.kind=='weapon' and d.target==11)
 i.frame.enemies={enemy(11,{x=200})}
 -- Healing is the engine's own (D3a) and keeps no round for SCS: eight hit points are worth less
--- than a round of the mace. A summoning spell ready, which the engine does not cast yet, that fits
--- now: SCS keeps the round the engine would only attack in, not one with a cast worth it; the
--- decline names it.
+-- than a round of the mace. Summons are the engine's own too (D3c). A removal ready, which the
+-- engine does not cast yet, that fits now (a protection with time left on the enemy): SCS keeps
+-- the round the engine would only attack in, not one with a cast worth it; the decline names it.
 i.spells={row('TESTCURE',cure,1)}
 i.frame.self.hp=25
 assert(choice.decide(i).kind=='weapon' and choice.scsSpell(i)==nil)
 i.frame.self.hp=60
-i.spells={row('TESTSUMM',monsters,3),row('TESTDART',dart,1)}
+i.frame.enemies[1].protections={{opcode=102,p1=5,p2=0,res='',timed=true}}
+i.spells={row('TESTDISP',dispel,3),row('TESTDART',dart,1)}
 d,why,list=choice.decide(i)
-assert(d==nil and why=='scs-summon' and list[1].kind=='weapon' and select(5,choice.decide(i))=='TESTSUMM')
-i.spells={row('TESTSUMM',monsters,3),row('TESTBOLT',bolt,3)}
+assert(d==nil and why=='scs-removal' and list[1].kind=='weapon' and select(5,choice.decide(i))=='TESTDISP')
+i.spells={row('TESTDISP',dispel,3),row('TESTBOLT',bolt,3)}
 assert(choice.decide(i).resref=='TESTBOLT')
-i.spells={row('TESTSUMM',monsters,3)}
+i.spells={row('TESTDISP',dispel,3)}
 i.spells[1].ready=0
 assert(choice.decide(i).kind=='weapon')
-i.spells={row('TESTSUMM',monsters,3)}
+i.spells={row('TESTDISP',dispel,3)}
 i.mind=mind.new({keepScsSpells=false})
 assert(choice.decide(i).kind=='weapon')
+i.frame.enemies[1].protections={}
 i.mind=mind.new({weapons=false})
 i.spells={row('TESTDART',dart,1)}
 assert(select(2,choice.decide(i))=='nothing-good')
@@ -226,7 +228,7 @@ groups=groups+1
 -- so none keeps a round. Raising: an ally lies dead with a body, not a summons; a petrified one is
 -- cured instead. Removal: an enemy has a protection from a spell with time left (an item's does not
 -- count), skins, images, a protective state or sanctuary, or is summoned; not a removal on the
--- caster itself, nor one of clouds. Summons always fit.
+-- caster itself, nor one of clouds. Summons are the engine's own (D3c) and never fit.
 local vocal=classify(spl('TESTVOC',2,{fx(48,{target=1})},{target=5}))
 local free=classify(spl('TESTFREE',3,{fx(162)}))
 local antidote=classify(spl('TESTNEUT',4,{fx(11)}))
@@ -234,7 +236,6 @@ local uncurse=classify(spl('TESTCURS',3,{fx(26)}))
 local restore=classify(spl('TESTREST',7,{fx(224)}))
 local unstone=classify(spl('TESTSTON',6,{fx(43)}))
 local raise=classify(spl('TESTRAIS',5,{fx(32)},{target=3}))
-local dispel=classify(spl('TESTDISP',3,{fx(58,{p1=10})}))
 local strip=classify(spl('TESTSTRP',5,{fx(337,{p2=120})}))
 local unsanct=classify(spl('TESTUNSA',4,{fx(160)}))
 local unsummon=classify(spl('TESTUNSU',5,{fx(68)}))
@@ -306,7 +307,7 @@ e.ids.gender=1
 e.state=targeting.STATE.improvedInvisible
 assert(fit(purge,'removal') and fit(dispel,'removal'))
 e.state=0
-assert(not fit(sweet,'removal') and fit(monsters,'summon'))
+assert(not fit(sweet,'removal'))
 -- With nothing that fits, the caster attacks; a protection on the enemy gives the round to SCS.
 i.spells={row('TESTVOC',vocal,2),row('TESTFREE',free,3),row('TESTDISP',dispel,3),row('TESTRAIS',raise,5)}
 d,why=choice.decide(i)

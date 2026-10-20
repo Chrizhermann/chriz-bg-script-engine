@@ -39,6 +39,15 @@ same level rule applies to allies.
 
 **Raising:** none. SCS's scripts never raise a fallen ally.
 
+**Summons** (`mage/ssl/combatblocks/midlevel_summons.ssl`, `highpowered_summons.ssl`,
+`priest/ssl/combatblocks/uber_summons.ssl`, `very_lowpowered_summons.ssl`): most summons are cast
+at an enemy the caster targets (SCS's `SpellArea`): the elementals, the monster summonings, Animate
+Dead (within 15), the Devas. A few go on the caster itself (`SpellMyself`) once it sees an enemy:
+Gate, Summon Fiend, Death Knight, Mordenkainen's Sword, the genies. Nishruu and Hakeashar, which
+eat magic, go at an enemy spellcaster. SCS summons one Deva at a time and chooses Summon Fiend by
+the caster's alignment and the fiends already around; apart from that it counts no summons. Its
+preparation blocks also summon before a fight, out of sight of the enemy (pre-buffs).
+
 ## The engine's design
 
 ### Healing and curing (D3a, D3b; built 2026-10-20)
@@ -82,3 +91,51 @@ attack's scale (shares of a creature), as protections do (DEFENCE-01):
 Not yet: Regenerate (opcode 98), charmed allies (they show as enemies), petrification (an ally
 turned to stone lies among the fallen), and curse or level drain, which show in nothing the engine
 reads.
+
+### Summons (D3c; built 2026-10-20)
+
+`combat-intent/summons.lua`. Summons compete with attacks, defences and care every round, on the
+attack's scale:
+
+- **Worth:** each creature the spell brings is worth its fight over the horizon (the cast's
+  remaining seconds of the 18): the share of an enemy its hits take (its attacks, THAC0 and damage
+  against the enemies' mean armour class and hit points, as a weapon attack is worth), and the
+  share of a friend its body spares, up to its own hit points, by drawing its part of the blows of
+  the enemies that can strike. Each further creature draws a smaller part, so a horde is worth less
+  than its count times one.
+- **The creatures:** read from their CRE files (`adapters/eeex/resources.lua`: hit points, armour
+  class, THAC0, attacks, strength, level, IDS values, items, slots and the opcodes of their own
+  effects), the weapon in their first weapon slot and, for a launcher, the ammunition in the first
+  filled quiver slot. Damage counts the weapon's dice and bonus, what its own damage effects add
+  (opcode 12 in its normal mode on the creature hit: a summoned jelly's acid, an elemental's fire)
+  and strength for melee (STRMOD's default bonuses). Summons from monster tables (opcodes 127 and
+  331) name no creature and count as creatures of twice the spell's level.
+- **Only fighters on the caster's side count.** A creature whose own effects remove its avatar or
+  selection circle (opcodes 271 and 287: SCS's markers for its clouds and storms, a kit's helper)
+  or that has no weapon is no fighter, and a spell that brings only such creatures is no summons
+  at all (it may still be an attack or a defence). Opcode 67 aligns a creature with the creature
+  it lands on in modes 0, 1 and 3, against it in mode 5, and takes the side from the creature's
+  file in the other modes (IESDP). So a summons in mode 5 on the caster is hostile and never cast;
+  one from the file joins only when that side is the caster's: Limited Wish and Wish bring their
+  neutral genie (`WISH01`, `WISH02`, EA 128) and are not cast as summons.
+- **Where:** a spell on the caster is cast on it; one at a point or a creature at the group's
+  focus when it is in range, else at the nearest enemy in range, else at the point toward the
+  nearest enemy at the edge of range (SCS casts most of them at an enemy).
+- **Cap:** no summoned creature (GENDER.IDS SUMMONED) once the profile's `summonCap` (5, the
+  game's own limit) summoned allies stand in view. Summoned demons and illusions do not count.
+- **Cost:** the spell's level and its casting time; harm while casting can break it.
+- **In game:** the adapter reads each creature once and caches it. A summons is judged when it
+  ends: did summoned allies the caster did not see before now stand in its view (`conjure` rows,
+  counts `conjured` and `unconjured`).
+- **Not cast as summons:** images of the caster (Project Image, Simulacrum: opcode 236), changes of
+  shape (opcode 151 replacing the caster itself, as the SPWI9xx innates of werewolves and
+  doppelgangers do), and summons whose creatures land on another creature, whose side follows it.
+  SCS keeps no more rounds for summons.
+
+In the SR lab, 105 wizard and priest spells have a summon role: the engine casts 81 as summons when
+their creatures fight for the caster, 18 are changes of shape, 3 images and 3 cast at another
+creature (host census, nothing ran). Of the 89 creature entries they name, 68 are fighters and 21
+markers, helpers or creatures without a weapon.
+
+Open for Christopher: SCS summons one Deva at a time and picks Summon Fiend by alignment; the engine
+has no such rules yet. SCS also summons before a fight (pre-buffs), which stays as it is.

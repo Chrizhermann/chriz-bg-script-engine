@@ -108,6 +108,35 @@ def build_pro(kind):
     return bytes(data)
 
 
+def build_cre(items=('weapon1', 'potn08'), slots=None, opcodes=(271, 20), wide=True):
+    head = bytearray(0x2D4)
+    head[:8] = b'CRE V1.0'
+    struct.pack_into('<hh', head, 0x24, 30, 40)
+    struct.pack_into('<h', head, 0x48, -2)
+    head[0x52], head[0x53] = 9, 7
+    head[0x54:0x59] = bytes([10, 11, 12, 13, 14])
+    head[0x234:0x237] = bytes([6, 9, 0])
+    head[0x238], head[0x239] = 18, 50
+    head[0x270:0x276] = bytes([255, 4, 1, 2, 0, 6])
+    head[0x27B] = 0x13
+    items_off = len(head)
+    slots_off = items_off + 20 * len(items)
+    struct.pack_into('<III', head, 0x2B8, slots_off, items_off, len(items))
+    table = b''.join(ref(i) + bytes(12) for i in items)
+    if slots is None:
+        slots = [65535] * 40
+        slots[9] = 0
+        slots[18] = 1
+    head[0x33] = 1 if wide else 0
+    fx_off = slots_off + 80
+    struct.pack_into('<II', head, 0x2C4, fx_off, len(opcodes))
+    if wide:
+        effects = b''.join(bytes(8) + struct.pack('<I', op) + bytes(252) for op in opcodes)
+    else:
+        effects = b''.join(struct.pack('<H', op) + bytes(46) for op in opcodes)
+    return bytes(head) + table + struct.pack('<40H', *slots) + effects
+
+
 # --- parsers ---------------------------------------------------------------------------------
 
 def test_spl_slices_follow_the_casting_slice_and_keep_signed_p1():
@@ -194,6 +223,18 @@ def test_itm_two_abilities_prove_stride_56():
     assert second['projectile'] == 21 and second['thac0'] == 5
     assert [e['opcode'] for e in first['effects']] == [10]
     assert [e['opcode'] for e in second['effects']] == [11, 12]
+
+
+def test_cre_reads_the_fight_and_the_items():
+    r = ie.parse_cre(build_cre(), 'cr1')
+    assert r['resref'] == 'CR1' and r['hp'] == 30 and r['maxHp'] == 40 and r['ac'] == -2
+    assert r['thac0'] == 9 and r['apr'] == 7 and r['level'] == 9 and r['strength'] == 18
+    assert r['saves'] == {'death': 10, 'wand': 11, 'poly': 12, 'breath': 13, 'spell': 14}
+    assert r['gender'] == 6 and r['general'] == 4 and r['alignment'] == 0x13 and r['ea'] == 255
+    assert r['items'] == ['WEAPON1', 'POTN08'] and r['slots'][9] == 0 and r['slots'][0] == 65535
+    assert r['opcodes'] == [271, 20] and ie.parse_cre(build_cre(wide=False), 'cr1')['opcodes'] == [271, 20]
+    with pytest.raises(ie.FormatError):
+        ie.parse_cre(build_cre()[:-2], 'cr1')
 
 
 def test_eff_v2():

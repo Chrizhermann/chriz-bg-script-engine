@@ -782,7 +782,8 @@ groups=groups+1
 -- it attacks; once that is over, the hit points its target lost are recorded. A target that died
 -- releases it. A mage with Melf's Minute Meteors casts them on itself, then throws them: five
 -- attacks a round, each with its fire; no second casting while the meteors are in its hand. A
--- sling without bullets is no weapon.
+-- sling without bullets is no weapon. A removal that fits (an enemy that is summoned) keeps the
+-- round for SCS.
 ITEMS.TESTSTAF=weapon('TESTSTAF',{flags=0},{dice=1,sides=6,damageType=2,thac0=1})
 ITEMS.TESTMET=weapon('TESTMET',{equipping={fx(1,{p1=5,p2=1,target=1,timing=2})}},{attackType=2,range=40,dice=1,sides=4,
     damageType=4,thac0=2,charges=10,depletion=1,effects={fx(12,{dice=1,sides=4,p2=8*65536,timing=1})}})
@@ -857,17 +858,19 @@ local slinger=g10.add(armed(sprite(3,0,1200,255),35,'TESTSLNG'))
 g10.add(sprite(13,60,1200,2))
 g10.ticks=500
 assert(g10.BGSE_Claim(slinger,'mage','s1')==false and last10('choice',3)==nil)
--- A mage with a summons ready and a staff in hand: SCS keeps the round, and the decline names the
--- spell it keeps it for.
-records.TESTSUMN=spl('TESTSUMN',3,{fx(67,{target=1,res='TESTMON'})},5,1)
-local summoner=g10.add(armed(sprite(4,0,1800,255),35,'TESTSTAF'))
-summoner.stats[8],summoner.stats[7],summoner.stats[2]=1,14,8
-learn(summoner,3,'TESTSUMN')
-g10.add(sprite(14,60,1800,2)).stats[2]=5
+-- A mage with a spell that sends summoned creatures away, a staff in hand and a summoned enemy:
+-- SCS keeps the round, and the decline names the spell it keeps it for.
+records.TESTUNSU=spl('TESTUNSU',5,{fx(68)},1,2)
+local unsummoner=g10.add(armed(sprite(4,0,1800,255),35,'TESTSTAF'))
+unsummoner.stats[8],unsummoner.stats[7],unsummoner.stats[2]=1,14,8
+learn(unsummoner,4,'TESTUNSU')
+local summonedFoe=g10.add(sprite(14,60,1800,2))
+summonedFoe.stats[2]=5
+summonedFoe.m_typeAI.m_Gender=6
 g10.ticks=600
-assert(g10.BGSE_Claim(summoner,'mage','s1')==false)
+assert(g10.BGSE_Claim(unsummoner,'mage','s1')==false)
 local kept=last10('decline',4)
-assert(kept and kept.reason=='scs-summon' and kept.kept=='TESTSUMN' and kept.top[1].kind=='weapon')
+assert(kept and kept.reason=='scs-removal' and kept.kept=='TESTUNSU' and kept.top[1].kind=='weapon')
 groups=groups+1
 
 -- 20. Releases (D2b). A mage with SCS's kind of sequencer (an innate that casts two bolts at its
@@ -910,6 +913,64 @@ gift(second,'TESTSEQ')
 g11.add(sprite(12,200,600,2)).stats[2]=5
 g11.ticks=200
 assert(g11.BGSE_Claim(second,'mage','s1')==false and ch11:inspect().counts.releases==1)
+groups=groups+1
+
+-- 21. Summons (D3c). A mage with a spell that brings two of TESTMON (a creature file with a claw
+-- in its first weapon slot, read once) casts it at the enemy's spot with SpellPointRES; once it
+-- ends it is judged by the summoned allies it sees and did not see before. A summons whose
+-- creature cannot be read brings no one.
+local slots12={}
+for n=1,40 do slots12[n]=65535 end
+slots12[10]=0
+local CRES={TESTMON={kind='CRE',resref='TESTMON',hp=40,maxHp=40,ac=5,thac0=10,apr=2,level=6,strength=10,
+    strengthExtra=0,ea=255,general=4,race=1,class=2,specific=0,gender=6,alignment=0,items={'TESTCLAW'},slots=slots12,
+    opcodes={326}}}
+ITEMS.TESTCLAW=weapon('TESTCLAW',{flags=0},{dice=1,sides=6,damageType=3})
+records.TESTHORD=spl('TESTHORD',3,{fx(67,{target=1,res='TESTMON'}),fx(67,{target=1,res='TESTMON'})},4,1)
+records.TESTVOID=spl('TESTVOID',3,{fx(67,{target=1,res='TESTNONE'})},4,1)
+local reads12=0
+local reader12={problems={},lookup=reader.lookup,get=function(kind,resref)
+        if kind=='CRE' then reads12=reads12+1;return CRES[resref] end
+        return reader.get(kind,resref)
+    end}
+local g12=world()
+local conjurer=g12.add(sprite(1,0,0,255))
+learn(conjurer,2,'TESTHORD')
+g12.add(sprite(11,200,0,2)).stats[2]=5
+local dir12=directors.new(g12,{reader=reader12})
+local ch12=choices.new(g12,{reader=reader12,director=dir12,seed=21})
+local rows12={}
+ch12:setSink(function(row) rows12[#rows12+1]=row end)
+runtime.install(g12,{director=dir12,choice=ch12,version='test'})
+local function last12(kind)
+    for n=#rows12,1,-1 do if rows12[n].kind==kind then return rows12[n] end end
+end
+g12.ticks=100
+assert(g12.BGSE_Claim(conjurer,'mage','s1')==true)
+local c12=last12('choice')
+assert(c12.castKind=='summon' and c12.spell=='TESTHORD' and c12.mode=='point' and c12.point.x==200 and c12.point.y==0)
+assert(c12.count==2 and c12.creatures[1]=='TESTMON' and ch12:inspect().counts.summons==1 and reads12==1)
+g12.BGSE_Act(conjurer)
+assert(g12.queued[#g12.queued].text=='SetGlobalTimer("castspell","LOCALS",ONE_ROUND)\nSpellPointRES("TESTHORD",[200.0])')
+g12.listeners.started[1](conjurer,action(95,'TESTHORD',-1))
+-- The cast is over and two summoned allies stand at the enemy.
+conjurer.m_curAction={m_actionID=0};conjurer.book[2][1].m_flags=0
+for n=1,2 do
+    local s=g12.add(sprite(20+n,190,10*n,255))
+    s.m_typeAI.m_Gender=6
+end
+g12.ticks=130
+assert(g12.BGSE_Claim(conjurer,'mage','s1')==false and ch12:inspect().judging==1)
+g12.ticks=165
+g12.BGSE_Claim(conjurer,'mage','s1')
+local j12=last12('conjure')
+assert(j12 and j12.joined==2 and j12.expected==2 and ch12:inspect().counts.conjured==1)
+-- No creature file: no summons.
+local voidCaster=g12.add(sprite(2,0,1200,255))
+learn(voidCaster,2,'TESTVOID')
+g12.add(sprite(12,200,1200,2))
+g12.ticks=200
+assert(g12.BGSE_Claim(voidCaster,'mage','s1')==false and ch12:inspect().counts.summons==1)
 groups=groups+1
 
 return groups
