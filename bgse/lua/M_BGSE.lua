@@ -476,7 +476,19 @@ local function add(c,name,who,e,p)
     return r
 end
 local function kind(c,name,label,who,e,p)
-    local r=add(c,name,who,e,p);r.kinds[label]=true;return r
+    local r=add(c,name,who,e,p);r.kinds[label]=true
+    -- When each condition lands and each cure comes, by label and receiver, for finding a spell
+    -- that ends its own condition (ownEnds).
+    local marks=c.marks
+    if marks and (name=='cure' or name=='disable' or name=='debuff') then
+        local at=(c.delay or 0)+delay(e)
+        local key=label..':'..who
+        if name=='cure' then
+            local list=marks.cures[key] or {}
+            marks.cures[key]=list;list[#list+1]=at
+        elseif marks.inflicts[key]==nil or at<marks.inflicts[key] then marks.inflicts[key]=at end
+    end
+    return r
 end
 local function tally(t,key,value) t[key]=(t[key] or 0)+value end
 local function set(r,field) r[field]=r[field] or {};return r[field] end
@@ -625,7 +637,9 @@ H[188]=function(c,e,who,p) kind(c,'buff','castingSpeed',who,e,p);kind(c,'buff','
 H[301]=function(c,e,who,p) modifier(c,e,who,p,'critical','buff','debuff') end
 H[344]=function(c,e,who,p) kind(c,'buff','enchantment',who,e,p) end
 H[345]=H[344]
-H[111]=function(c,e,who,p) kind(c,'buff','weapon',who,e,p) end
+-- An empty item reference creates no weapon (IESDP warns that the game can crash on it): a kit
+-- mod's Shocking Grasp has one, in the spell that gives its kit the charge in the fist instead.
+H[111]=function(c,e,who,p) if e.res~='' then kind(c,'buff','weapon',who,e,p) end end
 H[248]=function(c,e,who,p) kind(c,'buff','onHit',who,e,p) end
 H[249]=H[248]
 H[303]=function(c,e,who,p) kind(c,'buff','backstab',who,e,p) end
@@ -937,6 +951,55 @@ local function weapon(c,state,e,p)
         seconds=seconds(e),chance=p,strike=M.classify(item,1,state.lookup,{level=state.level,weapons=false})}
 end
 
+-- A cure the spell itself brings later to the creatures it gave that condition is no cure: it
+-- ends the spell's own condition. Spell Revisions' Greater Command puts its targets to sleep for
+-- 60 seconds and wakes them after 6, and again every 6 seconds after. ownEnds finds such ends
+-- (condition label and receiver, from when the condition lands to the first cure after it);
+-- M.classify walks the spell again with them, and ending leaves those cures out and lets the
+-- condition last until the first of them.
+local function ownEnds(marks)
+    local ends
+    for key,from in pairs(marks.inflicts) do
+        local first
+        for _,at in ipairs(marks.cures[key] or {}) do
+            if at>from and (first==nil or at<first) then first=at end
+        end
+        if first then ends=ends or {};ends[key]={from=from,at=first} end
+    end
+    return ends
+end
+-- e as the second walk reads it at second at: nil for a cure that ends the spell's own condition,
+-- a copy that lasts until the end for that condition (the handler names its labels), else e.
+local function ending(ends,e,who,at)
+    local cured=CURES[e.opcode]
+    if cured then
+        local x=ends[cured..':'..who]
+        if x and at>x.from then return nil end
+        return e
+    end
+    local h=H[e.opcode]
+    if not h then return e end
+    local probe={roles={}}
+    if not pcall(h,probe,e,who,1) then return e end
+    local left
+    for _,name in ipairs({'disable','debuff'}) do
+        local r=probe.roles[name]
+        for label in pairs(r and r.kinds or {}) do
+            local x=ends[label..':'..who]
+            if x and at<x.at and (left==nil or x.at-at<left) then left=x.at-at end
+        end
+    end
+    -- Timings with a duration of their own or none: limited, permanent, limited in ticks.
+    local timing=e.timing%256
+    if left==nil or not (timing==0 or timing==1 or timing==9 or timing==10) then return e end
+    local span=seconds(e)
+    if number(span) and span<=left then return e end
+    local y={}
+    for k,v in pairs(e) do y[k]=v end
+    y.timing=e.timing-timing;y.duration=left
+    return y
+end
+
 local walk
 local function send(c,state,e,where,depth,p)
     local op=e.opcode
@@ -1052,8 +1115,11 @@ walk=function(c,state,effects,where,depth,p,key,owner)
             else
                 local who=receiver(e,where)
                 local q=p*chance(e)
-                if who and q>0 then
-                    if c.inherit and not saveNames(e.save) then e=inherited(e,c.inherit) end
+                if who and q>0 and c.inherit and not saveNames(e.save) then e=inherited(e,c.inherit) end
+                if who and q>0 and state.ends and not DELIVERY[e.opcode] then
+                    e=ending(state.ends,e,who,(c.delay or 0)+delay(e))
+                end
+                if who and q>0 and e then
                     local late=not DELIVERY[e.opcode] and (c.delay or 0)+delay(e)>M.laterThan
                     -- What reaches others, for matching a target's opcode immunities.
                     if who~='self' and not late then c.opcodes[e.opcode]=true end
@@ -1073,7 +1139,7 @@ walk=function(c,state,effects,where,depth,p,key,owner)
                         c.log[#c.log+1]=cut
                     elseif H[e.opcode] then
                         H[e.opcode](c,e,who,q)
-                        if e.opcode==111 and who=='self' and state.weapons then weapon(c,state,e,q) end
+                        if e.opcode==111 and e.res~='' and who=='self' and state.weapons then weapon(c,state,e,q) end
                         -- The log replays what reaches others for one creature (M.view).
                         if who~='self' then
                             local when=c.when
@@ -1124,10 +1190,12 @@ end
 -- unread (a strike is read without them). c.sources names the record and every spell and EFF
 -- file it delivers through: an effect it lands carries one of them as its source. A release
 -- (releaseRange) is marked c.release, with its spells' shortest range as c.range and its own as
--- c.ownRange.
+-- c.ownRange. A spell that ends its own condition is walked twice (ownEnds); options.ends is that
+-- second walk's.
 function M.classify(record,index,lookup,options)
     options=options or {}
-    local c={roles={},unknown={},reasons={},opcodes={},sources={},conditions={},conditionAt={},log={},nodes={}}
+    local c={roles={},unknown={},reasons={},opcodes={},sources={},conditions={},conditionAt={},log={},nodes={},
+        marks={cures={},inflicts={}}}
     if type(record)~='table' or type(record.abilities)~='table' then c.partial=true;c.reasons['no-record']=true;return c end
     local ability=record.abilities[index]
     if type(ability)~='table' then c.partial=true;c.reasons['no-ability']=true;return c end
@@ -1145,7 +1213,7 @@ function M.classify(record,index,lookup,options)
             if lookup==nil then return nil end
             local ok,value=pcall(lookup,kind,key)
             if ok and type(value)=='table' then return value end
-        end,path={},count=0,level=options.level or 1,weapons=options.weapons~=false}
+        end,path={},count=0,level=options.level or 1,weapons=options.weapons~=false,ends=options.ends}
     function state.miss(cl,kind,res) cl.partial=true;cl.reasons['missing:'..kind..':'..tostring(res)]=true end
     -- Projectiles 0 and 1 are none. Others without a PRO file are built into the engine (in
     -- MISSILE.IDS, not PROJECTL.IDS), so their shape is unknown here.
@@ -1157,9 +1225,17 @@ function M.classify(record,index,lookup,options)
     local key=tostring(record.kind)..':'..tostring(record.resref)
     walk(c,state,ability.effects,where,0,1,key,record.resref)
     if record.kind=='SPL' then walk(c,state,record.casting,'self',0,1,key,record.resref) end
+    local ends=not options.ends and ownEnds(c.marks)
+    if ends then
+        local again={}
+        for k,v in pairs(options) do again[k]=v end
+        again.ends=ends
+        return M.classify(record,index,lookup,again)
+    end
     local reach=releaseRange(record,ability,state,where)
     if reach then c.release=true;c.ownRange=c.range;c.range=reach end
     c.times=nil;c.owner=nil;c.node=nil;c.when=nil;c.inherit=nil;c.conditionAt=nil;c.delay=nil;c.filter=nil
+    c.marks=nil
     -- Without conditions every creature gets the same roles, and no view needs the log.
     if #c.conditions==0 then c.conditions=nil;c.log=nil;c.nodes=nil end
     local names={}

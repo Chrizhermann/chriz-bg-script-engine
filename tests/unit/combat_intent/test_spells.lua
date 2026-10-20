@@ -514,6 +514,16 @@ c=classify(spl('TESTBLAD',{ability({fx(111,{target=1,p1=1,res='TESTBLD',duration
 assert(c.weapons[1].uses==nil and c.weapons[1].touch==nil and c.weapons[1].dice==1 and c.weapons[1].sides==8)
 c=classify(spl('TESTLOST',{ability({fx(111,{target=1,p1=1,res='TESTNONE',duration=60})},{target=5})}),world({}))
 assert(c.weapons==nil and c.partial and c.reasons['missing:ITM:TESTNONE'])
+-- An empty item reference creates nothing: no weapon, and nothing is missing. A kit mod's Shocking
+-- Grasp gives one kit (SPLPROT row 418) the charge in the fist instead, through a spell whose 111
+-- names no item.
+local fist=spl('TESTFIST',{ability({fx(111,{}),fx(248,{duration=120,res='TESTFIST'})})})
+c=classify(spl('TESTGRSP',{ability({fx(111,{target=1,p1=1,res='TESTBLD',duration=60}),
+    fx(326,{target=1,p1=16441,p2=418,res='TESTFIST'})},{target=5,range=1})}),
+    world({['ITM:TESTBLD']=blade,['SPL:TESTFIST']=fist}))
+assert(not c.partial and #c.weapons==1 and c.weapons[1].item=='TESTBLD' and c.roles.buff.kinds.onHit)
+c=classify(spl('TESTNULL',{ability({fx(111,{target=1})},{target=5})}),world({}))
+assert(not c.partial and c.weapons==nil and c.roles.buff==nil)
 -- Read without weapons (options.weapons=false), as a strike is.
 c=classify(harm,harmWorld,{weapons=false})
 assert(c.weapons==nil and c.roles.buff.kinds.weapon)
@@ -541,6 +551,27 @@ c=classify(innate('TESTSEQ',{fx(146,{p2=1,res='TESTARW'}),fx(146,{p2=1,res='TEST
 assert(not c.release and c.range==5)
 c=classify(innate('TESTSEQ',{fx(146,{p2=1,res='TESTARW'}),fx(146,{p2=1,res='TESTBLT'}),fx(12,{dice=1,sides=4})}),parts)
 assert(not c.release and c.range==5)
+groups=groups+1
+
+-- A spell that ends its own condition (Spell Revisions' Greater Command): the target sleeps, a
+-- spell cast at it 6 seconds later wakes it, and another one 6 seconds after that. The waking is
+-- no cure; the sleep lasts 6 seconds, in each creature's view too (the immunity makes a view).
+local wake2=spl('TESTGCB',{ability({fx(2,{duration=1})})})
+local wake1=spl('TESTGCA',{ability({fx(2,{duration=1}),fx(146,{p2=1,timing=4,duration=6,res='TESTGCB'})})})
+local sleeps=spl('TESTGCJ',{ability({fx(324,{p1=41,p2=110,duration=1,res='TESTGC'}),fx(39,{duration=60}),
+    fx(146,{p2=1,timing=4,duration=6,res='TESTGCA'})})})
+local nap=spl('TESTNAP',{ability({fx(39,{duration=60})})})
+local gc=world({['SPL:TESTGCJ']=sleeps,['SPL:TESTGCA']=wake1,['SPL:TESTGCB']=wake2,['SPL:TESTNAP']=nap})
+c=classify(spl('TESTGC',{ability({fx(146,{p2=1,timing=1,res='TESTGCJ'})})}),gc,{level=12})
+assert(c.roles.cure==nil and c.roles.disable.kinds.sleep and c.roles.disable.duration==6 and c.roles.disable.wakesOnDamage)
+assert(c.later==nil or c.later.cure==nil)
+local slept=spells.view(c,function() return false end)
+assert(slept.cure==nil and slept.disable.duration==6)
+-- Waking the caster, or waking the target first and putting it to sleep later, is a cure.
+c=classify(spl('TESTSELF',{ability({fx(39,{duration=60}),fx(146,{target=1,p2=1,timing=4,duration=6,res='TESTGCB'})})}),gc)
+assert(c.roles.cure.who.self and c.roles.disable.duration==60)
+c=classify(spl('TESTFIRST',{ability({fx(2,{duration=1}),fx(146,{p2=1,timing=4,duration=6,res='TESTNAP'})})}),gc)
+assert(c.roles.cure.kinds.sleep and c.roles.disable.duration==60)
 groups=groups+1
 
 return groups

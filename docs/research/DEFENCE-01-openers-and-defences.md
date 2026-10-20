@@ -636,11 +636,16 @@ without ammunition is no weapon.
   each creature's drained levels, and marks an enemy's protections with time left (`timed`:
   `m_durationType` 4096 in its timed list).
 
-  Open: Spell Revisions' Greater Command wakes its sleepers after 6 seconds with a cure, which the
-  classifier reads as a cure role, so the engine does not cast it, and it keeps a round only when
-  an ally sleeps. Spells SR delivers through a helper creature (Ice Storm, Suffocate, Gust of
-  Wind, Shocking Grasp) carry a summon role and keep the round whenever ready; the engine cannot
-  cast the first three yet.
+  Corrected on 2026-10-20: Greater Command wakes its sleepers after 6 seconds; the classifier
+  now reads that as the end of its own sleep, so the engine casts it as a 6-second area sleep
+  (SPELLS-01). Ice Storm and Suffocate are attacks the engine casts; their summon role is SCS's
+  invisible marker at the spell's point (`DW#ISTOR`, `DW#SUFFO`), which SCS's scripts make
+  creatures run from, and it touches none of the engine's own decisions. The earlier note that
+  the engine could not cast them came from an offline reading without projectile files.
+  Shocking Grasp, Chill Touch and Ghoul Touch read as partial because of a kit mod's empty item
+  reference (SPELLS-01); the engine now strikes with them. The level-2 Gust of Wind (`SPPR218`)
+  also removes clouds and protections in its area, so it waits for the removal slice; the
+  level-3 one (`SPPR318`) is an attack.
 - None with a touch charge in hand (the strike decides where that goes), in the caster's own
   Time Stop or under Improved Alacrity.
 

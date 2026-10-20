@@ -83,6 +83,21 @@ files alone, whatever Spell Revisions, SCS or other mods changed?
 - Only bits 0–4 of an effect's save type are saves. EE's bits 10 and 11 (skip the primary or
   secondary target) occur in neither lab; 24 and 25 (bypass mirror images, ignore
   difficulty) are flags.
+- A cure that a spell itself brings later to the creatures it gave that condition is no cure:
+  it ends the spell's own condition (2026-10-20). Spell Revisions' Greater Command puts its
+  targets to sleep for 60 seconds and wakes them after 6, and again every 6 seconds after. The
+  classifier finds such ends on a first walk (`ownEnds`: condition and receiver, from when the
+  condition lands to the first cure after it) and walks the spell again: the cures stay out,
+  and the sleep lasts 6 seconds, also in each creature's view. A cure for someone else (the
+  caster) or one that comes before the condition stays a cure. Over every SPL of the SR lab
+  only Greater Command and its sub-spell match.
+- An empty item reference in opcode 111 creates no weapon and is no missing file
+  (2026-10-20); IESDP warns that the game can crash on it. A kit mod in the SR lab gives one kit
+  (SPLPROT row 418, the kit check) the charge of a touch spell in the fist instead, through a
+  spell with such an effect, so Shocking Grasp, Chill Touch and Ghoul Touch (`SPWI115`,
+  `SPWI117`, `SPWI218`) read as partial and the engine never struck with them. Over every SPL
+  of the SR lab ten spells change: these three, the kit's own Shocking Grasp and Chill Touch,
+  its four helper spells and a mod's Harm (`OHBPR608`), which empties the weapon slot first.
 
 ## In game
 
