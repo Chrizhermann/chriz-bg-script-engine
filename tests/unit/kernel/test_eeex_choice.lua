@@ -920,8 +920,11 @@ groups=groups+1
 
 -- 21. Summons (D3c). A mage with a spell that brings two of TESTMON (a creature file with a claw
 -- in its first weapon slot, read once) casts it at the enemy's spot with SpellPointRES; once it
--- ends it is judged by the summoned allies it sees and did not see before. A summons whose
--- creature cannot be read brings no one.
+-- ends it is judged by the allies of the file it names that it sees and did not see before,
+-- whatever their gender (lab H: a Dark Planetar is female, Animate Dead's skeletons neither). A
+-- TESTMON it saw before and a new summoned ally of another file do not count. A summons whose
+-- creature cannot be read brings no one; one from a monster table names no file, and a new
+-- summoned ally counts for it.
 local slots12={}
 for n=1,40 do slots12[n]=65535 end
 slots12[10]=0
@@ -940,6 +943,8 @@ local g12=world()
 local conjurer=g12.add(sprite(1,0,0,255))
 learn(conjurer,2,'TESTHORD')
 g12.add(sprite(11,200,0,2)).stats[2]=5
+local old12=g12.add(sprite(19,100,100,255))
+old12.m_resref=str('TESTMON');old12.m_typeAI.m_Gender=4
 local dir12=directors.new(g12,{reader=reader12})
 local ch12=choices.new(g12,{reader=reader12,director=dir12,seed=21})
 local rows12={}
@@ -956,12 +961,14 @@ assert(c12.count==2 and c12.creatures[1]=='TESTMON' and ch12:inspect().counts.su
 g12.BGSE_Act(conjurer)
 assert(g12.queued[#g12.queued].text=='SetGlobalTimer("castspell","LOCALS",ONE_ROUND)\nSpellPointRES("TESTHORD",[200.0])')
 g12.listeners.started[1](conjurer,action(95,'TESTHORD',-1))
--- The cast is over and two summoned allies stand at the enemy.
+-- The cast is over: two TESTMON stand at the enemy, a female one and one of neither gender, and a
+-- summoned ally of another file beside them.
 conjurer.m_curAction={m_actionID=0};conjurer.book[2][1].m_flags=0
 for n=1,2 do
     local s=g12.add(sprite(20+n,190,10*n,255))
-    s.m_typeAI.m_Gender=6
+    s.m_resref=str('TESTMON');s.m_typeAI.m_Gender=n==1 and 2 or 4
 end
+g12.add(sprite(23,180,40,255)).m_typeAI.m_Gender=6
 g12.ticks=130
 assert(g12.BGSE_Claim(conjurer,'mage','s1')==false and ch12:inspect().judging==1)
 g12.ticks=165
@@ -974,6 +981,24 @@ learn(voidCaster,2,'TESTVOID')
 g12.add(sprite(12,200,1200,2))
 g12.ticks=200
 assert(g12.BGSE_Claim(voidCaster,'mage','s1')==false and ch12:inspect().counts.summons==1)
+-- From a monster table: a new summoned ally counts, a new ally of another gender does not.
+records.TESTTABL=spl('TESTTABL',3,{fx(127,{target=1,p1=2,res='TESTMONS'})},4,1)
+local tabler=g12.add(sprite(3,0,2400,255))
+learn(tabler,2,'TESTTABL')
+g12.add(sprite(13,200,2400,2)).stats[2]=5
+g12.ticks=300
+assert(g12.BGSE_Claim(tabler,'mage','s1')==true and last12('choice').spell=='TESTTABL')
+g12.BGSE_Act(tabler)
+g12.listeners.started[1](tabler,action(95,'TESTTABL',-1))
+tabler.m_curAction={m_actionID=0};tabler.book[2][1].m_flags=0
+g12.add(sprite(31,190,2410,255)).m_typeAI.m_Gender=6
+g12.add(sprite(32,190,2420,255)).m_typeAI.m_Gender=4
+g12.ticks=330
+g12.BGSE_Claim(tabler,'mage','s1')
+g12.ticks=365
+g12.BGSE_Claim(tabler,'mage','s1')
+local t12=last12('conjure')
+assert(t12 and t12.spell=='TESTTABL' and t12.joined==1 and ch12:inspect().counts.conjured==2)
 groups=groups+1
 
 -- 22. Protection removal (D3d). A mage with Breach and a fighter ally with a magical sword at an

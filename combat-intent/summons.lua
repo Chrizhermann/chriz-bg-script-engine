@@ -211,8 +211,8 @@ local function aim(input,spell)
 end
 
 -- Every summons the caster can cast now: {resref, kind='summon', mode, worth, cost, score,
--- hits={}, slack=0, speed, creatures (the resrefs it names), count (the fighters it brings), and
--- self, target or point}. rejected (optional) counts why ready summoning spells gave none; a spell
+-- hits={}, slack=0, speed, creatures (the resrefs it names), monsters (true when it also brings
+-- creatures from monster tables), count (the fighters it brings), and self, target or point}. rejected (optional) counts why ready summoning spells gave none; a spell
 -- whose creatures are all helpers (no fighters) is no summons and counts nothing.
 function M.options(input,rejected)
     local out={}
@@ -279,7 +279,8 @@ function M.options(input,rejected)
                         (number(mind.castCost) and mind.castCost or 0)*cast
                     local value=worth*through
                     local option={resref=row.resref,kind='summon',worth=value,cost=cost,score=value-cost,hits={},slack=0,
-                        speed=number(spell.speed) and spell.speed or 0,creatures=named,count=count}
+                        speed=number(spell.speed) and spell.speed or 0,creatures=named,count=count,
+                        monsters=type(role.kinds)=='table' and role.kinds.monsters==true or nil}
                     if where.self then option.self=true;option.mode='self'
                     elseif where.target then option.target=where.target;option.mode='creature'
                     else option.point=where.point;option.mode='point' end

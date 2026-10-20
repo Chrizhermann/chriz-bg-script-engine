@@ -3425,8 +3425,8 @@ local function aim(input,spell)
 end
 
 -- Every summons the caster can cast now: {resref, kind='summon', mode, worth, cost, score,
--- hits={}, slack=0, speed, creatures (the resrefs it names), count (the fighters it brings), and
--- self, target or point}. rejected (optional) counts why ready summoning spells gave none; a spell
+-- hits={}, slack=0, speed, creatures (the resrefs it names), monsters (true when it also brings
+-- creatures from monster tables), count (the fighters it brings), and self, target or point}. rejected (optional) counts why ready summoning spells gave none; a spell
 -- whose creatures are all helpers (no fighters) is no summons and counts nothing.
 function M.options(input,rejected)
     local out={}
@@ -3493,7 +3493,8 @@ function M.options(input,rejected)
                         (number(mind.castCost) and mind.castCost or 0)*cast
                     local value=worth*through
                     local option={resref=row.resref,kind='summon',worth=value,cost=cost,score=value-cost,hits={},slack=0,
-                        speed=number(spell.speed) and spell.speed or 0,creatures=named,count=count}
+                        speed=number(spell.speed) and spell.speed or 0,creatures=named,count=count,
+                        monsters=type(role.kinds)=='table' and role.kinds.monsters==true or nil}
                     if where.self then option.self=true;option.mode='self'
                     elseif where.target then option.target=where.target;option.mode='creature'
                     else option.point=where.point;option.mode='point' end
@@ -6482,8 +6483,9 @@ factories["adapters.eeex.choice"]=function(require)
 -- Summons (D3c): the choice also gets each creature the caster's ready summoning spells name, as
 -- combat-intent/summons.lua profiles it from its CRE file, the weapon in its first weapon slot and
 -- the ammunition in its first filled quiver slot (read once per creature). A summons is cast at a
--- point, on the caster or at an enemy; once it ends it is judged by whether summoned allies the
--- caster did not see before now stand in its view.
+-- point, on the caster or at an enemy; once it ends it is judged by whether allies the caster did
+-- not see before now stand in its view: creatures of the files the spell names, or, for a spell that
+-- also brings creatures from monster tables, summoned creatures (GENDER.IDS).
 --
 -- Protection removal (D3d): when a ready spell removes something from enemies, the choice also gets
 -- each enemy's active effects (sense.wards), each classified on its own and cached by its fields. A
@@ -6845,14 +6847,13 @@ function M.new(g,options)
         for resref,c in pairs(out) do if c==false then out[resref]=nil end end
         return out
     end
-    -- The ids of the summoned allies (GENDER.IDS SUMMONED, ILLUSIONARY, SUMMONED_DEMON) a
-    -- creature sees now.
-    local function summonedAllies(sprite,tick)
+    -- The allies a creature sees now, by id, with the creature file and gender of each.
+    local function alliesInView(sprite,tick)
         local out={}
         local frame=sense.frame(g,sprite,tick,false)
         for _,a in ipairs(frame and frame.allies or {}) do
             local object=get(a.id)
-            if object and choice.SUMMONED[object.m_typeAI.m_Gender] then out[a.id]=true end
+            if object then out[a.id]={resref=text(object.m_resref:get()),gender=object.m_typeAI.m_Gender} end
         end
         return out
     end
@@ -7004,13 +7005,19 @@ function M.new(g,options)
             return
         end
         if a.kind=='summon' then
-            -- A caster that fell since sees nothing to judge by.
+            -- A caster that fell since sees nothing to judge by. An ally it did not see before
+            -- came from the summons when its creature file is one the spell names, or when the
+            -- spell brings creatures from monster tables and it is a summoned creature. The gender
+            -- alone does not tell: lab batch H's Dark Planetar is female and Animate Dead's
+            -- skeletons are neither, though both came.
             local caster=get(a.caster)
             if not caster then return end
             local joined=0
-            local ok,now=pcall(summonedAllies,caster,a.ended)
-            for id in pairs(ok and now or {}) do
-                if not (type(a.before)=='table' and a.before[id]) then joined=joined+1 end
+            local named=idSet(a.creatures)
+            local ok,now=pcall(alliesInView,caster,a.ended)
+            for id,c in pairs(ok and now or {}) do
+                if not (type(a.before)=='table' and a.before[id]) and
+                    (named[c.resref] or (a.monsters and choice.SUMMONED[c.gender])) then joined=joined+1 end
             end
             if joined>0 then counts.conjured=counts.conjured+1 else counts.unconjured=counts.unconjured+1 end
             record({kind='conjure',tick=a.ended,member=a.caster,spell=a.resref,mode=a.mode,expected=a.count,
@@ -7489,12 +7496,10 @@ function M.new(g,options)
         for _,row in ipairs(rows) do if row.resref==d.resref then spell=row.spell end end
         local sources=spell and spell.sources or nil
         local before
-        -- A summons is judged by the summoned allies the caster sees after it and not before.
+        -- A summons is judged by the allies the caster sees after it and not before.
         if d.kind=='summon' then
             before={}
-            for _,a in ipairs(frame.allies) do
-                if type(a.ids)=='table' and choice.SUMMONED[a.ids.gender] then before[a.id]=true end
-            end
+            for _,a in ipairs(frame.allies) do before[a.id]=true end
         end
         -- A removal is judged by what shows of its enemies' protections after it and before.
         if d.kind=='removal' then
@@ -7522,7 +7527,7 @@ function M.new(g,options)
         return {own=true,response=response,spell=d.resref,kind=d.kind,mode=d.mode,target=d.target,point=d.point,
             self=d.self,hits=d.hits,castTicks=spell and type(spell.speed)=='number' and spell.speed*9 or nil,
             sources=sources,expected=d.expected,disable=disable,charge=d.kind=='strike' and d.spell or nil,
-            use=d.use,before=before,count=d.count,known=seen}
+            use=d.use,before=before,count=d.count,creatures=d.creatures,monsters=d.monsters,known=seen}
     end
     -- From the gate, each time a hooked script asks: nil (SCS's round), {hold=true} while the
     -- engine's queued cast has not started or its own cast or drink is the creature's action, or
@@ -7597,7 +7602,7 @@ function M.new(g,options)
         pending[object.m_id]={caster=object.m_id,resref=decision.spell,kind=decision.kind,mode=decision.mode,
             target=decision.target,point=decision.point,hits=decision.hits,tick=tick,hp=hp,
             castTicks=decision.castTicks,sources=decision.sources,expected=decision.expected,before=decision.before,
-            count=decision.count,known=known}
+            count=decision.count,creatures=decision.creatures,monsters=decision.monsters,known=known}
         counts.performed=counts.performed+1
         return true
     end
