@@ -322,18 +322,23 @@ local function guarded(friend,resref)
 end
 
 -- Who the spell reaches, aimed as it is cast: the caster for a spell on itself, the friends
--- within the area around the caster or a point, an ally an exception names.
+-- within the area around the caster or a point, an ally an exception names; not a friend whose
+-- spell protections keep the spell out (lab batch H: an ally's globe), though the caster's own
+-- let its own spell through (targeting.protected).
 local function receivers(input,row,spell,aim)
     local frame=input.frame
     local out={}
+    local function add(f)
+        if type(f.protections)~='table' or not targeting.protected(f,spell,f==frame.self) then out[#out+1]=f end
+    end
     local area=spell.area
     if aim.point and area and number(area.radius) then
         for _,f in ipairs(threat.friends(frame)) do
-            if targeting.distance(aim.point,f)<=area.radius then out[#out+1]=f end
+            if targeting.distance(aim.point,f)<=area.radius then add(f) end
         end
         return out
     end
-    if aim.friend then out[1]=aim.friend end
+    if aim.friend then add(aim.friend) end
     return out
 end
 -- Where a defence can be cast: on the caster itself (also an area around it); at the caster's

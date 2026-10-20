@@ -141,6 +141,9 @@ local function strength(effects)
     return power,unbounced
 end
 local function set(r,field) r[field]=r[field] or {};return r[field] end
+-- Whether a spell or item ability is hostile (bit 10 of its flags): a globe (opcode 102) keeps a
+-- creature's own spell off it only then (IESDP).
+local function hostile(flags) return number(flags) and math.floor(flags/1024)%2==1 or false end
 
 -- A stat change helps or hurts by its sign; percentage modes compare against 100.
 local function modifier(c,e,who,p,label,good,bad,amount)
@@ -733,18 +736,20 @@ local function send(c,state,e,where,depth,p)
     if type(ability)~='table' then return state.miss(c,'SPL',res) end
     local to=receiver(e,where)
     if op==148 then to='point' end
+    local subArea=op~=326 and area(state.lookup('PRO',ability.projectile)) or nil
     -- What a cast delivers is checked against the receiver's spell protections by its own power,
-    -- school and secondary type (326 applies effects without a cast). to: who receives it.
+    -- school, secondary type, hostility and projectile (326 applies effects without a cast). to:
+    -- who receives it.
     if op~=326 then
         c.delivered=c.delivered or {}
         local power,unbounced=strength(ability.effects)
         c.delivered[#c.delivered+1]={resref=res,level=sub.level,school=sub.school,secondary=sub.secondary,
-            projectile=ability.projectile,opcode=op,power=power,unbounced=unbounced,to=to}
+            projectile=ability.projectile,opcode=op,power=power,unbounced=unbounced,to=to,
+            hostile=hostile(sub.flags),explodes=subArea~=nil}
     end
     local saved=c.times
     if op==333 then c.times=(saved or 1)*math.max(e.p1,1);c.approximate=true end
     if op==326 or op==366 then c.conditional=true end
-    local subArea=op~=326 and area(state.lookup('PRO',ability.projectile)) or nil
     local filter=c.filter
     if subArea then
         c.area=c.area or subArea
@@ -903,8 +908,7 @@ function M.classify(record,index,lookup,options)
     c.school=record.school or ability.school;c.secondary=record.secondary or ability.secondary
     c.range=ability.range;c.speed=ability.speed;c.projectile=ability.projectile
     c.power,c.unbounced=strength(ability.effects)
-    local hostile=record.kind=='ITM' and ability.flags or record.flags
-    c.hostile=number(hostile) and math.floor(hostile/1024)%2==1 or false
+    c.hostile=hostile(record.kind=='ITM' and ability.flags or record.flags)
     local targets={[1]='creature',[2]='item',[3]='dead',[4]='point',[5]='self',[7]='self'}
     c.target=targets[ability.target] or 'none'
     -- lookup may be any callable (a host function arrives as userdata).
@@ -919,6 +923,9 @@ function M.classify(record,index,lookup,options)
     local pro=state.lookup('PRO',ability.projectile)
     if pro==nil and number(ability.projectile) and ability.projectile>1 then c.projectileUnknown=true end
     c.area=area(pro)
+    -- The spell's own effects reach creatures through an explosion (an area projectile), which
+    -- turnings, deflections and traps let through (IESDP); a sub-spell's area does not count here.
+    c.explodes=c.area~=nil
     local where=c.area and 'area' or (c.target=='self' and 'self') or (c.target=='point' and 'point') or 'target'
     -- The record itself is on the path, so a sub-spell that casts it again is a cycle.
     local key=tostring(record.kind)..':'..tostring(record.resref)

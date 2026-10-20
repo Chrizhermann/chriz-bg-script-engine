@@ -54,9 +54,10 @@ M.expiring=6
 -- Opcodes that deliver other effects; what they delivered is in the list already.
 M.delivered={[146]=true,[148]=true,[177]=true,[272]=true,[283]=true,[326]=true,[333]=true,[366]=true}
 -- Conditions a cure takes away, by the opcode that sets them (combat-intent/spells.lua's labels;
--- combat-intent/care.lua weighs them).
+-- combat-intent/care.lua weighs them). Hold (II) (185) stands apart: opcode 162, the cure of
+-- holds, does not remove it (IESDP).
 M.conditions={[39]='sleep',[3]='berserk',[24]='panic',[45]='stun',[210]='stun',[38]='silence',[74]='blind',
-    [76]='feeblemind',[78]='disease',[80]='deaf',[109]='hold',[175]='hold',[185]='hold',[128]='confusion',
+    [76]='feeblemind',[78]='disease',[80]='deaf',[109]='hold',[175]='hold',[185]='hold2',[128]='confusion',
     [165]='pause',[25]='poison'}
 
 local function band(g,a,b) return g.EEex_BAnd(a,b) end
@@ -105,19 +106,10 @@ function M.identity(g,sprite,entry)
     return entry
 end
 
--- Creature IDS values, saving throws, resistances, level and the spell protections in both
--- effect lists. A protection with time left (from a spell or a potion, not an item or the
--- creature itself) is marked timed.
-function M.details(g,sprite,entry)
-    local t=sprite.m_typeAI
-    entry.ids={ea=t.m_EnemyAlly,general=t.m_General,race=t.m_Race,class=t.m_Class,
-        specific=t.m_Specifics,gender=t.m_Gender,alignment=t.m_Alignment}
-    entry.saves,entry.resist={},{}
-    for name,n in pairs(M.saves) do entry.saves[name]=stat(g,sprite,n) end
-    for name,n in pairs(M.resists) do entry.resist[name]=stat(g,sprite,n) end
-    local level=0
-    for _,n in ipairs(M.levels) do level=math.max(level,stat(g,sprite,n)) end
-    entry.level=level
+-- The spell protections in a creature's two effect lists, as {opcode, p1, p2, res, timed} rows
+-- (combat-intent/targeting.lua matches them). A protection with time left (from a spell or a
+-- potion, not an item or the creature itself) is marked timed.
+function M.protectionRows(g,sprite)
     local found={}
     for n,list in ipairs({sprite.m_timedEffectList,sprite.m_equipedEffectList}) do
         local seen=0
@@ -130,7 +122,22 @@ function M.details(g,sprite,entry)
             end
         end)
     end
-    entry.protections=found
+    return found
+end
+
+-- Creature IDS values, saving throws, resistances, level and the spell protections in both
+-- effect lists (M.protectionRows).
+function M.details(g,sprite,entry)
+    local t=sprite.m_typeAI
+    entry.ids={ea=t.m_EnemyAlly,general=t.m_General,race=t.m_Race,class=t.m_Class,
+        specific=t.m_Specifics,gender=t.m_Gender,alignment=t.m_Alignment}
+    entry.saves,entry.resist={},{}
+    for name,n in pairs(M.saves) do entry.saves[name]=stat(g,sprite,n) end
+    for name,n in pairs(M.resists) do entry.resist[name]=stat(g,sprite,n) end
+    local level=0
+    for _,n in ipairs(M.levels) do level=math.max(level,stat(g,sprite,n)) end
+    entry.level=level
+    entry.protections=M.protectionRows(g,sprite)
     return entry
 end
 
@@ -440,9 +447,10 @@ function M.mark(g,entry,stats,mine,rows)
 end
 
 -- Adds what the defence slice weighs to a frame read with details: each friend's guard (false
--- if it could not be read), the weapons of enemies and allies, and whether each enemy sees
--- invisible creatures. A creature whose engine data fails keeps what it has; returns the count
--- of failures and the last one.
+-- if it could not be read) and spell protections (what keeps an ally's heal, cure or defence off
+-- it; lab batch H: SCS's Minor Globe of Invulnerability), the weapons of enemies and allies, and
+-- whether each enemy sees invisible creatures. A creature whose engine data fails keeps what it
+-- has; returns the count of failures and the last one.
 function M.defend(g,frame,tick,reader,classify)
     local failed,last=0,nil
     local function each(entry,fn)
@@ -455,6 +463,7 @@ function M.defend(g,frame,tick,reader,classify)
         entry.guard=false
         each(entry,function(sprite)
             M.identity(g,sprite,entry)
+            entry.protections=M.protectionRows(g,sprite)
             entry.guard=M.guard(g,sprite,tick,classify)
             if entry~=frame.self then entry.attack=M.attack(g,sprite,reader) end
         end)

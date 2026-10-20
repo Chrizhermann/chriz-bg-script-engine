@@ -237,14 +237,17 @@ function M.options(input,rejected)
     local coordinated=(number(mind.coordination) and mind.coordination or 0)>=0.5
     local shields={}
     local function shieldOf(f) shields[f.id]=shields[f.id] or defence.held(f);return shields[f.id] end
-    -- The worth on friend f of the heal and the cure that reach it, once a cast of the given
-    -- seconds lands.
-    local function on(f,heal,cure,cast)
+    -- The worth on friend f of the heal and the cure of spell that reach it, once a cast of the
+    -- given seconds lands. A spell f's protections keep out does nothing for it (lab batch H: SCS's
+    -- Minor Globe of Invulnerability kept a Remove Paralysis off a held mage); the caster's own
+    -- protections let its own help through (targeting.protected).
+    local function on(f,heal,cure,cast,spell)
         if f~=caster then
             if number(f.level) and f.level<=minimum then return 0,'level' end
             local owner=reserved[f.id]
             if coordinated and owner~=nil and owner~=caster.id then return 0,'reserved' end
         end
+        if type(f.protections)=='table' and targeting.protected(f,spell,f==caster) then return 0,'protected' end
         local t=pictures[f.id]
         local s=shieldOf(f)
         local worth=0
@@ -288,7 +291,7 @@ function M.options(input,rejected)
             end
             table.sort(order,function(a,b) return (a.id or 0)<(b.id or 0) end)
             for _,f in ipairs(order) do
-                local w,no=on(f,reach[f].heal,reach[f].cure,cast)
+                local w,no=on(f,reach[f].heal,reach[f].cure,cast,spell)
                 -- The most telling reason a friend gains nothing: anything but plain no worth.
                 if w>0 then worth=worth+w;hits[#hits+1]=f.id
                 elseif no and (why==nil or why=='no-worth') then why=no end

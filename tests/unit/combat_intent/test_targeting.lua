@@ -18,7 +18,7 @@ local function spell(resref,effects,ability,record,pro,more)
     for k,v in pairs(record or {}) do r[k]=v end
     local projectiles={[2]=pro or {kind='PRO',resref='SINGLE',type=2,speed=20,flags=0,extFlags=0}}
     return spells.classify(r,1,function(kind,key)
-        if kind=='PRO' then return projectiles[key] end
+        if kind=='PRO' then return projectiles[key] or (more and more['PRO:'..tostring(key)]) end
         return more and more[kind..':'..tostring(key)]
     end,{level=10})
 end
@@ -138,6 +138,35 @@ assert(not targeting.protected(enemy(turnedAt4),secret) and targeting.protected(
 assert(not targeting.protected(enemy(turnedAt4),selfish))
 assert(shielded({opcode=204,p2=5})=='protected' and shielded({opcode=204,p2=8})=='ok')
 assert(shielded({opcode=206,res='TESTHOLD'})=='protected' and shielded({opcode=206,res='OTHER'})=='ok')
+-- An explosion (an area projectile) delivers past turnings, deflections and traps, not past
+-- globes or protections by school (IESDP); so does a sub-spell through its own explosion.
+local burst=spell('TESTBRST',{fx(175,{duration=30,power=3})},nil,{school=5},
+    {kind='PRO',resref='AREA',type=3,speed=20,flags=0,extFlags=0,areaFlags=0,trigger=30,radius=256,coneWidth=0})
+assert(burst.explodes==true and anyHold.explodes==false)
+for _,p in ipairs({{opcode=199,p1=3},{opcode=200,p1=10,p2=3},{opcode=201,p1=10,p2=3},{opcode=259,p1=8,p2=3}}) do
+    assert(not targeting.protected(enemy({protections={p}}),burst) and targeting.protected(enemy({protections={p}}),anyHold))
+end
+assert(targeting.protected(enemy({protections={{opcode=102,p1=3}}}),burst))
+assert(targeting.protected(enemy({protections={{opcode=204,p2=5}}}),burst))
+subs['PRO:7']={kind='PRO',resref='AREA',type=3,speed=20,flags=0,extFlags=0,areaFlags=0,trigger=30,radius=128,coneWidth=0}
+subs['SPL:TESTSUB7']={kind='SPL',resref='TESTSUB7',name=0,flags=1024,spellType=1,exclusion=0,school=0,secondary=10,
+    level=4,casting={},abilities={{form=1,flags=0,location=2,target=1,targetCount=0,range=30,minLevel=1,speed=1,
+    projectile=7,effects={fx(12,{p1=10,power=4})}}}}
+local storm=spell('TESTSTRM',{fx(146,{p2=1,res='TESTSUB7',power=0})},nil,{level=4},nil,subs)
+assert(storm.delivered[1].explodes==true and storm.delivered[1].hostile==true and orb.delivered[1].explodes==false)
+assert(not targeting.protected(enemy(turnedAt4),storm) and targeting.protected(enemy({protections={{opcode=102,p1=4}}}),storm))
+-- From the creature itself a beneficial spell passes its own globe, turnings and protections by
+-- school, a hostile one meets its own globe; protection from the spell or its opcode stops it
+-- from anyone (IESDP).
+local kind=spell('TESTKIND',{fx(17,{p1=10,power=3})},nil,{flags=0,school=5})
+assert(kind.hostile==false and anyHold.hostile==true)
+local own={protections={{opcode=102,p1=3},{opcode=200,p1=10,p2=3},{opcode=204,p2=5}}}
+assert(not targeting.protected(own,kind,true) and targeting.protected(own,kind))
+assert(targeting.protected({protections={{opcode=102,p1=3}}},anyHold,true))
+assert(not targeting.protected({protections={{opcode=200,p1=10,p2=3},{opcode=204,p2=5},{opcode=207,res='TESTHOLD'}}},anyHold,true))
+assert(targeting.protected({protections={{opcode=207,res='TESTHOLD'}}},anyHold))
+assert(targeting.protected({protections={{opcode=206,res='TESTKIND'}}},kind,true))
+assert(targeting.protected({protections={{opcode=101,p2=17}}},kind,true))
 assert(shielded({opcode=83,p2=1})=='protected' and shielded({opcode=197,p2=2})=='protected')
 assert(legal(enemy({protections={{opcode=205,p2=10}}}),bolt)=='protected')
 assert(legal(enemy({protections={{opcode=205,p2=10}}}),anyHold)=='ok')

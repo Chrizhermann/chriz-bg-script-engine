@@ -530,6 +530,9 @@ local function strength(effects)
     return power,unbounced
 end
 local function set(r,field) r[field]=r[field] or {};return r[field] end
+-- Whether a spell or item ability is hostile (bit 10 of its flags): a globe (opcode 102) keeps a
+-- creature's own spell off it only then (IESDP).
+local function hostile(flags) return number(flags) and math.floor(flags/1024)%2==1 or false end
 
 -- A stat change helps or hurts by its sign; percentage modes compare against 100.
 local function modifier(c,e,who,p,label,good,bad,amount)
@@ -1122,18 +1125,20 @@ local function send(c,state,e,where,depth,p)
     if type(ability)~='table' then return state.miss(c,'SPL',res) end
     local to=receiver(e,where)
     if op==148 then to='point' end
+    local subArea=op~=326 and area(state.lookup('PRO',ability.projectile)) or nil
     -- What a cast delivers is checked against the receiver's spell protections by its own power,
-    -- school and secondary type (326 applies effects without a cast). to: who receives it.
+    -- school, secondary type, hostility and projectile (326 applies effects without a cast). to:
+    -- who receives it.
     if op~=326 then
         c.delivered=c.delivered or {}
         local power,unbounced=strength(ability.effects)
         c.delivered[#c.delivered+1]={resref=res,level=sub.level,school=sub.school,secondary=sub.secondary,
-            projectile=ability.projectile,opcode=op,power=power,unbounced=unbounced,to=to}
+            projectile=ability.projectile,opcode=op,power=power,unbounced=unbounced,to=to,
+            hostile=hostile(sub.flags),explodes=subArea~=nil}
     end
     local saved=c.times
     if op==333 then c.times=(saved or 1)*math.max(e.p1,1);c.approximate=true end
     if op==326 or op==366 then c.conditional=true end
-    local subArea=op~=326 and area(state.lookup('PRO',ability.projectile)) or nil
     local filter=c.filter
     if subArea then
         c.area=c.area or subArea
@@ -1292,8 +1297,7 @@ function M.classify(record,index,lookup,options)
     c.school=record.school or ability.school;c.secondary=record.secondary or ability.secondary
     c.range=ability.range;c.speed=ability.speed;c.projectile=ability.projectile
     c.power,c.unbounced=strength(ability.effects)
-    local hostile=record.kind=='ITM' and ability.flags or record.flags
-    c.hostile=number(hostile) and math.floor(hostile/1024)%2==1 or false
+    c.hostile=hostile(record.kind=='ITM' and ability.flags or record.flags)
     local targets={[1]='creature',[2]='item',[3]='dead',[4]='point',[5]='self',[7]='self'}
     c.target=targets[ability.target] or 'none'
     -- lookup may be any callable (a host function arrives as userdata).
@@ -1308,6 +1312,9 @@ function M.classify(record,index,lookup,options)
     local pro=state.lookup('PRO',ability.projectile)
     if pro==nil and number(ability.projectile) and ability.projectile>1 then c.projectileUnknown=true end
     c.area=area(pro)
+    -- The spell's own effects reach creatures through an explosion (an area projectile), which
+    -- turnings, deflections and traps let through (IESDP); a sub-spell's area does not count here.
+    c.explodes=c.area~=nil
     local where=c.area and 'area' or (c.target=='self' and 'self') or (c.target=='point' and 'point') or 'target'
     -- The record itself is on the path, so a sub-spell that casts it again is a cycle.
     local key=tostring(record.kind)..':'..tostring(record.resref)
@@ -1557,20 +1564,24 @@ local EPSILON=1e-9
 -- from this very spell. protections holds {opcode, p1, p2, res} rows. Globes (102) and 199 name
 -- their power level in parameter 1, 200, 201 and Spell Trap (259) in parameter 2; each compares
 -- the power of the effects the spell delivers (spell.power; the spell's level when unknown), and
--- the last four let effects through that pass turnings (spell.unbounced; IESDP).
+-- the last four let effects through that pass turnings (spell.unbounced) or come through an
+-- explosion (spell.explodes). From the protected creature itself (fromSelf), turnings,
+-- deflections, traps, protections by school or secondary type and the bounce of a resource
+-- stop nothing, and a globe only a hostile spell (spell.hostile). All by IESDP.
 local BOUNCES={[199]=1,[200]=2,[201]=2,[259]=2}
 local BY_SCHOOL={[202]=true,[204]=true,[223]=true,[227]=true}
 local BY_SECONDARY={[203]=true,[205]=true,[226]=true,[228]=true}
 local BY_RESOURCE={[206]=true,[207]=true,[318]=true,[324]=true}
-local function stops(p,spell)
+local function stops(p,spell,fromSelf)
     local op=p.opcode
     local opcodes=type(spell.opcodes)=='table' and spell.opcodes or {}
     if op==101 or op==198 then return opcodes[p.p2]==true end
     if op==83 or op==197 then return number(spell.projectile) and (p.p2==spell.projectile or p.p2+1==spell.projectile) end
     local power=number(spell.power) and spell.power or spell.level
-    if op==102 then return p.p1==power end
+    if op==102 then return p.p1==power and not (fromSelf and not spell.hostile) end
+    if fromSelf and (BOUNCES[op] or BY_SCHOOL[op] or BY_SECONDARY[op] or op==207) then return false end
     if BOUNCES[op] then
-        if spell.unbounced then return false end
+        if spell.unbounced or spell.explodes then return false end
         return (BOUNCES[op]==1 and p.p1 or p.p2)==power
     end
     if BY_SCHOOL[op] then return number(spell.school) and spell.school>0 and p.p2==spell.school end
@@ -1580,13 +1591,14 @@ local function stops(p,spell)
 end
 -- A spell another one casts at the target (spell.delivered, combat-intent/spells.lua) meets the
 -- target's protections again by its own power, school and secondary type: either stops the whole.
-function M.protected(target,spell)
+-- fromSelf: the target casts the spell itself.
+function M.protected(target,spell,fromSelf)
     if type(target.protections)~='table' then return true end
     for _,p in ipairs(target.protections) do
         if type(p)=='table' then
-            if stops(p,spell) then return true end
+            if stops(p,spell,fromSelf) then return true end
             for _,d in ipairs(type(spell.delivered)=='table' and spell.delivered or {}) do
-                if type(d)=='table' and d.to~='self' and stops(p,d) then return true end
+                if type(d)=='table' and d.to~='self' and stops(p,d,fromSelf) then return true end
             end
         end
     end
@@ -2713,18 +2725,23 @@ local function guarded(friend,resref)
 end
 
 -- Who the spell reaches, aimed as it is cast: the caster for a spell on itself, the friends
--- within the area around the caster or a point, an ally an exception names.
+-- within the area around the caster or a point, an ally an exception names; not a friend whose
+-- spell protections keep the spell out (lab batch H: an ally's globe), though the caster's own
+-- let its own spell through (targeting.protected).
 local function receivers(input,row,spell,aim)
     local frame=input.frame
     local out={}
+    local function add(f)
+        if type(f.protections)~='table' or not targeting.protected(f,spell,f==frame.self) then out[#out+1]=f end
+    end
     local area=spell.area
     if aim.point and area and number(area.radius) then
         for _,f in ipairs(threat.friends(frame)) do
-            if targeting.distance(aim.point,f)<=area.radius then out[#out+1]=f end
+            if targeting.distance(aim.point,f)<=area.radius then add(f) end
         end
         return out
     end
-    if aim.friend then out[1]=aim.friend end
+    if aim.friend then add(aim.friend) end
     return out
 end
 -- Where a defence can be cast: on the caster itself (also an area around it); at the caster's
@@ -3091,14 +3108,17 @@ function M.options(input,rejected)
     local coordinated=(number(mind.coordination) and mind.coordination or 0)>=0.5
     local shields={}
     local function shieldOf(f) shields[f.id]=shields[f.id] or defence.held(f);return shields[f.id] end
-    -- The worth on friend f of the heal and the cure that reach it, once a cast of the given
-    -- seconds lands.
-    local function on(f,heal,cure,cast)
+    -- The worth on friend f of the heal and the cure of spell that reach it, once a cast of the
+    -- given seconds lands. A spell f's protections keep out does nothing for it (lab batch H: SCS's
+    -- Minor Globe of Invulnerability kept a Remove Paralysis off a held mage); the caster's own
+    -- protections let its own help through (targeting.protected).
+    local function on(f,heal,cure,cast,spell)
         if f~=caster then
             if number(f.level) and f.level<=minimum then return 0,'level' end
             local owner=reserved[f.id]
             if coordinated and owner~=nil and owner~=caster.id then return 0,'reserved' end
         end
+        if type(f.protections)=='table' and targeting.protected(f,spell,f==caster) then return 0,'protected' end
         local t=pictures[f.id]
         local s=shieldOf(f)
         local worth=0
@@ -3142,7 +3162,7 @@ function M.options(input,rejected)
             end
             table.sort(order,function(a,b) return (a.id or 0)<(b.id or 0) end)
             for _,f in ipairs(order) do
-                local w,no=on(f,reach[f].heal,reach[f].cure,cast)
+                local w,no=on(f,reach[f].heal,reach[f].cure,cast,spell)
                 -- The most telling reason a friend gains nothing: anything but plain no worth.
                 if w>0 then worth=worth+w;hits[#hits+1]=f.id
                 elseif no and (why==nil or why=='no-worth') then why=no end
@@ -5578,9 +5598,10 @@ M.expiring=6
 -- Opcodes that deliver other effects; what they delivered is in the list already.
 M.delivered={[146]=true,[148]=true,[177]=true,[272]=true,[283]=true,[326]=true,[333]=true,[366]=true}
 -- Conditions a cure takes away, by the opcode that sets them (combat-intent/spells.lua's labels;
--- combat-intent/care.lua weighs them).
+-- combat-intent/care.lua weighs them). Hold (II) (185) stands apart: opcode 162, the cure of
+-- holds, does not remove it (IESDP).
 M.conditions={[39]='sleep',[3]='berserk',[24]='panic',[45]='stun',[210]='stun',[38]='silence',[74]='blind',
-    [76]='feeblemind',[78]='disease',[80]='deaf',[109]='hold',[175]='hold',[185]='hold',[128]='confusion',
+    [76]='feeblemind',[78]='disease',[80]='deaf',[109]='hold',[175]='hold',[185]='hold2',[128]='confusion',
     [165]='pause',[25]='poison'}
 
 local function band(g,a,b) return g.EEex_BAnd(a,b) end
@@ -5629,19 +5650,10 @@ function M.identity(g,sprite,entry)
     return entry
 end
 
--- Creature IDS values, saving throws, resistances, level and the spell protections in both
--- effect lists. A protection with time left (from a spell or a potion, not an item or the
--- creature itself) is marked timed.
-function M.details(g,sprite,entry)
-    local t=sprite.m_typeAI
-    entry.ids={ea=t.m_EnemyAlly,general=t.m_General,race=t.m_Race,class=t.m_Class,
-        specific=t.m_Specifics,gender=t.m_Gender,alignment=t.m_Alignment}
-    entry.saves,entry.resist={},{}
-    for name,n in pairs(M.saves) do entry.saves[name]=stat(g,sprite,n) end
-    for name,n in pairs(M.resists) do entry.resist[name]=stat(g,sprite,n) end
-    local level=0
-    for _,n in ipairs(M.levels) do level=math.max(level,stat(g,sprite,n)) end
-    entry.level=level
+-- The spell protections in a creature's two effect lists, as {opcode, p1, p2, res, timed} rows
+-- (combat-intent/targeting.lua matches them). A protection with time left (from a spell or a
+-- potion, not an item or the creature itself) is marked timed.
+function M.protectionRows(g,sprite)
     local found={}
     for n,list in ipairs({sprite.m_timedEffectList,sprite.m_equipedEffectList}) do
         local seen=0
@@ -5654,7 +5666,22 @@ function M.details(g,sprite,entry)
             end
         end)
     end
-    entry.protections=found
+    return found
+end
+
+-- Creature IDS values, saving throws, resistances, level and the spell protections in both
+-- effect lists (M.protectionRows).
+function M.details(g,sprite,entry)
+    local t=sprite.m_typeAI
+    entry.ids={ea=t.m_EnemyAlly,general=t.m_General,race=t.m_Race,class=t.m_Class,
+        specific=t.m_Specifics,gender=t.m_Gender,alignment=t.m_Alignment}
+    entry.saves,entry.resist={},{}
+    for name,n in pairs(M.saves) do entry.saves[name]=stat(g,sprite,n) end
+    for name,n in pairs(M.resists) do entry.resist[name]=stat(g,sprite,n) end
+    local level=0
+    for _,n in ipairs(M.levels) do level=math.max(level,stat(g,sprite,n)) end
+    entry.level=level
+    entry.protections=M.protectionRows(g,sprite)
     return entry
 end
 
@@ -5964,9 +5991,10 @@ function M.mark(g,entry,stats,mine,rows)
 end
 
 -- Adds what the defence slice weighs to a frame read with details: each friend's guard (false
--- if it could not be read), the weapons of enemies and allies, and whether each enemy sees
--- invisible creatures. A creature whose engine data fails keeps what it has; returns the count
--- of failures and the last one.
+-- if it could not be read) and spell protections (what keeps an ally's heal, cure or defence off
+-- it; lab batch H: SCS's Minor Globe of Invulnerability), the weapons of enemies and allies, and
+-- whether each enemy sees invisible creatures. A creature whose engine data fails keeps what it
+-- has; returns the count of failures and the last one.
 function M.defend(g,frame,tick,reader,classify)
     local failed,last=0,nil
     local function each(entry,fn)
@@ -5979,6 +6007,7 @@ function M.defend(g,frame,tick,reader,classify)
         entry.guard=false
         each(entry,function(sprite)
             M.identity(g,sprite,entry)
+            entry.protections=M.protectionRows(g,sprite)
             entry.guard=M.guard(g,sprite,tick,classify)
             if entry~=frame.self then entry.attack=M.attack(g,sprite,reader) end
         end)

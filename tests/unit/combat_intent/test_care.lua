@@ -164,6 +164,21 @@ i.spells={row('TESTHEAL',heal,6)}
 sick.state=0x4000+0x100000;sick.guard.conditions.feeblemind=math.huge;sick.hp=25
 o=only(i)[1]
 assert(o.kind=='heal' and near(o.worth,25/50+20/50+1*1*(0.5+0.5*25/50)))
+-- A cure the ally's spell protections keep out frees nothing (lab batch H: SCS's Minor Globe of
+-- Invulnerability kept Remove Paralysis off a held mage); the caster's own globe lets its own
+-- beneficial spell through.
+local freed=spell('TESTFRE3',3,{fx(162,{power=3})},{target=4,range=30},area(256,192))
+i=input({rejected={}})
+local globed=friend(2,{x=200,held=1,guard={roles={},conditions={hold=12},poison=0},protections={{opcode=102,p1=3}}})
+i.frame.allies={globed}
+i.spells={row('TESTFRE3',freed,3)}
+assert(#only(i)==0 and i.rejected['care-protected']==1)
+globed.protections={{opcode=102,p1=4}}
+assert(only(i)[1].hits[1]==2)
+i=input()
+i.frame.self.hp=10;i.frame.self.protections={{opcode=102,p1=3}}
+i.spells={row('TESTMEND',spell('TESTMEND',3,{fx(17,{p1=30,power=3})}),3)}
+o=only(i)[1];assert(o.self and near(o.worth,30/50))
 groups=groups+1
 
 -- 6. Potions: the caster drinks one while uses are left; it costs as a first-level spell and

@@ -266,6 +266,17 @@ i=input({fighter(11,200,{actee=2,held=1})},{row('TESTHAST',haste,3)})
 i.frame.allies={ally}
 o=find(defence.options(i,{}),'TESTHAST')
 assert(o and o.point and o.hits[1]==2 and near(o.worth,0.5*0.85*12*3/60))
+-- An ally whose spell protections keep the spell out gains nothing from it (lab batch H: a globe).
+local haste3=spell('TESTHST3',3,{fx(1,{p1=6,target=2,duration=144,power=3}),fx(176,{p1=6,target=2,duration=144,power=3})},
+    {target=4,projectile=99,speed=3},{[99]=area(256,192)})
+local globed={id=2,x=140,y=100,hp=80,maxHp=80,state=0,ac=2,attack={apr=2,thac0=8,damage=12},guard={},
+    protections={{opcode=102,p1=3}}}
+i=input({fighter(11,200,{actee=2,held=1})},{row('TESTHST3',haste3,3)})
+i.frame.allies={globed}
+rejected={}
+assert(#defence.options(i,rejected)==0 and rejected['no-worth']==1)
+globed.protections={}
+assert(find(defence.options(i,{}),'TESTHST3').hits[1]==2)
 groups=groups+1
 
 -- 7. Single-target spells go on the caster only, unless the profile names them as exceptions

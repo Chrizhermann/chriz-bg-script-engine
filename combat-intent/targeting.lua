@@ -147,20 +147,24 @@ local EPSILON=1e-9
 -- from this very spell. protections holds {opcode, p1, p2, res} rows. Globes (102) and 199 name
 -- their power level in parameter 1, 200, 201 and Spell Trap (259) in parameter 2; each compares
 -- the power of the effects the spell delivers (spell.power; the spell's level when unknown), and
--- the last four let effects through that pass turnings (spell.unbounced; IESDP).
+-- the last four let effects through that pass turnings (spell.unbounced) or come through an
+-- explosion (spell.explodes). From the protected creature itself (fromSelf), turnings,
+-- deflections, traps, protections by school or secondary type and the bounce of a resource
+-- stop nothing, and a globe only a hostile spell (spell.hostile). All by IESDP.
 local BOUNCES={[199]=1,[200]=2,[201]=2,[259]=2}
 local BY_SCHOOL={[202]=true,[204]=true,[223]=true,[227]=true}
 local BY_SECONDARY={[203]=true,[205]=true,[226]=true,[228]=true}
 local BY_RESOURCE={[206]=true,[207]=true,[318]=true,[324]=true}
-local function stops(p,spell)
+local function stops(p,spell,fromSelf)
     local op=p.opcode
     local opcodes=type(spell.opcodes)=='table' and spell.opcodes or {}
     if op==101 or op==198 then return opcodes[p.p2]==true end
     if op==83 or op==197 then return number(spell.projectile) and (p.p2==spell.projectile or p.p2+1==spell.projectile) end
     local power=number(spell.power) and spell.power or spell.level
-    if op==102 then return p.p1==power end
+    if op==102 then return p.p1==power and not (fromSelf and not spell.hostile) end
+    if fromSelf and (BOUNCES[op] or BY_SCHOOL[op] or BY_SECONDARY[op] or op==207) then return false end
     if BOUNCES[op] then
-        if spell.unbounced then return false end
+        if spell.unbounced or spell.explodes then return false end
         return (BOUNCES[op]==1 and p.p1 or p.p2)==power
     end
     if BY_SCHOOL[op] then return number(spell.school) and spell.school>0 and p.p2==spell.school end
@@ -170,13 +174,14 @@ local function stops(p,spell)
 end
 -- A spell another one casts at the target (spell.delivered, combat-intent/spells.lua) meets the
 -- target's protections again by its own power, school and secondary type: either stops the whole.
-function M.protected(target,spell)
+-- fromSelf: the target casts the spell itself.
+function M.protected(target,spell,fromSelf)
     if type(target.protections)~='table' then return true end
     for _,p in ipairs(target.protections) do
         if type(p)=='table' then
-            if stops(p,spell) then return true end
+            if stops(p,spell,fromSelf) then return true end
             for _,d in ipairs(type(spell.delivered)=='table' and spell.delivered or {}) do
-                if type(d)=='table' and d.to~='self' and stops(p,d) then return true end
+                if type(d)=='table' and d.to~='self' and stops(p,d,fromSelf) then return true end
             end
         end
     end

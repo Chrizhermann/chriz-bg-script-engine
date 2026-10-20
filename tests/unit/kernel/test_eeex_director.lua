@@ -142,6 +142,13 @@ m2.state=0x400000
 f=sense.frame(g,m1,100,false)
 assert(#f.allies==1 and f.allies[1].id==2 and f.allies[1].state==0x400000 and #f.enemies==3)
 m2.state=0
+-- Each friend's spell protections come with its guard (lab batch H: an ally's globe kept the
+-- engine's Remove Paralysis out).
+m2.m_timedEffectList={effect(102,3,0)}
+f=sense.frame(g,m1,100,true)
+sense.defend(g,f,100,reader,function() return {roles={}} end)
+assert(#f.allies[1].protections==1 and f.allies[1].protections[1].p1==3 and #f.self.protections==0)
+m2.m_timedEffectList={}
 g.objects[13].m_timedEffectList={effect(101,0,175),effect(12,5,0)}
 g.objects[13].m_equipedEffectList={}
 m2.stats[200]=nil
