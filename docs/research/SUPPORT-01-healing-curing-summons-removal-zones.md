@@ -1,6 +1,7 @@
 # SUPPORT-01 — Healing, curing, summons, removal and danger zones (D3)
 
-Status: built (2026-10-20); lab batch H next. Christopher's go: "Mach alles, dann Lab Tests."
+Status: built (2026-10-20); lab batch H ran on 2026-10-20 and 21 (below). Christopher's go:
+"Mach alles, dann Lab Tests."
 
 ## Question
 
@@ -255,10 +256,12 @@ markers, so it knows every zone, also those SCS marks not, and judges each by th
   (`EEex_Area_GetNearestOpenPosition`) as long as that still lies outside them, else the next
   way out. `MoveToPoint`, without SCS's round timer; held while the creature walks (twice the
   walk and a margin at most), then judged (`escaped` rows: out or not).
-- **Staying:** a cast where the caster stands loses what the zones' explosions may break (each one
-  whose damage lands breaks it); a melee attack or strike counts what walking to its target and
-  standing there does, so a creature fights its way out towards an enemy outside and thinks twice
-  before walking into a cloud.
+- **Staying:** a cast where the caster stands loses what the zones' explosions may break: each
+  explosion during its casting time whose damage lands breaks it, counted from when the casting
+  aura of the creature's last cast frees, so an explosion due for sure breaks it for sure (since
+  `47755c6`, lab batch H5); a melee attack or strike counts what walking to its target and standing
+  there does, so a creature fights its way out towards an enemy outside and thinks twice before
+  walking into a cloud.
 - **Mid-round:** while SCS's round timer runs and the creature is not casting, and when it sees
   no enemy, it still walks out of a zone that hurts it.
 - **SCS's escape stands aside** (HOOK-01, rule 6): the installer gives SCS's escape blocks above
@@ -279,9 +282,156 @@ and again (host census, nothing ran). Most clouds explode every 75 ticks, ten ti
 Cloud, Cloudkill, Web, Acid Fog, Incendiary Cloud); storms every 100 ticks, four times (Ice Storm,
 Fire Storm, Meteor Swarm). Most deliver their effects through spells they cast on each creature.
 
-Not yet: the projectile's tick counts assume 15 ticks a second, and which list holds the zones
-and what its fields mean in play are unchecked (lab batch H); explosions count spread evenly (the
-counter to the next one is read but not used); no protections against zones (Protection from
-Fire and the like); ways out do not prefer spots that keep enemies in sight or range; the engine
-does not cast clouds for their lingering harm on enemies (its zones are only dangers to its own);
-a cast under way is not broken off for a zone by the engine itself.
+Not yet: no protections against zones (Protection from Fire and the like); ways out do not prefer
+spots that keep enemies in sight or range; the engine does not cast clouds for their lingering
+harm on enemies (its zones are only dangers to its own); a cast under way is not broken off for a
+zone by the engine itself.
+
+## Lab batch H (2026-10-20 and 21)
+
+The SR lab in one slot, the quiet room `BD0072`, Insane. Five launches, H1 and H2 in one install,
+the others each in its own; every cleanup was clean.
+
+- **H1** (build `72cd95b`): the zone probe (Stinking Cloud, Ice Storm, Acid Fog and Incendiary
+  Cloud at rings of dummies) and two zone fights each with the engine and with SCS alone. Zone
+  fights: the mid group against dummies, while the lab's party mage lays Stinking Cloud, Cloudkill
+  and Incendiary Cloud on it.
+- **H2** (same install): care fights `cmid` (the hard mid lab of DEFENCE-01; at fixed times the lab
+  holds, panics, blinds or stuns a group creature, or wounds it to a third of its hit points), two
+  high fights `rhigh` and a hard mid fight `gmid`, the engine and SCS alone.
+- **H3** (`01d0297`, after the zone fix `8b36373`): the potion probe, two care fights and three zone
+  fights each with the engine and SCS alone.
+- **H4** (`ea6a130`, with the hold `254eeaa`): two care fights with the conditions on the priests,
+  one with SCS alone, a high, a hard mid and a zone fight.
+- **H5** (`b9dd589`): the minimum worth in the care lab (below).
+
+### Danger zones (D3e)
+
+- **The probe** measured what the engine reads (docs/learned.md, section 5): clouds and storms are
+  area projectiles in the area's `m_lVertSort`, an explosion comes every delay+1 ticks, the next in
+  counter+1, explosion range 256 reaches 252 pixels and not 280 (heights 4/3), the game runs 15
+  ticks a second.
+- **Fixed after H1** (`8b36373`): a live projectile's number is its PROJECTL.IDS entry, one less
+  than a spell's projectile field, so the classifier had read the neighbouring PRO file (its area
+  filter and shape); `EEex_Area_GetNearestOpenPosition` needs the creature's personal space, and
+  without it every way out went to the raw point; and the engine now counts from when the next
+  explosion comes.
+- **Time in the lab's clouds**, summed over the group's four casters (ticks):
+
+  | Fight | Engine | SCS alone |
+  | --- | --- | --- |
+  | H1, 1 | 1,458 | 3,735 |
+  | H1, 2 | 1,782 | 3,444 |
+  | H3, 3 | 1,773 | 3,624 |
+  | H3, 4 | 1,515 | 4,464 |
+  | H3, 5 | 2,151 | 3,744 |
+  | H4, 6 | 1,836 | – |
+
+  The engine cut the time in clouds by 43 to 66%. With the engine every group creature lived
+  through all six zone fights; with SCS alone the level-8 mage died in one H3 fight and ended the
+  other two at 3 and 4 hit points.
+- **Ways out:** 51 chosen, 44 got out, 4 did not and 3 were still under way when the fight ended;
+  no zone failure. All 31 ways out of H3 and H4 lay on the search map's 16 by 12 grid.
+- SCS's own run-away (action 355) still ran 5 to 28 times in each zone fight with the engine,
+  against 42 to 78 with SCS alone, in rounds the engine left to SCS: while a creature sees no enemy
+  SCS's escape runs as before (D3e), and the engine also leaves rounds to SCS while SCS's round
+  timer runs. Not analysed further.
+
+### Healing, curing and potions (D3a, D3b)
+
+- 36 of the engine's heals, cures and drinks were judged in the care, high and hard mid fights,
+  and 28 helped: a friend gained hit points or lost a condition. 25 drinks started.
+- **Globes** (fixed in `ea6a130`): two of the misses were Remove Paralysis and Resist Fear cast at a
+  held or panicked mage in SCS's Minor Globe of Invulnerability, which keeps out spells of levels 1
+  to 3, beneficial ones from allies too; SCS's priests cast Remove Paralysis into it twice as well.
+  Friends now carry their spell protections, and a heal, cure or defence leaves out a friend they
+  keep it from (docs/learned.md, section 9: from the creature itself turnings and the like stop
+  nothing and a globe only a hostile spell; what an explosion delivers passes turnings,
+  deflections and traps). So an area attack now counts against a spell-turned enemy too. In H4 no
+  cure went to a mage in a globe.
+- **The rest were drinks:** one replaced by SCS's attack block while it waited for the casting
+  aura (H3), the others drunk while the drinker lost more hit points than the potion gave, or
+  replaced the same way in H2's build; the judgement compares hit points, so the logs do not tell
+  these apart.
+- **Invisible allies** (fixed in `01d0297`): in H2's care fights the held mid mage stood under
+  Improved Invisibility. SCS's priests cast Remove Paralysis on it; the engine's never saw it as an
+  ally, because a creature's frame left out every invisible creature unless it sees invisible
+  ones. Invisibility now hides a creature from its enemies only.
+- **The engine's own action** (fixed in `254eeaa`): a potion chosen while the casting aura of the
+  creature's last cast ran became its action at once and waited for the aura; the engine then left
+  the round to SCS for SCS's timer, and SCS's attack block below the hook took the drink's place
+  (once also a Remove Paralysis 11 ticks into its casting). The engine now holds its own cast or
+  drink while it is the creature's action: while the aura runs or a Time Stop freezes the creature,
+  and for its casting time and 45 ticks from the latest of its start, the aura last seen busy and
+  time resuming. The potion probe showed that a drink started on a frozen creature works when time
+  resumes.
+- **Hold (II)** (opcode 185) counts apart from holds: opcode 162, the cure of holds, leaves it.
+- **H4, conditions on the priests:** a panic on a priest got Resist Fear from the other priest and
+  ended; a hold got Remove Paralysis 63 ticks after it landed, and damage broke the cast. The
+  engine then left the rest of SCS's round timer to SCS, whose blocks attacked.
+
+### Summons (D3c)
+
+- The engine cast summons in the care, high and hard mid fights: Animal Summoning IV, Conjure
+  Lesser Water and Earth Elemental, Conjure Earth Elemental, Animate Dead, Aerial Servant and
+  Summon Dark Planetar.
+- **The judgement** (fixed in `b9dd589`) counted only new allies of a summoned gender, so the Dark
+  Planetar (female) and Animate Dead's skeletons (neither) came but counted as failures. A summons
+  is now judged by new allies of the creature files it names, and one that also brings creatures
+  from monster tables by new summoned allies as well.
+- In the three high fights both mages opened with Time Stop at once (SCS alone does the same), and
+  everyone else stood frozen for 36 seconds; each time a priest's summons started before the stops
+  brought nothing when time resumed, though its casting aura had passed its casting time. Why is
+  unknown (docs/learned.md, section 2).
+- In the care fights the engine summoned less than SCS alone. Conjure Lesser Water Elemental stood
+  in the engine's top three 54 times (score 0.02 to 0.48, median 0.13: worth less 0.25 for its
+  level and casting time), led 20 times and was cast 10 times; SCS alone cast it 2.5 times as often
+  for the time its casters lived (below). A summons counts its creatures' fight over the horizon,
+  three rounds; the elementals stay about two minutes.
+
+### Protection removal (D3d)
+
+The engine chose no removal: in these fights a removal option did not arise, was out of reach (8
+times) or was worth less than nothing (Spell Thrust twice in a high fight). SCS's Breach and Dispel
+Magic in the engine's fights came in rounds the engine left to SCS. D3d has not run in game yet.
+
+### The engine against SCS in the care lab
+
+Sixteen care fights in H2 to H5 (the lab's conditions on the mages in H2 and H3, on the priests in
+H4 and H5): the engine with its minimum worth of 0.2 in eight, with 0.05 (the lab's `low` mode,
+H5) in four, SCS alone in four. The party's six members have 724 hit points in all.
+
+| | Engine, 0.2 | Engine, 0.05 | SCS alone |
+| --- | --- | --- | --- |
+| Group creatures lost (of four a fight) | 19 (2.4 a fight) | 11 (2.8) | 8 (2.0) |
+| Party members killed | 4 (0.5 a fight) | 2 (0.5) | 4 (1.0) |
+| Party hit points left (mean) | 448 | 500 | 370 |
+| Casts a creature-minute alive | 4.8 | 5.2 | 6.6 |
+| Weapon rounds (a spell scored higher) | 148 (64) | 17 (6) | none |
+
+- **The minimum worth is not the cause.** Since D3 SCS keeps no round, and a weapon round needs no
+  minimum: when no spell reaches 0.2 the caster attacks, even with a lower worth than the best
+  spell (DEFENCE-01, D2c: "0.2 passt aber ansonsten"): mages punched with their fists at a median
+  worth of 0.005. With 0.05 the casters swung far less and cast a little more often, yet the group
+  lost more and dealt less harm. The minimum worth stays at 0.2.
+- **Less harm to the party:** SCS alone took 354 of the party's hit points a fight, the engine 276
+  (0.05: 224), and SCS killed twice as many.
+- **Fewer casts:** between two casts of one creature both took a median of 96 ticks, but the
+  engine's casters spent more rounds with a weapon or without an action.
+- **Summons:** SCS's lead came from the two fights in which its water elementals fought long:
+  they took 436 and 518 of the party's hit points, its other two 194 and 270, about what the
+  engine took. While a water elemental fought on the group's side, the party lost hit points about
+  twice as fast (six fights: 2.9 to 5.9 a second, against 1.6 to 3.1 without; the jaguars of
+  Animal Summoning IV did not change it). SCS alone cast Conjure Lesser Water Elemental 3.8 times
+  in ten creature-minutes, the engine 1.5 (with 0.05: 4.7, three of them broken in the Ice Storm
+  below). The engine counts a summons' fight over three rounds.
+- **The Ice Storm** (fixed in `47755c6`): in one fight with 0.05 the level-12 mage began Conjure
+  Lesser Water Elemental three times inside the party's Ice Storm (2d8 cold every 6.7 seconds, no
+  save); each time the next explosion broke the cast in its last ticks, and the group was gone
+  after 42 seconds. The engine knew when the explosion would come and that its damage lands, yet
+  gave the cast a 37% chance (e^-1, as if explosions came at random). The second cast began 4
+  ticks late, when the casting aura of the first freed.
+
+In the other labs: in the zone fights the engine kept every group creature alive (SCS alone lost
+its level-8 mage once); in the high fights both won every fight, in 107 to 116 seconds with the
+engine and 114 with SCS alone, with about the same hit points left.
