@@ -361,10 +361,12 @@ end
 -- The danger zones in an area at tick, as plain values: every area projectile (EEex's
 -- CProjectileArea) that has reached its place and has explosions left: its object id, centre and
 -- the place it flew to (dest), radius (explosion range), explosions left (repeats), ticks between
--- them (delay) and its tick counter, the object id of its source, its projectile number, the
--- highest caster level among its effects, the spell or item they come from (resref), the list it
--- lies in, and its effects as plain records (carried). A projectile that cannot be read is left
--- out; returns the zones, the count of those that failed and the last failure.
+-- them (delay) and its tick counter, the object id of its source, its projectile as a spell's
+-- ability names it (the engine counts PROJECTL.IDS from 0, the ability's field from 1; lab batch H)
+-- and its PRO file (pro), the highest caster level among its effects, the spell or item they come
+-- from (resref), the list it lies in, and its effects as plain records (carried). A projectile
+-- that cannot be read is left out; returns the zones, the count of those that failed and the last
+-- failure.
 function M.zones(g,area,tick)
     local out,failed,last={},0,nil
     if area==nil then return out,0 end
@@ -399,7 +401,8 @@ function M.zones(g,area,tick)
                         end)
                         return {id=id,x=number(p.m_pos.x),y=number(p.m_pos.y),dest={x=number(p.m_posDest.x),y=number(p.m_posDest.y)},
                             radius=number(p.m_explosionRange),repeats=repeats,delay=number(p.m_nDelay),
-                            counter=number(p.m_nDelayCount),source=number(p.m_sourceId),projectile=number(p.m_projectileType),
+                            counter=number(p.m_nDelayCount),source=number(p.m_sourceId),
+                            projectile=number(p.m_projectileType)+1,pro=name(p.m_resref),
                             level=level,resref=resref,list=listName,effects=effects}
                     end)
                     if not ok then failed=failed+1;last=tostring(z)

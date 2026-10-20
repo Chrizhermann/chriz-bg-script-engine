@@ -5885,10 +5885,12 @@ end
 -- The danger zones in an area at tick, as plain values: every area projectile (EEex's
 -- CProjectileArea) that has reached its place and has explosions left: its object id, centre and
 -- the place it flew to (dest), radius (explosion range), explosions left (repeats), ticks between
--- them (delay) and its tick counter, the object id of its source, its projectile number, the
--- highest caster level among its effects, the spell or item they come from (resref), the list it
--- lies in, and its effects as plain records (carried). A projectile that cannot be read is left
--- out; returns the zones, the count of those that failed and the last failure.
+-- them (delay) and its tick counter, the object id of its source, its projectile as a spell's
+-- ability names it (the engine counts PROJECTL.IDS from 0, the ability's field from 1; lab batch H)
+-- and its PRO file (pro), the highest caster level among its effects, the spell or item they come
+-- from (resref), the list it lies in, and its effects as plain records (carried). A projectile
+-- that cannot be read is left out; returns the zones, the count of those that failed and the last
+-- failure.
 function M.zones(g,area,tick)
     local out,failed,last={},0,nil
     if area==nil then return out,0 end
@@ -5923,7 +5925,8 @@ function M.zones(g,area,tick)
                         end)
                         return {id=id,x=number(p.m_pos.x),y=number(p.m_pos.y),dest={x=number(p.m_posDest.x),y=number(p.m_posDest.y)},
                             radius=number(p.m_explosionRange),repeats=repeats,delay=number(p.m_nDelay),
-                            counter=number(p.m_nDelayCount),source=number(p.m_sourceId),projectile=number(p.m_projectileType),
+                            counter=number(p.m_nDelayCount),source=number(p.m_sourceId),
+                            projectile=number(p.m_projectileType)+1,pro=name(p.m_resref),
                             level=level,resref=resref,list=listName,effects=effects}
                     end)
                     if not ok then failed=failed+1;last=tostring(z)
@@ -6534,7 +6537,7 @@ M.stopCastLimit=32
 M.MOVE=23
 M.moveGrace=8
 M.moveMargin=30
--- Game ticks a second, for the projectile's counters (the lab confirms them).
+-- Game ticks a second, for the projectile's counters (lab batch H measured 15.00).
 M.ticksPerSecond=15
 -- What EEex must offer for zones to be read.
 M.zoneRequired={'EEex_Projectile_GetType','EEex_CastUD'}
@@ -7087,7 +7090,7 @@ function M.new(g,options)
             if not ok then zoneFailed('zone-spell',value) end
             zoneSpells[z.id]=c;zoneSpellCount=zoneSpellCount+1
             record({kind='zone',tick=now(),id=z.id,resref=z.resref,x=z.x,y=z.y,radius=z.radius,repeats=z.repeats,
-                delay=z.delay,counter=z.counter,source=z.source,projectile=z.projectile,list=z.list,level=z.level,
+                delay=z.delay,counter=z.counter,source=z.source,projectile=z.projectile,pro=z.pro,list=z.list,level=z.level,
                 effects=#z.effects,classified=c~=false,filter=c and type(c.area)=='table' and c.area.filter or nil})
         end
         return c or nil
@@ -7104,15 +7107,21 @@ function M.new(g,options)
         end
         return 'unknown'
     end
-    -- The zones as combat-intent/zones.lua weighs them: centre, radius, the seconds left and between
-    -- explosions, who cast it, whom it spares and what one explosion does.
+    -- The zones as combat-intent/zones.lua weighs them: centre, radius, the seconds between
+    -- explosions, to the next one and until it is gone, who cast it, whom it spares and what one
+    -- explosion does. A zone explodes every delay+1 ticks, the next time in counter+1 ticks while its
+    -- explosions left (repeats) count the next one, and it is gone the tick after its last (lab
+    -- batch H).
     local function zonesFor(frame,raw)
         local out={}
+        local tick=1/M.ticksPerSecond
         for _,z in ipairs(raw) do
             local c=z.radius>0 and z.delay>0 and zoneSpell(z)
             if c then
-                local every=z.delay/M.ticksPerSecond
-                out[#out+1]={id=z.id,x=z.x,y=z.y,radius=z.radius,every=every,left=z.repeats*every,
+                local every=(z.delay+1)*tick
+                local soon=z.counter>=0 and z.counter<=z.delay and (z.counter+1)*tick or nil
+                out[#out+1]={id=z.id,x=z.x,y=z.y,radius=z.radius,every=every,next=soon,
+                    left=(soon or every)+(z.repeats-1)*every+tick,
                     side=zoneSide(z,frame),filter=type(c.area)=='table' and c.area.filter or 'all',spell=c,resref=z.resref,
                     source=z.source}
             end
@@ -7147,17 +7156,26 @@ function M.new(g,options)
         end
     end
     -- Where a way out ends: its point, else the next of its exits, moved to the nearest open spot
-    -- of the area's search map, as long as that still lies outside every zone it leaves.
+    -- of the area's search map where the creature fits (its personal space), as long as that still
+    -- lies outside every zone it leaves. Without the search map the point itself is walked to.
     local function walkable(object,decision)
         local nearest=rawget(g,'EEex_Area_GetNearestOpenPosition')
+        local spaceOf=rawget(g,'EEex_Sprite_GetPersonalSpace')
+        local space
+        if type(nearest)=='function' and type(spaceOf)=='function' then
+            local ok,value=pcall(spaceOf,object)
+            if ok and type(value)=='number' then space=value
+            else zoneFailed('zone-space',ok and 'personal space '..tostring(value) or value) end
+        end
         local points={decision.point}
         for _,p in ipairs(type(decision.exits)=='table' and decision.exits or {}) do points[#points+1]=p end
         for _,p in ipairs(points) do
             if type(p)=='table' and whole(p.x) and whole(p.y) then
                 local x,y=p.x,p.y
-                if type(nearest)=='function' then
-                    local ok,a,b=pcall(nearest,object.m_pArea,x,y)
-                    if ok and type(a)=='number' and type(b)=='number' then x,y=math.floor(a),math.floor(b) end
+                if space then
+                    local ok,a,b=pcall(nearest,object.m_pArea,x,y,space)
+                    if ok and type(a)=='number' and type(b)=='number' then x,y=math.floor(a),math.floor(b)
+                    elseif not ok then zoneFailed('zone-nearest',a) end
                 end
                 local clear=whole(x) and whole(y)
                 for _,z in ipairs(type(decision.zones)=='table' and decision.zones or {}) do
