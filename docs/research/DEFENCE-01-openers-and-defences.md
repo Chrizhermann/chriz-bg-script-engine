@@ -636,9 +636,10 @@ without ammunition is no weapon.
   each creature's drained levels, and marks an enemy's protections with time left (`timed`:
   `m_durationType` 4096 in its timed list).
 
-  Corrected on 2026-10-20: Greater Command wakes its sleepers after 6 seconds; the classifier
-  now reads that as the end of its own sleep, so the engine casts it as a 6-second area sleep
-  (SPELLS-01). Ice Storm and Suffocate are attacks the engine casts; their summon role is SCS's
+  Corrected on 2026-10-20: Greater Command lets each sleeper wake with a save every 6
+  seconds, up to 60 seconds; the classifier now reads that as a sleep the target may break, not
+  as a cure, so the engine casts it as an area sleep and counts the time the target is expected
+  to sleep (SPELLS-01). Ice Storm and Suffocate are attacks the engine casts; their summon role is SCS's
   invisible marker at the spell's point (`DW#ISTOR`, `DW#SUFFO`), which SCS's scripts make
   creatures run from, and it touches none of the engine's own decisions. The earlier note that
   the engine could not cast them came from an offline reading without projectile files.

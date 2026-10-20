@@ -83,14 +83,24 @@ files alone, whatever Spell Revisions, SCS or other mods changed?
 - Only bits 0–4 of an effect's save type are saves. EE's bits 10 and 11 (skip the primary or
   secondary target) occur in neither lab; 24 and 25 (bypass mirror images, ignore
   difficulty) are flags.
+- A protection from the spell itself (opcode 206) with a saving throw of its own lands on a
+  failed save and keeps the rest of that spell from the creature: what follows it there lands
+  only on a successful save (2026-10-20). Fifteen SPL files of the SR lab use this, among them
+  Greater Command's chain, Great Shout, Mold Touch and the strikes of Bigby's Icy Grasp and
+  Crushing Hand. The classifier keeps a cure that follows (below) and leaves anything else that
+  follows out; such a reading is approximate (`on-save:` reason).
 - A cure that a spell itself brings later to the creatures it gave that condition is no cure:
-  it ends the spell's own condition (2026-10-20). Spell Revisions' Greater Command puts its
-  targets to sleep for 60 seconds and wakes them after 6, and again every 6 seconds after. The
-  classifier finds such ends on a first walk (`ownEnds`: condition and receiver, from when the
-  condition lands to the first cure after it) and walks the spell again: the cures stay out,
-  and the sleep lasts 6 seconds, also in each creature's view. A cure for someone else (the
-  caster) or one that comes before the condition stays a cure. Over every SPL of the SR lab
-  only Greater Command and its sub-spell match.
+  it ends the spell's own condition (2026-10-20). The classifier finds such ends on a first walk
+  (`ownEnds`: condition and receiver, from when the condition lands to the first cure after it)
+  and walks the spell again without those cures. A cure that comes for sure ends the condition
+  then. A cure that comes only on a successful save lets the creature break free: Spell
+  Revisions' Greater Command puts its targets to sleep for 60 seconds, and every 6 seconds a
+  spell cast at each sleeper wakes it on a save (vs. spell at -4; -8 from caster level 29, -12
+  from 49) or casts the next one. The classifier reads a 60-second sleep with a save every 6
+  seconds (`breakFree`), also in each creature's view; the engine counts the time the target is
+  expected to sleep by its save (`choice.brokenFree`). A cure for someone else (the caster) or
+  one that comes before the condition stays a cure. Over every SPL of the SR lab only Greater
+  Command and its sub-spell match.
 - An empty item reference in opcode 111 creates no weapon and is no missing file
   (2026-10-20); IESDP warns that the game can crash on it. A kit mod in the SR lab gives one kit
   (SPLPROT row 418, the kit check) the charge of a touch spell in the fist instead, through a

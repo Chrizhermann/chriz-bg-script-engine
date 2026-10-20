@@ -473,6 +473,7 @@ local function add(c,name,who,e,p)
         if e.sides>0 then r.minLevel=math.max(r.minLevel or e.sides,e.sides) end
     end
     r.duration=longer(r.duration,seconds(e))
+    if e.breakFree then r.breakFree=e.breakFree end
     return r
 end
 local function kind(c,name,label,who,e,p)
@@ -485,7 +486,7 @@ local function kind(c,name,label,who,e,p)
         local key=label..':'..who
         if name=='cure' then
             local list=marks.cures[key] or {}
-            marks.cures[key]=list;list[#list+1]=at
+            marks.cures[key]=list;list[#list+1]={at=at,onSave=e.onSave}
         elseif marks.inflicts[key]==nil or at<marks.inflicts[key] then marks.inflicts[key]=at end
     end
     return r
@@ -952,24 +953,27 @@ local function weapon(c,state,e,p)
 end
 
 -- A cure the spell itself brings later to the creatures it gave that condition is no cure: it
--- ends the spell's own condition. Spell Revisions' Greater Command puts its targets to sleep for
--- 60 seconds and wakes them after 6, and again every 6 seconds after. ownEnds finds such ends
--- (condition label and receiver, from when the condition lands to the first cure after it);
--- M.classify walks the spell again with them, and ending leaves those cures out and lets the
--- condition last until the first of them.
+-- ends the spell's own condition. ownEnds finds such ends (condition label and receiver, from
+-- when the condition lands to the first cure after it); M.classify walks the spell again with
+-- them, and ending leaves those cures out. A cure that comes for sure ends the condition then. A
+-- cure that comes only on a successful save (onSave) lets the creature break free: Spell
+-- Revisions' Greater Command puts its targets to sleep for 60 seconds, and every 6 seconds a save
+-- wakes them; the condition keeps its duration and carries the save and how often it comes
+-- (breakFree).
 local function ownEnds(marks)
     local ends
     for key,from in pairs(marks.inflicts) do
         local first
-        for _,at in ipairs(marks.cures[key] or {}) do
-            if at>from and (first==nil or at<first) then first=at end
+        for _,x in ipairs(marks.cures[key] or {}) do
+            if x.at>from and (first==nil or x.at<first.at) then first=x end
         end
-        if first then ends=ends or {};ends[key]={from=from,at=first} end
+        if first then ends=ends or {};ends[key]={from=from,at=first.at,onSave=first.onSave} end
     end
     return ends
 end
--- e as the second walk reads it at second at: nil for a cure that ends the spell's own condition,
--- a copy that lasts until the end for that condition (the handler names its labels), else e.
+-- e as the second walk reads it at second at: nil for a cure that ends the spell's own condition;
+-- for that condition (the handler names its labels) a copy that lasts until the end or carries
+-- breakFree; else e.
 local function ending(ends,e,who,at)
     local cured=CURES[e.opcode]
     if cured then
@@ -981,21 +985,27 @@ local function ending(ends,e,who,at)
     if not h then return e end
     local probe={roles={}}
     if not pcall(h,probe,e,who,1) then return e end
-    local left
+    local found
     for _,name in ipairs({'disable','debuff'}) do
         local r=probe.roles[name]
         for label in pairs(r and r.kinds or {}) do
             local x=ends[label..':'..who]
-            if x and at<x.at and (left==nil or x.at-at<left) then left=x.at-at end
+            if x and at<x.at and (found==nil or x.at<found.at) then found=x end
         end
+    end
+    if found==nil then return e end
+    local left=found.at-at
+    local y={}
+    for k,v in pairs(e) do y[k]=v end
+    if found.onSave then
+        y.breakFree={every=left,save=saveNames(found.onSave.save),saveBonus=found.onSave.saveBonus}
+        return y
     end
     -- Timings with a duration of their own or none: limited, permanent, limited in ticks.
     local timing=e.timing%256
-    if left==nil or not (timing==0 or timing==1 or timing==9 or timing==10) then return e end
+    if not (timing==0 or timing==1 or timing==9 or timing==10) then return e end
     local span=seconds(e)
     if number(span) and span<=left then return e end
-    local y={}
-    for k,v in pairs(e) do y[k]=v end
     y.timing=e.timing-timing;y.duration=left
     return y
 end
@@ -1107,6 +1117,12 @@ walk=function(c,state,effects,where,depth,p,key,owner)
         c.nodes[#c.nodes+1]={res=key:match('^SPL:(.+)$') or key:match('^ITM:(.+)$'),parent=parent}
         c.node=#c.nodes
     end
+    -- A protection from this very spell with a saving throw of its own, which lands on a failed
+    -- save, keeps the rest of the spell from that creature: what follows it there comes only on
+    -- a successful save (onSave, by receiver). A cure that follows stays, marked, for ownEnds;
+    -- anything else that follows is left out, and the reading is approximate.
+    local spell=key and key:match('^SPL:(.+)$')
+    local onSave={}
     if type(effects)=='table' then
         for _,e in ipairs(effects) do
             state.count=state.count+1
@@ -1115,8 +1131,22 @@ walk=function(c,state,effects,where,depth,p,key,owner)
             else
                 local who=receiver(e,where)
                 local q=p*chance(e)
+                local own=e
                 if who and q>0 and c.inherit and not saveNames(e.save) then e=inherited(e,c.inherit) end
-                if who and q>0 and state.ends and not DELIVERY[e.opcode] then
+                if who and q>0 and onSave[who] then
+                    if CURES[e.opcode] then
+                        local y={}
+                        for k,v in pairs(e) do y[k]=v end
+                        y.onSave=onSave[who];e=y
+                    else
+                        c.approximate=true;c.reasons['on-save:'..spell]=true;e=nil
+                    end
+                end
+                if who and q>0 and e and spell and own.opcode==206 and type(own.res)=='string'
+                    and own.res:upper()==spell:upper() and saveNames(own.save) then
+                    onSave[who]={save=own.save,saveBonus=own.saveBonus}
+                end
+                if who and q>0 and e and state.ends and not DELIVERY[e.opcode] then
                     e=ending(state.ends,e,who,(c.delay or 0)+delay(e))
                 end
                 if who and q>0 and e then
@@ -2775,6 +2805,22 @@ end
 local function notResisted(e) return 1-clamp(number(e.mr) and e.mr or 0,0,100)/100 end
 -- The chance e makes its saving throw against role: a d20 plus the effect's bonus reaching the
 -- best of e's saves the role allows. Unknown saves count as even odds.
+-- How long a condition holds on e when e gets a save every bf.every seconds to break free
+-- (breakFree, combat-intent/spells.lua: Spell Revisions' Greater Command): the first stretch for
+-- sure, each later one while every save so far failed, up to the condition's duration.
+function M.brokenFree(duration,bf,e)
+    if not number(duration) or duration<=0 then return 0 end
+    local every=type(bf)=='table' and number(bf.every) and bf.every>0 and bf.every or duration
+    local s=type(bf)=='table' and M.saveChance({save=bf.save,saveBonus=bf.saveBonus},e) or 0
+    local held,stay,t,steps=0,1,0,0
+    while t<duration and steps<100 do
+        local span=math.min(every,duration-t)
+        held=held+span*stay
+        t=t+span;steps=steps+1
+        stay=stay*(1-s)
+    end
+    return held
+end
 function M.saveChance(role,e)
     if type(role.save)~='table' or next(role.save)==nil then return 0 end
     local best
@@ -2854,7 +2900,10 @@ local function disableOn(input,row,role,e)
     local length
     if forGood then length=1
     elseif role.duration=='permanent' then length=1
-    elseif number(role.duration) and role.duration>0 then length=clamp(role.duration/M.fullSeconds,0,1)
+    elseif number(role.duration) and role.duration>0 then
+        local span=role.duration
+        if type(role.breakFree)=='table' then span=M.brokenFree(span,role.breakFree,e) end
+        length=clamp(span/M.fullSeconds,0,1)
     else length=0.5 end
     -- Taking out a nearly dead enemy is worth less than taking out a healthy one; taking one
     -- out for good is worth what killing it is.

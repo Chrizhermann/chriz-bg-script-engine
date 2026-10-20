@@ -161,6 +161,22 @@ end
 local function notResisted(e) return 1-clamp(number(e.mr) and e.mr or 0,0,100)/100 end
 -- The chance e makes its saving throw against role: a d20 plus the effect's bonus reaching the
 -- best of e's saves the role allows. Unknown saves count as even odds.
+-- How long a condition holds on e when e gets a save every bf.every seconds to break free
+-- (breakFree, combat-intent/spells.lua: Spell Revisions' Greater Command): the first stretch for
+-- sure, each later one while every save so far failed, up to the condition's duration.
+function M.brokenFree(duration,bf,e)
+    if not number(duration) or duration<=0 then return 0 end
+    local every=type(bf)=='table' and number(bf.every) and bf.every>0 and bf.every or duration
+    local s=type(bf)=='table' and M.saveChance({save=bf.save,saveBonus=bf.saveBonus},e) or 0
+    local held,stay,t,steps=0,1,0,0
+    while t<duration and steps<100 do
+        local span=math.min(every,duration-t)
+        held=held+span*stay
+        t=t+span;steps=steps+1
+        stay=stay*(1-s)
+    end
+    return held
+end
 function M.saveChance(role,e)
     if type(role.save)~='table' or next(role.save)==nil then return 0 end
     local best
@@ -240,7 +256,10 @@ local function disableOn(input,row,role,e)
     local length
     if forGood then length=1
     elseif role.duration=='permanent' then length=1
-    elseif number(role.duration) and role.duration>0 then length=clamp(role.duration/M.fullSeconds,0,1)
+    elseif number(role.duration) and role.duration>0 then
+        local span=role.duration
+        if type(role.breakFree)=='table' then span=M.brokenFree(span,role.breakFree,e) end
+        length=clamp(span/M.fullSeconds,0,1)
     else length=0.5 end
     -- Taking out a nearly dead enemy is worth less than taking out a healthy one; taking one
     -- out for good is worth what killing it is.

@@ -162,6 +162,12 @@ local role={save={spell=true},saveBonus=-2}
 assert(math.abs(choice.saveChance(role,{saves={spell=12}})-0.35)<1e-9)
 assert(choice.saveChance(role,{})==0.5 and choice.saveChance({},{saves={spell=1}})==0)
 assert(choice.saveChance({save={spell=true,death=true}},{saves={spell=18,death=1}})==0.95)
+-- A sleep the enemy may break with a save every round (Spell Revisions' Greater Command): the
+-- first round for sure, each later one while every save so far failed.
+local free={every=6,save={spell=true},saveBonus=-4}
+assert(math.abs(choice.brokenFree(60,free,{saves={spell=10}})-6*(1-0.65^10)/0.35)<1e-9)
+assert(math.abs(choice.brokenFree(60,free,{})-6*(1-0.5^10)/0.5)<1e-9)
+assert(choice.brokenFree(60,{every=6},{})==60 and choice.brokenFree(nil,free,{})==0)
 groups=groups+1
 
 -- 8. Area spells: the middle of a cluster beats one enemy's spot; never with an ally or the

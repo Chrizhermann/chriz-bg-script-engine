@@ -553,20 +553,39 @@ c=classify(innate('TESTSEQ',{fx(146,{p2=1,res='TESTARW'}),fx(146,{p2=1,res='TEST
 assert(not c.release and c.range==5)
 groups=groups+1
 
--- A spell that ends its own condition (Spell Revisions' Greater Command): the target sleeps, a
--- spell cast at it 6 seconds later wakes it, and another one 6 seconds after that. The waking is
--- no cure; the sleep lasts 6 seconds, in each creature's view too (the immunity makes a view).
-local wake2=spl('TESTGCB',{ability({fx(2,{duration=1})})})
-local wake1=spl('TESTGCA',{ability({fx(2,{duration=1}),fx(146,{p2=1,timing=4,duration=6,res='TESTGCB'})})})
-local sleeps=spl('TESTGCJ',{ability({fx(324,{p1=41,p2=110,duration=1,res='TESTGC'}),fx(39,{duration=60}),
-    fx(146,{p2=1,timing=4,duration=6,res='TESTGCA'})})})
+-- A spell that ends its own condition. Spell Revisions' Greater Command: the target sleeps for
+-- 60 seconds, and a spell cast at it every 6 seconds wakes it on a successful save: on a failed
+-- save its protection from itself keeps its cure off and it casts the next one. The waking is no
+-- cure; the sleep keeps its 60 seconds and a save every 6 to break free, in each creature's view
+-- too (the immunity makes a view).
+local wake2=spl('TESTGCB',{ability({fx(206,{duration=2,res='TESTGCB',save=1,saveBonus=-4}),fx(2,{duration=1})})})
+local wake1=spl('TESTGCA',{ability({fx(146,{p2=1,timing=4,duration=6,res='TESTGCB',save=1,saveBonus=-4}),
+    fx(206,{duration=2,res='TESTGCA',save=1,saveBonus=-4}),fx(2,{duration=1})})})
+local sleeps=spl('TESTGCJ',{ability({fx(324,{p1=41,p2=110,duration=1,res='TESTGC'}),fx(39,{duration=60,save=1,saveBonus=-4}),
+    fx(146,{p2=1,timing=4,duration=6,res='TESTGCA',save=1,saveBonus=-4})})})
 local nap=spl('TESTNAP',{ability({fx(39,{duration=60})})})
-local gc=world({['SPL:TESTGCJ']=sleeps,['SPL:TESTGCA']=wake1,['SPL:TESTGCB']=wake2,['SPL:TESTNAP']=nap})
+local alarm=spl('TESTALRM',{ability({fx(2,{duration=1})})})
+local gc=world({['SPL:TESTGCJ']=sleeps,['SPL:TESTGCA']=wake1,['SPL:TESTGCB']=wake2,['SPL:TESTNAP']=nap,
+    ['SPL:TESTALRM']=alarm})
 c=classify(spl('TESTGC',{ability({fx(146,{p2=1,timing=1,res='TESTGCJ'})})}),gc,{level=12})
-assert(c.roles.cure==nil and c.roles.disable.kinds.sleep and c.roles.disable.duration==6 and c.roles.disable.wakesOnDamage)
+local bf=c.roles.disable.breakFree
+assert(c.roles.cure==nil and c.roles.disable.kinds.sleep and c.roles.disable.duration==60 and c.roles.disable.wakesOnDamage)
+assert(bf and bf.every==6 and bf.save.spell and bf.saveBonus==-4 and not c.approximate)
 assert(c.later==nil or c.later.cure==nil)
 local slept=spells.view(c,function() return false end)
-assert(slept.cure==nil and slept.disable.duration==6)
+assert(slept.cure==nil and slept.disable.duration==60 and slept.disable.breakFree.every==6)
+-- A waking that comes for sure ends the sleep then.
+c=classify(spl('TESTSURE',{ability({fx(39,{duration=60}),fx(146,{p2=1,timing=4,duration=6,res='TESTALRM'})})}),gc)
+assert(c.roles.cure==nil and c.roles.disable.duration==6 and c.roles.disable.breakFree==nil)
+-- What else follows such a protection comes only on a save: it is left out.
+c=classify(spl('TESTHALF',{ability({fx(12,{p2=0,dice=6,sides=6,save=1}),fx(206,{duration=1,res='TESTHALF',save=1}),
+    fx(12,{p2=0,dice=3,sides=6})})}),world({}))
+assert(near(c.roles.damage.amount,21) and c.approximate and c.reasons['on-save:TESTHALF'])
+-- A protection from itself without a save of its own is no such protection, also when its
+-- delivery has one.
+local keep=spl('TESTKEEP',{ability({fx(206,{duration=1,res='TESTKEEP'}),fx(12,{p2=0,dice=3,sides=6})})})
+c=classify(spl('TESTDLV',{ability({fx(146,{p2=1,res='TESTKEEP',save=1})})}),world({['SPL:TESTKEEP']=keep}))
+assert(near(c.roles.damage.amount,10.5) and not c.approximate)
 -- Waking the caster, or waking the target first and putting it to sleep later, is a cure.
 c=classify(spl('TESTSELF',{ability({fx(39,{duration=60}),fx(146,{target=1,p2=1,timing=4,duration=6,res='TESTGCB'})})}),gc)
 assert(c.roles.cure.who.self and c.roles.disable.duration==60)
