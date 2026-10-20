@@ -24,6 +24,10 @@
 -- casts it started in the stop will do when time resumes (their kind, targets and expected
 -- damage); the list is dropped when the stop ends.
 --
+-- Releases (D2b): a sequencer or trigger goes off with ForceSpellRES (at a point
+-- ForceSpellPointRES), as SCS's own releases do: SpellRES would walk to the wrong range SCS
+-- writes into it (batch G3).
+--
 -- Touch charges (D2c): a touch spell is cast like a defence, on the caster. The charge it puts in
 -- the magic weapon slot is found by the item there, read as the touch weapon of a spell the
 -- caster has memorized (at its level) or else as the item itself, and goes to the choice with
@@ -70,8 +74,9 @@ M.logCapacity=128
 M.judgeLimit=64
 -- Item slots a creature drinks from: the quick items and the backpack (SLOTS.IDS).
 M.itemFirst,M.itemLast=15,33
--- Casts of the engine's own: Spell (SpellRES) and SpellPoint (SpellPointRES).
-M.CASTS={[31]=true,[95]=true}
+-- Casts of the engine's own: Spell (SpellRES) and SpellPoint (SpellPointRES); ForceSpell and
+-- ForceSpellPoint (ForceSpellRES, ForceSpellPointRES) for releases.
+M.CASTS={[31]=true,[95]=true,[113]=true,[114]=true}
 -- Attack actions (ACTION.IDS): Attack, AttackNoSound, AttackOneRound, AttackReevaluate.
 M.ATTACKS={[3]=true,[98]=true,[105]=true,[134]=true}
 -- The magic weapon slot (SLOTS.IDS), where a spell's weapon goes, and how long the engine holds a
@@ -104,8 +109,8 @@ function M.timerRunning(g,sprite,tick)
     return ok and type(value)=='number' and value>tick
 end
 
--- The response that casts decision's spell, or strikes with the charge or attacks with the
--- weapon in hand, or nil.
+-- The response that casts decision's spell (a release with ForceSpellRES), or strikes with the
+-- charge or attacks with the weapon in hand, or nil.
 function M.response(decision)
     if type(decision)~='table' or not valid(decision.resref) then return nil end
     if decision.kind=='strike' or decision.kind=='weapon' then
@@ -113,15 +118,16 @@ function M.response(decision)
         if type(t)~='number' or t<0 or t%1~=0 then return nil end
         return M.setTimer..'\nAttackOneRound(EEex_Target("'..M.targetName..'"))'
     end
+    local cast=decision.release and 'ForceSpell' or 'Spell'
     if decision.point then
         local p=decision.point
         if not whole(p.x) or not whole(p.y) then return nil end
-        return M.setTimer..'\nSpellPointRES("'..decision.resref..'",['..p.x..'.'..p.y..'])'
+        return M.setTimer..'\n'..cast..'PointRES("'..decision.resref..'",['..p.x..'.'..p.y..'])'
     end
-    if decision.self then return M.setTimer..'\nSpellRES("'..decision.resref..'",Myself)' end
+    if decision.self then return M.setTimer..'\n'..cast..'RES("'..decision.resref..'",Myself)' end
     local t=decision.target
     if type(t)=='number' and t>=0 and t%1==0 then
-        return M.setTimer..'\nSpellRES("'..decision.resref..'",EEex_Target("'..M.targetName..'"))'
+        return M.setTimer..'\n'..cast..'RES("'..decision.resref..'",EEex_Target("'..M.targetName..'"))'
     end
 end
 
@@ -153,7 +159,7 @@ function M.new(g,options)
     local counts={decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
         hits=0,misses=0,errors=0,holds=0,frozen=0,marks=0,markFailures=0,defences=0,guarded=0,unguarded=0,
         guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0,arms=0,attacks=0,attackHits=0,
-        weaponFailures=0}
+        weaponFailures=0,releases=0}
     local reasons={}
     local log,nextRow,size={},1,0
     local root,sink,lastError,markError,guardError,weaponError
@@ -557,10 +563,11 @@ function M.new(g,options)
         if d.kind=='opener' then counts.openers=counts.openers+1 end
         if d.kind=='touch' then counts.touches=counts.touches+1 end
         if d.kind=='arm' then counts.arms=counts.arms+1 end
+        if d.release then counts.releases=counts.releases+1 end
         record({kind='choice',tick=tick,member=id,family=family,spell=d.resref,castKind=d.kind,mode=d.mode,
             target=d.target,point=d.point,score=d.score,worth=d.worth,hits=d.hits,how=why,top=top,
             focus=input.plan.focus,rule=d.rule,stop=input.timeStop and input.timeStop.left or nil,
-            alacrity=frame.self.alacrity or nil})
+            alacrity=frame.self.alacrity or nil,release=d.release})
         -- A disable claims its targets in the group at once, so that another member deciding
         -- before this cast starts leaves them alone; any other decision gives earlier claims back.
         if director then

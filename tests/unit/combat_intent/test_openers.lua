@@ -59,6 +59,29 @@ local function kit()
     return {row('TESTSTOP',stop,9),row('TESTALAC',quick,9),row('TESTBOLT',bolt,3),row('TESTHOLD',hold,2)}
 end
 local function near(a,b) return math.abs(a-b)<1e-9 end
+-- Raw records for releases (group 8): the spells a sequencer casts, read through a lookup.
+local function record(resref,level,effects,ability,fields)
+    local a={form=1,flags=0,location=2,target=1,targetCount=0,range=30,minLevel=1,speed=3,projectile=2,effects=effects}
+    for k,v in pairs(ability or {}) do a[k]=v end
+    local r={kind='SPL',resref=resref,name=0,flags=1024,spellType=1,exclusion=0,school=0,secondary=0,
+        level=level,abilities={a},casting={}}
+    for k,v in pairs(fields or {}) do r[k]=v end
+    return r
+end
+local RAW={['SPL:TESTMMR']=record('TESTMMR',1,{fx(12,{p1=1,p2=64*65536,dice=1,sides=4})}),
+    ['SPL:TESTSKIN']=record('TESTSKIN',4,{fx(218,{target=1,p1=8,duration=60})},{target=5,projectile=1}),
+    ['SPL:TESTGLOB']=record('TESTGLOB',4,{fx(102,{target=1,p1=3,duration=60})},{target=5,projectile=1})}
+local function lookupRaw(kind,key)
+    if kind=='PRO' and key==2 then return SINGLE end
+    return RAW[kind..':'..tostring(key)]
+end
+local function innate(resref,parts)
+    local effects={}
+    for _,res in ipairs(parts) do effects[#effects+1]=fx(146,{p2=1,res=res}) end
+    effects[#effects+1]=fx(172,{target=1,res=resref})
+    effects[#effects+1]=fx(171,{target=1,timing=4,duration=1440,res=resref})
+    return spells.classify(record(resref,1,effects,{range=5,speed=0,projectile=1},{spellType=4,flags=0}),1,lookupRaw,{level=10})
+end
 
 -- 1. Which spells open: a time stop held by the caster, and aura cleansing on the caster.
 assert(openers.stopsTime(stop) and not openers.stopsTime(bolt) and not openers.stopsTime(quick))
@@ -155,6 +178,27 @@ d=choice.decide(i)
 assert(d.resref=='TESTBOLT' and d.speed==3)
 i.spells={row('TESTMM',missile,1),row('TESTBLST',blast,7)}
 assert(choice.decide(i).resref=='TESTBLST')
+groups=groups+1
+
+-- 8. Releases (D2b): an innate that casts two Magic Missiles at its target reaches as far as they
+-- do (30, 480 away), not the 5 written on it, and is an attack that goes off with ForceSpellRES
+-- (release). A trigger of protections is a defence on the caster. Under Improved Alacrity
+-- neither, as SCS keeps them for after it.
+local seq=innate('TESTSEQ',{'TESTMMR','TESTMMR'})
+local trig=innate('TESTTRIG',{'TESTSKIN','TESTGLOB'})
+assert(seq.release and seq.range==30 and seq.ownRange==5 and choice.attack(seq)=='damage')
+assert(trig.release and trig.roles.protection.who.self)
+local r8=input({spells={row('TESTSEQ',seq,1,{list='innate'}),row('TESTTRIG',trig,1,{list='innate'})}})
+r8.frame.enemies={fighter(11,300)}
+r8.frame.enemies[1].hp=6
+local attacks=choice.options(r8)
+assert(#attacks==1 and attacks[1].resref=='TESTSEQ' and attacks[1].release and attacks[1].target==11)
+local guards=defence.options(r8)
+assert(#guards==1 and guards[1].resref=='TESTTRIG' and guards[1].release and guards[1].self)
+local d8=choice.decide(r8)
+assert(d8 and d8.release)
+r8.frame.self.alacrity=true
+assert(select(2,choice.decide(r8))=='no-option' and #choice.unreleased(r8).spells==0)
 groups=groups+1
 
 -- 7. Defences in the caster's own Time Stop: nothing can break a cast that ends within it, the

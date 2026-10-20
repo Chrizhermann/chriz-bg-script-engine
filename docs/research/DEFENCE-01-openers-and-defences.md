@@ -732,6 +732,34 @@ strike, weapon attack or conjured weapon:
   logs the charge in hand and why each enemy got no strike.
 - AttackOneRound with a weapon and the conjured-weapon cast stay unseen in game.
 
+### D2b as built: releases (2026-10-20)
+
+SCS's sequencers and triggers (its generated innates `DW#MS*`, `DW#SQ*` and `DW#TG*`) are engine
+options, on batch G3's probe results.
+
+- **Reading.** The classifier marks a release: an innate that casts two or more spells at its
+  target at once (opcodes 146 and 148) and lands nothing else there; SCS's bookkeeping on the
+  caster itself (172 and 171) does not count. Its spells count together at the caster's level, as
+  before. It reaches as far as its shortest spell (`c.range`; the range written on it stays as
+  `c.ownRange`). In the lab copy `DW#MS0` (two Melf's Acid Arrows) reaches 30 instead of 5; the
+  defensive `DW#TG8` and `DW#SQ0` are cast on the caster, where reach does not matter; `DW#TG15`
+  (Dispel Magic, Breach and a third) stays SCS's, as protection removal does. A spell that casts
+  one spell through opcode 146 (Greater Command) is no release.
+- **Choosing.** A release competes like any spell: an offensive one as an attack at the enemy
+  where its spells are worth most, a defensive one as a defence on the caster. Its options carry
+  `release`. It costs its own level (1), so the engine sets it off at the first good target, as
+  SCS does; it comes back after 1440 seconds, past the fight.
+- **None under Improved Alacrity** (`choice.unreleased`), as SCS keeps them for after it.
+- **Releasing.** `ForceSpellRES` at `EEex_Target` or `Myself` (`ForceSpellPointRES` at a point),
+  after SCS's round timer, as SCS's `Sequencer` and `SequencerMyself` do. The adapter knows
+  ForceSpell (113) and ForceSpellPoint (114) as its own cast starts; the log counts `releases`
+  and marks the choice `release`.
+- Open:
+  - SCS sets off its area and saving-throw sequencers (two Sound Bursts, three Dispel Magics) its
+    manual way, "for anything with a saving throw" (`caster_definitions.ssl`, line 1209), without
+    saying why. A probe could compare saves after `ForceSpellRES` and after the manual way.
+  - The engine's own release in a fight is not yet seen in a lab.
+
 ### D3
 
 - **Removing enemy protections:** Breach, Dispel Magic, Spell Thrust and the like. They are

@@ -28,14 +28,15 @@ local function sprite(id,x,y,ea,fields)
     local s={m_id=id,m_pos={x=x,y=y},m_typeAI={m_EnemyAlly=ea,m_General=1,m_Race=1,m_Class=2,m_Specifics=0,
         m_Gender=1,m_Alignment=0},m_baseStats={m_hitPoints=40,m_generalState=0},m_curAction={m_actionID=0},
         m_pArea=AREA,m_timedEffectList={},m_equipedEffectList={},m_resref=str('TEST'..id),m_scriptName=str('c'..id),
-        state=0,stats={[1]=40},levels={[7]='S1'},locals={},book={},buttons={},items={}}
+        state=0,stats={[1]=40},levels={[7]='S1'},locals={},book={},buttons={},items={},innate={},innateButtons={}}
     s.m_memorizedSpellsMage=memorized(s.book)
     s.m_memorizedSpellsPriest=memorized({})
-    s.m_memorizedSpellsInnate=memorized({})
+    s.m_memorizedSpellsInnate=memorized(s.innate)
     s.m_equipment={m_selectedWeapon=10,m_selectedWeaponAbility=0,m_items={get=function(_,slot) return s.items[slot] end}}
     function s:GetQuickButtons(kind)
         local list={}
         if kind==2 then for _,r in ipairs(self.buttons) do list[#list+1]={m_count=1,m_bDisabled=0,m_abilityId={m_res=str(r)}} end end
+        if kind==4 then for _,r in ipairs(self.innateButtons) do list[#list+1]={m_count=1,m_bDisabled=0,m_abilityId={m_res=str(r)}} end end
         return list
     end
     for k,v in pairs(fields or {}) do s[k]=v end
@@ -45,6 +46,12 @@ local function learn(s,level,resref,count)
     s.book[level]=s.book[level] or {}
     for _=1,count or 1 do table.insert(s.book[level],{m_spellId=str(resref),m_flags=1}) end
     s.buttons[#s.buttons+1]=resref
+end
+-- An innate ability (the innate list has one level).
+local function gift(s,resref)
+    s.innate[0]=s.innate[0] or {}
+    table.insert(s.innate[0],{m_spellId=str(resref),m_flags=1})
+    s.innateButtons[#s.innateButtons+1]=resref
 end
 local function world()
     local g={ticks=100,objects={},order={},listeners={destroyed={},started={}},queued={},
@@ -831,6 +838,48 @@ g10.ticks=600
 assert(g10.BGSE_Claim(summoner,'mage','s1')==false)
 local kept=last10('decline',4)
 assert(kept and kept.reason=='scs-summon' and kept.kept=='TESTSUMN' and kept.top[1].kind=='weapon')
+groups=groups+1
+
+-- 20. Releases (D2b). A mage with SCS's kind of sequencer (an innate that casts two bolts at its
+-- target, range 5 written on it) and an enemy 200 away: it goes off with ForceSpellRES at
+-- EEex_Target, and the ForceSpell that starts is the engine's own cast. Under Improved Alacrity
+-- the mage keeps it.
+local seqRec=spl('TESTSEQ',1,{fx(146,{p2=1,res='TESTBOLT'}),fx(146,{p2=1,res='TESTBOLT'}),fx(172,{target=1,res='TESTSEQ'}),
+    fx(171,{target=1,timing=4,duration=1440,res='TESTSEQ'})},1,1)
+seqRec.spellType,seqRec.flags,seqRec.abilities[1].range,seqRec.abilities[1].speed=4,0,5,0
+records.TESTSEQ=seqRec
+local g11=world()
+local sequencer=g11.add(sprite(1,0,0,255))
+sequencer.stats[2]=8
+gift(sequencer,'TESTSEQ')
+g11.add(sprite(11,200,0,2)).stats[2]=5
+local dir11=directors.new(g11,{reader=reader})
+local ch11=choices.new(g11,{reader=reader,director=dir11,seed=20})
+local rows11={}
+ch11:setSink(function(row) rows11[#rows11+1]=row end)
+runtime.install(g11,{director=dir11,choice=ch11,version='test'})
+local function last11(kind)
+    for n=#rows11,1,-1 do if rows11[n].kind==kind then return rows11[n] end end
+end
+g11.ticks=100
+assert(g11.BGSE_Claim(sequencer,'mage','s1')==true)
+local c11=last11('choice')
+assert(c11.spell=='TESTSEQ' and c11.release==true and c11.target==11 and ch11:inspect().counts.releases==1)
+g11.BGSE_Act(sequencer)
+assert(g11.queued[#g11.queued].text=='SetGlobalTimer("castspell","LOCALS",ONE_ROUND)\nForceSpellRES("TESTSEQ",EEex_Target("BGSE"))')
+g11.listeners.started[1](sequencer,action(113,'TESTSEQ',11))
+assert(ch11:inspect().counts.started==1 and last11('start').spell=='TESTSEQ')
+assert(choices.response({resref='TESTSEQ',kind='defence',self=true,release=true})==
+    'SetGlobalTimer("castspell","LOCALS",ONE_ROUND)\nForceSpellRES("TESTSEQ",Myself)')
+assert(choices.response({resref='TESTSEQ',kind='damage',point={x=5,y=6},release=true})==
+    'SetGlobalTimer("castspell","LOCALS",ONE_ROUND)\nForceSpellPointRES("TESTSEQ",[5.6])')
+-- Under Improved Alacrity: no release.
+local second=g11.add(sprite(2,0,600,255))
+second.stats[2],second.stats[165]=8,1
+gift(second,'TESTSEQ')
+g11.add(sprite(12,200,600,2)).stats[2]=5
+g11.ticks=200
+assert(g11.BGSE_Claim(second,'mage','s1')==false and ch11:inspect().counts.releases==1)
 groups=groups+1
 
 return groups

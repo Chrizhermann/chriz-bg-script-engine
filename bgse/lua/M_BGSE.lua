@@ -1094,10 +1094,37 @@ end
 local OFFENSIVE={damage=true,disable=true,debuff=true,removal=true}
 local HARMS_ALLIES={everyone=true,nonparty=true,casterGroup=true}
 
+-- The range of a release, or nil: an innate that casts two or more spells at its target at once
+-- (opcodes 146 and 148) and lands nothing else there, as SCS's sequencers and triggers do
+-- (DEFENCE-01). It reaches as far as its shortest spell at the casting level; SCS writes the
+-- ability's effect count where its range belongs.
+local function releaseRange(record,ability,state,where)
+    if record.kind~='SPL' or record.spellType~=4 or type(ability.effects)~='table' then return nil end
+    local count,shortest=0,nil
+    for _,e in ipairs(ability.effects) do
+        if type(e)~='table' or not valid(e) then return nil end
+        local who=receiver(e,where)
+        if who and who~='self' then
+            if e.opcode~=146 and e.opcode~=148 then return nil end
+            local sub=state.lookup('SPL',e.res)
+            local level=state.level
+            if e.p2~=1 and e.p1>0 then level=e.p1 end
+            local index=sub and M.abilityForLevel(sub,level)
+            local a=index and sub.abilities[index]
+            if type(a)~='table' or not number(a.range) then return nil end
+            count=count+1
+            shortest=math.min(shortest or a.range,a.range)
+        end
+    end
+    if count>=2 then return shortest end
+end
+
 -- Classify ability `index` (1-based) of a SPL or ITM record. options.level is the caster level
 -- used for spells cast through other spells; options.weapons=false leaves created weapons
 -- unread (a strike is read without them). c.sources names the record and every spell and EFF
--- file it delivers through: an effect it lands carries one of them as its source.
+-- file it delivers through: an effect it lands carries one of them as its source. A release
+-- (releaseRange) is marked c.release, with its spells' shortest range as c.range and its own as
+-- c.ownRange.
 function M.classify(record,index,lookup,options)
     options=options or {}
     local c={roles={},unknown={},reasons={},opcodes={},sources={},conditions={},conditionAt={},log={},nodes={}}
@@ -1130,6 +1157,8 @@ function M.classify(record,index,lookup,options)
     local key=tostring(record.kind)..':'..tostring(record.resref)
     walk(c,state,ability.effects,where,0,1,key,record.resref)
     if record.kind=='SPL' then walk(c,state,record.casting,'self',0,1,key,record.resref) end
+    local reach=releaseRange(record,ability,state,where)
+    if reach then c.release=true;c.ownRange=c.range;c.range=reach end
     c.times=nil;c.owner=nil;c.node=nil;c.when=nil;c.inherit=nil;c.conditionAt=nil;c.delay=nil;c.filter=nil
     -- Without conditions every creature gets the same roles, and no view needs the log.
     if #c.conditions==0 then c.conditions=nil;c.log=nil;c.nodes=nil end
@@ -2492,7 +2521,7 @@ function M.options(input,rejected)
                         (number(mind.castCost) and mind.castCost or 0)*cast
                     local worth=best.worth*through*(number(mind.caution) and mind.caution or 1)
                     local option={resref=row.resref,kind='defence',worth=worth,cost=cost,score=worth-cost,
-                        hits=best.hits,slack=0,speed=number(spell.speed) and spell.speed or 0}
+                        hits=best.hits,slack=0,speed=number(spell.speed) and spell.speed or 0,release=spell.release or nil}
                     local aim=best.aim
                     if aim.self then option.self=true;option.mode='self'
                     elseif aim.friend then option.target=aim.friend.id;option.mode='ally'
@@ -2539,6 +2568,11 @@ factories["combat-intent.choice"]=function(require)
 -- when no spell reaches minValue, the engine attacks instead of leaving the round to SCS. A spell
 -- that conjures a weapon is worth the hits the weapon deals in the rounds after, as many as it
 -- lasts within the horizon. Neither in the caster's own Time Stop nor under Improved Alacrity.
+-- Releases (D2b): SCS's sequencers and triggers are innates that cast their spells at once. The
+-- classifier reads them as their spells together, with the reach of the shortest
+-- (combat-intent/spells.lua); their options carry release, and the adapter sets them off with
+-- ForceSpellRES as SCS does. None under Improved Alacrity, as SCS keeps them for after it.
+--
 -- Until the engine casts summons, protection removal, healing, raising and curing itself, SCS
 -- keeps a round the engine would only attack in while the caster has such a spell ready that fits
 -- now (M.fits; Christopher, 2026-10-20: "nur wenn jetzt sinnvoll"; profile keepScsSpells).
@@ -2843,7 +2877,7 @@ local function evaluate(input,row,spell,kind,mode,aim)
     local level=number(row.level) and row.level or number(spell.level) and spell.level or 1
     local cost=input.mind.economy*M.costPerLevel*level
     local option={resref=row.resref,kind=kind,mode=mode,worth=worth,cost=cost,score=worth-cost,hits=hits,slack=slack,
-        speed=number(spell.speed) and spell.speed or 0}
+        speed=number(spell.speed) and spell.speed or 0,release=spell.release or nil}
     if kind=='damage' then option.expected=expected end
     if aim.enemy and (mode=='creature' or mode=='creature-area') then option.target=aim.enemy.id
     elseif mode=='point-area' then option.point={x=math.floor(aim.point.x+0.5),y=math.floor(aim.point.y+0.5)}
@@ -3284,6 +3318,20 @@ function M.urgent(input)
     end
 end
 
+-- The input without its releases (sequencers and triggers): under Improved Alacrity SCS keeps
+-- them for later (caster_definitions.ssl), and so does the engine.
+function M.unreleased(input)
+    local kept,left=false,{}
+    for _,row in ipairs(type(input.spells)=='table' and input.spells or {}) do
+        if type(row)=='table' and type(row.spell)=='table' and row.spell.release then kept=true else left[#left+1]=row end
+    end
+    if not kept then return input end
+    local view={}
+    for k,v in pairs(input) do view[k]=v end
+    view.spells=left
+    return view
+end
+
 -- The input as the caster sees it in its own Time Stop: what it cast in the stop
 -- (input.stopCasts: {kind, hits, expected}) lands when time resumes, so the enemies it disabled
 -- count as held and the hit points it is expected to have taken come off (hpNow keeps the hit
@@ -3338,6 +3386,7 @@ function M.decide(input)
         if opener then return opener,'opener',{opener} end
     end
     input=M.frozen(input)
+    if input.frame.self.alacrity==true then input=M.unreleased(input) end
     local options=M.options(input,rejected)
     for _,o in ipairs(defence.options(input,rejected)) do options[#options+1]=o end
     table.sort(options,better)
@@ -4621,6 +4670,10 @@ factories["adapters.eeex.choice"]=function(require)
 -- casts it started in the stop will do when time resumes (their kind, targets and expected
 -- damage); the list is dropped when the stop ends.
 --
+-- Releases (D2b): a sequencer or trigger goes off with ForceSpellRES (at a point
+-- ForceSpellPointRES), as SCS's own releases do: SpellRES would walk to the wrong range SCS
+-- writes into it (batch G3).
+--
 -- Touch charges (D2c): a touch spell is cast like a defence, on the caster. The charge it puts in
 -- the magic weapon slot is found by the item there, read as the touch weapon of a spell the
 -- caster has memorized (at its level) or else as the item itself, and goes to the choice with
@@ -4667,8 +4720,9 @@ M.logCapacity=128
 M.judgeLimit=64
 -- Item slots a creature drinks from: the quick items and the backpack (SLOTS.IDS).
 M.itemFirst,M.itemLast=15,33
--- Casts of the engine's own: Spell (SpellRES) and SpellPoint (SpellPointRES).
-M.CASTS={[31]=true,[95]=true}
+-- Casts of the engine's own: Spell (SpellRES) and SpellPoint (SpellPointRES); ForceSpell and
+-- ForceSpellPoint (ForceSpellRES, ForceSpellPointRES) for releases.
+M.CASTS={[31]=true,[95]=true,[113]=true,[114]=true}
 -- Attack actions (ACTION.IDS): Attack, AttackNoSound, AttackOneRound, AttackReevaluate.
 M.ATTACKS={[3]=true,[98]=true,[105]=true,[134]=true}
 -- The magic weapon slot (SLOTS.IDS), where a spell's weapon goes, and how long the engine holds a
@@ -4701,8 +4755,8 @@ function M.timerRunning(g,sprite,tick)
     return ok and type(value)=='number' and value>tick
 end
 
--- The response that casts decision's spell, or strikes with the charge or attacks with the
--- weapon in hand, or nil.
+-- The response that casts decision's spell (a release with ForceSpellRES), or strikes with the
+-- charge or attacks with the weapon in hand, or nil.
 function M.response(decision)
     if type(decision)~='table' or not valid(decision.resref) then return nil end
     if decision.kind=='strike' or decision.kind=='weapon' then
@@ -4710,15 +4764,16 @@ function M.response(decision)
         if type(t)~='number' or t<0 or t%1~=0 then return nil end
         return M.setTimer..'\nAttackOneRound(EEex_Target("'..M.targetName..'"))'
     end
+    local cast=decision.release and 'ForceSpell' or 'Spell'
     if decision.point then
         local p=decision.point
         if not whole(p.x) or not whole(p.y) then return nil end
-        return M.setTimer..'\nSpellPointRES("'..decision.resref..'",['..p.x..'.'..p.y..'])'
+        return M.setTimer..'\n'..cast..'PointRES("'..decision.resref..'",['..p.x..'.'..p.y..'])'
     end
-    if decision.self then return M.setTimer..'\nSpellRES("'..decision.resref..'",Myself)' end
+    if decision.self then return M.setTimer..'\n'..cast..'RES("'..decision.resref..'",Myself)' end
     local t=decision.target
     if type(t)=='number' and t>=0 and t%1==0 then
-        return M.setTimer..'\nSpellRES("'..decision.resref..'",EEex_Target("'..M.targetName..'"))'
+        return M.setTimer..'\n'..cast..'RES("'..decision.resref..'",EEex_Target("'..M.targetName..'"))'
     end
 end
 
@@ -4750,7 +4805,7 @@ function M.new(g,options)
     local counts={decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
         hits=0,misses=0,errors=0,holds=0,frozen=0,marks=0,markFailures=0,defences=0,guarded=0,unguarded=0,
         guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0,arms=0,attacks=0,attackHits=0,
-        weaponFailures=0}
+        weaponFailures=0,releases=0}
     local reasons={}
     local log,nextRow,size={},1,0
     local root,sink,lastError,markError,guardError,weaponError
@@ -5154,10 +5209,11 @@ function M.new(g,options)
         if d.kind=='opener' then counts.openers=counts.openers+1 end
         if d.kind=='touch' then counts.touches=counts.touches+1 end
         if d.kind=='arm' then counts.arms=counts.arms+1 end
+        if d.release then counts.releases=counts.releases+1 end
         record({kind='choice',tick=tick,member=id,family=family,spell=d.resref,castKind=d.kind,mode=d.mode,
             target=d.target,point=d.point,score=d.score,worth=d.worth,hits=d.hits,how=why,top=top,
             focus=input.plan.focus,rule=d.rule,stop=input.timeStop and input.timeStop.left or nil,
-            alacrity=frame.self.alacrity or nil})
+            alacrity=frame.self.alacrity or nil,release=d.release})
         -- A disable claims its targets in the group at once, so that another member deciding
         -- before this cast starts leaves them alone; any other decision gives earlier claims back.
         if director then

@@ -446,7 +446,7 @@ function M.options(input,rejected)
                         (number(mind.castCost) and mind.castCost or 0)*cast
                     local worth=best.worth*through*(number(mind.caution) and mind.caution or 1)
                     local option={resref=row.resref,kind='defence',worth=worth,cost=cost,score=worth-cost,
-                        hits=best.hits,slack=0,speed=number(spell.speed) and spell.speed or 0}
+                        hits=best.hits,slack=0,speed=number(spell.speed) and spell.speed or 0,release=spell.release or nil}
                     local aim=best.aim
                     if aim.self then option.self=true;option.mode='self'
                     elseif aim.friend then option.target=aim.friend.id;option.mode='ally'

@@ -30,6 +30,11 @@
 -- when no spell reaches minValue, the engine attacks instead of leaving the round to SCS. A spell
 -- that conjures a weapon is worth the hits the weapon deals in the rounds after, as many as it
 -- lasts within the horizon. Neither in the caster's own Time Stop nor under Improved Alacrity.
+-- Releases (D2b): SCS's sequencers and triggers are innates that cast their spells at once. The
+-- classifier reads them as their spells together, with the reach of the shortest
+-- (combat-intent/spells.lua); their options carry release, and the adapter sets them off with
+-- ForceSpellRES as SCS does. None under Improved Alacrity, as SCS keeps them for after it.
+--
 -- Until the engine casts summons, protection removal, healing, raising and curing itself, SCS
 -- keeps a round the engine would only attack in while the caster has such a spell ready that fits
 -- now (M.fits; Christopher, 2026-10-20: "nur wenn jetzt sinnvoll"; profile keepScsSpells).
@@ -334,7 +339,7 @@ local function evaluate(input,row,spell,kind,mode,aim)
     local level=number(row.level) and row.level or number(spell.level) and spell.level or 1
     local cost=input.mind.economy*M.costPerLevel*level
     local option={resref=row.resref,kind=kind,mode=mode,worth=worth,cost=cost,score=worth-cost,hits=hits,slack=slack,
-        speed=number(spell.speed) and spell.speed or 0}
+        speed=number(spell.speed) and spell.speed or 0,release=spell.release or nil}
     if kind=='damage' then option.expected=expected end
     if aim.enemy and (mode=='creature' or mode=='creature-area') then option.target=aim.enemy.id
     elseif mode=='point-area' then option.point={x=math.floor(aim.point.x+0.5),y=math.floor(aim.point.y+0.5)}
@@ -775,6 +780,20 @@ function M.urgent(input)
     end
 end
 
+-- The input without its releases (sequencers and triggers): under Improved Alacrity SCS keeps
+-- them for later (caster_definitions.ssl), and so does the engine.
+function M.unreleased(input)
+    local kept,left=false,{}
+    for _,row in ipairs(type(input.spells)=='table' and input.spells or {}) do
+        if type(row)=='table' and type(row.spell)=='table' and row.spell.release then kept=true else left[#left+1]=row end
+    end
+    if not kept then return input end
+    local view={}
+    for k,v in pairs(input) do view[k]=v end
+    view.spells=left
+    return view
+end
+
 -- The input as the caster sees it in its own Time Stop: what it cast in the stop
 -- (input.stopCasts: {kind, hits, expected}) lands when time resumes, so the enemies it disabled
 -- count as held and the hit points it is expected to have taken come off (hpNow keeps the hit
@@ -829,6 +848,7 @@ function M.decide(input)
         if opener then return opener,'opener',{opener} end
     end
     input=M.frozen(input)
+    if input.frame.self.alacrity==true then input=M.unreleased(input) end
     local options=M.options(input,rejected)
     for _,o in ipairs(defence.options(input,rejected)) do options[#options+1]=o end
     table.sort(options,better)

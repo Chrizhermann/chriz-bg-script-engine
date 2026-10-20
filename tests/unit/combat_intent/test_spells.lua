@@ -519,4 +519,28 @@ c=classify(harm,harmWorld,{weapons=false})
 assert(c.weapons==nil and c.roles.buff.kinds.weapon)
 groups=groups+1
 
+-- A release (SCS's sequencers and triggers, D2b): an innate that casts two or more spells at its
+-- target at once and lands nothing else there. It reaches as far as its shortest spell, not the
+-- range written on it, and its spells come together. One spell cast through an innate, a spell
+-- that is no innate, and an innate that also lands an effect itself are no releases.
+local arrow=spl('TESTARW',{ability({fx(12,{p2=64*65536,dice=2,sides=4})},{range=30,projectile=69})},{level=2})
+local bolt3=spl('TESTBLT',{ability({fx(12,{p2=8*65536,dice=3,sides=6})},{range=20})},{level=3})
+local parts=world({['SPL:TESTARW']=arrow,['SPL:TESTBLT']=bolt3,['PRO:69']=SINGLE})
+local function innate(resref,effects,fields)
+    return spl(resref,{ability(effects,{range=5,speed=0})},fields or {spellType=4})
+end
+local twice={fx(146,{p2=1,res='TESTARW'}),fx(146,{p2=1,res='TESTARW'}),fx(172,{target=1,res='TESTSEQ'}),
+    fx(171,{target=1,timing=4,duration=1440,res='TESTSEQ'})}
+c=classify(innate('TESTSEQ',twice),parts,{level=12})
+assert(c.release and c.range==30 and c.ownRange==5 and c.roles.damage.who.target and near(c.roles.damage.amount,10))
+c=classify(innate('TESTSEQ',{fx(146,{p2=1,res='TESTARW'}),fx(146,{p2=1,res='TESTBLT'})}),parts,{level=12})
+assert(c.release and c.range==20)
+c=classify(innate('TESTONE',{fx(146,{p2=1,res='TESTARW'})}),parts)
+assert(not c.release and c.range==5)
+c=classify(innate('TESTSEQ',{fx(146,{p2=1,res='TESTARW'}),fx(146,{p2=1,res='TESTBLT'})},{spellType=1}),parts)
+assert(not c.release and c.range==5)
+c=classify(innate('TESTSEQ',{fx(146,{p2=1,res='TESTARW'}),fx(146,{p2=1,res='TESTBLT'}),fx(12,{dice=1,sides=4})}),parts)
+assert(not c.release and c.range==5)
+groups=groups+1
+
 return groups

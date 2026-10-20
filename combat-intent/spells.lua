@@ -724,10 +724,37 @@ end
 local OFFENSIVE={damage=true,disable=true,debuff=true,removal=true}
 local HARMS_ALLIES={everyone=true,nonparty=true,casterGroup=true}
 
+-- The range of a release, or nil: an innate that casts two or more spells at its target at once
+-- (opcodes 146 and 148) and lands nothing else there, as SCS's sequencers and triggers do
+-- (DEFENCE-01). It reaches as far as its shortest spell at the casting level; SCS writes the
+-- ability's effect count where its range belongs.
+local function releaseRange(record,ability,state,where)
+    if record.kind~='SPL' or record.spellType~=4 or type(ability.effects)~='table' then return nil end
+    local count,shortest=0,nil
+    for _,e in ipairs(ability.effects) do
+        if type(e)~='table' or not valid(e) then return nil end
+        local who=receiver(e,where)
+        if who and who~='self' then
+            if e.opcode~=146 and e.opcode~=148 then return nil end
+            local sub=state.lookup('SPL',e.res)
+            local level=state.level
+            if e.p2~=1 and e.p1>0 then level=e.p1 end
+            local index=sub and M.abilityForLevel(sub,level)
+            local a=index and sub.abilities[index]
+            if type(a)~='table' or not number(a.range) then return nil end
+            count=count+1
+            shortest=math.min(shortest or a.range,a.range)
+        end
+    end
+    if count>=2 then return shortest end
+end
+
 -- Classify ability `index` (1-based) of a SPL or ITM record. options.level is the caster level
 -- used for spells cast through other spells; options.weapons=false leaves created weapons
 -- unread (a strike is read without them). c.sources names the record and every spell and EFF
--- file it delivers through: an effect it lands carries one of them as its source.
+-- file it delivers through: an effect it lands carries one of them as its source. A release
+-- (releaseRange) is marked c.release, with its spells' shortest range as c.range and its own as
+-- c.ownRange.
 function M.classify(record,index,lookup,options)
     options=options or {}
     local c={roles={},unknown={},reasons={},opcodes={},sources={},conditions={},conditionAt={},log={},nodes={}}
@@ -760,6 +787,8 @@ function M.classify(record,index,lookup,options)
     local key=tostring(record.kind)..':'..tostring(record.resref)
     walk(c,state,ability.effects,where,0,1,key,record.resref)
     if record.kind=='SPL' then walk(c,state,record.casting,'self',0,1,key,record.resref) end
+    local reach=releaseRange(record,ability,state,where)
+    if reach then c.release=true;c.ownRange=c.range;c.range=reach end
     c.times=nil;c.owner=nil;c.node=nil;c.when=nil;c.inherit=nil;c.conditionAt=nil;c.delay=nil;c.filter=nil
     -- Without conditions every creature gets the same roles, and no view needs the log.
     if #c.conditions==0 then c.conditions=nil;c.log=nil;c.nodes=nil end
