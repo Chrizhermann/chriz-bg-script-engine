@@ -204,14 +204,15 @@ function M.new(config)
     -- A member's cast has started at target (after any redirect). Any cast counts for the
     -- picture and replaces the member's claims. A disable reserves its target, or every enemy
     -- its area hits (cast.hits, known for the engine's own casts), except those another member
-    -- holds. own: the engine chose the cast itself.
+    -- holds; the engine's own heal or cure (D3a, D3b) reserves the allies it helps the same way.
+    -- own: the engine chose the cast itself.
     function api:started(member,cast,tick)
         clock(tick)
         finish(member.id,tick,'replaced')
         drop(member.id)
         local role=cast.role
         local reserved={}
-        if role=='disable' then
+        if role=='disable' or role=='heal' or role=='cure' then
             local list=type(cast.hits)=='table' and #cast.hits>0 and cast.hits or {cast.target}
             for _,target in ipairs(list) do
                 if take(member.id,target,tick,o.reserveTicks,nil) then reserved[#reserved+1]=target end

@@ -27,10 +27,6 @@ M.default={
     focusBonus=0.5,
     -- Worth of killing an enemy beyond the hit points taken.
     killBonus=0.5,
-    -- Urgent things that come first in SCS's own order, left to SCS until the engine does
-    -- them: a silenced caster; a priest with healing ready who is below selfHealth itself or
-    -- sees an ally below allyHealth (SCS's priests heal at 50% and 75%).
-    defer={silenced=true,selfHealth=0.5,allyHealth=0.75},
     -- Defences (step 3, third slice; Christopher, 2026-10-19: weigh them against attacks every
     -- round). Weight of what protections and buffs save against what attacks take.
     caution=1,
@@ -58,7 +54,7 @@ M.default={
     -- Weapon attacks (D2c): the weapon in hand as an attack, and spells that conjure one.
     weapons=true,
     -- Instead of no cast, a weapon attack waits while the caster has a spell ready that the
-    -- engine does not cast yet (summons, removal, healing, raising, curing) and that fits now
+    -- engine does not cast yet (summons, removal, raising) and that fits now
     -- (combat-intent/choice.lua, M.fits); SCS keeps the round.
     keepScsSpells=true,
 }
@@ -94,21 +90,9 @@ function M.new(changes)
     if changes==nil then return mind end
     if type(changes)~='table' then return nil,'changes' end
     for k,v in pairs(changes) do
-        if k=='defer' then
-            if type(v)~='table' then return nil,'defer' end
-            for name,value in pairs(v) do
-                if name=='silenced' then
-                    if type(value)~='boolean' then return nil,'defer.silenced' end
-                elseif name=='selfHealth' or name=='allyHealth' then
-                    if not share(value) then return nil,'defer.'..tostring(name) end
-                else return nil,'defer.'..tostring(name) end
-                mind.defer[name]=value
-            end
-        else
-            local check=CHECKS[k]
-            if not check or not check(v) then return nil,tostring(k) end
-            mind[k]=v
-        end
+        local check=CHECKS[k]
+        if not check or not check(v) then return nil,tostring(k) end
+        mind[k]=v
     end
     return mind
 end

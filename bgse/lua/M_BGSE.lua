@@ -1638,10 +1638,6 @@ M.default={
     focusBonus=0.5,
     -- Worth of killing an enemy beyond the hit points taken.
     killBonus=0.5,
-    -- Urgent things that come first in SCS's own order, left to SCS until the engine does
-    -- them: a silenced caster; a priest with healing ready who is below selfHealth itself or
-    -- sees an ally below allyHealth (SCS's priests heal at 50% and 75%).
-    defer={silenced=true,selfHealth=0.5,allyHealth=0.75},
     -- Defences (step 3, third slice; Christopher, 2026-10-19: weigh them against attacks every
     -- round). Weight of what protections and buffs save against what attacks take.
     caution=1,
@@ -1669,7 +1665,7 @@ M.default={
     -- Weapon attacks (D2c): the weapon in hand as an attack, and spells that conjure one.
     weapons=true,
     -- Instead of no cast, a weapon attack waits while the caster has a spell ready that the
-    -- engine does not cast yet (summons, removal, healing, raising, curing) and that fits now
+    -- engine does not cast yet (summons, removal, raising) and that fits now
     -- (combat-intent/choice.lua, M.fits); SCS keeps the round.
     keepScsSpells=true,
 }
@@ -1705,21 +1701,9 @@ function M.new(changes)
     if changes==nil then return mind end
     if type(changes)~='table' then return nil,'changes' end
     for k,v in pairs(changes) do
-        if k=='defer' then
-            if type(v)~='table' then return nil,'defer' end
-            for name,value in pairs(v) do
-                if name=='silenced' then
-                    if type(value)~='boolean' then return nil,'defer.silenced' end
-                elseif name=='selfHealth' or name=='allyHealth' then
-                    if not share(value) then return nil,'defer.'..tostring(name) end
-                else return nil,'defer.'..tostring(name) end
-                mind.defer[name]=value
-            end
-        else
-            local check=CHECKS[k]
-            if not check or not check(v) then return nil,tostring(k) end
-            mind[k]=v
-        end
+        local check=CHECKS[k]
+        if not check or not check(v) then return nil,tostring(k) end
+        mind[k]=v
     end
     return mind
 end
@@ -2641,6 +2625,346 @@ function M.options(input,rejected)
 end
 return M
 end
+factories["combat-intent.care"]=function(require)
+-- The engine's own healing and curing for one caster (step 3, D3a and D3b; Christopher,
+-- 2026-10-20: "Mach alles"). SCS's priests are the blueprint ([src] priest/ssl/generalblocks/
+-- renew.ssl): they heal themselves and allies who are hurt, and cure what keeps an ally out of the
+-- fight, before they attack; they heal and cure only allies above a level that rises with their
+-- own (priest_shared.tph, minimum_healing_level). SCS's mages and priests drink healing potions.
+--
+-- Inputs are plain values, as for combat-intent/defence.lua: the caster's frame, whose friends
+-- (the caster and its allies) carry their level and guard (what protects them, and the conditions
+-- on them with the seconds left: adapters/eeex/sense.lua), the classified ready spells and the
+-- carried items, the profile and the director's plan. Nothing here touches the engine or raises
+-- on odd data.
+--
+-- Worth is on the attack's scale (shares of a creature), as for protections: what a friend is
+-- worth at the horizon's end with the cast less what it is worth without, counting the share of
+-- its hit points it has left then, the kill bonus as likely as it lives, and the rounds it is in
+-- the fight (alive and not disabled), each worth a round of disable (defence.disableRound). A heal
+-- on a friend no one threatens is worth the hit points it restores, as damage on an enemy is; on
+-- a friend about to fall also the rounds it keeps it standing and the kill bonus. A friend that
+-- falls before the cast lands gains nothing. A cure is worth what the condition would still keep
+-- the friend out of, as the same disable on an enemy is worth (combat-intent/choice.lua), and the
+-- hit points poison would still take.
+local targeting=require('combat-intent.targeting')
+local threat=require('combat-intent.threat')
+local defence=require('combat-intent.defence')
+local ids=require('combat-intent.ids')
+local M={}
+M.ROUND=6
+-- What freeing a friend of each condition is worth for the full time (fullSeconds), as the same
+-- disable on an enemy is worth (choice.DISABLE); blindness, deafness and disease hinder without
+-- taking the friend out. Conditions that matter only for casters count a fifth on others.
+M.CONDITION={sleep=0.8,hold=1,stun=1,panic=0.7,confusion=0.8,berserk=0.4,feeblemind=1,silence=0.7,
+    pause=0.8,blind=0.3,deaf=0.2,disease=0.1}
+M.CASTERS_ONLY={feeblemind=true,silence=true,deaf=true}
+M.fullSeconds=18
+-- Seconds a condition counts for when the friend's effects could not be read.
+M.unknownSeconds=12
+-- The STATE.IDS bit each condition shows in (holds set the HELD stat); a condition whose effect
+-- is on a friend but whose state does not show any more is over. Deafness and the casting pause
+-- show in no state.
+M.STATE={sleep=0x1,berserk=0x2,panic=0x4,stun=0x8,silence=0x1000,poison=0x4000,blind=0x40000,
+    disease=0x80000,feeblemind=0x100000,confusion=0x80000000}
+-- How far beyond a spell's range the caster walks to an ally it heals or cures (a touch spell
+-- reaches one range unit): a round's walk, at about 100 world units a second.
+M.walk=600
+M.walkSpeed=100
+-- A speed point of casting time is a tenth of a round (as for defences).
+M.speedSeconds=0.6
+-- Worth of one spell level, times the profile's economy; a potion costs as a first-level spell.
+M.costPerLevel=0.03
+M.itemLevel=1
+
+local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
+local function clamp(v,a,b) if v<a then return a elseif v>b then return b end return v end
+local function list(t) return type(t)=='table' and t or {} end
+
+-- The level an ally must exceed for SCS's priests of this level to heal or cure it
+-- (priest_shared.tph, minimum_healing_level; renew.ssl: CheckStatGT on the ally's level).
+function M.minimumLevel(level)
+    if not number(level) or level<=3 then return 1 end
+    if level<=5 then return 2 end
+    if level<=7 then return 3 end
+    if level<=8 then return 4 end
+    if level<=14 then return level-5 end
+    if level<=17 then return level-6 end
+    if level<=20 then return level-7 end
+    return level-8
+end
+
+-- Hit points a heal role restores on friend f now: its amount, or its share of f's maximum, up
+-- to what f is missing. A heal that sets hit points or rests is not counted.
+function M.healed(role,f)
+    if type(role)~='table' or not number(f.hp) or not number(f.maxHp) or f.maxHp<=0 then return 0 end
+    local missing=math.max(0,f.maxHp-f.hp)
+    local amount=0
+    if number(role.amount) then amount=amount+role.amount end
+    if number(role.percent) then amount=amount+f.maxHp*role.percent/100 end
+    return math.min(amount,missing)
+end
+
+local NONE={weapon={hp=0,hits=0,attacks=0,magicalAttacks=0},spell={hp=0,personal=0,area=0,disable=0,casters=0,level=0}}
+-- What friend f is worth at the end of r rounds under threat t with shield s, if it had hp hit
+-- points now: the share of its hit points left then, the kill bonus as likely as it lives, and
+-- the rounds it is in the fight (alive and not disabled by enemy spells), each worth a round of
+-- disable. Harm runs as defence.course has it.
+function M.standing(f,t,s,r,killBonus,hp)
+    local maxHp=number(f.maxHp) and f.maxHp>0 and f.maxHp or 1
+    if hp<=0 then return 0 end
+    local g={}
+    for k,v in pairs(f) do g[k]=v end
+    g.hp=hp
+    local harm,death,b=defence.course(s,g,t or NONE,r)
+    local dies=clamp((harm-0.5*hp)/(0.5*hp),0,1)
+    local alive=math.min(death,r)
+    local disabled=(t or NONE).spell.disable*(1-b.disable)*alive
+    return math.max(0,hp-harm)/maxHp+killBonus*(1-dies)+defence.disableRound*(alive-disabled)
+end
+
+-- Whether friend f has condition label now, and its seconds left: the effect on f (its guard's
+-- conditions) while its state still shows it; a hold shows in the HELD stat. A friend whose
+-- effects could not be read counts by its state alone, for unknownSeconds.
+function M.condition(f,label)
+    local shown
+    if label=='hold' then shown=number(f.held) and f.held>0
+    elseif M.STATE[label] then shown=targeting.has(f.state,M.STATE[label]) end
+    local guard=type(f.guard)=='table' and f.guard or nil
+    local left=guard and type(guard.conditions)=='table' and guard.conditions[label]
+    if not guard then
+        if shown then return true,M.unknownSeconds end
+        return false,0
+    end
+    -- (A condition without an end lasts math.huge seconds.)
+    if not (type(left)=='number' and left>0) then return false,0 end
+    if shown==false then return false,0 end
+    return true,left
+end
+
+-- The worth of a cure role on friend f: each condition it takes away that f has, as that
+-- disable would be worth on an enemy for the time it has left, and the share of f's hit points
+-- poison would still take.
+function M.cured(role,f)
+    if type(role)~='table' or type(role.kinds)~='table' then return 0,{} end
+    local worth,freed=0,{}
+    local health=targeting.health(f)
+    for label in pairs(role.kinds) do
+        local has,left=M.condition(f,label)
+        if has then
+            local factor=M.CONDITION[label] or 0
+            if M.CASTERS_ONLY[label] and not ids.caster(f) then factor=factor*0.2 end
+            if factor>0 then
+                worth=worth+factor*clamp(left/M.fullSeconds,0,1)*(0.5+0.5*health)
+                freed[#freed+1]=label
+            end
+            if label=='poison' then
+                local guard=type(f.guard)=='table' and f.guard or {}
+                local hp=number(guard.poison) and guard.poison or 0
+                local maxHp=number(f.maxHp) and f.maxHp>0 and f.maxHp or nil
+                if hp>0 and maxHp then
+                    worth=worth+math.min(hp,math.max(0,f.hp or 0))/maxHp
+                    freed[#freed+1]=label
+                end
+            end
+        end
+    end
+    return worth,freed
+end
+
+-- The heal and cure roles of a spell or item ability that reach friends, or nil and why it is no
+-- care: an attack, a spell that also harms or removes, one that reaches the party (for the
+-- engine's creatures that is the enemy), or one without such roles.
+function M.care(spell)
+    if type(spell)~='table' or type(spell.roles)~='table' then return nil,'unclassified' end
+    local h,c=spell.roles.heal,spell.roles.cure
+    local function reaches(role)
+        return type(role)=='table' and type(role.who)=='table' and (role.who.self or role.who.target or role.who.area)
+    end
+    if not reaches(h) and not reaches(c) then return nil,'no-care' end
+    if spell.partial then return nil,'partial' end
+    if spell.offensive or spell.selfHarm then return nil,'offensive' end
+    for _,r in ipairs({h,c}) do
+        if type(r)=='table' and type(r.who)=='table' and (r.who.party or r.who.everyone or r.who.nonparty) then
+            return nil,'party'
+        end
+    end
+    return {heal=reaches(h) and h or nil,cure=reaches(c) and c or nil}
+end
+
+-- Where a care spell can be cast: on the caster, and at each ally within its range and a round's
+-- walk beyond it for a spell cast at a creature; at the caster's spot or an ally's for an area at
+-- a point; around the caster for its own area. walk: world units the caster goes beyond range.
+local function aims(input,spell)
+    local frame=input.frame
+    local caster=frame.self
+    local out={}
+    local range=(number(spell.range) and spell.range or 0)*targeting.rangeUnit
+    if spell.target=='self' then
+        out[1]={self=true,friend=caster,point=spell.area and {x=caster.x,y=caster.y} or nil,walk=0}
+    elseif spell.target=='point' and spell.area then
+        out[1]={point={x=caster.x,y=caster.y},walk=0}
+        for _,f in ipairs(threat.friends(frame)) do
+            local d=targeting.distance(caster,f)
+            if f~=caster and d<=range+M.walk then out[#out+1]={point={x=f.x,y=f.y},walk=math.max(0,d-range)} end
+        end
+    elseif spell.target=='creature' then
+        out[1]={self=true,friend=caster,walk=0}
+        for _,f in ipairs(threat.friends(frame)) do
+            local d=targeting.distance(caster,f)
+            if f~=caster and d<=range+M.walk then out[#out+1]={friend=f,walk=math.max(0,d-range)} end
+        end
+    end
+    return out
+end
+-- Who a role reaches, aimed as the cast is: the caster for its own part, the creature aimed at,
+-- the friends in its area (the enemies too, when the area spares no one).
+local function receivers(input,spell,role,aim)
+    local frame=input.frame
+    local friends,foes,seen={},{},{}
+    local function add(f) if f and not seen[f] then seen[f]=true;friends[#friends+1]=f end end
+    if role.who.self then add(frame.self) end
+    if role.who.target and aim.friend then add(aim.friend) end
+    if role.who.area then
+        local filters=type(role.filters)=='table' and role.filters or {all=true}
+        local area=spell.area
+        local center=aim.point or (aim.friend and {x=aim.friend.x,y=aim.friend.y})
+        if area and number(area.radius) and center and (filters.allies or filters.all) then
+            for _,f in ipairs(threat.friends(frame)) do
+                if targeting.distance(center,f)<=area.radius then add(f) end
+            end
+            if filters.all then
+                for _,e in ipairs(list(frame.enemies)) do
+                    if targeting.alive(e) and targeting.distance(center,e)<=area.radius then foes[#foes+1]=e end
+                end
+            end
+        end
+    end
+    return friends,foes
+end
+
+-- Every heal and cure option the caster has: {resref, kind='heal' or 'cure', mode, worth, cost,
+-- score, hits (the friends it helps), slack=0, speed, and self, target or point as it is aimed;
+-- use=true for an item it drinks}. rejected (optional) counts why ready care spells gave none.
+-- An ally at or below SCS's healing level for the caster's level, or one another member of the
+-- group is already healing or curing (the director's plan, with coordination), is left out.
+function M.options(input,rejected)
+    local out={}
+    local function reject(why) if rejected then rejected['care-'..why]=(rejected['care-'..why] or 0)+1 end end
+    local mind=input.mind
+    local frame=input.frame
+    if type(frame)~='table' or type(frame.self)~='table' or type(mind)~='table' then return out end
+    local caster=frame.self
+    local pictures=threat.picture(frame)
+    local horizon=number(mind.horizon) and mind.horizon or 18
+    local rounds=horizon/M.ROUND
+    local killBonus=number(mind.killBonus) and mind.killBonus or 0
+    local minimum=M.minimumLevel(caster.level)
+    local plan=type(input.plan)=='table' and input.plan or {}
+    local reserved=type(plan.reserved)=='table' and plan.reserved or {}
+    local coordinated=(number(mind.coordination) and mind.coordination or 0)>=0.5
+    local shields={}
+    local function shieldOf(f) shields[f.id]=shields[f.id] or defence.held(f);return shields[f.id] end
+    -- The worth on friend f of the heal and the cure that reach it, once a cast of the given
+    -- seconds lands.
+    local function on(f,heal,cure,cast)
+        if f~=caster then
+            if number(f.level) and f.level<=minimum then return 0,'level' end
+            local owner=reserved[f.id]
+            if coordinated and owner~=nil and owner~=caster.id then return 0,'reserved' end
+        end
+        local t=pictures[f.id]
+        local s=shieldOf(f)
+        local worth=0
+        if heal then
+            local healed=M.healed(heal,f)
+            if healed>0 then
+                -- Harm while the cast runs: a friend that falls meanwhile gains nothing.
+                local lead=cast/M.ROUND
+                local hp=f.hp
+                if t and lead>0 then
+                    local harm,death=defence.course(s,f,t,lead)
+                    if death<=lead then return 0,'falls' end
+                    hp=math.max(1,f.hp-harm)
+                end
+                worth=worth+M.standing(f,t,s,rounds,killBonus,hp+healed)-M.standing(f,t,s,rounds,killBonus,hp)
+            end
+        end
+        if cure then worth=worth+(M.cured(cure,f)) end
+        return worth,worth<=0 and 'no-worth' or nil
+    end
+    local function consider(resref,spell,gives,level,item)
+        local cast=(number(spell.speed) and spell.speed or 0)*M.speedSeconds
+        local best,why
+        local candidates=item and {{self=true,friend=caster,walk=0}} or aims(input,spell)
+        for _,aim in ipairs(candidates) do
+            -- Who each role reaches; healing an enemy in an area that spares no one counts
+            -- against the cast.
+            local reach,order,worth,hits={},{},0,{}
+            for name,role in pairs(gives) do
+                local friends,foes=receivers(input,spell,role,aim)
+                for _,f in ipairs(friends) do
+                    if not reach[f] then reach[f]={};order[#order+1]=f end
+                    reach[f][name]=role
+                end
+                if name=='heal' then
+                    for _,e in ipairs(foes) do
+                        local maxHp=number(e.maxHp) and e.maxHp>0 and e.maxHp or nil
+                        if maxHp then worth=worth-M.healed(role,e)/maxHp end
+                    end
+                end
+            end
+            table.sort(order,function(a,b) return (a.id or 0)<(b.id or 0) end)
+            for _,f in ipairs(order) do
+                local w,no=on(f,reach[f].heal,reach[f].cure,cast)
+                -- The most telling reason a friend gains nothing: anything but plain no worth.
+                if w>0 then worth=worth+w;hits[#hits+1]=f.id
+                elseif no and (why==nil or why=='no-worth') then why=no end
+            end
+            if worth>0 and (not best or worth>best.worth) then best={aim=aim,worth=worth,hits=hits} end
+        end
+        if not best then reject(why or 'no-worth');return end
+        -- Casting time: harm while casting can interrupt a spell (not an item); long casts and the
+        -- walk to an ally cost.
+        local through=item and 1 or defence.through(input,pictures[caster.id],cast)
+        local walk=best.aim.walk/M.walkSpeed
+        local cost=(number(mind.economy) and mind.economy or 1)*M.costPerLevel*(item and M.itemLevel or level)+
+            (number(mind.castCost) and mind.castCost or 0)*(cast+walk)
+        local worth=best.worth*through
+        local option={resref=resref,kind=gives.heal and 'heal' or 'cure',worth=worth,cost=cost,score=worth-cost,
+            hits=best.hits,slack=0,speed=number(spell.speed) and spell.speed or 0,use=item or nil}
+        local aim=best.aim
+        if aim.self then option.self=true;option.mode='self'
+        elseif aim.friend then option.target=aim.friend.id;option.mode='ally'
+        else option.point={x=math.floor(aim.point.x+0.5),y=math.floor(aim.point.y+0.5)};option.mode='point' end
+        out[#out+1]=option
+    end
+    for _,row in ipairs(list(input.spells)) do
+        if type(row)=='table' and number(row.ready) and row.ready>0 and row.usable then
+            local gives,why=M.care(row.spell)
+            if gives then
+                local level=number(row.level) and row.level or number(row.spell.level) and row.spell.level or 1
+                consider(row.resref,row.spell,gives,level,false)
+            elseif why~='no-care' and why~='unclassified' then reject(why) end
+        end
+    end
+    -- Items the caster carries: their abilities on itself, while uses are left.
+    for _,it in ipairs(list(input.items)) do
+        if type(it)=='table' and type(it.resref)=='string' then
+            for _,a in ipairs(list(it.abilities)) do
+                local effect=type(a)=='table' and a.effect
+                local gives=effect and M.care(effect)
+                if gives and (not number(a.uses) or a.uses>0) and effect.target~='point' then
+                    consider(it.resref,effect,gives,M.itemLevel,true)
+                    break
+                end
+            end
+        end
+    end
+    return out
+end
+return M
+end
 factories["combat-intent.choice"]=function(require)
 -- The engine's own choice of an attack spell and its target or aim point for one caster (step
 -- 3, second slice; Christopher's answers of 2026-10-18 are in the plan). Inputs are plain
@@ -2679,11 +3003,16 @@ factories["combat-intent.choice"]=function(require)
 -- (combat-intent/spells.lua); their options carry release, and the adapter sets them off with
 -- ForceSpellRES as SCS does. None under Improved Alacrity, as SCS keeps them for after it.
 --
--- Until the engine casts summons, protection removal, healing, raising and curing itself, SCS
--- keeps a round the engine would only attack in while the caster has such a spell ready that fits
--- now (M.fits; Christopher, 2026-10-20: "nur wenn jetzt sinnvoll"; profile keepScsSpells).
+-- Healing and curing (D3a, D3b; Christopher, 2026-10-20: "Mach alles"): heals and cures for the
+-- caster and its allies, and potions, compete on the same scale (combat-intent/care.lua). The
+-- engine no longer leaves a hurt group or a silenced caster to SCS.
+--
+-- Until the engine casts summons, protection removal and raising itself, SCS keeps a round the
+-- engine would only attack in while the caster has such a spell ready that fits now (M.fits;
+-- Christopher, 2026-10-20: "nur wenn jetzt sinnvoll"; profile keepScsSpells).
 local targeting=require('combat-intent.targeting')
 local defence=require('combat-intent.defence')
+local care=require('combat-intent.care')
 local openers=require('combat-intent.openers')
 local touch=require('combat-intent.touch')
 local weapons=require('combat-intent.weapons')
@@ -2713,8 +3042,10 @@ M.RESIST={fire='fire',cold='cold',electricity='electricity',acid='acid',magic='m
     magicfire='magicfire',magiccold='magiccold',slashing='slashing',crushing='crushing',
     piercing='piercing',missile='missile',poison='poison'}
 -- Roles that make a spell something other than an attack: protection removal, healing,
--- curing, raising and summoning are other decisions (later slices).
+-- curing, raising and summoning are other decisions. Of these SCS may still keep a round for
+-- removal, raising and summoning (M.scsSpell).
 local OTHER={'removal','heal','raise','cure','summon'}
+local KEPT={'removal','raise','summon'}
 local GLOBAL={everyone=true,nonparty=true,casterGroup=true,party=true}
 -- What makes such a spell fit now (M.fits). The STATE.IDS bit each cured condition shows in; holds
 -- also set the HELD stat, level drain the LEVELDRAIN stat, and a petrified ally lies among the
@@ -3331,11 +3662,9 @@ local REMOVED={dispel=shielded,schools=shielded,secondaries=shielded,
     summons=summoned,destroy=summoned,replace=summoned}
 
 -- Whether a role of a spell the engine leaves to SCS fits now (Christopher, 2026-10-20): a summons
--- always; healing when the caster is below its selfHealth line or an ally it reaches below
--- allyHealth (where SCS's priests heal: the profile's defer); raising when an ally it sees lies
--- dead with a body, not a summons; curing when the caster or an ally it reaches has a condition
--- the spell cures; removal when an enemy it sees has what the spell takes away. A spell on the
--- caster alone reaches only the caster.
+-- always; raising when an ally it sees lies dead with a body, not a summons; curing when the
+-- caster or an ally it reaches has a condition the spell cures; removal when an enemy it sees has
+-- what the spell takes away. A spell on the caster alone reaches only the caster.
 function M.fits(input,name,role)
     if type(role)~='table' or type(role.who)~='table' or next(role.who)==nil then return false end
     if name=='summon' then return true end
@@ -3345,14 +3674,6 @@ function M.fits(input,name,role)
     local friends={caster}
     if wide then
         for _,a in ipairs(list(frame.allies)) do if targeting.alive(a) then friends[#friends+1]=a end end
-    end
-    if name=='heal' then
-        local defer=type(input.mind.defer)=='table' and input.mind.defer or {}
-        for _,f in ipairs(friends) do
-            local line=f==caster and defer.selfHealth or defer.allyHealth
-            if targeting.health(f)<(number(line) and line or 1) then return true end
-        end
-        return false
     end
     local fallen=wide and list(frame.fallen) or {}
     if name=='raise' then
@@ -3394,50 +3715,13 @@ function M.fits(input,name,role)
 end
 
 -- The kind and resref of a spell the caster has ready that the engine does not cast yet (removal,
--- heal, raise, cure, summon) and that fits now (M.fits), or nil.
+-- raise, summon) and that fits now (M.fits), or nil.
 function M.scsSpell(input)
     for _,row in ipairs(type(input.spells)=='table' and input.spells or {}) do
         if type(row)=='table' and number(row.ready) and row.ready>0 and row.usable and
             type(row.spell)=='table' and type(row.spell.roles)=='table' then
-            for _,name in ipairs(OTHER) do
+            for _,name in ipairs(KEPT) do
                 if M.fits(input,name,row.spell.roles[name]) then return name,row.resref end
-            end
-        end
-    end
-end
-
--- Healing the caster has ready: for itself, and for others.
-function M.heals(input)
-    local own,others=false,false
-    for _,row in ipairs(type(input.spells)=='table' and input.spells or {}) do
-        local h=type(row)=='table' and number(row.ready) and row.ready>0 and row.usable and
-            type(row.spell)=='table' and type(row.spell.roles)=='table' and row.spell.roles.heal
-        if type(h)=='table' and type(h.who)=='table' then
-            if h.who.self or h.who.target then own=true end
-            if h.who.target or h.who.area or h.who.party then others=true end
-        end
-    end
-    for _,item in ipairs(type(input.items)=='table' and input.items or {}) do
-        for _,a in ipairs(type(item)=='table' and type(item.abilities)=='table' and item.abilities or {}) do
-            local h=type(a)=='table' and type(a.effect)=='table' and type(a.effect.roles)=='table' and a.effect.roles.heal
-            if type(h)=='table' and type(h.who)=='table' and (h.who.self or h.who.target) and
-                (not number(a.uses) or a.uses>0) then own=true end
-        end
-    end
-    return {self=own,others=others}
-end
-
--- Something SCS's own order puts before attacks, which the engine leaves to SCS for now.
-function M.urgent(input)
-    local defer=type(input.mind.defer)=='table' and input.mind.defer or {}
-    local caster=input.frame.self
-    if defer.silenced and targeting.has(caster.state,M.SILENCED) then return 'silenced' end
-    if input.family=='priest' then
-        local heals=M.heals(input)
-        if heals.self and number(defer.selfHealth) and targeting.health(caster)<defer.selfHealth then return 'self-hurt' end
-        if heals.others and number(defer.allyHealth) then
-            for _,ally in ipairs(type(input.frame.allies)=='table' and input.frame.allies or {}) do
-                if targeting.alive(ally) and targeting.health(ally)<defer.allyHealth then return 'ally-hurt' end
             end
         end
     end
@@ -3492,14 +3776,12 @@ function M.frozen(input)
     return view
 end
 
--- The attack, defence, opener or strike to do now, or nil and why; the options come along for
+-- The attack, defence, heal or cure, opener or strike to do now, or nil and why; the options come along for
 -- the log, and with 'no-option' the count of reasons the ready spells gave none. When SCS keeps
 -- the round for a spell that fits now, that spell's resref comes last.
 function M.decide(input)
     if type(input)~='table' or type(input.frame)~='table' or type(input.frame.self)~='table' or
         type(input.frame.enemies)~='table' or type(input.mind)~='table' then return nil,'bad-input',{} end
-    local why=M.urgent(input)
-    if why then return nil,'urgent-'..why,{} end
     local mind=input.mind
     local rejected={}
     if mind.touch then
@@ -3514,6 +3796,7 @@ function M.decide(input)
     if input.frame.self.alacrity==true then input=M.unreleased(input) end
     local options=M.options(input,rejected)
     for _,o in ipairs(defence.options(input,rejected)) do options[#options+1]=o end
+    for _,o in ipairs(care.options(input,rejected)) do options[#options+1]=o end
     table.sort(options,better)
     -- A weapon attack spends nothing: it needs no minimum worth, and it is taken over a spell
     -- only when it is worth more. Instead of no cast at all it waits while the caster has a spell
@@ -3771,14 +4054,15 @@ function M.new(config)
     -- A member's cast has started at target (after any redirect). Any cast counts for the
     -- picture and replaces the member's claims. A disable reserves its target, or every enemy
     -- its area hits (cast.hits, known for the engine's own casts), except those another member
-    -- holds. own: the engine chose the cast itself.
+    -- holds; the engine's own heal or cure (D3a, D3b) reserves the allies it helps the same way.
+    -- own: the engine chose the cast itself.
     function api:started(member,cast,tick)
         clock(tick)
         finish(member.id,tick,'replaced')
         drop(member.id)
         local role=cast.role
         local reserved={}
-        if role=='disable' then
+        if role=='disable' or role=='heal' or role=='cure' then
             local list=type(cast.hits)=='table' and #cast.hits>0 and cast.hits or {cast.target}
             for _,target in ipairs(list) do
                 if take(member.id,target,tick,o.reserveTicks,nil) then reserved[#reserved+1]=target end
@@ -4125,6 +4409,11 @@ M.quiver={11,12,13}
 M.expiring=6
 -- Opcodes that deliver other effects; what they delivered is in the list already.
 M.delivered={[146]=true,[148]=true,[177]=true,[272]=true,[283]=true,[326]=true,[333]=true,[366]=true}
+-- Conditions a cure takes away, by the opcode that sets them (combat-intent/spells.lua's labels;
+-- combat-intent/care.lua weighs them).
+M.conditions={[39]='sleep',[3]='berserk',[24]='panic',[45]='stun',[210]='stun',[38]='silence',[74]='blind',
+    [76]='feeblemind',[78]='disease',[80]='deaf',[109]='hold',[175]='hold',[185]='hold',[128]='confusion',
+    [165]='pause',[25]='poison'}
 
 local function band(g,a,b) return g.EEex_BAnd(a,b) end
 local function stat(g,sprite,n)
@@ -4158,6 +4447,18 @@ end
 -- A creature's THAC0 with its right-hand and general hit bonuses (as M.attack counts it).
 function M.thac0(g,sprite)
     return stat(g,sprite,M.combat.thac0)-stat(g,sprite,M.combat.thac0Right)-stat(g,sprite,M.combat.hitBonus)
+end
+
+-- A creature's IDS values and level (the highest of its classes'), for a friend: what healing,
+-- curing and summoning weigh (combat-intent/care.lua). M.details reads the same for enemies.
+function M.identity(g,sprite,entry)
+    local t=sprite.m_typeAI
+    entry.ids={ea=t.m_EnemyAlly,general=t.m_General,race=t.m_Race,class=t.m_Class,
+        specific=t.m_Specifics,gender=t.m_Gender,alignment=t.m_Alignment}
+    local level=0
+    for _,n in ipairs(M.levels) do level=math.max(level,stat(g,sprite,n)) end
+    entry.level=level
+    return entry
 end
 
 -- Creature IDS values, saving throws, resistances, level and the spell protections in both
@@ -4296,10 +4597,13 @@ end
 -- What protects a creature now, as plain values (combat-intent/defence.lua's guard): its
 -- active effects classified as one record (classify(record), combat-intent/spells.lua) for
 -- their roles, the engine's counts of Stoneskin skins and Mirror Images, the spells its effects
--- come from, and the spells opcode 206 keeps off it. Effects that end within M.expiring
--- seconds and delayed ones that have not started are left out.
+-- come from, the spells opcode 206 keeps off it, and the conditions on it a cure takes away
+-- with the seconds each has left (math.huge for one without an end) and the hit points its
+-- poison will still take. Effects that end within M.expiring seconds and delayed ones that have
+-- not started are left out of its roles.
 function M.guard(g,sprite,tick,classify)
-    local list,sources,recast={},{},{}
+    local list,sources,recast,conditions={},{},{},{}
+    local poison=0
     for _,effects in ipairs({sprite.m_timedEffectList,sprite.m_equipedEffectList}) do
         local seen=0
         g.EEex_Utility_IterateCPtrList(effects,function(e)
@@ -4313,6 +4617,22 @@ function M.guard(g,sprite,tick,classify)
             elseif kind==1 or kind==9 then timing,duration=1,0
             elseif kind==2 then timing,duration=2,0 end
             local op=e.m_effectId
+            -- A condition counts with any time left; one without an end lasts.
+            local label=type(op)=='number' and M.conditions[op]
+            if label then
+                local left
+                if kind==4096 then left=(number(e.m_duration)-tick)/15
+                elseif kind==1 or kind==9 or kind==2 then left=math.huge end
+                if left and left>0 then
+                    conditions[label]=math.max(conditions[label] or 0,left)
+                    -- Poison's hit points left: per second by its type, as the classifier counts it.
+                    if label=='poison' and left<math.huge then
+                        local p1,mode=number(e.m_effectAmount),number(e.m_dWFlags)%65536
+                        local rate=({[0]=1,[1]=p1,[2]=p1>0 and 1/p1 or 0,[3]=p1})[mode] or 1
+                        poison=poison+rate*left
+                    end
+                end
+            end
             if timing and type(op)=='number' then
                 local source=name(e.m_sourceRes)
                 if source~='' then sources[source]=true end
@@ -4332,7 +4652,7 @@ function M.guard(g,sprite,tick,classify)
     local classified=classify(record)
     local mirror=sprite.m_nMirrorImages
     return {roles=type(classified)=='table' and classified.roles or {},stoneskins=stat(g,sprite,M.combat.stoneskins),
-        mirror=type(mirror)=='number' and mirror or 0,sources=sources,recast=recast}
+        mirror=type(mirror)=='number' and mirror or 0,sources=sources,recast=recast,conditions=conditions,poison=poison}
 end
 
 -- Adds what the defence slice weighs to a frame read with details: each friend's guard (false
@@ -4350,6 +4670,7 @@ function M.defend(g,frame,tick,reader,classify)
     local function friend(entry)
         entry.guard=false
         each(entry,function(sprite)
+            M.identity(g,sprite,entry)
             entry.guard=M.guard(g,sprite,tick,classify)
             if entry~=frame.self then entry.attack=M.attack(g,sprite,reader) end
         end)
@@ -4814,6 +5135,12 @@ factories["adapters.eeex.choice"]=function(require)
 -- a strike; the creature is held while it attacks, or while the timer runs and its target lives,
 -- and then whether its target lost hit points is recorded. A spell that conjures a weapon is cast
 -- on the caster.
+--
+-- Healing and curing (D3a, D3b): a heal or cure is cast on the caster, at an ally (sanctuary does
+-- not keep it out) or at a point; a potion is drunk with UseItem. Like a disable, it claims the
+-- allies it helps in the group as soon as it is chosen, so that another member leaves them to it.
+-- Once it ends it is judged by whether a friend it was for gained hit points or lost a disabling
+-- condition.
 local sense=require('adapters.eeex.sense')
 local creature=require('adapters.eeex.creature')
 local resources=require('adapters.eeex.resources')
@@ -4846,8 +5173,16 @@ M.judgeLimit=64
 -- Item slots a creature drinks from: the quick items and the backpack (SLOTS.IDS).
 M.itemFirst,M.itemLast=15,33
 -- Casts of the engine's own: Spell (SpellRES) and SpellPoint (SpellPointRES); ForceSpell and
--- ForceSpellPoint (ForceSpellRES, ForceSpellPointRES) for releases.
-M.CASTS={[31]=true,[95]=true,[113]=true,[114]=true}
+-- ForceSpellPoint (ForceSpellRES, ForceSpellPointRES) for releases; UseItem for a potion. Each
+-- holds the spell's or item's resref as its first string.
+M.CASTS={[31]=true,[95]=true,[113]=true,[114]=true,[34]=true}
+-- Decisions for friends: sanctuary keeps out enemies' casts, not these; heals and cures claim the
+-- allies they help.
+M.FRIENDLY={defence=true,heal=true,cure=true}
+M.CARE={heal=true,cure=true}
+-- STATE.IDS bits of the conditions a cure takes away (combat-intent/care.lua): sleeping,
+-- berserk, panic, stunned, silenced, poisoned, blind, diseased, feebleminded, confused.
+M.CONDITION_BITS={0x1,0x2,0x4,0x8,0x1000,0x4000,0x40000,0x80000,0x100000,0x80000000}
 -- Attack actions (ACTION.IDS): Attack, AttackNoSound, AttackOneRound, AttackReevaluate.
 M.ATTACKS={[3]=true,[98]=true,[105]=true,[134]=true}
 -- The magic weapon slot (SLOTS.IDS), where a spell's weapon goes, and how long the engine holds a
@@ -4881,9 +5216,13 @@ function M.timerRunning(g,sprite,tick)
 end
 
 -- The response that casts decision's spell (a release with ForceSpellRES), or strikes with the
--- charge or attacks with the weapon in hand, or nil.
+-- charge or attacks with the weapon in hand, or drinks the item, or nil.
 function M.response(decision)
     if type(decision)~='table' or not valid(decision.resref) then return nil end
+    if decision.use then
+        if not decision.self then return nil end
+        return M.setTimer..'\nUseItem("'..decision.resref..'",Myself)'
+    end
     if decision.kind=='strike' or decision.kind=='weapon' then
         local t=decision.target
         if type(t)~='number' or t<0 or t%1~=0 then return nil end
@@ -4930,7 +5269,7 @@ function M.new(g,options)
     local counts={decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
         hits=0,misses=0,errors=0,holds=0,frozen=0,marks=0,markFailures=0,defences=0,guarded=0,unguarded=0,
         guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0,arms=0,attacks=0,attackHits=0,
-        weaponFailures=0,releases=0}
+        weaponFailures=0,releases=0,heals=0,cures=0,potions=0,cared=0,uncared=0}
     local reasons={}
     local log,nextRow,size={},1,0
     local root,sink,lastError,markError,guardError,weaponError
@@ -5140,10 +5479,31 @@ function M.new(g,options)
     -- friend it was for carries its effects.
     local function outcome(a)
         local defending=a.kind=='defence'
-        if not defending and (not a.target or a.mode~='creature') then return end
         if a.castTicks and a.ended-a.started<a.castTicks-M.interruptSlack then
             counts.interrupted=counts.interrupted+1;return
         end
+        if M.CARE[a.kind] then
+            local helped=0
+            local friends=type(a.hits)=='table' and a.hits or {}
+            for _,id in ipairs(friends) do
+                local friend=get(id)
+                local before=type(a.before)=='table' and a.before[id]
+                if friend and before then
+                    local now=sense.actor(g,friend)
+                    local better=type(now.hp)=='number' and type(before.hp)=='number' and now.hp>before.hp
+                    if (before.held or 0)>0 and (now.held or 0)==0 then better=true end
+                    for _,bit in ipairs(M.CONDITION_BITS) do
+                        if targeting.has(before.state,bit) and not targeting.has(now.state,bit) then better=true end
+                    end
+                    if better then helped=helped+1 end
+                end
+            end
+            if helped>0 then counts.cared=counts.cared+1 else counts.uncared=counts.uncared+1 end
+            record({kind='care',tick=a.ended,member=a.caster,spell=a.resref,castKind=a.kind,mode=a.mode,
+                friends=#friends,helped=helped})
+            return
+        end
+        if not defending and (not a.target or a.mode~='creature') then return end
         if defending then
             local landed=0
             local friends=type(a.hits)=='table' and a.hits or {}
@@ -5334,19 +5694,32 @@ function M.new(g,options)
         if d.kind=='opener' then counts.openers=counts.openers+1 end
         if d.kind=='touch' then counts.touches=counts.touches+1 end
         if d.kind=='arm' then counts.arms=counts.arms+1 end
+        if d.kind=='heal' then counts.heals=counts.heals+1 end
+        if d.kind=='cure' then counts.cures=counts.cures+1 end
+        if d.use then counts.potions=counts.potions+1 end
         if d.release then counts.releases=counts.releases+1 end
         record({kind='choice',tick=tick,member=id,family=family,spell=d.resref,castKind=d.kind,mode=d.mode,
             target=d.target,point=d.point,score=d.score,worth=d.worth,hits=d.hits,how=why,top=top,
             focus=input.plan.focus,rule=d.rule,stop=input.timeStop and input.timeStop.left or nil,
-            alacrity=frame.self.alacrity or nil,release=d.release})
+            alacrity=frame.self.alacrity or nil,release=d.release,use=d.use})
         -- A disable claims its targets in the group at once, so that another member deciding
         -- before this cast starts leaves them alone; any other decision gives earlier claims back.
         if director then
-            if d.kind=='disable' then director:reserve(id,d.hits,tick) else director:release(id,tick) end
+            if d.kind=='disable' or M.CARE[d.kind] then director:reserve(id,d.hits,tick) else director:release(id,tick) end
         end
         local spell
         for _,row in ipairs(rows) do if row.resref==d.resref then spell=row.spell end end
         local sources=spell and spell.sources or nil
+        local before
+        if M.CARE[d.kind] then
+            before={}
+            local friends={[frame.self.id]=frame.self}
+            for _,a in ipairs(frame.allies) do friends[a.id]=a end
+            for _,h in ipairs(d.hits or {}) do
+                local f=friends[h]
+                if f then before[h]={hp=f.hp,state=f.state,held=f.held} end
+            end
+        end
         local disable
         if d.kind=='strike' then
             local strike=frame.self.charge.strike
@@ -5355,7 +5728,8 @@ function M.new(g,options)
         end
         return {own=true,response=response,spell=d.resref,kind=d.kind,mode=d.mode,target=d.target,point=d.point,
             self=d.self,hits=d.hits,castTicks=spell and type(spell.speed)=='number' and spell.speed*9 or nil,
-            sources=sources,expected=d.expected,disable=disable,charge=d.kind=='strike' and d.spell or nil}
+            sources=sources,expected=d.expected,disable=disable,charge=d.kind=='strike' and d.spell or nil,
+            use=d.use,before=before}
     end
     -- From the gate, each time a hooked script asks: nil (SCS's round), {hold=true} while the
     -- engine's queued cast has not started, or the decision.
@@ -5384,8 +5758,8 @@ function M.new(g,options)
             local target=get(decision.target)
             if not target then return 'skipped' end
             local seen=sense.actor(g,target)
-            -- Sanctuary keeps out enemies' casts, not an ally's protection.
-            if not targeting.alive(seen) or ((seen.sanctuary or 0)>0 and decision.kind~='defence') then return 'skipped' end
+            -- Sanctuary keeps out enemies' casts, not an ally's protection, heal or cure.
+            if not targeting.alive(seen) or ((seen.sanctuary or 0)>0 and not M.FRIENDLY[decision.kind]) then return 'skipped' end
             if targeting.has(seen.state,UNSEEN) and not (g.EEex_Sprite_GetStat(object,sense.stats.seeInvisible)>0 or
                 g.EEex_Sprite_GetStat(object,sense.stats.trueSight)>0) then return 'skipped' end
             local aux=g.EEex_GetUDAux(object)
@@ -5414,7 +5788,7 @@ function M.new(g,options)
         end
         pending[object.m_id]={caster=object.m_id,resref=decision.spell,kind=decision.kind,mode=decision.mode,
             target=decision.target,point=decision.point,hits=decision.hits,tick=tick,hp=hp,
-            castTicks=decision.castTicks,sources=decision.sources,expected=decision.expected}
+            castTicks=decision.castTicks,sources=decision.sources,expected=decision.expected,before=decision.before}
         counts.performed=counts.performed+1
         return true
     end

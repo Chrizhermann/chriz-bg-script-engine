@@ -35,11 +35,16 @@
 -- (combat-intent/spells.lua); their options carry release, and the adapter sets them off with
 -- ForceSpellRES as SCS does. None under Improved Alacrity, as SCS keeps them for after it.
 --
--- Until the engine casts summons, protection removal, healing, raising and curing itself, SCS
--- keeps a round the engine would only attack in while the caster has such a spell ready that fits
--- now (M.fits; Christopher, 2026-10-20: "nur wenn jetzt sinnvoll"; profile keepScsSpells).
+-- Healing and curing (D3a, D3b; Christopher, 2026-10-20: "Mach alles"): heals and cures for the
+-- caster and its allies, and potions, compete on the same scale (combat-intent/care.lua). The
+-- engine no longer leaves a hurt group or a silenced caster to SCS.
+--
+-- Until the engine casts summons, protection removal and raising itself, SCS keeps a round the
+-- engine would only attack in while the caster has such a spell ready that fits now (M.fits;
+-- Christopher, 2026-10-20: "nur wenn jetzt sinnvoll"; profile keepScsSpells).
 local targeting=require('combat-intent.targeting')
 local defence=require('combat-intent.defence')
+local care=require('combat-intent.care')
 local openers=require('combat-intent.openers')
 local touch=require('combat-intent.touch')
 local weapons=require('combat-intent.weapons')
@@ -69,8 +74,10 @@ M.RESIST={fire='fire',cold='cold',electricity='electricity',acid='acid',magic='m
     magicfire='magicfire',magiccold='magiccold',slashing='slashing',crushing='crushing',
     piercing='piercing',missile='missile',poison='poison'}
 -- Roles that make a spell something other than an attack: protection removal, healing,
--- curing, raising and summoning are other decisions (later slices).
+-- curing, raising and summoning are other decisions. Of these SCS may still keep a round for
+-- removal, raising and summoning (M.scsSpell).
 local OTHER={'removal','heal','raise','cure','summon'}
+local KEPT={'removal','raise','summon'}
 local GLOBAL={everyone=true,nonparty=true,casterGroup=true,party=true}
 -- What makes such a spell fit now (M.fits). The STATE.IDS bit each cured condition shows in; holds
 -- also set the HELD stat, level drain the LEVELDRAIN stat, and a petrified ally lies among the
@@ -687,11 +694,9 @@ local REMOVED={dispel=shielded,schools=shielded,secondaries=shielded,
     summons=summoned,destroy=summoned,replace=summoned}
 
 -- Whether a role of a spell the engine leaves to SCS fits now (Christopher, 2026-10-20): a summons
--- always; healing when the caster is below its selfHealth line or an ally it reaches below
--- allyHealth (where SCS's priests heal: the profile's defer); raising when an ally it sees lies
--- dead with a body, not a summons; curing when the caster or an ally it reaches has a condition
--- the spell cures; removal when an enemy it sees has what the spell takes away. A spell on the
--- caster alone reaches only the caster.
+-- always; raising when an ally it sees lies dead with a body, not a summons; curing when the
+-- caster or an ally it reaches has a condition the spell cures; removal when an enemy it sees has
+-- what the spell takes away. A spell on the caster alone reaches only the caster.
 function M.fits(input,name,role)
     if type(role)~='table' or type(role.who)~='table' or next(role.who)==nil then return false end
     if name=='summon' then return true end
@@ -701,14 +706,6 @@ function M.fits(input,name,role)
     local friends={caster}
     if wide then
         for _,a in ipairs(list(frame.allies)) do if targeting.alive(a) then friends[#friends+1]=a end end
-    end
-    if name=='heal' then
-        local defer=type(input.mind.defer)=='table' and input.mind.defer or {}
-        for _,f in ipairs(friends) do
-            local line=f==caster and defer.selfHealth or defer.allyHealth
-            if targeting.health(f)<(number(line) and line or 1) then return true end
-        end
-        return false
     end
     local fallen=wide and list(frame.fallen) or {}
     if name=='raise' then
@@ -750,50 +747,13 @@ function M.fits(input,name,role)
 end
 
 -- The kind and resref of a spell the caster has ready that the engine does not cast yet (removal,
--- heal, raise, cure, summon) and that fits now (M.fits), or nil.
+-- raise, summon) and that fits now (M.fits), or nil.
 function M.scsSpell(input)
     for _,row in ipairs(type(input.spells)=='table' and input.spells or {}) do
         if type(row)=='table' and number(row.ready) and row.ready>0 and row.usable and
             type(row.spell)=='table' and type(row.spell.roles)=='table' then
-            for _,name in ipairs(OTHER) do
+            for _,name in ipairs(KEPT) do
                 if M.fits(input,name,row.spell.roles[name]) then return name,row.resref end
-            end
-        end
-    end
-end
-
--- Healing the caster has ready: for itself, and for others.
-function M.heals(input)
-    local own,others=false,false
-    for _,row in ipairs(type(input.spells)=='table' and input.spells or {}) do
-        local h=type(row)=='table' and number(row.ready) and row.ready>0 and row.usable and
-            type(row.spell)=='table' and type(row.spell.roles)=='table' and row.spell.roles.heal
-        if type(h)=='table' and type(h.who)=='table' then
-            if h.who.self or h.who.target then own=true end
-            if h.who.target or h.who.area or h.who.party then others=true end
-        end
-    end
-    for _,item in ipairs(type(input.items)=='table' and input.items or {}) do
-        for _,a in ipairs(type(item)=='table' and type(item.abilities)=='table' and item.abilities or {}) do
-            local h=type(a)=='table' and type(a.effect)=='table' and type(a.effect.roles)=='table' and a.effect.roles.heal
-            if type(h)=='table' and type(h.who)=='table' and (h.who.self or h.who.target) and
-                (not number(a.uses) or a.uses>0) then own=true end
-        end
-    end
-    return {self=own,others=others}
-end
-
--- Something SCS's own order puts before attacks, which the engine leaves to SCS for now.
-function M.urgent(input)
-    local defer=type(input.mind.defer)=='table' and input.mind.defer or {}
-    local caster=input.frame.self
-    if defer.silenced and targeting.has(caster.state,M.SILENCED) then return 'silenced' end
-    if input.family=='priest' then
-        local heals=M.heals(input)
-        if heals.self and number(defer.selfHealth) and targeting.health(caster)<defer.selfHealth then return 'self-hurt' end
-        if heals.others and number(defer.allyHealth) then
-            for _,ally in ipairs(type(input.frame.allies)=='table' and input.frame.allies or {}) do
-                if targeting.alive(ally) and targeting.health(ally)<defer.allyHealth then return 'ally-hurt' end
             end
         end
     end
@@ -848,14 +808,12 @@ function M.frozen(input)
     return view
 end
 
--- The attack, defence, opener or strike to do now, or nil and why; the options come along for
+-- The attack, defence, heal or cure, opener or strike to do now, or nil and why; the options come along for
 -- the log, and with 'no-option' the count of reasons the ready spells gave none. When SCS keeps
 -- the round for a spell that fits now, that spell's resref comes last.
 function M.decide(input)
     if type(input)~='table' or type(input.frame)~='table' or type(input.frame.self)~='table' or
         type(input.frame.enemies)~='table' or type(input.mind)~='table' then return nil,'bad-input',{} end
-    local why=M.urgent(input)
-    if why then return nil,'urgent-'..why,{} end
     local mind=input.mind
     local rejected={}
     if mind.touch then
@@ -870,6 +828,7 @@ function M.decide(input)
     if input.frame.self.alacrity==true then input=M.unreleased(input) end
     local options=M.options(input,rejected)
     for _,o in ipairs(defence.options(input,rejected)) do options[#options+1]=o end
+    for _,o in ipairs(care.options(input,rejected)) do options[#options+1]=o end
     table.sort(options,better)
     -- A weapon attack spends nothing: it needs no minimum worth, and it is taken over a spell
     -- only when it is worth more. Instead of no cast at all it waits while the caster has a spell

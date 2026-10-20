@@ -50,6 +50,11 @@ M.quiver={11,12,13}
 M.expiring=6
 -- Opcodes that deliver other effects; what they delivered is in the list already.
 M.delivered={[146]=true,[148]=true,[177]=true,[272]=true,[283]=true,[326]=true,[333]=true,[366]=true}
+-- Conditions a cure takes away, by the opcode that sets them (combat-intent/spells.lua's labels;
+-- combat-intent/care.lua weighs them).
+M.conditions={[39]='sleep',[3]='berserk',[24]='panic',[45]='stun',[210]='stun',[38]='silence',[74]='blind',
+    [76]='feeblemind',[78]='disease',[80]='deaf',[109]='hold',[175]='hold',[185]='hold',[128]='confusion',
+    [165]='pause',[25]='poison'}
 
 local function band(g,a,b) return g.EEex_BAnd(a,b) end
 local function stat(g,sprite,n)
@@ -83,6 +88,18 @@ end
 -- A creature's THAC0 with its right-hand and general hit bonuses (as M.attack counts it).
 function M.thac0(g,sprite)
     return stat(g,sprite,M.combat.thac0)-stat(g,sprite,M.combat.thac0Right)-stat(g,sprite,M.combat.hitBonus)
+end
+
+-- A creature's IDS values and level (the highest of its classes'), for a friend: what healing,
+-- curing and summoning weigh (combat-intent/care.lua). M.details reads the same for enemies.
+function M.identity(g,sprite,entry)
+    local t=sprite.m_typeAI
+    entry.ids={ea=t.m_EnemyAlly,general=t.m_General,race=t.m_Race,class=t.m_Class,
+        specific=t.m_Specifics,gender=t.m_Gender,alignment=t.m_Alignment}
+    local level=0
+    for _,n in ipairs(M.levels) do level=math.max(level,stat(g,sprite,n)) end
+    entry.level=level
+    return entry
 end
 
 -- Creature IDS values, saving throws, resistances, level and the spell protections in both
@@ -221,10 +238,13 @@ end
 -- What protects a creature now, as plain values (combat-intent/defence.lua's guard): its
 -- active effects classified as one record (classify(record), combat-intent/spells.lua) for
 -- their roles, the engine's counts of Stoneskin skins and Mirror Images, the spells its effects
--- come from, and the spells opcode 206 keeps off it. Effects that end within M.expiring
--- seconds and delayed ones that have not started are left out.
+-- come from, the spells opcode 206 keeps off it, and the conditions on it a cure takes away
+-- with the seconds each has left (math.huge for one without an end) and the hit points its
+-- poison will still take. Effects that end within M.expiring seconds and delayed ones that have
+-- not started are left out of its roles.
 function M.guard(g,sprite,tick,classify)
-    local list,sources,recast={},{},{}
+    local list,sources,recast,conditions={},{},{},{}
+    local poison=0
     for _,effects in ipairs({sprite.m_timedEffectList,sprite.m_equipedEffectList}) do
         local seen=0
         g.EEex_Utility_IterateCPtrList(effects,function(e)
@@ -238,6 +258,22 @@ function M.guard(g,sprite,tick,classify)
             elseif kind==1 or kind==9 then timing,duration=1,0
             elseif kind==2 then timing,duration=2,0 end
             local op=e.m_effectId
+            -- A condition counts with any time left; one without an end lasts.
+            local label=type(op)=='number' and M.conditions[op]
+            if label then
+                local left
+                if kind==4096 then left=(number(e.m_duration)-tick)/15
+                elseif kind==1 or kind==9 or kind==2 then left=math.huge end
+                if left and left>0 then
+                    conditions[label]=math.max(conditions[label] or 0,left)
+                    -- Poison's hit points left: per second by its type, as the classifier counts it.
+                    if label=='poison' and left<math.huge then
+                        local p1,mode=number(e.m_effectAmount),number(e.m_dWFlags)%65536
+                        local rate=({[0]=1,[1]=p1,[2]=p1>0 and 1/p1 or 0,[3]=p1})[mode] or 1
+                        poison=poison+rate*left
+                    end
+                end
+            end
             if timing and type(op)=='number' then
                 local source=name(e.m_sourceRes)
                 if source~='' then sources[source]=true end
@@ -257,7 +293,7 @@ function M.guard(g,sprite,tick,classify)
     local classified=classify(record)
     local mirror=sprite.m_nMirrorImages
     return {roles=type(classified)=='table' and classified.roles or {},stoneskins=stat(g,sprite,M.combat.stoneskins),
-        mirror=type(mirror)=='number' and mirror or 0,sources=sources,recast=recast}
+        mirror=type(mirror)=='number' and mirror or 0,sources=sources,recast=recast,conditions=conditions,poison=poison}
 end
 
 -- Adds what the defence slice weighs to a frame read with details: each friend's guard (false
@@ -275,6 +311,7 @@ function M.defend(g,frame,tick,reader,classify)
     local function friend(entry)
         entry.guard=false
         each(entry,function(sprite)
+            M.identity(g,sprite,entry)
             entry.guard=M.guard(g,sprite,tick,classify)
             if entry~=frame.self then entry.attack=M.attack(g,sprite,reader) end
         end)

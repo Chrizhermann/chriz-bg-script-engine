@@ -161,25 +161,25 @@ i.frame.enemies={enemy(11,{x=200,hp=4,mr=50})}
 d,why=choice.decide(i)
 assert(why=='weapon' and d.kind=='weapon' and d.target==11)
 i.frame.enemies={enemy(11,{x=200})}
--- A healing or summoning spell ready, which the engine does not cast yet, that fits now: SCS
--- keeps the round the engine would only attack in, not one with a cast worth it. The healing fits
--- once the caster is below half its hit points; the decline names it.
+-- Healing is the engine's own (D3a) and keeps no round for SCS: eight hit points are worth less
+-- than a round of the mace. A summoning spell ready, which the engine does not cast yet, that fits
+-- now: SCS keeps the round the engine would only attack in, not one with a cast worth it; the
+-- decline names it.
 i.spells={row('TESTCURE',cure,1)}
-assert(choice.decide(i).kind=='weapon')
 i.frame.self.hp=25
-d,why,list=choice.decide(i)
-assert(d==nil and why=='scs-heal' and list[1].kind=='weapon' and select(5,choice.decide(i))=='TESTCURE')
+assert(choice.decide(i).kind=='weapon' and choice.scsSpell(i)==nil)
+i.frame.self.hp=60
 i.spells={row('TESTSUMM',monsters,3),row('TESTDART',dart,1)}
-assert(choice.scsSpell(i)=='summon' and select(2,choice.decide(i))=='scs-summon')
+d,why,list=choice.decide(i)
+assert(d==nil and why=='scs-summon' and list[1].kind=='weapon' and select(5,choice.decide(i))=='TESTSUMM')
 i.spells={row('TESTSUMM',monsters,3),row('TESTBOLT',bolt,3)}
 assert(choice.decide(i).resref=='TESTBOLT')
-i.spells={row('TESTCURE',cure,1)}
+i.spells={row('TESTSUMM',monsters,3)}
 i.spells[1].ready=0
 assert(choice.decide(i).kind=='weapon')
-i.spells={row('TESTCURE',cure,1)}
+i.spells={row('TESTSUMM',monsters,3)}
 i.mind=mind.new({keepScsSpells=false})
 assert(choice.decide(i).kind=='weapon')
-i.frame.self.hp=60
 i.mind=mind.new({weapons=false})
 i.spells={row('TESTDART',dart,1)}
 assert(select(2,choice.decide(i))=='nothing-good')
@@ -222,9 +222,9 @@ groups=groups+1
 
 -- 7. Only a spell that fits now keeps the round for SCS (Christopher, 2026-10-20). A cure: the
 -- caster or an ally it reaches has the condition (Vocalize only for a silenced caster itself); a
--- curse shows nowhere, so a curse removal alone never fits. Raising: an ally lies dead with a body,
--- not a summons; a petrified one is cured instead. Healing on the caster alone counts only its own
--- hit points. Removal: an enemy has a protection from a spell with time left (an item's does not
+-- curse shows nowhere, so a curse removal alone never fits; cures are the engine's own since D3b,
+-- so none keeps a round. Raising: an ally lies dead with a body, not a summons; a petrified one is
+-- cured instead. Removal: an enemy has a protection from a spell with time left (an item's does not
 -- count), skins, images, a protective state or sanctuary, or is summoned; not a removal on the
 -- caster itself, nor one of clouds. Summons always fit.
 local vocal=classify(spl('TESTVOC',2,{fx(48,{target=1})},{target=5}))
@@ -234,7 +234,6 @@ local uncurse=classify(spl('TESTCURS',3,{fx(26)}))
 local restore=classify(spl('TESTREST',7,{fx(224)}))
 local unstone=classify(spl('TESTSTON',6,{fx(43)}))
 local raise=classify(spl('TESTRAIS',5,{fx(32)},{target=3}))
-local selfHeal=classify(spl('TESTSELH',1,{fx(17,{p1=8,target=1})},{target=5}))
 local dispel=classify(spl('TESTDISP',3,{fx(58,{p1=10})}))
 local strip=classify(spl('TESTSTRP',5,{fx(337,{p2=120})}))
 local unsanct=classify(spl('TESTUNSA',4,{fx(160)}))
@@ -250,7 +249,7 @@ i.frame.enemies={enemy(11,{x=200})}
 local function fit(s,name) return choice.fits(i,name,s.roles[name]) end
 assert(vocal.roles.cure.who.self and not fit(vocal,'cure') and choice.scsSpell(i)==nil)
 i.frame.self.state=choice.SILENCED
-assert(fit(vocal,'cure') and choice.scsSpell(i)=='cure')
+assert(fit(vocal,'cure') and choice.scsSpell(i)==nil)
 i.frame.self.state=0
 ally.state=choice.SILENCED
 assert(not fit(vocal,'cure'))
@@ -278,15 +277,6 @@ assert(not fit(raise,'raise') and not fit(unstone,'cure'))
 i.frame.fallen={{id=3,x=130,y=100,state=0x800,gender=6}}
 assert(not fit(raise,'raise'))
 i.frame.fallen=nil
--- Healing: the caster below half, an ally below three quarters.
-ally.hp=10
-assert(not fit(selfHeal,'heal') and fit(cure,'heal'))
-ally.hp=50
-assert(not fit(cure,'heal'))
-i.frame.self.hp=20
-assert(fit(selfHeal,'heal'))
-i.frame.self.hp=60
-ally.hp=60
 -- Removal.
 local e=i.frame.enemies[1]
 assert(not fit(dispel,'removal') and not fit(strip,'removal'))

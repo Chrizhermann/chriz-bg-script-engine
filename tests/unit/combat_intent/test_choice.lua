@@ -78,13 +78,13 @@ groups=groups+1
 
 -- 2. Profiles: a fresh copy of the default each time; changes are checked field by field.
 local m1,m2=mind.new(),mind.new()
-m1.defer.allyHealth=0.1
-assert(m2.defer.allyHealth==0.75 and mind.default.defer.allyHealth==0.75)
-local sharp=assert(mind.new({best=0.95,band=0.05,coordination=0,defer={silenced=false}}))
-assert(sharp.best==0.95 and sharp.coordination==0 and sharp.defer.silenced==false and sharp.defer.selfHealth==0.5)
+m1.allySpells.TESTX=true
+assert(m2.allySpells.TESTX==nil and mind.default.allySpells.TESTX==nil)
+local sharp=assert(mind.new({best=0.95,band=0.05,coordination=0}))
+assert(sharp.best==0.95 and sharp.coordination==0 and sharp.band==0.05)
 local bad,why=mind.new({best=2});assert(bad==nil and why=='best')
 bad,why=mind.new({knowledge='all'});assert(bad==nil and why=='knowledge')
-bad,why=mind.new({defer={allyHealth='x'}});assert(bad==nil and why=='defer.allyHealth')
+bad,why=mind.new({defer={allyHealth=0.5}});assert(bad==nil and why=='defer')
 bad,why=mind.new({clever=1});assert(bad==nil and why=='clever')
 groups=groups+1
 
@@ -204,21 +204,24 @@ i.mind=mind.new({memory=false});i.frame.enemies[1].mr=0
 assert(choice.decide(i).target==11)
 groups=groups+1
 
--- 11. Urgent things stay SCS's: a silenced caster; a priest with healing ready and a badly
--- hurt ally or self. A mage does not wait for its allies' wounds.
+-- 11. The engine heals itself (D3a): no round goes to SCS for wounds or silence. A badly hurt
+-- ally of its level gets the heal over a bolt; a nearly whole one does not; a drink for the
+-- caster when hurt, while the potion lasts. A silenced caster's spells are not usable, so it has
+-- no option.
 i=enemies(input({spells={row('TESTBOLT',bolt,3)}}),{enemy(11)})
-i.frame.self.state=0x1000
-assert(select(2,choice.decide(i))=='urgent-silenced')
-i.frame.self.state=0
-i.frame.allies={{id=2,x=150,y=150,hp=30,maxHp=100,state=0}}
+i.frame.self.level=10
+i.frame.allies={{id=2,x=150,y=150,hp=10,maxHp=100,state=0,level=10}}
 i.spells[2]=row('TESTHEAL',heal,4,{list='priest'})
-assert(choice.decide(i).target==11)
-i.family='priest';assert(select(2,choice.decide(i))=='urgent-ally-hurt')
-i.frame.allies[1].hp=90;assert(choice.decide(i).target==11)
-i.spells[2]=nil;i.frame.self.hp=10;assert(choice.decide(i).target==11)
+i.family='priest'
+d,reason=choice.decide(i)
+assert(d.kind=='heal' and d.resref=='TESTHEAL' and d.target==2 and d.mode=='ally' and reason=='best')
+i.frame.allies[1].hp=90;assert(choice.decide(i).resref=='TESTBOLT')
+i.spells[2]=nil;i.frame.self.hp=10
 i.items={{resref='TESTPOTN',abilities={{effect=potion,uses=2}}}}
-assert(select(2,choice.decide(i))=='urgent-self-hurt')
-i.items[1].abilities[1].uses=0;assert(choice.decide(i).target==11)
+d=choice.decide(i);assert(d.kind=='heal' and d.use==true and d.self==true and d.resref=='TESTPOTN')
+i.items[1].abilities[1].uses=0;assert(choice.decide(i).resref=='TESTBOLT')
+i.spells[1].usable=false;i.frame.self.state=0x1000
+assert(select(2,choice.decide(i))=='no-option')
 assert(select(2,choice.decide({}))=='bad-input')
 groups=groups+1
 

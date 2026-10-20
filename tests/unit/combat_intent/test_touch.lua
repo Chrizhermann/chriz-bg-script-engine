@@ -54,7 +54,7 @@ local function row(resref,s,level)
 end
 local function input(fields)
     local i={tick=100,family='priest',frame={self={id=1,x=100,y=100,hp=60,maxHp=60,state=0,ac=5,mr=0,thac0=10,guard={}},
-        enemies={},allies={}},spells={},plan={},memory={},mind=mind.new({defer={selfHealth=0,allyHealth=0}})}
+        enemies={},allies={}},spells={},plan={},memory={},mind=mind.new()}
     for k,v in pairs(fields or {}) do i[k]=v end
     return i
 end
@@ -146,9 +146,9 @@ assert(d==nil and rejected.mirror==1)
 i.frame.enemies={enemy(11,{x=400})}
 assert(choice.decide(i)==nil)
 i.frame.enemies={enemy(11,{x=200})}
-i.mind=mind.new({touch=false,defer={selfHealth=0,allyHealth=0}})
+i.mind=mind.new({touch=false})
 assert(choice.decide(i)==nil)
-i.mind=mind.new({defer={selfHealth=0,allyHealth=0}})
+i.mind=mind.new()
 i.timeStop={caster=1,left=10}
 assert(choice.decide(i)==nil)
 i.timeStop=nil

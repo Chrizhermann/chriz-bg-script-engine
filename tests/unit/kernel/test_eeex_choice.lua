@@ -33,9 +33,11 @@ local function sprite(id,x,y,ea,fields)
     s.m_memorizedSpellsPriest=memorized({})
     s.m_memorizedSpellsInnate=memorized(s.innate)
     s.m_equipment={m_selectedWeapon=10,m_selectedWeaponAbility=0,m_items={get=function(_,slot) return s.items[slot] end}}
+    -- A silenced caster's spell buttons are disabled, as the engine does it.
     function s:GetQuickButtons(kind)
         local list={}
-        if kind==2 then for _,r in ipairs(self.buttons) do list[#list+1]={m_count=1,m_bDisabled=0,m_abilityId={m_res=str(r)}} end end
+        local off=band(self.state,0x1000)~=0 and 1 or 0
+        if kind==2 then for _,r in ipairs(self.buttons) do list[#list+1]={m_count=1,m_bDisabled=off,m_abilityId={m_res=str(r)}} end end
         if kind==4 then for _,r in ipairs(self.innateButtons) do list[#list+1]={m_count=1,m_bDisabled=0,m_abilityId={m_res=str(r)}} end end
         return list
     end
@@ -250,9 +252,9 @@ assert(claim(m1,'mage','s1',330)==true and root.inspect().choice.counts.lost==1)
 assert(last('lost').spell=='TESTBOLT' and last('lost').queued==280)
 groups=groups+1
 
--- 6. SCS keeps the round: the switch off, a silenced mage, a cast already running, families the
--- choice does not drive, a creature on the good side. A busy casting aura does not: the cast
--- waits for it.
+-- 6. SCS keeps the round: the switch off, a silenced mage with nothing it can cast, a cast already
+-- running, families the choice does not drive, a creature on the good side. A busy casting aura
+-- does not: the cast waits for it.
 g.BGSE_Act(m1)
 start(m1,action(31,'TESTBOLT',-1))
 start(m1,action(0,'',0))
@@ -260,7 +262,7 @@ root.setChoice(false)
 assert(claim(m1,'mage','s1',400)==false and root.inspect().choice.reasons.off==1)
 root.setChoice(true)
 m1.state=0x1000
-assert(claim(m1,'mage','s1',401)==false and root.inspect().choice.reasons['urgent-silenced']==1)
+assert(claim(m1,'mage','s1',401)==false and root.inspect().choice.reasons['no-option']==1)
 m1.state=0
 m1.castTimer=40
 assert(claim(m1,'mage','s1',402)==true and root.inspect().choice.reasons.aura==nil)
@@ -293,14 +295,28 @@ start(m6,action(95,'TESTBALL',-1))
 assert(root.inspect().choice.counts.started>=5)
 groups=groups+1
 
--- 8. A priest leaves the round to SCS while an ally is badly hurt and healing is ready.
-local p7=g.add(sprite(7,0,140,255,{levels={[7]='S2'}}))
+-- 8. A priest heals a badly hurt ally of its level itself (D3a): the heal is cast at the ally,
+-- named by EEex_Target, and claims it in the group; once it ends it is judged by the hit points
+-- the ally gained. A whole ally gets no heal.
+local p7=g.add(sprite(7,0,140,255,{levels={[7]='S2'},stats={[1]=40,[34]=10}}))
 learn(p7,3,'TESTBOLT');learn(p7,3,'TESTHEAL')
-f21.state=0;f22.state=0
-local hurt=g.add(sprite(8,20,140,255,{m_baseStats={m_hitPoints=10,m_generalState=0}}))
-assert(claim(p7,'priest','s2',420)==false and root.inspect().choice.reasons['urgent-ally-hurt']==1)
+-- One enemy of the cluster is left to threaten the ally.
+f21.state=0;f22.state=0x800;g.objects[23].state=0x800
+local hurt=g.add(sprite(8,20,140,255,{m_baseStats={m_hitPoints=4,m_generalState=0},stats={[1]=40,[34]=10}}))
+assert(claim(p7,'priest','s2',420)==true)
+c=last('choice')
+assert(c.spell=='TESTHEAL' and c.castKind=='heal' and c.target==8 and c.mode=='ally')
+g.BGSE_Act(p7)
+assert(g.queued[#g.queued].text:find('SpellRES%("TESTHEAL",EEex_Target%("BGSE"%)%)')~=nil and p7.aux.EEex_Target.BGSE==8)
+assert(root.inspect().choice.counts.heals==1)
+start(p7,action(31,'TESTHEAL',-1))
+p7.m_curAction={m_actionID=0}
+hurt.m_baseStats.m_hitPoints=24
+assert(claim(p7,'priest','s2',450)==true and root.inspect().choice.judging==1)
+assert(claim(p7,'priest','s2',485)==true)
+assert(last('care') and last('care').helped==1 and root.inspect().choice.counts.cared==1)
 hurt.m_baseStats.m_hitPoints=40
-assert(claim(p7,'priest','s2',421)==true)
+assert(claim(p7,'priest','s2',486)==true and last('choice').spell=='TESTBOLT')
 groups=groups+1
 
 -- 9. Errors stay inside: a creature whose spellbook cannot be read, and a broken decision,
@@ -584,6 +600,20 @@ assert(guard.stoneskins==8 and guard.sources.TESTSTON and guard.roles.protection
 mage.m_timedEffectList[1].m_duration=200+80
 guard=sense.guard(g7,mage,200,effectsOf)
 assert(guard.sources.TESTSTON==nil and guard.roles.protection==nil)
+-- The conditions on it a cure takes away, with their seconds left, and the hit points its poison
+-- will still take (D3b): a hold with 12 seconds, a poison of 2 a second for 10, a feeblemind
+-- without an end.
+local function effect(op,ticks,kind,p1,p2)
+    return {m_effectId=op,m_durationType=kind or 4096,m_duration=ticks,m_effectAmount=p1 or 0,m_dWFlags=p2 or 0,
+        m_res=str(''),m_sourceRes=str('TESTCOND')}
+end
+local timed=mage.m_timedEffectList
+mage.m_timedEffectList={effect(109,200+180),effect(25,200+150,4096,2,1)}
+mage.m_equipedEffectList={effect(76,0,1)}
+guard=sense.guard(g7,mage,200,effectsOf)
+assert(guard.conditions.hold==12 and guard.conditions.poison==10 and guard.poison==20)
+assert(guard.conditions.feeblemind==math.huge and guard.conditions.sleep==nil)
+mage.m_timedEffectList,mage.m_equipedEffectList=timed,{}
 -- A defence the creature's own script starts begins the pause too: a second mage under one
 -- fighter would cast Stoneskin, but its script has just cast it.
 local other=g7.add(sprite(2,0,600,255))

@@ -807,8 +807,8 @@ fight), and the hard lab overwhelms the mid group; MAGE8A falls first, after 12 
 
 ### D3
 
-- **Removing enemy protections:** Breach, Dispel Magic, Spell Thrust and the like. They are
-  worth what they open for the group's attacks.
+Healing, curing, summons, protection removal and danger zones: see
+[SUPPORT-01](SUPPORT-01-healing-curing-summons-removal-zones.md).
 
 ### Open
 

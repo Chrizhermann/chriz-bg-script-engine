@@ -43,6 +43,12 @@
 -- a strike; the creature is held while it attacks, or while the timer runs and its target lives,
 -- and then whether its target lost hit points is recorded. A spell that conjures a weapon is cast
 -- on the caster.
+--
+-- Healing and curing (D3a, D3b): a heal or cure is cast on the caster, at an ally (sanctuary does
+-- not keep it out) or at a point; a potion is drunk with UseItem. Like a disable, it claims the
+-- allies it helps in the group as soon as it is chosen, so that another member leaves them to it.
+-- Once it ends it is judged by whether a friend it was for gained hit points or lost a disabling
+-- condition.
 local sense=require('adapters.eeex.sense')
 local creature=require('adapters.eeex.creature')
 local resources=require('adapters.eeex.resources')
@@ -75,8 +81,16 @@ M.judgeLimit=64
 -- Item slots a creature drinks from: the quick items and the backpack (SLOTS.IDS).
 M.itemFirst,M.itemLast=15,33
 -- Casts of the engine's own: Spell (SpellRES) and SpellPoint (SpellPointRES); ForceSpell and
--- ForceSpellPoint (ForceSpellRES, ForceSpellPointRES) for releases.
-M.CASTS={[31]=true,[95]=true,[113]=true,[114]=true}
+-- ForceSpellPoint (ForceSpellRES, ForceSpellPointRES) for releases; UseItem for a potion. Each
+-- holds the spell's or item's resref as its first string.
+M.CASTS={[31]=true,[95]=true,[113]=true,[114]=true,[34]=true}
+-- Decisions for friends: sanctuary keeps out enemies' casts, not these; heals and cures claim the
+-- allies they help.
+M.FRIENDLY={defence=true,heal=true,cure=true}
+M.CARE={heal=true,cure=true}
+-- STATE.IDS bits of the conditions a cure takes away (combat-intent/care.lua): sleeping,
+-- berserk, panic, stunned, silenced, poisoned, blind, diseased, feebleminded, confused.
+M.CONDITION_BITS={0x1,0x2,0x4,0x8,0x1000,0x4000,0x40000,0x80000,0x100000,0x80000000}
 -- Attack actions (ACTION.IDS): Attack, AttackNoSound, AttackOneRound, AttackReevaluate.
 M.ATTACKS={[3]=true,[98]=true,[105]=true,[134]=true}
 -- The magic weapon slot (SLOTS.IDS), where a spell's weapon goes, and how long the engine holds a
@@ -110,9 +124,13 @@ function M.timerRunning(g,sprite,tick)
 end
 
 -- The response that casts decision's spell (a release with ForceSpellRES), or strikes with the
--- charge or attacks with the weapon in hand, or nil.
+-- charge or attacks with the weapon in hand, or drinks the item, or nil.
 function M.response(decision)
     if type(decision)~='table' or not valid(decision.resref) then return nil end
+    if decision.use then
+        if not decision.self then return nil end
+        return M.setTimer..'\nUseItem("'..decision.resref..'",Myself)'
+    end
     if decision.kind=='strike' or decision.kind=='weapon' then
         local t=decision.target
         if type(t)~='number' or t<0 or t%1~=0 then return nil end
@@ -159,7 +177,7 @@ function M.new(g,options)
     local counts={decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
         hits=0,misses=0,errors=0,holds=0,frozen=0,marks=0,markFailures=0,defences=0,guarded=0,unguarded=0,
         guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0,arms=0,attacks=0,attackHits=0,
-        weaponFailures=0,releases=0}
+        weaponFailures=0,releases=0,heals=0,cures=0,potions=0,cared=0,uncared=0}
     local reasons={}
     local log,nextRow,size={},1,0
     local root,sink,lastError,markError,guardError,weaponError
@@ -369,10 +387,31 @@ function M.new(g,options)
     -- friend it was for carries its effects.
     local function outcome(a)
         local defending=a.kind=='defence'
-        if not defending and (not a.target or a.mode~='creature') then return end
         if a.castTicks and a.ended-a.started<a.castTicks-M.interruptSlack then
             counts.interrupted=counts.interrupted+1;return
         end
+        if M.CARE[a.kind] then
+            local helped=0
+            local friends=type(a.hits)=='table' and a.hits or {}
+            for _,id in ipairs(friends) do
+                local friend=get(id)
+                local before=type(a.before)=='table' and a.before[id]
+                if friend and before then
+                    local now=sense.actor(g,friend)
+                    local better=type(now.hp)=='number' and type(before.hp)=='number' and now.hp>before.hp
+                    if (before.held or 0)>0 and (now.held or 0)==0 then better=true end
+                    for _,bit in ipairs(M.CONDITION_BITS) do
+                        if targeting.has(before.state,bit) and not targeting.has(now.state,bit) then better=true end
+                    end
+                    if better then helped=helped+1 end
+                end
+            end
+            if helped>0 then counts.cared=counts.cared+1 else counts.uncared=counts.uncared+1 end
+            record({kind='care',tick=a.ended,member=a.caster,spell=a.resref,castKind=a.kind,mode=a.mode,
+                friends=#friends,helped=helped})
+            return
+        end
+        if not defending and (not a.target or a.mode~='creature') then return end
         if defending then
             local landed=0
             local friends=type(a.hits)=='table' and a.hits or {}
@@ -563,19 +602,32 @@ function M.new(g,options)
         if d.kind=='opener' then counts.openers=counts.openers+1 end
         if d.kind=='touch' then counts.touches=counts.touches+1 end
         if d.kind=='arm' then counts.arms=counts.arms+1 end
+        if d.kind=='heal' then counts.heals=counts.heals+1 end
+        if d.kind=='cure' then counts.cures=counts.cures+1 end
+        if d.use then counts.potions=counts.potions+1 end
         if d.release then counts.releases=counts.releases+1 end
         record({kind='choice',tick=tick,member=id,family=family,spell=d.resref,castKind=d.kind,mode=d.mode,
             target=d.target,point=d.point,score=d.score,worth=d.worth,hits=d.hits,how=why,top=top,
             focus=input.plan.focus,rule=d.rule,stop=input.timeStop and input.timeStop.left or nil,
-            alacrity=frame.self.alacrity or nil,release=d.release})
+            alacrity=frame.self.alacrity or nil,release=d.release,use=d.use})
         -- A disable claims its targets in the group at once, so that another member deciding
         -- before this cast starts leaves them alone; any other decision gives earlier claims back.
         if director then
-            if d.kind=='disable' then director:reserve(id,d.hits,tick) else director:release(id,tick) end
+            if d.kind=='disable' or M.CARE[d.kind] then director:reserve(id,d.hits,tick) else director:release(id,tick) end
         end
         local spell
         for _,row in ipairs(rows) do if row.resref==d.resref then spell=row.spell end end
         local sources=spell and spell.sources or nil
+        local before
+        if M.CARE[d.kind] then
+            before={}
+            local friends={[frame.self.id]=frame.self}
+            for _,a in ipairs(frame.allies) do friends[a.id]=a end
+            for _,h in ipairs(d.hits or {}) do
+                local f=friends[h]
+                if f then before[h]={hp=f.hp,state=f.state,held=f.held} end
+            end
+        end
         local disable
         if d.kind=='strike' then
             local strike=frame.self.charge.strike
@@ -584,7 +636,8 @@ function M.new(g,options)
         end
         return {own=true,response=response,spell=d.resref,kind=d.kind,mode=d.mode,target=d.target,point=d.point,
             self=d.self,hits=d.hits,castTicks=spell and type(spell.speed)=='number' and spell.speed*9 or nil,
-            sources=sources,expected=d.expected,disable=disable,charge=d.kind=='strike' and d.spell or nil}
+            sources=sources,expected=d.expected,disable=disable,charge=d.kind=='strike' and d.spell or nil,
+            use=d.use,before=before}
     end
     -- From the gate, each time a hooked script asks: nil (SCS's round), {hold=true} while the
     -- engine's queued cast has not started, or the decision.
@@ -613,8 +666,8 @@ function M.new(g,options)
             local target=get(decision.target)
             if not target then return 'skipped' end
             local seen=sense.actor(g,target)
-            -- Sanctuary keeps out enemies' casts, not an ally's protection.
-            if not targeting.alive(seen) or ((seen.sanctuary or 0)>0 and decision.kind~='defence') then return 'skipped' end
+            -- Sanctuary keeps out enemies' casts, not an ally's protection, heal or cure.
+            if not targeting.alive(seen) or ((seen.sanctuary or 0)>0 and not M.FRIENDLY[decision.kind]) then return 'skipped' end
             if targeting.has(seen.state,UNSEEN) and not (g.EEex_Sprite_GetStat(object,sense.stats.seeInvisible)>0 or
                 g.EEex_Sprite_GetStat(object,sense.stats.trueSight)>0) then return 'skipped' end
             local aux=g.EEex_GetUDAux(object)
@@ -643,7 +696,7 @@ function M.new(g,options)
         end
         pending[object.m_id]={caster=object.m_id,resref=decision.spell,kind=decision.kind,mode=decision.mode,
             target=decision.target,point=decision.point,hits=decision.hits,tick=tick,hp=hp,
-            castTicks=decision.castTicks,sources=decision.sources,expected=decision.expected}
+            castTicks=decision.castTicks,sources=decision.sources,expected=decision.expected,before=decision.before}
         counts.performed=counts.performed+1
         return true
     end
