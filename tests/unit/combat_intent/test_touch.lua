@@ -175,10 +175,17 @@ i.frame.enemies={enemy(11,{x=200,mirror=1}),enemy(12,{x=210}),enemy(13,{x=220,hp
 d,why=choice.decide(i)
 assert(why=='strike' and d.kind=='strike' and d.target==12 and d.resref=='TESTHRM' and d.spell=='TESTHARM')
 assert(near(d.worth,59/60*p) and d.score==d.worth)
--- No enemy in reach: the round goes to the other options, and no new touch spell.
+-- No enemy in reach: the round goes to the other options, and no new touch spell. Why each
+-- enemy got no strike is counted.
 i.frame.enemies={enemy(12,{x=400})}
 d,why=choice.decide(i)
 assert(d.kind=='damage' and d.resref=='TESTBOLT')
+local counted={}
+assert(choice.strike(i,counted)==nil and counted['strike-out-of-reach']==1)
+i.frame.enemies={enemy(12,{x=210,mirror=1}),enemy(13,{x=220,protections=false})}
+counted={}
+assert(choice.strike(i,counted)==nil and counted['strike-mirror']==1 and counted['strike-protected']==1)
+i.frame.enemies={enemy(12,{x=400})}
 for _,o in ipairs(choice.options(i)) do assert(o.kind~='touch') end
 -- Not in the caster's own Time Stop, not under Improved Alacrity.
 i.frame.enemies={enemy(12,{x=210})}

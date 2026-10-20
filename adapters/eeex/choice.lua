@@ -158,7 +158,7 @@ function M.new(g,options)
     local log,nextRow,size={},1,0
     local root,sink,lastError,markError,guardError,weaponError
     -- trace: labs see every decline as a 'declined' row in the sink (never in the log).
-    local trace,lastReason,lastDetail=false,nil,nil
+    local trace,lastReason,lastDetail,lastCharge=false,nil,nil,nil
     local api={}
 
     local function now() return root and root.now and root.now() end
@@ -514,6 +514,7 @@ function M.new(g,options)
         if g.EEex_Sprite_GetStat(sprite,M.alacrityStat)>0 then frame.self.alacrity=true end
         frame.self.thac0=sense.thac0(g,sprite)
         frame.self.charge=chargeIn(sprite,rows)
+        lastCharge=frame.self.charge and frame.self.charge.item or nil
         frame.self.magicItem=held(sprite)~=nil
         -- A weapon that cannot be read leaves the caster without a weapon attack, nothing more.
         local read,err=pcall(function()
@@ -543,7 +544,10 @@ function M.new(g,options)
             top[i]={spell=o.resref,kind=o.kind,target=o.target,point=o.point,score=o.score,hits=#o.hits}
         end
         if not d then
-            if why~='no-option' then record({kind='decline',tick=tick,member=id,family=family,reason=why,top=top}) end
+            if why~='no-option' then
+                record({kind='decline',tick=tick,member=id,family=family,reason=why,top=top,charge=lastCharge,
+                    rejected=lastCharge and rejected or nil})
+            end
             return decline(why)
         end
         local response=M.response(d)
@@ -578,11 +582,11 @@ function M.new(g,options)
     -- From the gate, each time a hooked script asks: nil (SCS's round), {hold=true} while the
     -- engine's queued cast has not started, or the decision.
     function api:decide(view,family)
-        lastReason,lastDetail=nil,nil
+        lastReason,lastDetail,lastCharge=nil,nil,nil
         local ok,result=pcall(decide,view,family)
         if trace and sink and lastReason then
             pcall(sink,{kind='declined',tick=now(),member=type(view)=='table' and view.id or nil,family=family,
-                reason=lastReason,rejected=lastReason=='no-option' and lastDetail or nil})
+                reason=lastReason,rejected=(lastReason=='no-option' or lastCharge) and lastDetail or nil,charge=lastCharge})
         end
         if ok then return result end
         failed('decide',result)

@@ -576,9 +576,8 @@ is no minimum: the charge is spent already.
   `strikeMisses`.
 - Profile: `touch` (a switch) and `touchReach`.
 
-**Not yet seen in a lab.** A probe must show that the hand lands in slot 34, that
-`AttackOneRound` at `EEex_Target` strikes, that the hit removes the hand, and that SR's Harm deals
-its 90 damage.
+**Seen in batch G3** (below): the hand lands in slot 34, `AttackOneRound` at `EEex_Target`
+strikes, the hit removes the hand, SR's Harm deals its 90 damage, and the strike is judged a hit.
 
 ### D2c as built: weapon attacks (2026-10-20)
 
@@ -642,6 +641,66 @@ is to be seen in the lab.
 **Not yet seen in a lab.** A fight must show that `AttackOneRound` at `EEex_Target` attacks
 with the selected weapon, that a conjured weapon lands in slot 34 and is selected, and how
 often the engine attacks instead of casting.
+
+### Batch G3: touch, triggers and weapons in game (2026-10-20)
+
+One launch in the hard lab's quiet room: the touch probe, the four trigger probes and two fights
+of each group with the engine (touch charges and weapon attacks on). The first attempt stopped
+while loading because the lab's Lua still wrote into G2's folder (learned.md, section 6); the
+second ran all nine phases and cleaned up.
+
+**Touch probe** (SCS's PRIES12A with Harm beside a scriptless dummy of 100 hit points):
+
+- The engine cast Harm on the priest, aimed at the dummy. The hand was in slot 34 when the cast
+  ended; the engine struck at once with `AttackOneRound` at `EEex_Target`.
+- The dummy went from 100 to 96 (the hand's hit) and to 6 (Harm's 90); the hand was gone, and the
+  strike was judged a hit. The engine then cast Cause Light Wounds the same way.
+- Not explained: in the last 15 ticks the dummy died and the priest lost 10 hit points while it
+  cast Cause Light Wounds on itself. Six SCS-scripted fighters of the baseline save ask the gate
+  in every phase and are not tracked; to check before the next touch fight.
+
+**Trigger probes** (a scriptless copy of MAGE18C, engine off; its Minor Sequencer `DW#MS0` with
+two Melf's Acid Arrows at a dummy 256 away, its Spell Trigger `DW#TG8` on itself):
+
+| Action | Walk | Innate | Landed |
+| --- | --- | --- | --- |
+| `SpellRES` at the dummy | 256 to the wrong range | spent | both arrows |
+| `ForceSpellRES` at the dummy | none | spent within 5 ticks | both arrows (250 to 199) |
+| SCS's manual way (`DW#MS0B`, then each arrow) | none | spent by the B innate | both arrows |
+| `ForceSpellRES` at `Myself` | none | spent | Stoneskin with 9 skins and the others |
+
+- SCS's wrong range matters only for `SpellRES`; SCS itself releases with `ForceSpellRES` or its
+  manual way and never walks.
+- The trigger's spells take the caster's level: 9 skins for a level-18 caster.
+- So D2b releases a trigger as SCS's `Sequencer` and `SequencerMyself` do, with `ForceSpellRES`,
+  and takes its reach from its shortest-range spell.
+
+**Four fights** (two of each group):
+
+| Group | Won | Length | Group hp lost | Group dead | Foes dead |
+| --- | --- | --- | --- | --- | --- |
+| high | 2 of 2 | 99 s | 60 | 0 | 10 of 10 |
+| mid | 0 of 2 | 100 s | 429 | 6 of 8 | 1 of 10 |
+
+(Means per fight; length in game time.) As in G1, the hard lab overwhelms the mid group and the
+high group wins with Time Stops (the engine's, 8 in two fights). The engine chose no touch spell,
+strike, weapon attack or conjured weapon:
+
+- **SCS kept every round the engine would only have attacked in**: 60 rounds, because the caster
+  had a spell ready that the engine does not cast yet: 41 cures, 17 removals, 2 summons. Most of
+  those are spells SCS casts only when their condition holds: Vocalize (SPWI219, against
+  silence) kept 20 of MAGE12A's rounds; Remove Fear, Remove Paralysis, Cure Disease and
+  Neutralize Poison the priests'. The weapon attacks in those rounds would have been
+  MAGE12A's meteors and fists, PRIES12A's mace and PRIES10A's Spiritual Hammer.
+- SCS used its own weapons: every mage held Melf's Minute Meteors (SCS's `DW#MELF`) from early
+  on, the priests Spiritual Hammer, and PRIES12A cast Harm and Cause Light Wounds itself.
+- **A strike that did not happen.** PRIES12A held SCS's Cause Light Wounds hand for 20 seconds, a
+  fighter 40 to 90 away. The engine decided once in that time and found no option; in the other
+  rounds SCS's timer ran or a hurt ally sent the round to SCS. Offline, with the same spell and
+  item files and a fighter like the lab's (magic resistance 50, its items' protections), the
+  engine strikes (worth 0.022). The trace does not show what the engine saw, so each decline now
+  logs the charge in hand and why each enemy got no strike.
+- AttackOneRound with a weapon and the conjured-weapon cast stay unseen in game.
 
 ### D3
 

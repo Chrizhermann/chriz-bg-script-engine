@@ -2950,13 +2950,19 @@ end
 -- The strike of the touch charge the caster holds (frame.self.charge, a weapon entry): at the
 -- enemy in reach where the hit is worth most times its chance to land, or nil. No minimum: the
 -- charge is spent already.
-function M.strike(input)
+-- rejected (a table, optional) counts why each enemy got no strike: 'strike-' and the reason.
+function M.strike(input,rejected)
+    local function reject(why) if rejected then rejected['strike-'..why]=(rejected['strike-'..why] or 0)+1 end end
     local caster=input.frame.self
     local w=caster.charge
-    if type(w)~='table' or type(w.strike)~='table' or weaponsOut(input) then return nil end
+    if type(w)~='table' then return nil end
+    if type(w.strike)~='table' then reject('unread');return nil end
+    if weaponsOut(input) then reject('weapons-out');return nil end
     local best
     for _,e in ipairs(input.frame.enemies) do
-        if touch.reachable(caster,e,input.mind) and not touch.blocked(e,w) then
+        local ok,why=touch.reachable(caster,e,input.mind)
+        if ok then why=touch.blocked(e,w) end
+        if ok and not why then
             local worth,expected=strikeOn(input,{resref=w.spell or w.item},w,e)
             local p=touch.hitChance(caster,e,w)
             local score=worth*p
@@ -2964,7 +2970,8 @@ function M.strike(input)
                 best={resref=w.item,spell=w.spell,kind='strike',mode='creature',target=e.id,worth=score,cost=0,
                     score=score,hits={e.id},slack=0,hit=p,expected={[e.id]=expected*p},speed=0}
             end
-        end
+            if score<=0 then reject('no-worth') end
+        else reject(why or 'unknown') end
     end
     return best
 end
@@ -3201,8 +3208,9 @@ function M.decide(input)
     local why=M.urgent(input)
     if why then return nil,'urgent-'..why,{} end
     local mind=input.mind
+    local rejected={}
     if mind.touch then
-        local strike=M.strike(input)
+        local strike=M.strike(input,rejected)
         if strike then return strike,'strike',{strike} end
     end
     if mind.openers then
@@ -3210,7 +3218,6 @@ function M.decide(input)
         if opener then return opener,'opener',{opener} end
     end
     input=M.frozen(input)
-    local rejected={}
     local options=M.options(input,rejected)
     for _,o in ipairs(defence.options(input,rejected)) do options[#options+1]=o end
     table.sort(options,better)
@@ -3248,7 +3255,7 @@ function M.decide(input)
     if best.score<mind.minValue then
         local s,kept=instead()
         if s then return s,'weapon',all() end
-        return nil,kept or 'nothing-good',kept and all() or options
+        return nil,kept or 'nothing-good',kept and all() or options,rejected
     end
     if swing and swing.score>best.score then return swing,'weapon',all() end
     local rng=input.rng
@@ -4609,7 +4616,7 @@ function M.new(g,options)
     local log,nextRow,size={},1,0
     local root,sink,lastError,markError,guardError,weaponError
     -- trace: labs see every decline as a 'declined' row in the sink (never in the log).
-    local trace,lastReason,lastDetail=false,nil,nil
+    local trace,lastReason,lastDetail,lastCharge=false,nil,nil,nil
     local api={}
 
     local function now() return root and root.now and root.now() end
@@ -4965,6 +4972,7 @@ function M.new(g,options)
         if g.EEex_Sprite_GetStat(sprite,M.alacrityStat)>0 then frame.self.alacrity=true end
         frame.self.thac0=sense.thac0(g,sprite)
         frame.self.charge=chargeIn(sprite,rows)
+        lastCharge=frame.self.charge and frame.self.charge.item or nil
         frame.self.magicItem=held(sprite)~=nil
         -- A weapon that cannot be read leaves the caster without a weapon attack, nothing more.
         local read,err=pcall(function()
@@ -4994,7 +5002,10 @@ function M.new(g,options)
             top[i]={spell=o.resref,kind=o.kind,target=o.target,point=o.point,score=o.score,hits=#o.hits}
         end
         if not d then
-            if why~='no-option' then record({kind='decline',tick=tick,member=id,family=family,reason=why,top=top}) end
+            if why~='no-option' then
+                record({kind='decline',tick=tick,member=id,family=family,reason=why,top=top,charge=lastCharge,
+                    rejected=lastCharge and rejected or nil})
+            end
             return decline(why)
         end
         local response=M.response(d)
@@ -5029,11 +5040,11 @@ function M.new(g,options)
     -- From the gate, each time a hooked script asks: nil (SCS's round), {hold=true} while the
     -- engine's queued cast has not started, or the decision.
     function api:decide(view,family)
-        lastReason,lastDetail=nil,nil
+        lastReason,lastDetail,lastCharge=nil,nil,nil
         local ok,result=pcall(decide,view,family)
         if trace and sink and lastReason then
             pcall(sink,{kind='declined',tick=now(),member=type(view)=='table' and view.id or nil,family=family,
-                reason=lastReason,rejected=lastReason=='no-option' and lastDetail or nil})
+                reason=lastReason,rejected=(lastReason=='no-option' or lastCharge) and lastDetail or nil,charge=lastCharge})
         end
         if ok then return result end
         failed('decide',result)
