@@ -6,8 +6,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 TARGET = ROOT / 'bgse/lua/M_BGSE.lua'
 MODULES = ('kernel.manifest', 'kernel.trace', 'kernel.hook', 'kernel.rng', 'combat-intent.spells',
-           'combat-intent.targeting', 'combat-intent.ids', 'combat-intent.mind', 'combat-intent.threat', 'combat-intent.openers',
-           'combat-intent.weapons', 'combat-intent.touch', 'combat-intent.defence', 'combat-intent.care', 'combat-intent.summons', 'combat-intent.removal', 'combat-intent.choice', 'combat-intent.director', 'adapters.eeex.resources', 'adapters.eeex.sense', 'adapters.eeex.creature',
+           'combat-intent.targeting', 'combat-intent.ids', 'combat-intent.harm', 'combat-intent.mind', 'combat-intent.threat', 'combat-intent.openers',
+           'combat-intent.weapons', 'combat-intent.touch', 'combat-intent.defence', 'combat-intent.care', 'combat-intent.summons', 'combat-intent.removal', 'combat-intent.zones', 'combat-intent.choice', 'combat-intent.director', 'adapters.eeex.resources', 'adapters.eeex.sense', 'adapters.eeex.creature',
            'adapters.eeex.director', 'adapters.eeex.choice', 'adapters.eeex.hook', 'adapters.eeex.runtime')
 VERSION = '0.1.0-dev'
 

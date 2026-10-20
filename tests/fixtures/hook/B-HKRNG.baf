@@ -25,6 +25,19 @@ THEN
 END
 
 IF
+  !INI("DMWW_genai_difficulty",1)
+  Heard([ANYONE],407)
+  Range(LastHeardBy(Myself),20)
+  OR(3)
+    !CheckStatGT(Myself,99,RESISTMAGIC)
+    !See(NearestEnemyOf(Myself))
+THEN
+  RESPONSE #100
+    SetGlobalTimer("seencloud","LOCALS",20)
+    RunAwayFromNoLeaveArea(LastHeardBy(Myself),30)
+END
+
+IF
   !GlobalTimerNotExpired("castspell","LOCALS")
   HasItem("potn52",Myself)
   HPPercentLT(Myself,50)
@@ -32,6 +45,17 @@ THEN
   RESPONSE #100
     SetGlobalTimer("castspell","LOCALS",6)
     UseItem("potn52",Myself)
+END
+
+IF
+  !INI("DMWW_genai_difficulty",1)
+  Heard([ANYONE],404)
+  See([PC])
+  !Range([PC],8)
+THEN
+  RESPONSE #100
+    SetGlobalTimer("seencloud","LOCALS",20)
+    MoveToObject([PC])
 END
 
 IF

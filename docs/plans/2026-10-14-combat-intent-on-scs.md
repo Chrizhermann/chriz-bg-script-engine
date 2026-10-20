@@ -600,6 +600,23 @@ defences):
    Stone without; `SPWI422` is missing without SR); a touch spell is cast only when the strike
    can follow at once, and the engine checks that it landed.
 
+## Step 3, fourth slice: D3 (2026-10-20)
+
+([SUPPORT-01](../research/SUPPORT-01-healing-curing-summons-removal-zones.md))
+
+Christopher (2026-10-20): SCS's fight AI is dropped and the engine takes every round it can;
+"Mach alles, dann Lab Tests." Built, with SCS's fight logic as the blueprint and worth on the
+attack's scale deciding:
+
+- **D3a, D3b:** heals and cures for the caster and its allies, potions included.
+- **D3c:** summons that fight for the caster.
+- **D3d:** removal of enemy protections (Breach, Dispel Magic, Secret Word and the like), worth
+  what it opens for the group's attacks and what it frees.
+- **D3e:** danger zones: the engine reads clouds and storms itself, weighs leaving against its
+  best option and walks out; SCS's own escape stands aside while the engine weighs them.
+
+SCS keeps no rounds any more. Lab batch H tests D3 in game.
+
 ## To design with Christopher
 
 Short decisions for the first release, answered by Christopher on 2026-10-14:

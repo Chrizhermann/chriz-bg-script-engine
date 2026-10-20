@@ -1026,4 +1026,139 @@ g13.BGSE_Claim(breacher,'mage','s1')
 assert(ch13:inspect().counts.removals==1)
 groups=groups+1
 
+-- 23. Danger zones (D3e). An enemy's cloud (an area projectile in the area's flight list that
+-- explodes six more times, 20 fire a hit every 75 ticks) around a mage with a Fire Bolt: the engine
+-- reads the zone (sense.zones), leads the mage out with MoveToPoint to the nearest open spot, holds
+-- it while it walks, judges that it got out and casts from there. While SCS's round timer runs it
+-- still leads a mage out of the cloud. BGSE_Zones is true while the engine weighs zones for the
+-- mage: not while it casts in a zone the engine did not know when it chose the cast, nor for a
+-- creature off the engine's side, nor with the choice off; a read that fails as a whole hands the
+-- escape back to SCS.
+-- Its own function: the file's main chunk holds as many locals as Lua allows.
+;(function()
+local AREA14={m_resref=str('AR0002'),m_lVertSortBack={},m_lVertSortFlight={900}}
+local g14=world()
+local isSprite14=g14.EEex_GameObject_IsSprite
+g14.EEex_GameObject_IsSprite=function(o,allowDead) return o~=nil and o.projectile==nil and isSprite14(o,allowDead) end
+g14.EEex_Projectile_Type={CProjectileArea=8}
+g14.EEex_Projectile_GetType=function(o) return o.projectile or 1 end
+g14.EEex_CastUD=function(o) return o end
+g14.EEex_Area_GetNearestOpenPosition=function(area,x,y) return x+3,y end
+local hot={m_effectId=12,m_durationType=1,m_duration=0,m_effectAmount=0,m_dWFlags=8*65536,m_flags=1,m_probabilityUpper=100,
+    m_probabilityLower=0,m_res=str(''),m_numDice=4,m_diceSize=9,m_savingThrow=0,m_saveMod=0,m_special=0,m_spellLevel=4,
+    m_casterLevel=10,m_sourceRes=str('TESTCLDS')}
+local cloud={m_id=900,projectile=8,state=0,m_nRepetitionCount=6,m_bReachedDestination=1,m_pos={x=500,y=500},m_posDest={x=500,y=500},
+    m_explosionRange=150,m_nDelay=75,m_nDelayCount=0,m_sourceId=11,m_projectileType=4,m_effectList={hot}}
+g14.objects[900]=cloud
+local reader14={problems={},get=reader.get,lookup=function(kind,key)
+        if kind=='PRO' and key==4 then
+            return {kind='PRO',resref='CLOUD',type=3,speed=20,flags=0,extFlags=0,areaFlags=0,trigger=150,radius=150,coneWidth=0}
+        end
+        return reader.lookup(kind,key)
+    end}
+local caster14=g14.add(sprite(1,500,500,255,{m_pArea=AREA14}))
+learn(caster14,2,'TESTBOLT',2)
+g14.add(sprite(11,500,800,2,{m_pArea=AREA14})).stats[2]=5
+local read14=sense.zones(g14,AREA14,100)
+assert(#read14==1 and read14[1].id==900 and read14[1].radius==150 and read14[1].repeats==6 and read14[1].delay==75 and
+    read14[1].source==11 and read14[1].projectile==4 and read14[1].level==10 and read14[1].resref=='TESTCLDS' and
+    read14[1].list=='m_lVertSortFlight')
+local hit14=read14[1].effects[1]
+assert(hit14.opcode==12 and hit14.p2==8*65536 and hit14.dice==4 and hit14.sides==9 and hit14.timing==1 and hit14.resist==1 and
+    hit14.power==4 and hit14.target==2)
+local dir14=directors.new(g14,{reader=reader14})
+local ch14=choices.new(g14,{reader=reader14,director=dir14,seed=23})
+local rows14={}
+ch14:setSink(function(row) rows14[#rows14+1]=row end)
+runtime.install(g14,{director=dir14,choice=ch14,version='test'})
+local function last14(kind)
+    for n=#rows14,1,-1 do if rows14[n].kind==kind then return rows14[n] end end
+end
+assert(g14.BGSE_Zones(caster14,'mage','s1')==true and g14.BGSE_Zones(caster14,'fighter','s3')==false)
+g14.ticks=100
+assert(g14.BGSE_Claim(caster14,'mage','s1')==true)
+local c14=last14('choice')
+assert(c14.castKind=='escape' and c14.spell=='ESCAPE' and c14.zones==1 and c14.worth>0 and c14.walk>0)
+local queued=#g14.queued
+g14.BGSE_Act(caster14)
+assert(#g14.queued==queued+1)
+local move14=g14.queued[#g14.queued].text
+local mx,my=move14:match('^MoveToPoint%(%[(%-?%d+)%.(%-?%d+)%]%)$')
+assert(mx and my and not move14:find('castspell',1,true))
+assert(math.sqrt((tonumber(mx)-500)^2+((tonumber(my)-500)*4/3)^2)>150)
+local mv14=last14('move')
+assert(mv14 and mv14.to.x==tonumber(mx) and mv14.to.y==tonumber(my) and ch14:inspect().moving==1)
+-- It walks: held, nothing new queued.
+caster14.m_curAction={m_actionID=23}
+g14.ticks=105
+assert(g14.BGSE_Claim(caster14,'mage','s1')==true)
+g14.BGSE_Act(caster14)
+assert(#g14.queued==queued+1)
+-- Out of the cloud: judged, and the bolt from where it stands.
+caster14.m_curAction={m_actionID=0};caster14.m_pos={x=tonumber(mx),y=tonumber(my)}
+g14.ticks=140
+assert(g14.BGSE_Claim(caster14,'mage','s1')==true)
+local e14=last14('escaped')
+assert(e14 and e14.out==true and ch14:inspect().counts.escaped==1 and ch14:inspect().moving==0)
+assert(last14('choice').spell=='TESTBOLT')
+g14.BGSE_Act(caster14)
+assert(g14.queued[#g14.queued].text=='SetGlobalTimer("castspell","LOCALS",ONE_ROUND)\nSpellRES("TESTBOLT",EEex_Target("BGSE"))')
+-- The engine's cast waits to start: the cloud it knew when it chose the cast keeps SCS's escape
+-- aside even with the mage back in it; a new cloud that hurts it lets SCS's escape run.
+local outside14=caster14.m_pos
+caster14.m_pos={x=500,y=500}
+g14.ticks=141
+assert(g14.BGSE_Zones(caster14,'mage','s1')==true)
+local cloud2={}
+for k,v in pairs(cloud) do cloud2[k]=v end
+cloud2.m_id=901;cloud2.m_pos={x=520,y=500};cloud2.m_posDest={x=520,y=500}
+g14.objects[901]=cloud2;AREA14.m_lVertSortFlight={900,901}
+g14.ticks=142
+assert(g14.BGSE_Zones(caster14,'mage','s1')==false)
+g14.objects[901]=nil;AREA14.m_lVertSortFlight={900}
+caster14.m_pos=outside14
+g14.ticks=143
+g14.listeners.started[1](caster14,action(31,'TESTBOLT',11))
+caster14.m_curAction={m_actionID=0}
+-- SCS's round timer runs and the mage stands in the cloud again: it walks out all the same.
+caster14.locals.castspell=400;caster14.m_pos={x=510,y=500}
+g14.ticks=200
+assert(g14.BGSE_Claim(caster14,'mage','s1')==true)
+local f14=last14('choice')
+assert(f14.castKind=='escape' and f14.how=='flee' and ch14:inspect().counts.escapes==2)
+g14.BGSE_Act(caster14)
+assert(g14.queued[#g14.queued].text:find('^MoveToPoint') and ch14:inspect().moving==1)
+-- Casting while the timer runs: the engine has no way out now, and SCS's escape keeps its say
+-- (a cast the engine did not choose, in a cloud that hurts).
+caster14.m_curAction=action(31,'TESTBOLT',11)
+g14.ticks=280
+assert(g14.BGSE_Claim(caster14,'mage','s1')==false and ch14:inspect().counts.escapes==2)
+assert(g14.BGSE_Zones(caster14,'mage','s1')==false)
+-- Idle, the engine weighs zones again; not for a creature off its side, nor with the choice off.
+-- A read that fails as a whole hands the escape back to SCS too.
+caster14.m_curAction={m_actionID=0}
+assert(g14.BGSE_Zones(caster14,'mage','s1')==true)
+caster14.m_typeAI.m_EnemyAlly=2
+assert(g14.BGSE_Zones(caster14,'mage','s1')==false)
+caster14.m_typeAI.m_EnemyAlly=255
+ch14:setEnabled(false)
+assert(g14.BGSE_Zones(caster14,'mage','s1')==false)
+ch14:setEnabled(true)
+assert(g14.BGSE_Zones(caster14,'mage','s1')==true)
+-- No enemy in sight (the enemy has turned friend), SCS's round timer run out: the mage still
+-- walks out of the cloud.
+g14.objects[11].m_typeAI.m_EnemyAlly=255
+caster14.locals.castspell=0
+g14.ticks=290
+assert(g14.BGSE_Claim(caster14,'mage','s1')==true)
+assert(last14('choice').castKind=='escape' and last14('choice').how=='flee' and ch14:inspect().counts.escapes==3)
+g14.objects[11].m_typeAI.m_EnemyAlly=2
+AREA14.m_lVertSortFlight=function() end
+g14.ticks=300
+g14.BGSE_Claim(caster14,'mage','s1')
+assert(ch14:inspect().zoneError and ch14:inspect().counts.zoneFailures>=1)
+assert(g14.BGSE_Zones(caster14,'mage','s1')==false)
+end)()
+groups=groups+1
+
 return groups

@@ -30,11 +30,28 @@ THEN
 END
 
 IF
-  !GlobalTimerExpired("castspell","LOCALS")
+  OR(2)
+    ActionListEmpty()
+    !GlobalTimerExpired("castspell","LOCALS")
   Heard([ANYONE],404)
+  Range(LastHeardBy(Myself),20)
+  OR(2)
+    !CheckStatGT(Myself,80,RESISTMAGIC)
+    !See(NearestEnemyOf(Myself))
 THEN
   RESPONSE #100
+    SetGlobalTimer("seencloud","LOCALS",20)
     RunAwayFromNoLeaveArea(LastHeardBy(Myself),30)
+END
+
+IF
+  !See(NearestEnemyOf(Myself))
+  OR(2)
+    Heard([ANYONE],404)
+    Heard([ANYONE],411)
+THEN
+  RESPONSE #100
+    NoAction()
 END
 
 IF

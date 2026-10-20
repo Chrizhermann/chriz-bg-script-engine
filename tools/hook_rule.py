@@ -9,6 +9,13 @@ handlers and the like). The original blocks stay where they are, so a declining 
 switched-off engine leaves SCS's order untouched. Each hook and copy names its own script, so
 the engine can tell which of a creature's scripts asks.
 
+SCS's cloud escape blocks above the anchor (they set SCS's seencloud timer and run from a cloud
+or walk at the enemy, genai/ssl/fleecloud.ssl) stand aside while the engine weighs danger zones
+for a creature that sees an enemy: they get a last condition that holds when the creature sees
+no enemy or BGSE_Zones says no. SCS's own triggers still run first, as before, and the engine is
+asked only when SCS would escape. Those below the anchor run only when the engine declines and
+stay as they are.
+
 Run it on a folder of decompiled scripts to see what an install would do:
     python tools/hook_rule.py <folder-with-baf> [report.json]
 """
@@ -24,6 +31,8 @@ FAMILIES = (('DMWW_mage_', 'mage'), ('DMWW_priest_', 'priest'), ('DMWW_genai_', 
 # monster script.
 MONSTER = re.compile(r'DMWW_[a-z_]+_difficulty')
 MARK = 'BGSE_Claim'
+CLOUD = 'SetGlobalTimer("seencloud","LOCALS",'
+OR_LINE = re.compile(r' +OR\((\d+)\)')
 ACTION = re.compile(r'^ {4}([A-Za-z_][A-Za-z0-9_]*)\(', re.M)
 RETARGET = {'SetGlobal', 'SetGlobalTimer', 'IncrementGlobal', 'ClearActions'}
 BOOKKEEPING = {'SetGlobal', 'SetGlobalTimer', 'IncrementGlobal', 'Continue', 'DisplayString',
@@ -68,6 +77,11 @@ def guard(family, script):
             f"'{family}','{script}') or false\")")
 
 
+def zones_guard(family, script):
+    return ('EEex_LuaTrigger("return BGSE_Zones and BGSE_Zones(EEex_LuaTrigger_Object,'
+            f"'{family}','{script}') or false\")")
+
+
 def hook_block(family, script):
     return (f'IF\n  {guard(family, script)}\nTHEN\n  RESPONSE #100\n'
             '    EEex_LuaAction("if BGSE_Act then BGSE_Act(EEex_LuaAction_Object) end")\nEND\n\n')
@@ -98,6 +112,34 @@ def responses(block):
     """Action names per response."""
     _, resp = split(block)
     return [ACTION.findall(part) for part in resp.split('\n  RESPONSE #')[1:]]
+
+
+def open_or(trig):
+    """Whether a trigger list ends inside its last OR(n) group, with fewer than n lines after it."""
+    lines = trig.split('\n')[1:]
+    for i in range(len(lines) - 1, -1, -1):
+        m = OR_LINE.match(lines[i])
+        if m:
+            return len(lines) - 1 - i < int(m.group(1))
+    return False
+
+
+def stand_aside(block, family, script):
+    """A cloud escape block that runs only when the creature sees no enemy or the engine does
+    not weigh zones for it. The condition goes last; first when the triggers end in an OR group
+    that lacks members, which it would otherwise join."""
+    trig, resp = split(block)
+    group = f'  OR(2)\n    !See(NearestEnemyOf(Myself))\n    !{zones_guard(family, script)}'
+    if open_or(trig):
+        return 'IF\n' + group + '\n' + block[len('IF\n'):]
+    return trig + '\n' + group + resp
+
+
+def clouds(text, spans, anchor):
+    """Indices of the cloud escape blocks above the anchor."""
+    if anchor is None:
+        return []
+    return [i for i in range(anchor) if CLOUD in split(text[spans[i][0]:spans[i][1]])[1]]
 
 
 def is_anchor(block):
@@ -205,7 +247,12 @@ def patch(text, script):
     insert = ''.join(text[spans[i][0]:spans[i][1]].replace('IF\n', f'IF\n  {guard(fam, script)}\n', 1) + '\n'
                      for i in copies)
     at = spans[anchor][0]
-    return text[:at] + insert + hook_block(fam, script) + text[at:], 'hooked', fam, len(copies)
+    head = text[:at]
+    # From the last one up, so the blocks before keep their offsets.
+    for i in reversed(clouds(text, spans, anchor)):
+        a, b = spans[i]
+        head = head[:a] + stand_aside(text[a:b], fam, script) + head[b:]
+    return head + insert + hook_block(fam, script) + text[at:], 'hooked', fam, len(copies)
 
 
 def main():
@@ -214,7 +261,9 @@ def main():
     for path in sorted(folder.glob('*.baf')):
         text = path.read_text(encoding='latin-1')
         patched, reason, fam, copies = patch(text, path.stem)
-        rows.append({'script': path.stem, 'family': fam, 'result': reason, 'copies': copies})
+        spans, anchor, _ = plan(text.replace('\r', ''))
+        aside = len(clouds(text.replace('\r', ''), spans, anchor)) if patched else 0
+        rows.append({'script': path.stem, 'family': fam, 'result': reason, 'copies': copies, 'clouds': aside})
     summary = {}
     for row in rows:
         key = f"{row['family']}/{row['result']}"

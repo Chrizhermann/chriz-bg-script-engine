@@ -11,6 +11,12 @@
 // order untouched. Each hook and copy names its own script, so the engine can tell which of a
 // creature's scripts asks.
 //
+// SCS's cloud escape blocks above the anchor (they set SCS's seencloud timer and run from a
+// cloud or walk at the enemy) stand aside while the engine weighs danger zones for a creature
+// that sees an enemy: they get a last condition that holds when the creature sees no enemy or
+// BGSE_Zones says no; first when their triggers end in an OR group that lacks members, which the
+// condition would otherwise join. Those below the anchor stay as they are.
+//
 // tools/hook_rule.py is the reference version of this rule. Keep the two in step;
 // tests/integration/test_hook_installer.py compares them.
 
@@ -142,15 +148,16 @@ END
 
 // Hook one decompiled SCS script; bgse_script is its resref in lower case. bgse_result is
 // hooked, not-scs, unsafe-name, no-castspell, already-hooked or no-anchor; only "hooked"
-// changes bgse_baf.
+// changes bgse_baf. bgse_clouds counts the cloud escapes that stand aside.
 DEFINE_PATCH_FUNCTION bgse_hook_baf
   STR_VAR bgse_baf = ~~
           bgse_script = ~~
-  RET bgse_result bgse_family bgse_copies bgse_baf
+  RET bgse_result bgse_family bgse_copies bgse_clouds bgse_baf
 BEGIN
   TEXT_SPRINT bgse_result ~not-scs~
   TEXT_SPRINT bgse_family ~~
   SET bgse_copies = 0
+  SET bgse_clouds = 0
   INNER_PATCH_SAVE bgse_baf ~%bgse_baf%~ BEGIN
     REPLACE_TEXTUALLY CASE_SENSITIVE EXACT_MATCH ~%MNL%~ ~~
   END
@@ -210,7 +217,20 @@ BEGIN
           SET $bgse_lastseen(~%n%~) = 0
           SET $bgse_encounter(~%n%~) = 0
           SET $bgse_copy(~%n%~) = 0
+          SET $bgse_cloud(~%n%~) = 0
           READ_ASCII start block (stop - start)
+          PATCH_IF (anchor < 0) BEGIN
+            // SCS's cloud escape (tools/hook_rule.py: CLOUD); only those above the anchor change.
+            SET then = INDEX (CASE_SENSITIVE EXACT_MATCH ~%LNL%THEN%LNL%~ ~%block%~)
+            PATCH_IF (then > 0) BEGIN
+              INNER_PATCH ~%block%~ BEGIN
+                READ_ASCII then resp (BUFFER_LENGTH - then)
+              END
+              PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~SetGlobalTimer("seencloud","LOCALS",~ ~%resp%~) >= 0) BEGIN
+                SET $bgse_cloud(~%n%~) = 1
+              END
+            END
+          END
           PATCH_IF (anchor < 0) AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~castspell~ ~%block%~) < 0) BEGIN
             // Cannot be the anchor and nothing before the anchor is copied.
           END ELSE PATCH_IF (anchor >= 0) AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~Continue()~ ~%block%~) < 0)
@@ -317,6 +337,51 @@ BEGIN
         END
         READ_ASCII at tail (BUFFER_LENGTH - at)
       END
+      // SCS's cloud escapes above the hook stand aside while the engine weighs danger zones for
+      // a creature that sees an enemy (tools/hook_rule.py: stand_aside), from the last one up so
+      // the blocks before keep their offsets.
+      TEXT_SPRINT zguard ~EEex_LuaTrigger("return BGSE_Zones and BGSE_Zones(EEex_LuaTrigger_Object,'%bgse_family%','%bgse_script%') or false")~
+      TEXT_SPRINT group ~  OR(2)%LNL%    !See(NearestEnemyOf(Myself))%LNL%    !%zguard%~
+      INNER_PATCH_SAVE head ~%head%~ BEGIN
+        FOR (i = anchor - 1; i >= 0; i -= 1) BEGIN
+          PATCH_IF ($bgse_cloud(~%i%~) = 1) BEGIN
+            SET s = $bgse_start(~%i%~)
+            SET e = $bgse_stop(~%i%~)
+            READ_ASCII s block (e - s)
+            SET then = INDEX (CASE_SENSITIVE EXACT_MATCH ~%LNL%THEN%LNL%~ ~%block%~)
+            TEXT_SPRINT trig ~~
+            INNER_PATCH ~%block%~ BEGIN
+              READ_ASCII 0 trig (then)
+            END
+            // Whether the triggers end inside their last OR(n) group, with fewer than n lines
+            // after it (tools/hook_rule.py: open_or).
+            SET or_open = 0
+            INNER_PATCH ~%trig%~ BEGIN
+              SET or_last = RINDEX_BUFFER (CASE_SENSITIVE ~%LNL% +OR(~)
+              PATCH_IF (or_last >= 0) BEGIN
+                READ_ASCII (or_last + 1) or_rest (BUFFER_LENGTH - or_last - 1)
+                SET or_want = 0
+                SET or_lines = 0
+                INNER_PATCH ~%or_rest%~ BEGIN
+                  REPLACE_EVALUATE CASE_SENSITIVE ~^ +OR(\([0-9]+\))~ BEGIN
+                    SET or_want = MATCH1
+                  END ~%MATCH0%~
+                  COUNT_REGEXP_INSTANCES CASE_SENSITIVE EXACT_MATCH ~%LNL%~ or_lines
+                END
+                SET or_open = (or_lines < or_want) ? 1 : 0
+              END
+            END
+            PATCH_IF (or_open = 1) BEGIN
+              INSERT_BYTES (s + 3) (STRING_LENGTH ~%group%%LNL%~)
+              WRITE_ASCIIE (s + 3) ~%group%%LNL%~
+            END ELSE BEGIN
+              INSERT_BYTES (s + then) (STRING_LENGTH ~%LNL%%group%~)
+              WRITE_ASCIIE (s + then) ~%LNL%%group%~
+            END
+            SET bgse_clouds += 1
+          END
+        END
+      END
       TEXT_SPRINT bgse_baf ~%head%%insert%IF%LNL%  %guard%%LNL%THEN%LNL%  RESPONSE #100%LNL%    EEex_LuaAction("if BGSE_Act then BGSE_Act(EEex_LuaAction_Object) end")%LNL%END%LNL%%LNL%%tail%~
       TEXT_SPRINT bgse_result ~hooked~
     END
@@ -327,18 +392,19 @@ END
 // fails to decompile, patch or compile is left exactly as it was (bgse_result "failed").
 DEFINE_PATCH_FUNCTION bgse_hook_bcs
   STR_VAR bgse_script = ~~
-  RET bgse_result bgse_family bgse_copies
+  RET bgse_result bgse_family bgse_copies bgse_clouds
 BEGIN
   TEXT_SPRINT bgse_result ~failed~
   TEXT_SPRINT bgse_family ~~
   SET bgse_copies = 0
+  SET bgse_clouds = 0
   READ_ASCII 0 bcs (BUFFER_LENGTH)
   PATCH_TRY
     INNER_PATCH_SAVE baf ~%bcs%~ BEGIN
       DECOMPILE_BCS_TO_BAF
     END
     LPF bgse_hook_baf STR_VAR bgse_baf = EVAL ~%baf%~ bgse_script = EVAL ~%bgse_script%~
-      RET bgse_result bgse_family bgse_copies bgse_baf END
+      RET bgse_result bgse_family bgse_copies bgse_clouds bgse_baf END
     PATCH_IF (~%bgse_result%~ STRING_EQUAL_CASE ~hooked~) BEGIN
       DELETE_BYTES 0 BUFFER_LENGTH
       INSERT_BYTES 0 (STRING_LENGTH ~%bgse_baf%~)
@@ -347,6 +413,8 @@ BEGIN
     END
   WITH DEFAULT
     TEXT_SPRINT bgse_result ~failed~
+    SET bgse_copies = 0
+    SET bgse_clouds = 0
     DELETE_BYTES 0 BUFFER_LENGTH
     INSERT_BYTES 0 (STRING_LENGTH ~%bcs%~)
     WRITE_ASCIIE 0 ~%bcs%~

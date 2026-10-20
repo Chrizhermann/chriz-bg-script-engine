@@ -37,6 +37,8 @@ TRIGGER = """IDS V1.0
 0x400D INI(S:Name*,I:Number*)
 0x400E HPPercentLT(O:Object*,I:Hit Points*)
 0x400F Die()
+0x4010 Range(O:Object*,I:Range*)
+0x4089 OR(I:OrCount*)
 """
 ACTION = """IDS V1.0
 0 NoAction()
@@ -64,6 +66,7 @@ ACTION = """IDS V1.0
 22 SpellNoDec(O:Target*,I:Spell*Spell)
 23 SpellNoDecRES(S:RES*,O:Target*)
 24 ApplySpell(O:Target,I:Spell*Spell)
+25 MoveToObject(O:Object*)
 """
 IDS = {
     'OBJECT': 'IDS V1.0\n0 Nothing\n1 Myself\n12 NearestEnemyOf\n18 LastSeenBy\n20 LastHeardBy\n21 Player1\n22 Player2\n',
@@ -75,7 +78,7 @@ IDS = {
     'GENDER': 'IDS V1.0\n0 ANYONE\n',
     'ALIGN': 'IDS V1.0\n0 ANYONE\n',
     'SPELL': 'IDS V1.0\n2101 WIZARD_MAGIC_MISSILE\n2102 WIZARD_MIRROR_IMAGE\n3101 DEMILICH_TRAP_SOUL\n',
-    'STATS': 'IDS V1.0\n200 WIZARD_IMPROVED_ALACRITY\n',
+    'STATS': 'IDS V1.0\n18 RESISTMAGIC\n200 WIZARD_IMPROVED_ALACRITY\n',
 }
 
 
@@ -171,7 +174,8 @@ def test_installer_matches_reference_and_is_reversible(tmp_path: Path) -> None:
 
     output = _install(tmp_path, '--force-install-list', '0')
     assert 'SUCCESSFULLY INSTALLED' in output, output
-    assert 'BGSE hook: 4 SCS scripts hooked, 18 SCS blocks guarded, 3 left as they are.' in output, output
+    assert ('BGSE hook: 4 SCS scripts hooked, 18 SCS blocks guarded, 2 SCS cloud escapes yield to the engine, '
+            '3 left as they are.') in output, output
     for name, reason in (('B-HKNOA', 'no-anchor'), ('B-HKOLD', 'already-hooked'), ('B-HKCST', 'no-castspell')):
         assert f'left {name} as it is ({reason})'.casefold() in output.casefold(), output
     installed = _snapshot(tmp_path)
@@ -190,6 +194,10 @@ def test_installer_matches_reference_and_is_reversible(tmp_path: Path) -> None:
         expected, reason, got_family, got_copies = hook_rule.patch(originals[name], name)
         assert (reason, got_family, got_copies) == ('hooked', family, copies)
         assert hooked[name] == expected, name
+    # The mage's cloud escape takes the condition last, the ranged fighter's (whose triggers end
+    # in an OR group that lacks a member) first; the fighter's escape below the hook stays.
+    for name, count in (('B-HKMAG', 1), ('B-HKRNG', 1), ('B-HKPRI', 0), ('B-HKMON', 0)):
+        assert hooked[name].count(hook_rule.zones_guard(HOOKED[name][0], name.lower())) == count, name
 
     _install(tmp_path, '--force-uninstall-list', '0', '--force-install-list', '0')
     assert _snapshot(tmp_path) == installed

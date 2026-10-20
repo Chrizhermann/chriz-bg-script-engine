@@ -60,6 +60,16 @@
 -- each enemy's active effects (sense.wards), each classified on its own and cached by its fields. A
 -- removal is cast at an enemy, a point or on the caster; once it ends it is judged by whether an
 -- enemy it was for lost effects, skins, images or its invisibility, or is gone.
+--
+-- Danger zones (D3e): the choice also gets the zones in the caster's area (sense.zones, read once a
+-- tick for each area), each classified once by what one explosion delivers, with who cast it and
+-- its own saves, resistances, protections and SPLPROT marks for those spells, and whether it is
+-- webbed or entangled. A way out is MoveToPoint to the nearest open spot (EEex's search map) that
+-- still lies outside the zones it leaves, without SCS's round timer, so the engine decides again
+-- once the creature is out; it is held while it walks, and judged by whether it got out. While SCS's
+-- round timer runs, and when the creature sees no enemy, the engine still leads it out of a zone
+-- that hurts it, unless it is casting. BGSE_Zones (api:zones) tells SCS's own cloud escape above
+-- the hook (bgse/lib/hook.tpa) to stand aside while the engine weighs zones for the creature.
 local sense=require('adapters.eeex.sense')
 local creature=require('adapters.eeex.creature')
 local resources=require('adapters.eeex.resources')
@@ -70,6 +80,7 @@ local defence=require('combat-intent.defence')
 local weapons=require('combat-intent.weapons')
 local choice=require('combat-intent.choice')
 local summons=require('combat-intent.summons')
+local zones=require('combat-intent.zones')
 local mind=require('combat-intent.mind')
 local rngs=require('kernel.rng')
 local M={}
@@ -122,11 +133,26 @@ M.alacrityStat=165
 M.stopCount=30
 -- Casts remembered per caster in its own Time Stop.
 M.stopCastLimit=32
+-- MoveToPoint (ACTION.IDS); a way out is held while the creature walks it, or for moveGrace ticks
+-- until the walk starts, and for twice its seconds and a margin at most.
+M.MOVE=23
+M.moveGrace=8
+M.moveMargin=30
+-- Game ticks a second, for the projectile's counters (the lab confirms them).
+M.ticksPerSecond=15
+-- What EEex must offer for zones to be read.
+M.zoneRequired={'EEex_Projectile_GetType','EEex_CastUD'}
 local UNSEEN=targeting.STATE.invisible+targeting.STATE.improvedInvisible
 
 local function text(value) return (value:match('^[^%z]*'):upper()) end
 local function valid(resref) return type(resref)=='string' and #resref>0 and #resref<=8 and not resref:find('[^A-Z0-9_#%-]') end
 local function whole(v) return type(v)=='number' and v>=0 and v<65536 and v%1==0 end
+-- A list of object ids as a set.
+local function idSet(list)
+    local out={}
+    for _,id in ipairs(type(list)=='table' and list or {}) do out[id]=true end
+    return out
+end
 
 -- Whether SCS's round timer is still running for sprite at tick. Game timers hold the game
 -- time they run out at; without the accessor the timer counts as running, so the engine never
@@ -150,6 +176,12 @@ function M.response(decision)
         local t=decision.target
         if type(t)~='number' or t<0 or t%1~=0 then return nil end
         return M.setTimer..'\nAttackOneRound(EEex_Target("'..M.targetName..'"))'
+    end
+    -- A way out of a zone leaves SCS's round timer alone: the creature decides again once it is out.
+    if decision.kind=='escape' then
+        local p=decision.point
+        if type(p)~='table' or not whole(p.x) or not whole(p.y) then return nil end
+        return 'MoveToPoint(['..p.x..'.'..p.y..'])'
     end
     local cast=decision.release and 'ForceSpell' or 'Spell'
     if decision.point then
@@ -193,14 +225,18 @@ function M.new(g,options)
     -- strikes: each creature's strike with a touch charge, until the charge is gone, or its
     -- weapon attack (weapon=true), until it is over.
     local lastDefence,known,stopCasts,strikes={},{},{},{}
-    local counts={decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
+    -- moves: each creature's way out of a zone while it walks it. zoneRead: the zones of an area
+    -- read at a tick; zoneSpells: each zone's classification by object id (false when it cannot be
+    -- classified); zoneBroken: zones could not be read at all this session.
+    local moves,zoneRead,zoneSpells,zoneSpellCount,zoneBroken={},nil,{},0,false
+    local counts={escapes=0,escaped=0,unescaped=0,zoneFailures=0,decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
         hits=0,misses=0,errors=0,holds=0,frozen=0,marks=0,markFailures=0,defences=0,guarded=0,unguarded=0,
         guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0,arms=0,attacks=0,attackHits=0,
         weaponFailures=0,releases=0,heals=0,cures=0,potions=0,cared=0,uncared=0,summons=0,conjured=0,
         unconjured=0,removals=0,stripped=0,unstripped=0,wardFailures=0}
     local reasons={}
     local log,nextRow,size={},1,0
-    local root,sink,lastError,markError,guardError,weaponError,wardError
+    local root,sink,lastError,markError,guardError,weaponError,wardError,zoneError
     -- trace: labs see every decline as a 'declined' row in the sink (never in the log).
     local trace,lastReason,lastDetail,lastCharge=false,nil,nil,nil
     local api={}
@@ -607,6 +643,187 @@ function M.new(g,options)
             lost=hit and s.hp-hp or 0,started=s.tick})
     end
 
+    -- Danger zones. Whether they can be read: EEex offers what M.zoneRequired names and no read
+    -- has failed as a whole this session.
+    local function zonesReady()
+        if zoneBroken then return false end
+        for _,name in ipairs(M.zoneRequired) do
+            if type(rawget(g,name))~='function' then return false end
+        end
+        return type(rawget(g,'EEex_Projectile_Type'))=='table'
+    end
+    local function zoneFailed(where,err)
+        counts.zoneFailures=counts.zoneFailures+1
+        if not zoneError then
+            zoneError=where..': '..tostring(err):sub(1,200)
+            record({kind='error',where=where,error=zoneError})
+        end
+    end
+    -- The zones of the creature's area at tick, read once a tick for each area (sense.zones).
+    local function zoneList(sprite,tick)
+        if not zonesReady() then return {} end
+        local area=sprite.m_pArea
+        if area==nil then return {} end
+        local key=text(area.m_resref:get())
+        if zoneRead and zoneRead.tick==tick and zoneRead.area==key then return zoneRead.list end
+        local ok,list,bad,last=pcall(sense.zones,g,area,tick)
+        if not ok then
+            zoneBroken=true;zoneFailed('zones',list)
+            return {}
+        end
+        if bad>0 then zoneFailed('zone',last) end
+        zoneRead={tick=tick,area=key,list=list}
+        return list
+    end
+    -- What one explosion of a zone delivers, classified once by its object id.
+    local function zoneSpell(z)
+        local c=zoneSpells[z.id]
+        if c==nil then
+            if zoneSpellCount>=M.cacheLimit then zoneSpells,zoneSpellCount={},0 end
+            local ok,value=pcall(function()
+                local record={kind='SPL',resref=valid(z.resref) and z.resref or '',name=0,flags=0,spellType=1,exclusion=0,
+                    school=0,secondary=0,level=1,casting={},abilities={{form=1,flags=0,location=2,target=4,targetCount=0,
+                    range=0,minLevel=1,speed=0,projectile=z.projectile,effects=z.effects}}}
+                return spells.classify(record,1,reader.lookup,{level=math.max(1,z.level or 1)})
+            end)
+            c=ok and type(value)=='table' and value or false
+            if not ok then zoneFailed('zone-spell',value) end
+            zoneSpells[z.id]=c;zoneSpellCount=zoneSpellCount+1
+        end
+        return c or nil
+    end
+    -- Who cast a zone, from the caster's side: 'friend', 'enemy' or 'unknown'.
+    local function zoneSide(z,frame)
+        if z.source==frame.self.id then return 'friend' end
+        for _,a in ipairs(frame.allies) do if a.id==z.source then return 'friend' end end
+        for _,e in ipairs(frame.enemies) do if e.id==z.source then return 'enemy' end end
+        local object=z.source and z.source>0 and g.EEex_GameObject_Get(z.source)
+        if object and g.EEex_GameObject_IsSprite(object,true) then
+            local own,their=sense.side(frame.self.ea),sense.side(object.m_typeAI.m_EnemyAlly)
+            if own and their then return own==their and 'friend' or 'enemy' end
+        end
+        return 'unknown'
+    end
+    -- The zones as combat-intent/zones.lua weighs them: centre, radius, the seconds left and between
+    -- explosions, who cast it, whom it spares and what one explosion does.
+    local function zonesFor(frame,raw)
+        local out={}
+        for _,z in ipairs(raw) do
+            local c=z.radius>0 and z.delay>0 and zoneSpell(z)
+            if c then
+                local every=z.delay/M.ticksPerSecond
+                out[#out+1]={id=z.id,x=z.x,y=z.y,radius=z.radius,every=every,left=z.repeats*every,
+                    side=zoneSide(z,frame),filter=type(c.area)=='table' and c.area.filter or 'all',spell=c,resref=z.resref,
+                    source=z.source}
+            end
+        end
+        return out
+    end
+    -- Whether a point lies in one of the zones read, or at their edge.
+    local function inZone(raw,x,y)
+        for _,z in ipairs(raw) do
+            if targeting.distance(z,{x=x,y=y})<=z.radius+zones.margin then return true end
+        end
+        return false
+    end
+    -- What zones weigh about the caster itself: its saves, resistances, protections and IDS values,
+    -- whether it is webbed or entangled, and its marks for the SPLPROT conditions of the zones'
+    -- spells (as their receiver, with the zone's caster as the other creature).
+    local function ready(sprite,frame,list)
+        local self=frame.self
+        local ok,err=pcall(function()
+            sense.details(g,sprite,self)
+            self.rooted=g.EEex_Sprite_GetStat(sprite,sense.stats.entangle)>0 or g.EEex_Sprite_GetStat(sprite,sense.stats.web)>0
+        end)
+        if not ok then zoneFailed('zone-self',err) end
+        for _,z in ipairs(list) do
+            local wanted={}
+            spells.rows(z.spell,wanted)
+            if next(wanted)~=nil then
+                local source=z.source and get(z.source) or sprite
+                local _,bad,last=sense.mark(g,self,sprite,source or sprite,wanted)
+                if bad>0 then zoneFailed('zone-splprot',last) end
+            end
+        end
+    end
+    -- Where a way out ends: its point, else the next of its exits, moved to the nearest open spot
+    -- of the area's search map, as long as that still lies outside every zone it leaves.
+    local function walkable(object,decision)
+        local nearest=rawget(g,'EEex_Area_GetNearestOpenPosition')
+        local points={decision.point}
+        for _,p in ipairs(type(decision.exits)=='table' and decision.exits or {}) do points[#points+1]=p end
+        for _,p in ipairs(points) do
+            if type(p)=='table' and whole(p.x) and whole(p.y) then
+                local x,y=p.x,p.y
+                if type(nearest)=='function' then
+                    local ok,a,b=pcall(nearest,object.m_pArea,x,y)
+                    if ok and type(a)=='number' and type(b)=='number' then x,y=math.floor(a),math.floor(b) end
+                end
+                local clear=whole(x) and whole(y)
+                for _,z in ipairs(type(decision.zones)=='table' and decision.zones or {}) do
+                    if targeting.distance(z,{x=x,y=y})<=z.radius then clear=false end
+                end
+                if clear then return {x=x,y=y} end
+            end
+        end
+    end
+    -- A way out that is over: whether the creature stands outside every zone it left.
+    local function moved(m,sprite,tick)
+        moves[sprite.m_id]=nil
+        local at={x=sprite.m_pos.x,y=sprite.m_pos.y}
+        local out=true
+        for _,z in ipairs(m.zones) do if targeting.distance(z,at)<=z.radius then out=false end end
+        if out then counts.escaped=counts.escaped+1 else counts.unescaped=counts.unescaped+1 end
+        record({kind='escaped',tick=tick,member=sprite.m_id,to=m.point,at=at,out=out,took=tick-m.tick})
+    end
+    -- The decision for a way out (combat-intent/zones.lua's option).
+    local function escaping(d,frame,id,tick,family,how)
+        local response=M.response(d)
+        if not response then return decline('bad-response') end
+        counts.claims=counts.claims+1;counts.escapes=counts.escapes+1
+        record({kind='choice',tick=tick,member=id,family=family,spell=d.resref,castKind=d.kind,mode=d.mode,point=d.point,
+            score=d.score,worth=d.worth,walk=d.walk,how=how,zones=#d.zones})
+        if director then director:release(id,tick) end
+        return {own=true,response=response,spell=d.resref,kind='escape',mode=d.mode,point=d.point,exits=d.exits,
+            zones=d.zones,walk=d.walk,hits={}}
+    end
+    -- While SCS's round timer runs: a way out of a zone that hurts the creature where it stands.
+    local function flee(sprite,id,tick,family)
+        local raw=zoneList(sprite,tick)
+        if #raw==0 or not inZone(raw,sprite.m_pos.x,sprite.m_pos.y) then return nil end
+        local frame=sense.frame(g,sprite,tick,false)
+        if not frame or sense.side(frame.self.ea)~='evil' then return nil end
+        local list=zonesFor(frame,raw)
+        if #list==0 then return nil end
+        ready(sprite,frame,list)
+        local d=zones.escape({tick=tick,family=family,frame=frame,zones=list,mind=mindFor(sprite,family)})
+        if not d then return nil end
+        return escaping(d,frame,id,tick,family,'flee')
+    end
+    -- For api:zones: whether the engine weighs zones for creature id now (see there).
+    local function weighs(id,family)
+        local sprite=get(id)
+        if not sprite or sense.side(sprite.m_typeAI.m_EnemyAlly)~='evil' then return false end
+        local action=sprite.m_curAction.m_actionID
+        local s=strikes[id]
+        local held=pending[id] or (s and M.ATTACKS[action] and s)
+        local cast=running[id]
+        if not held and not targeting.CASTS[action] then return true end
+        local known=(held and held.known) or (cast and targeting.CASTS[action] and cast.known) or {}
+        local tick=now()
+        local fresh={}
+        for _,z in ipairs(zoneList(sprite,tick)) do
+            if not known[z.id] and inZone({z},sprite.m_pos.x,sprite.m_pos.y) then fresh[#fresh+1]=z end
+        end
+        if #fresh==0 then return true end
+        local frame=sense.frame(g,sprite,tick,false)
+        if not frame then return false end
+        local list=zonesFor(frame,fresh)
+        if #list==0 then return true end
+        ready(sprite,frame,list)
+        return not zones.harmed({tick=tick,family=family,frame=frame,zones=list,mind=mindFor(sprite,family)})
+    end
+
     local function judge(tick)
         watch(tick)
         for id,a in pairs(running) do
@@ -675,16 +892,35 @@ function M.new(g,options)
                 counts.holds=counts.holds+1;return {hold=true}
             else strikes[id]=nil end
         end
+        -- A way out of a zone runs while the creature walks it; then it is judged.
+        local m=moves[id]
+        if m then
+            if tick-m.tick<m.limit and (sprite.m_curAction.m_actionID==M.MOVE or tick-m.tick<M.moveGrace) then
+                counts.holds=counts.holds+1;return {hold=true}
+            end
+            moved(m,sprite,tick)
+        end
         -- The round is free once SCS's timer has run out, even while the casting aura of the
         -- last cast still runs: SCS's timer counts a round from the cast's queueing, the aura
         -- from its start, so the aura nearly always outlasts the timer. A queued cast waits for
-        -- the aura, SCS's and the engine's alike.
-        if M.timerRunning(g,sprite,tick) then return decline('timer') end
+        -- the aura, SCS's and the engine's alike. While the timer runs, a creature that is not
+        -- casting may still walk out of a zone that hurts it.
+        if M.timerRunning(g,sprite,tick) then
+            if not targeting.CASTS[sprite.m_curAction.m_actionID] then
+                local d=flee(sprite,id,tick,family)
+                if d then return d end
+            end
+            return decline('timer')
+        end
         if targeting.CASTS[sprite.m_curAction.m_actionID] then return decline('casting') end
         local frame=sense.frame(g,sprite,tick,true)
         if not frame then return decline('no-frame') end
         if sense.side(frame.self.ea)~='evil' then return decline('side') end
-        if #frame.enemies==0 then return decline('no-enemy') end
+        if #frame.enemies==0 then
+            local d=flee(sprite,id,tick,family)
+            if d then return d end
+            return decline('no-enemy')
+        end
         local rows,carried=book(sprite)
         if not rows then failed('book',carried);return nil end
         mark(sprite,frame,rows)
@@ -737,6 +973,14 @@ function M.new(g,options)
         local input={tick=tick,family=family,frame=frame,spells=rows,items=carried,lastDefence=lastDefence[id],
             plan=director and director:plan(id,tick) or {},memory=memory[id] or {},mind=mindFor(sprite,family),rng=rng,
             creatures=summoned(rows)}
+        -- The zones in the area, with what they weigh about the caster itself.
+        local raw=zoneList(sprite,tick)
+        local seen={}
+        for _,z in ipairs(raw) do seen[#seen+1]=z.id end
+        if #raw>0 then
+            input.zones=zonesFor(frame,raw)
+            if #input.zones>0 then ready(sprite,frame,input.zones) end
+        end
         if holder~=nil then
             input.timeStop={caster=holder,left=left}
             if holder==id then input.stopCasts=stopCasts[id] or {} end
@@ -755,6 +999,7 @@ function M.new(g,options)
             end
             return decline(why)
         end
+        if d.kind=='escape' then return escaping(d,frame,id,tick,family,why) end
         local response=M.response(d)
         if not response then return decline('bad-response') end
         counts.claims=counts.claims+1
@@ -814,7 +1059,7 @@ function M.new(g,options)
         return {own=true,response=response,spell=d.resref,kind=d.kind,mode=d.mode,target=d.target,point=d.point,
             self=d.self,hits=d.hits,castTicks=spell and type(spell.speed)=='number' and spell.speed*9 or nil,
             sources=sources,expected=d.expected,disable=disable,charge=d.kind=='strike' and d.spell or nil,
-            use=d.use,before=before,count=d.count}
+            use=d.use,before=before,count=d.count,known=seen}
     end
     -- From the gate, each time a hooked script asks: nil (SCS's round), {hold=true} while the
     -- engine's queued cast has not started, or the decision.
@@ -837,7 +1082,7 @@ function M.new(g,options)
         if not enabled or missing then return 'skipped' end
         local tick=now()
         if type(tick)~='number' then return 'skipped' end
-        if M.timerRunning(g,object,tick) then return 'skipped' end
+        if decision.kind~='escape' and M.timerRunning(g,object,tick) then return 'skipped' end
         local hp
         if decision.target and not decision.point and not decision.self then
             local target=get(decision.target)
@@ -858,23 +1103,37 @@ function M.new(g,options)
             names[M.targetName]=decision.target
             hp=seen.hp
         end
+        local known=idSet(decision.known)
         if decision.kind=='strike' then
             strikes[object.m_id]={caster=object.m_id,item=decision.spell,spell=decision.charge,target=decision.target,
-                hp=hp,tick=tick,sources=decision.sources,disable=decision.disable}
+                hp=hp,tick=tick,sources=decision.sources,disable=decision.disable,known=known}
             counts.performed=counts.performed+1;counts.strikes=counts.strikes+1
             record({kind='swing',tick=tick,member=object.m_id,item=decision.spell,target=decision.target})
             return true
         end
         if decision.kind=='weapon' then
-            strikes[object.m_id]={caster=object.m_id,item=decision.spell,weapon=true,target=decision.target,hp=hp,tick=tick}
+            strikes[object.m_id]={caster=object.m_id,item=decision.spell,weapon=true,target=decision.target,hp=hp,tick=tick,
+                known=known}
             counts.performed=counts.performed+1;counts.attacks=counts.attacks+1
             record({kind='swing',tick=tick,member=object.m_id,item=decision.spell,target=decision.target,weapon=true})
+            return true
+        end
+        -- A way out: to the nearest open spot that still lies outside the zones it leaves.
+        if decision.kind=='escape' then
+            local point=walkable(object,decision)
+            if not point then return 'skipped' end
+            decision.response='MoveToPoint(['..point.x..'.'..point.y..'])'
+            local walk=type(decision.walk)=='number' and decision.walk or 0
+            moves[object.m_id]={tick=tick,point=point,zones=type(decision.zones)=='table' and decision.zones or {},
+                limit=math.ceil(walk*M.ticksPerSecond*2)+M.moveMargin}
+            counts.performed=counts.performed+1
+            record({kind='move',tick=tick,member=object.m_id,from={x=object.m_pos.x,y=object.m_pos.y},to=point})
             return true
         end
         pending[object.m_id]={caster=object.m_id,resref=decision.spell,kind=decision.kind,mode=decision.mode,
             target=decision.target,point=decision.point,hits=decision.hits,tick=tick,hp=hp,
             castTicks=decision.castTicks,sources=decision.sources,expected=decision.expected,before=decision.before,
-            count=decision.count}
+            count=decision.count,known=known}
         counts.performed=counts.performed+1
         return true
     end
@@ -937,7 +1196,20 @@ function M.new(g,options)
 
     function api:setEnabled(value)
         assert(type(value)=='boolean');enabled=value
-        if not value then pending={} end
+        if not value then pending,moves={},{} end
+    end
+    -- Whether the engine weighs danger zones for creature id of family now (BGSE_Zones: SCS's own
+    -- cloud escape stands aside meanwhile): not for a creature off the engine's side. While it
+    -- casts, or swings in a strike or weapon round of the engine's, the hook cannot break that
+    -- action (its own block runs it), so a zone that hurts the creature where it stands and that
+    -- the engine did not know when it chose the action lets SCS's escape break it off, as SCS's
+    -- creatures always do.
+    function api:zones(family,id)
+        if not (enabled and not missing and M.families[family]==true and zonesReady()) then return false end
+        local ok,result=pcall(weighs,id,family)
+        if ok then return result==true end
+        zoneFailed('zone-guard',result)
+        return false
     end
     function api:attach(r) root=r end
     function api:setSink(fn) assert(fn==nil or type(fn)=='function');sink=fn end
@@ -953,6 +1225,7 @@ function M.new(g,options)
     function api:invalidate()
         pending,running,judging,memory,stop,resumed={},{},{},{},nil,nil
         lastDefence,known,stopCasts,strikes={},{},{},{}
+        moves,zoneRead,zoneSpells,zoneSpellCount,zoneBroken={},nil,{},0,false
     end
     function api:inspect()
         local copy=function(t) local c={};for k,v in pairs(t) do c[k]=v end;return c end
@@ -965,7 +1238,8 @@ function M.new(g,options)
         return {enabled=enabled,missing=missing or false,trace=trace,counts=copy(counts),reasons=copy(reasons),
             pending=open,running=busy,judging=#judging,remembered=remembered,log=rows,lastError=lastError or false,
             markError=markError or false,guardError=guardError or false,weaponError=weaponError or false,
-            wardError=wardError or false}
+            wardError=wardError or false,zoneError=zoneError or false,moving=(function()
+                local n=0;for _ in pairs(moves) do n=n+1 end;return n end)()}
     end
     return api
 end

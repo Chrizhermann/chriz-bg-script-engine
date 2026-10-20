@@ -1,6 +1,6 @@
 # SUPPORT-01 — Healing, curing, summons, removal and danger zones (D3)
 
-Status: being built (2026-10-20). Christopher's go: "Mach alles, dann Lab Tests."
+Status: built (2026-10-20); lab batch H next. Christopher's go: "Mach alles, dann Lab Tests."
 
 ## Question
 
@@ -61,6 +61,20 @@ a fight (`first_dispel`), but not while one of the party is disabled, in an Inse
 Malison or (with Spell Revisions) turning to stone (`AvoidDispel`, `AvoidDispellingMalison`): the
 dispel would free them too. Death Spell kills summoned creatures up to level 8. Timers of 12 to
 18 seconds keep such casts apart.
+
+**Danger zones** (`initial/detectcloud.tpa`, `genai/ssl/fleecloud.ssl`,
+`mage/ssl/generalblocks/fleecloud.ssl`, `fleecloud_fm.ssl`): SCS gives each cloud and storm spell
+an invisible marker creature that shouts a code for its kind every few seconds (404 Cloudkill, 405
+and 409 Incendiary Cloud, Fire Storm and Meteor Swarm, 407 Storm of Vengeance, 408 Death Fog, 410
+Web, 411 Stinking Cloud, 412 Ice Storm and Writhing Fog, 413 Suffocate and Cloud of Pestilence). A
+creature that hears one within 15 to 20 (10 for 413) and can be hurt by it (its resistances, magic
+resistance, Minor Globe, undead or demon for some) sets its `seencloud` timer and runs from the
+marker (`RunAwayFromNoLeaveArea`), unless it is resistant enough and sees an enemy. A melee
+creature that sees an enemy walks at it instead (`MoveToObject([PC])` when not within 8). A mage
+or priest that sees no enemy and hears a cloud stands still (`NoAction`). Mages and priests escape
+when their action list is empty or their round timer runs, so they break off a cast to flee while
+the timer runs. Most of these blocks sit near the top of the scripts, above the engine's hook
+(HOOK-01); in some general AI and monster scripts they come below it.
 
 ## The engine's design
 
@@ -212,3 +226,62 @@ Not yet: invisible enemies the caster does not see are not in its frame, so an i
 or True Seeing has no worth unless the caster sees them (they would need to be remembered), and
 debuff spells (Slow, Malison) are not cast for their debuff. A removal claims nothing in the group:
 two casters may breach the same enemy while the first cast is under way.
+
+### Danger zones (D3e; built 2026-10-20)
+
+`combat-intent/zones.lua`, with the harm on a creature shared with the engine's attacks
+(`combat-intent/harm.lua`). The engine reads the zones itself instead of listening for SCS's
+markers, so it knows every zone, also those SCS marks not, and judges each by the creature in it:
+
+- **What a zone is:** an area projectile (EEex's `CProjectileArea`) that has reached its place and
+  has explosions left: clouds, storms, webs, Entangle, Spike Growth. The adapter reads them from
+  the area's object lists once a tick (`sense.zones`): centre, radius (explosion range),
+  explosions left and the ticks between them, who cast it (friend, enemy or unknown), whom it
+  spares (the projectile's area flags) and the effects one explosion delivers, classified as a
+  spell at the zone's caster level, with the spells it casts on each creature (opcode 146).
+- **Harm of one explosion** on the creature: damage through its resistances, magic resistance and
+  saves; disables it does not shrug off (Cloudkill's death only up to its levels); conditions
+  (Stinking Cloud's spell failure counts as a silence, 0.7, blindness 0.3, deafness 0.2, disease
+  0.1, casters' conditions a fifth on others); nothing when its spell protections keep the zone
+  out or the zone spares its side.
+- **Worth of leaving:** the explosions it would sit through in the next round if it stayed,
+  counted from when it would be out, at most one per period where a zone makes those it hits
+  immune to itself for a while (Spell Revisions' clouds, opcode 206), and no more than it is worth.
+- **When:** leaving costs no spell, only the seconds of the walk, so the creature leaves when
+  that is worth more than the walk's part of a round of its best other option. A creature that
+  is held, webbed or entangled does not try. Zones do not count in the caster's own Time Stop.
+- **Where to:** the shortest walk (16 directions, up to a round's walk) to a point beyond every
+  zone that hurts it, moved to the nearest open spot of the area's search map
+  (`EEex_Area_GetNearestOpenPosition`) as long as that still lies outside them, else the next
+  way out. `MoveToPoint`, without SCS's round timer; held while the creature walks (twice the
+  walk and a margin at most), then judged (`escaped` rows: out or not).
+- **Staying:** a cast where the caster stands loses what the zones' explosions may break (each one
+  whose damage lands breaks it); a melee attack or strike counts what walking to its target and
+  standing there does, so a creature fights its way out towards an enemy outside and thinks twice
+  before walking into a cloud.
+- **Mid-round:** while SCS's round timer runs and the creature is not casting, and when it sees
+  no enemy, it still walks out of a zone that hurts it.
+- **SCS's escape stands aside** (HOOK-01, rule 6): the installer gives SCS's escape blocks above
+  the hook a last condition: they run when the creature sees no enemy or `BGSE_Zones` says no.
+  `BGSE_Zones` is true while the gate would ask the engine (switches, registry, the scripts
+  below, no backoff after an error), the choice is on, zones can be read and the creature is on
+  the engine's side; but not while it casts, or swings in a strike or weapon round of the
+  engine's, in a zone that hurts it and that the engine did not know when it chose the action:
+  the hook cannot break an action its own block runs, so SCS breaks it off as it always did. So
+  with no enemy in sight SCS's escape and its stand-still run as before; with one in sight the
+  engine weighs the zones. SCS's escapes below the hook run only when the engine declines and
+  stay as they are. In the SR lab's scripts 9,957 escape blocks in 1,078 hooked scripts get the
+  condition (mage 5,201, priest 2,456, monster 1,360, fighter 940), all of them last (host run of
+  the rule, nothing installed).
+
+In the SR lab, 46 wizard, priest and innate abilities have an area projectile that explodes again
+and again (host census, nothing ran). Most clouds explode every 75 ticks, ten times (Stinking
+Cloud, Cloudkill, Web, Acid Fog, Incendiary Cloud); storms every 100 ticks, four times (Ice Storm,
+Fire Storm, Meteor Swarm). Most deliver their effects through spells they cast on each creature.
+
+Not yet: the projectile's tick counts assume 15 ticks a second, and which list holds the zones
+and what its fields mean in play are unchecked (lab batch H); explosions count spread evenly (the
+counter to the next one is read but not used); no protections against zones (Protection from
+Fire and the like); ways out do not prefer spots that keep enemies in sight or range; the engine
+does not cast clouds for their lingering harm on enemies (its zones are only dangers to its own);
+a cast under way is not broken off for a zone by the engine itself.

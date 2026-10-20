@@ -222,4 +222,24 @@ ok,why=g:act(actor);assert(ok==false and why=='skipped')
 assert(g:inspect().counts.skipped==1 and g:inspect().counts.errors==0 and g:inspect().counts.acted==0)
 pass()
 assert(g:claim(actor,'mage')==true and g:act(actor)==true and g:inspect().counts.acted==1)
-return 16
+
+-- 17. drives() tells, without asking the decider, whether the gate would ask it: switches,
+-- registry, the scripts below, a decider and no backoff after an error.
+local drove=0
+g=hook.new({now=clock,decide=function(a)
+    drove=drove+1
+    if a.id==9 then error('decider broke') end
+    return {hold=true}
+end,below=function(id) if id==8 then return {'other'} end;return {} end})
+pass()
+assert(g:drives(actor,'mage')==true and drove==0)
+assert(g:drives({id=8,script='s1'},'mage')==false and g:drives(nil,'mage')==false and g:drives({id=7},'mage')==false)
+assert(g:drives(actor,'dragon')==false)
+g:setFamily('mage',false);assert(g:drives(actor,'mage')==false);g:setFamily('mage',true)
+g:setEnabled(false);assert(g:drives(actor,'mage')==false);g:setEnabled(true)
+assert(g:claim({id=9,script='s1'},'mage')==false and g:drives({id=9,script='s1'},'mage')==false)
+tick=tick+151
+assert(g:drives({id=9,script='s1'},'mage')==true)
+g:setDecider(nil);assert(g:drives(actor,'mage')==false)
+assert(raw.new({now=clock,decide=function() end,below=function() return {} end}):drives(actor,'mage')==false)
+return 17

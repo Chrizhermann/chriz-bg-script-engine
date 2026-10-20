@@ -144,6 +144,25 @@ function M.new(config)
     end
     -- Whether the gate is on for a family right now (for helpers that act outside a claim).
     function api:allows(family) return enabled and known[family]==true and families[family]==true end
+    -- Whether the gate would ask the decider about this creature from this script now (its
+    -- switches, the registry, the scripts below it, a decider and no backoff after an error),
+    -- without asking: for SCS blocks that stand aside while the engine drives the creature.
+    function api:drives(actor,family)
+        local id=type(actor)=='table' and rawget(actor,'id')
+        if not scalarId(id) then return false end
+        local script=rawget(actor,'script')
+        if type(script)~='string' or #script==0 or #script>32 then return false end
+        if not (enabled and known[family] and families[family] and hooked and below and decide) then return false end
+        local tick=now()
+        if not tick then return false end
+        if blocked[id] and tick<blocked[id] and blocked[id]-tick<=backoff then return false end
+        local found,rest=pcall(below,id,script:lower())
+        if not found or type(rest)~='table' then return false end
+        for _,name in ipairs(rest) do
+            if type(name)~='string' or not hooked[name:lower()] then return false end
+        end
+        return true
+    end
     function api:setEnabled(value)
         assert(type(value)=='boolean');enabled=value;answers={}
         if not value then pending={} end

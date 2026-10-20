@@ -9,15 +9,17 @@
 -- its creature IDS values, saves, resistances, level and the spell protections a script can
 -- test (SCS's triggers read the same); M.splprot adds the engine's own answers to the SPLPROT
 -- checks of the spells in question. M.defend adds what the defence slice weighs: what protects
--- each friend now and the weapons of the creatures around. Only plain values leave this module;
--- no engine object is kept.
+-- each friend now and the weapons of the creatures around. M.zones reads the danger zones in an
+-- area (D3e): its area projectiles that explode again and again. Only plain values leave this
+-- module; no engine object is kept.
 local targeting=require('combat-intent.targeting')
 local M={}
 -- A sprite's default visual range in EEex's area search.
 M.sightRange=448
 M.GOOD_CUTOFF,M.EVIL_CUTOFF=30,200
--- STATS.IDS: MAXHITPOINTS, RESISTMAGIC, HELD, SANCTUARY, SEEINVISIBLE, TRUE_SIGHT, LEVELDRAIN.
-M.stats={maxHp=1,mr=18,held=58,sanctuary=63,seeInvisible=81,trueSight=118,levelDrain=200}
+-- STATS.IDS: MAXHITPOINTS, RESISTMAGIC, HELD, SANCTUARY, SEEINVISIBLE, TRUE_SIGHT, LEVELDRAIN,
+-- ENTANGLE, WEB.
+M.stats={maxHp=1,mr=18,held=58,sanctuary=63,seeInvisible=81,trueSight=118,levelDrain=200,entangle=62,web=67}
 -- STATE_INVISIBLE and STATE_IMPROVEDINVISIBILITY; STATE_BLIND.
 M.unseen,M.blind=0x400010,0x40000
 -- STATS.IDS: the saving throws, resistances and levels SCS's attack blocks read about their
@@ -332,6 +334,105 @@ function M.wards(g,sprite,tick,classify)
         end)
     end
     return out
+end
+
+-- The lists an area keeps its objects in (learned.md): standing creatures and objects, lying
+-- creatures and the dead, flying objects and those drawn underneath. A projectile goes to the one
+-- its own m_addToListType names, so every list is read.
+M.areaLists={'m_lVertSort','m_lVertSortBack','m_lVertSortFlight','m_lVertSortUnder'}
+-- Objects looked at per read at most, and effects per projectile.
+M.maxObjects=2048
+M.maxZoneEffects=64
+
+-- An effect a projectile carries, as a plain record for the classifier: it reaches the creatures
+-- the projectile hits. Effects carried are not started yet, so their timing and duration are still
+-- the file's (a started one, timing 4096, counts its seconds left).
+local function carried(g,e,tick)
+    local kind=number(e.m_durationType)
+    local timing,duration=kind,number(e.m_duration)
+    if kind==M.timedEffect then timing,duration=0,math.max(0,math.floor((duration-tick)/15))
+    elseif kind>10 then timing=0 end
+    return {opcode=number(e.m_effectId),target=2,power=number(e.m_spellLevel),p1=number(e.m_effectAmount),
+        p2=number(e.m_dWFlags),timing=timing,resist=band(g,number(e.m_flags),0xFF),duration=duration,
+        prob1=number(e.m_probabilityUpper),prob2=number(e.m_probabilityLower),res=name(e.m_res),
+        dice=number(e.m_numDice),sides=number(e.m_diceSize),save=number(e.m_savingThrow),saveBonus=number(e.m_saveMod),
+        special=number(e.m_special)}
+end
+-- The danger zones in an area at tick, as plain values: every area projectile (EEex's
+-- CProjectileArea) that has reached its place and has explosions left: its object id, centre and
+-- the place it flew to (dest), radius (explosion range), explosions left (repeats), ticks between
+-- them (delay) and its tick counter, the object id of its source, its projectile number, the
+-- highest caster level among its effects, the spell or item they come from (resref), the list it
+-- lies in, and its effects as plain records (carried). A projectile that cannot be read is left
+-- out; returns the zones, the count of those that failed and the last failure.
+function M.zones(g,area,tick)
+    local out,failed,last={},0,nil
+    if area==nil then return out,0 end
+    local getType,types,cast=g.EEex_Projectile_GetType,g.EEex_Projectile_Type,g.EEex_CastUD
+    local wanted=types.CProjectileArea
+    local seen=0
+    for _,listName in ipairs(M.areaLists) do
+        local list=area[listName]
+        if list~=nil and seen<M.maxObjects then
+            local ids={}
+            g.EEex_Utility_IterateCPtrList(list,function(id)
+                seen=seen+1
+                if seen>M.maxObjects then return true end
+                ids[#ids+1]=id
+            end)
+            for _,id in ipairs(ids) do
+                local object=g.EEex_GameObject_Get(id)
+                if object~=nil and not g.EEex_GameObject_IsSprite(object,true) then
+                    local ok,z=pcall(function()
+                        if getType(object)~=wanted then return nil end
+                        local p=cast(object,'CProjectileArea')
+                        local repeats=number(p.m_nRepetitionCount)
+                        if number(p.m_bReachedDestination)==0 or repeats<=0 then return nil end
+                        local effects,level,resref={},0,''
+                        local n=0
+                        g.EEex_Utility_IterateCPtrList(p.m_effectList,function(e)
+                            n=n+1
+                            if n>M.maxZoneEffects then return true end
+                            effects[#effects+1]=carried(g,e,tick)
+                            level=math.max(level,number(e.m_casterLevel))
+                            if resref=='' then resref=name(e.m_sourceRes) end
+                        end)
+                        return {id=id,x=number(p.m_pos.x),y=number(p.m_pos.y),dest={x=number(p.m_posDest.x),y=number(p.m_posDest.y)},
+                            radius=number(p.m_explosionRange),repeats=repeats,delay=number(p.m_nDelay),
+                            counter=number(p.m_nDelayCount),source=number(p.m_sourceId),projectile=number(p.m_projectileType),
+                            level=level,resref=resref,list=listName,effects=effects}
+                    end)
+                    if not ok then failed=failed+1;last=tostring(z)
+                    elseif z then out[#out+1]=z end
+                end
+            end
+        end
+    end
+    table.sort(out,function(a,b) return a.id<b.id end)
+    return out,failed,last
+end
+
+-- Marks which of rows (the SPLPROT conditions of the spells in question) a creature meets as the
+-- receiver (stats) of a spell from mine, as M.splprot does for enemies: entry.splprot[key]. Returns
+-- the marks read, the checks that failed and the last failure.
+function M.mark(g,entry,stats,mine,rows)
+    if next(rows)==nil then return 0,0 end
+    local ok,rt=pcall(ruleTables,g)
+    if not ok or rt==nil then return 0,1,tostring(rt) end
+    local read,failed,last=0,0,nil
+    local marks=entry.splprot or {}
+    entry.splprot=marks
+    for key,f in pairs(rows) do
+        if marks[key]==nil then
+            local a,b=stats,mine
+            if f.flip then a,b=mine,stats end
+            local done,v=pcall(function() return rt:IsProtectedFromSpell(f.row,a,b,f.value) end)
+            if done and type(v)=='number' then marks[key]=v~=0;read=read+1
+            elseif done and type(v)=='boolean' then marks[key]=v;read=read+1
+            else failed=failed+1;last=done and 'answer '..type(v) or tostring(v) end
+        end
+    end
+    return read,failed,last
 end
 
 -- Adds what the defence slice weighs to a frame read with details: each friend's guard (false

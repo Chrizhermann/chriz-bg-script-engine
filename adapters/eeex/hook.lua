@@ -1,6 +1,8 @@
 -- EEex side of the BCS handoff. A hook block's trigger calls BGSE_Claim(object, family, script)
 -- and its response calls BGSE_Act(object); guarded copies of SCS blocks above the hook call
--- BGSE_Claim too. script is the hooked script's own resref, written in at install time.
+-- BGSE_Claim too. script is the hooked script's own resref, written in at install time. SCS's own
+-- cloud escape above the hook asks BGSE_Zones(object, family, script) last and stands aside while
+-- it is true and the creature sees an enemy: the engine weighs danger zones for it (D3e).
 -- Switches live in the player's Baldur.lua under [BGSE] (Enabled, Mages, Priests, Fighters,
 -- Monsters; all on unless set to 0). The install also writes M_BGSEHK.lua, which sets
 -- BGSE_HOOKED (hooked script -> family); the gate reads it on first use. Errors never escape
@@ -131,13 +133,27 @@ function M.install(g,options)
     end
     g.BGSE=root
     local registered=options.hooked~=nil
+    local function register()
+        if not registered then
+            local list=rawget(g,'BGSE_HOOKED')
+            if type(list)=='table' then gate:setHooked(list);registered=true end
+        end
+    end
     g.BGSE_Claim=function(object,family,script)
         local ok,result=pcall(function()
-            if not registered then
-                local list=rawget(g,'BGSE_HOOKED')
-                if type(list)=='table' then gate:setHooked(list);registered=true end
-            end
+            register()
             return gate:claim(actor(object,script),family)
+        end)
+        return ok and result==true
+    end
+    -- True while the engine weighs danger zones for the creature: its gate would ask the engine
+    -- (gate:drives) and the choice weighs zones for it now (choice:zones). Any error is false, so
+    -- SCS's cloud escape runs.
+    g.BGSE_Zones=function(object,family,script)
+        local ok,result=pcall(function()
+            register()
+            local a=actor(object,script)
+            return choice~=nil and gate:drives(a,family) and choice:zones(family,a.id)==true
         end)
         return ok and result==true
     end

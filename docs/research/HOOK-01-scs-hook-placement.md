@@ -57,10 +57,18 @@ Python, and `tests/integration/test_hook_installer.py` checks they agree.
      check; when one aims at `LastSeenBy(Myself)`, the target picks right before it too.
 5. The originals stay where they are. A script that is already hooked, has no round timer or
    has no anchor is left as it is, and the installer says so.
+6. SCS's cloud escape blocks above the anchor (those whose response sets the `seencloud` timer)
+   get a last condition, `OR(2) !See(NearestEnemyOf(Myself)) !EEex_LuaTrigger(...BGSE_Zones...)`:
+   they run when the creature sees no enemy or the engine does not weigh danger zones for it
+   now (SUPPORT-01, D3e). SCS's own triggers run first, as before, and the engine is asked only
+   when SCS would escape (EEex compiles each `EEex_LuaTrigger` anew). When the triggers end in an
+   OR group that lacks members, the condition goes first instead, so it never joins that group.
+   Escapes below the anchor run only when the engine declines and stay as they are.
 
 The claim is cached per creature and game tick, so the copies and the hook ask once per
 script pass and get the same answer. When the engine declines or is switched off, every
-copy's first trigger fails and SCS's script runs in its original order.
+copy's first trigger fails and SCS's script runs in its original order; a switched-off engine
+also lets every cloud escape run.
 
 ## Install results in the lab game
 

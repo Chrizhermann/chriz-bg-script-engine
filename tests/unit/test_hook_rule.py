@@ -15,19 +15,22 @@ def text(name):
 def test_mage_hook_sits_before_the_action_choice_with_guarded_copies():
     source = text('B-HKMAG')
     spans, anchor, copies = hook_rule.plan(source)
-    # Setup, prebuff, first-round cast and cloud escape stay above; the alacrity block is the
-    # first block of the per-round choice.
-    assert anchor == 4
+    # Setup, prebuff, first-round cast, cloud escape and SCS's stand-still in a cloud stay
+    # above; the alacrity block is the first block of the per-round choice.
+    assert anchor == 5
     # Two target picks and the special that aims at LastSeenBy, then the bookkeeping run with
     # its state-only middle block. The perceiving item block is not bookkeeping, but making
     # an item is more than a combat round, so it is kept too. The filler, the item-free state
     # block and the spellbook-gated ForceSpellRES are not copied.
-    assert copies == [5, 6, 7, 8, 9, 10, 13]
+    assert copies == [6, 7, 8, 9, 10, 11, 14]
     patched, reason, family, count = hook_rule.patch(source, 'B-HKMAG')
     assert (reason, family, count) == ('hooked', 'mage', 7)
-    head = source[:spans[anchor][0]]
-    assert patched.startswith(head) and patched.endswith(source[spans[anchor][0]:])
-    inserted = patched[len(head):len(patched) - len(source) + len(head)]
+    # Above the hook only the cloud escape changes (test_cloud_escapes_above_the_hook_...).
+    cloud = source[spans[3][0]:spans[3][1]]
+    head = source[:spans[anchor][0]].replace(cloud, hook_rule.stand_aside(cloud, 'mage', 'b-hkmag'), 1)
+    tail = source[spans[anchor][0]:]
+    assert patched.startswith(head) and patched.endswith(tail)
+    inserted = patched[len(head):len(patched) - len(tail)]
     guard = hook_rule.guard('mage', 'b-hkmag')
     assert inserted.count('IF\n  ' + guard + '\n') == 8
     assert inserted.endswith(hook_rule.hook_block('mage', 'b-hkmag'))
@@ -45,7 +48,7 @@ def test_priest_keeps_blade_bookkeeping_and_engine_owns_turn_undead():
 
 def test_ranged_general_ai_skips_the_retarget_block():
     spans, anchor, copies = hook_rule.plan(text('B-HKRNG'))
-    assert anchor == 3 and copies == []
+    assert anchor == 4 and copies == []
     assert hook_rule.patch(text('B-HKRNG'), 'B-HKRNG')[1:] == ('hooked', 'fighter', 0)
 
 
@@ -56,6 +59,47 @@ def test_ranged_general_ai_skips_the_retarget_block():
 def test_scripts_left_as_they_are(name, reason):
     patched, why, _, count = hook_rule.patch(text(name), name)
     assert patched is None and why == reason and count == 0
+
+
+def test_cloud_escapes_above_the_hook_yield_to_the_engine():
+    # The mage's escape (SCS's fleecloud blocks) takes the condition after its own triggers;
+    # SCS's stand-still in a cloud while no enemy is in sight stays as it is.
+    source = text('B-HKMAG')
+    spans, anchor, _ = hook_rule.plan(source)
+    assert hook_rule.clouds(source, spans, anchor) == [3]
+    patched = hook_rule.patch(source, 'B-HKMAG')[0]
+    zones = hook_rule.zones_guard('mage', 'b-hkmag')
+    assert zones == ('EEex_LuaTrigger("return BGSE_Zones and BGSE_Zones(EEex_LuaTrigger_Object,'
+                     "'mage','b-hkmag') or false\")")
+    escape = ('    !See(NearestEnemyOf(Myself))\n  OR(2)\n    !See(NearestEnemyOf(Myself))\n    !' + zones +
+              '\nTHEN\n  RESPONSE #100\n    SetGlobalTimer("seencloud","LOCALS",20)\n')
+    assert patched.count(escape) == 1 and patched.count(zones) == 1
+    assert source[spans[4][0]:spans[4][1]] in patched
+    # The ranged fighter's escape ends in an OR group that lacks a member: the condition goes
+    # first. Its escape below the hook runs only when the engine declines and stays.
+    source = text('B-HKRNG')
+    spans, anchor, _ = hook_rule.plan(source)
+    assert hook_rule.clouds(source, spans, anchor) == [3]
+    patched = hook_rule.patch(source, 'B-HKRNG')[0]
+    zones = hook_rule.zones_guard('fighter', 'b-hkrng')
+    assert patched.count('IF\n  OR(2)\n    !See(NearestEnemyOf(Myself))\n    !' + zones +
+                         '\n  !INI("DMWW_genai_difficulty",1)\n  Heard([ANYONE],407)\n') == 1
+    assert source[spans[5][0]:spans[5][1]] in patched and patched.count(zones) == 1
+
+
+@pytest.mark.parametrize('triggers,first', [
+    (['Heard([ANYONE],404)'], False),
+    (['OR(2)', '  A()', '  B()'], False),
+    (['OR(2)', '  A()', '  B()', 'C()'], False),
+    (['OR(3)', '  A()', '  B()'], True),
+    (['OR(2)', '  A()', '  B()', 'OR(2)', '  C()'], True),
+])
+def test_cloud_condition_goes_last_unless_an_or_group_lacks_members(triggers, first):
+    lines = ''.join(f'  {t}\n' for t in triggers)
+    block = f'IF\n{lines}THEN\n  RESPONSE #100\n    SetGlobalTimer("seencloud","LOCALS",20)\nEND\n'
+    out = hook_rule.stand_aside(block, 'mage', 'dw#mg1')
+    group = '  OR(2)\n    !See(NearestEnemyOf(Myself))\n    !' + hook_rule.zones_guard('mage', 'dw#mg1') + '\n'
+    assert out == (f'IF\n{group}{lines}' if first else f'IF\n{lines}{group}') + block[block.index('THEN\n'):]
 
 
 def test_windows_line_ends_give_the_same_result():
