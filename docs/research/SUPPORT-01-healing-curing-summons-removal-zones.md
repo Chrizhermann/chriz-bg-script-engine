@@ -435,3 +435,20 @@ H5) in four, SCS alone in four. The party's six members have 724 hit points in a
 In the other labs: in the zone fights the engine kept every group creature alive (SCS alone lost
 its level-8 mage once); in the high fights both won every fight, in 107 to 116 seconds with the
 engine and 114 with SCS alone, with about the same hit points left.
+
+## Christopher's answers (2026-10-21)
+
+- **Judge by effect:** what counts is whether the engine's groups beat their enemies better and
+  would react more intelligently to a human player, not whether they match SCS.
+- **Spell slots:** a slot costs less when the caster has more spells left than rounds it can
+  expect to live ("ja, auf jeden Fall"). To build.
+- **Summons:** many factors: early in a fight good, mid-fight it can be good, late situational;
+  the kind of summons; the summoner, who may prefer summons over other spells. How far to model
+  it is open.
+- **Time Stop:** Christopher is fixing durations that run on for others during a Time Stop; the
+  double Time Stop's side effects are left alone here.
+- **Testing:** both his own playtests (docs/playtest.md) and a lab party that plays like a human.
+- **Protection removal:** Secret Word is probably undervalued against the player. Only very few
+  AI mages, if any, should use combos such as Improved Alacrity and then Secret Word again and
+  again at the party (Entropy Shield gone at once, the next spell at once); Irenicus is a
+  candidate for such nasty combos. Design with Christopher.
