@@ -6486,9 +6486,9 @@ local rngs=require('kernel.rng')
 local M={}
 M.families={mage=true,priest=true}
 -- Game ticks (15 a second). A queued cast that has not started pendingTicks after it was
--- queued, or after the creature's casting aura was last seen busy, is given up; outcomeTicks
--- after a cast ends, or after time resumes if a Time Stop froze the target, its effect on the
--- target is judged.
+-- queued, or after the creature's casting aura was last seen busy, is given up; a started one is
+-- held as long beyond its casting time (decide). outcomeTicks after a cast ends, or after time
+-- resumes if a Time Stop froze the target, its effect on the target is judged.
 M.pendingTicks=45
 M.outcomeTicks=30
 -- A started cast that ends this much before its casting time was interrupted.
@@ -7293,6 +7293,21 @@ function M.new(g,options)
             record({kind='lost',tick=tick,member=id,spell=p.resref,target=p.target,queued=p.tick})
             if director then director:release(id,tick) end
         end
+        -- The engine's own cast or drink is held while it is the creature's action (judge has
+        -- ended it otherwise). One that became the action while the casting aura of the creature's
+        -- last cast ran waits for the aura, and SCS's blocks below the hook would replace it
+        -- meanwhile (lab batch H: SCS's attack block took the place of the engine's potions). It is
+        -- held while the aura runs or a Time Stop freezes the creature, and for its casting time
+        -- and pendingTicks from the latest of its start, the aura last seen busy and time resuming;
+        -- then SCS has the round.
+        local r=running[id]
+        if r then
+            if g.EEex_Sprite_GetCastTimer(sprite)~=-1 then r.waiting=tick end
+            local from=math.max(r.started or tick,r.waiting or 0,resumed or 0)
+            if frozen(id) or tick-from<=(r.castTicks or 0)+M.pendingTicks then
+                counts.holds=counts.holds+1;return {hold=true}
+            end
+        end
         -- A strike runs while the creature swings or SCS's round timer runs (two rounds at most);
         -- once its charge is gone it is judged. A weapon attack runs while the creature attacks,
         -- or while the timer runs and its target lives (two rounds at most).
@@ -7481,7 +7496,8 @@ function M.new(g,options)
             use=d.use,before=before,count=d.count,known=seen}
     end
     -- From the gate, each time a hooked script asks: nil (SCS's round), {hold=true} while the
-    -- engine's queued cast has not started, or the decision.
+    -- engine's queued cast has not started or its own cast or drink is the creature's action, or
+    -- the decision.
     function api:decide(view,family)
         lastReason,lastDetail,lastCharge=nil,nil,nil
         local ok,result=pcall(decide,view,family)

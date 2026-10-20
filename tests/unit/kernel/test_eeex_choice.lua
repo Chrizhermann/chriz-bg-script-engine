@@ -1,7 +1,7 @@
 -- EEex side of the engine's own choice against fake engine globals: taking the round through
 -- the gate, the response that casts and sets SCS's round timer, the target named through
--- EEex_Target, holding while the cast is queued, the director's picture of the engine's own
--- casts, outcomes and memory, re-checks, switches, errors and loads.
+-- EEex_Target, holding while the cast is queued and while it runs, the director's picture of the
+-- engine's own casts, outcomes and memory, re-checks, switches, errors and loads.
 local runtime=require('adapters.eeex.runtime')
 local directors=require('adapters.eeex.director')
 local choices=require('adapters.eeex.choice')
@@ -193,14 +193,16 @@ assert(own and own.spell=='TESTBOLT' and own.target==12 and own.role=='damage')
 state=root.inspect()
 assert(state.choice.counts.started==1 and state.choice.running==1 and state.director.counts.own==1 and
     state.director.counts.advised==0)
--- While it runs, SCS's round timer (set by the response) leaves the round to SCS's filler.
+-- While it is the mage's action the engine holds it, so that SCS's blocks below the hook do not
+-- replace it.
 m1.m_curAction=action(31,'TESTBOLT',12)
 m1.locals.castspell=190
-assert(claim(m1,'mage','s1',120)==false and root.inspect().choice.reasons.timer==1)
--- It ends; 30 ticks later its effect is judged: 12 lost its hit points.
+assert(claim(m1,'mage','s1',120)==true and root.inspect().choice.counts.holds==2)
+-- It ends, and SCS's round timer (set by the response) leaves the rest of the round to SCS's
+-- filler; 30 ticks later the bolt's effect is judged: 12 lost its hit points.
 m1.m_curAction={m_actionID=0}
 e12.m_baseStats.m_hitPoints=0
-assert(claim(m1,'mage','s1',130)==false and root.inspect().choice.judging==1)
+assert(claim(m1,'mage','s1',130)==false and root.inspect().choice.judging==1 and root.inspect().choice.reasons.timer==1)
 m1.locals.castspell=0
 assert(claim(m1,'mage','s1',165)==true)
 state=root.inspect().choice
@@ -215,7 +217,7 @@ g.BGSE_Act(m1)
 assert(m1.aux.EEex_Target.BGSE==11)
 start(m1,action(31,'TESTBOLT',-1))
 m1.m_curAction=action(31,'TESTBOLT',11);m1.locals.castspell=300
-assert(claim(m1,'mage','s1',200)==false)
+assert(claim(m1,'mage','s1',200)==true)
 m1.m_curAction={m_actionID=0}
 assert(claim(m1,'mage','s1',201)==false)
 m1.locals.castspell=0
@@ -246,7 +248,7 @@ local queued=#g.queued
 assert(claim(m1,'mage','s1',280)==true)
 g.BGSE_Act(m1)
 assert(#g.queued==queued+1 and root.inspect().choice.pending==1)
-assert(claim(m1,'mage','s1',300)==true and root.inspect().choice.counts.holds==2)
+assert(claim(m1,'mage','s1',300)==true and root.inspect().choice.counts.holds==4)
 g.BGSE_Act(m1)
 assert(claim(m1,'mage','s1',330)==true and root.inspect().choice.counts.lost==1)
 assert(last('lost').spell=='TESTBOLT' and last('lost').queued==280)
@@ -353,7 +355,7 @@ g2.BGSE_Act(caster)
 assert(caster.aux.EEex_Target.BGSE==11)
 g2.listeners.started[1](caster,action(31,'TESTACID',-1))
 caster.m_curAction=action(31,'TESTACID',11);caster.locals.castspell=190
-g2.ticks=120;assert(g2.BGSE_Claim(caster,'mage','s1')==false)
+g2.ticks=120;assert(g2.BGSE_Claim(caster,'mage','s1')==true)
 caster.m_curAction={m_actionID=0}
 victim.m_timedEffectList={{m_effectId=142,m_sourceRes=str('TESTACDB')}}
 g2.ticks=130;assert(g2.BGSE_Claim(caster,'mage','s1')==false)
@@ -1247,6 +1249,73 @@ g15.BGSE_Act(late15)
 local move15=last15('move',2)
 assert(move15 and g15.queued[#g15.queued].text=='MoveToPoint(['..move15.to.x..'.'..move15.to.y..'])')
 assert(ch15:inspect().counts.zoneFailures==1 and ch15:inspect().zoneError:find('zone-nearest',1,true))
+end)()
+groups=groups+1
+
+-- 25. The engine's own drink or cast is held while it is the creature's action (lab batch H: a
+-- potion drunk while the casting aura of the mage's last cast ran became its action at once and
+-- waited for the aura; the engine left the round to SCS for SCS's timer, and SCS's attack block
+-- replaced the drink). It is held while the aura runs, and for the casting time and pendingTicks
+-- after; a creature frozen in a Time Stop is held until time resumes, and from then on as long
+-- again. Past that, or once its action is another, SCS has the round.
+;(function()
+local g16=world()
+local m16=g16.add(sprite(1,0,0,255,{m_baseStats={m_hitPoints=15,m_generalState=0}}))
+m16.items[18]={cResRef=str('TESTPOTN'),m_useCount1=1}
+local m17=g16.add(sprite(2,0,300,255,{m_baseStats={m_hitPoints=15,m_generalState=0}}))
+m17.items[18]={cResRef=str('TESTPOTN'),m_useCount1=1}
+g16.add(sprite(11,100,0,2))
+local dir16=directors.new(g16,{reader=reader})
+local ch16=choices.new(g16,{reader=reader,director=dir16,seed=25})
+local rows16={}
+ch16:setSink(function(row) rows16[#rows16+1]=row end)
+runtime.install(g16,{director=dir16,choice=ch16,version='test'})
+local function last16(kind,member)
+    for n=#rows16,1,-1 do if rows16[n].kind==kind and rows16[n].member==member then return rows16[n] end end
+end
+local function claim16(s,tick) g16.ticks=tick;return g16.BGSE_Claim(s,'mage','s1') end
+assert(claim16(m16,100)==true and last16('choice',1).use==true and last16('choice',1).spell=='TESTPOTN')
+g16.BGSE_Act(m16)
+assert(g16.queued[#g16.queued].text:find('UseItem%("TESTPOTN",Myself%)')~=nil)
+-- The drink is the mage's action at once and waits for the casting aura of its last cast; SCS's
+-- round timer runs.
+m16.castTimer=60;m16.locals.castspell=190
+local drink=action(34,'TESTPOTN',1)
+m16.m_curAction=drink
+g16.listeners.started[1](m16,drink)
+assert(ch16:inspect().running==1 and ch16:inspect().counts.started==1)
+assert(claim16(m16,110)==true and claim16(m16,140)==true and ch16:inspect().counts.holds==2)
+-- The aura was last seen busy at 140 and a drink has no casting time: held pendingTicks more.
+m16.castTimer=nil
+assert(claim16(m16,185)==true and ch16:inspect().counts.holds==3)
+assert(claim16(m16,186)==false and ch16:inspect().reasons.timer==1 and ch16:inspect().running==1)
+-- Its action is another: no hold, and the drink is judged.
+m16.m_curAction=action(3,'',11)
+assert(claim16(m16,187)==false and ch16:inspect().running==0 and ch16:inspect().judging==1 and ch16:inspect().reasons.timer==2)
+-- The second mage drinks; the enemy stops time, and the drink becomes the frozen mage's action.
+assert(claim16(m17,300)==true and last16('choice',2).use==true)
+g16.BGSE_Act(m17)
+local game16=g16.EngineGlobals.g_pBaldurChitin.m_pObjectGame
+game16.m_nTimeStop,game16.m_nTimeStopCaster=300,11
+local drink17=action(34,'TESTPOTN',2)
+m17.m_curAction=drink17;m17.locals.castspell=700
+g16.listeners.started[1](m17,drink17)
+assert(claim16(m17,320)==true and claim16(m17,600)==true and ch16:inspect().counts.holds==5)
+-- Time resumes at 610: held pendingTicks from there.
+game16.m_nTimeStop,game16.m_nTimeStopCaster=0,0
+assert(claim16(m17,610)==true and claim16(m17,655)==true and ch16:inspect().counts.holds==7)
+assert(claim16(m17,656)==false and ch16:inspect().reasons.timer==3)
+-- A cast is held for its casting time as well: the bolt's three tenths of a round, then
+-- pendingTicks.
+local m18=g16.add(sprite(3,0,-200,255))
+learn(m18,2,'TESTBOLT')
+assert(claim16(m18,700)==true and last16('choice',3).spell=='TESTBOLT')
+g16.BGSE_Act(m18)
+local bolt18=action(31,'TESTBOLT',11)
+m18.m_curAction=bolt18;m18.locals.castspell=900
+g16.listeners.started[1](m18,bolt18)
+assert(claim16(m18,772)==true and ch16:inspect().counts.holds==8)
+assert(claim16(m18,773)==false and ch16:inspect().reasons.timer==4)
 end)()
 groups=groups+1
 
