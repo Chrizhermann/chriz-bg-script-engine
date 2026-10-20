@@ -763,7 +763,46 @@ options, on batch G3's probe results.
   - SCS sets off its area and saving-throw sequencers (two Sound Bursts, three Dispel Magics) its
     manual way, "for anything with a saving throw" (`caster_definitions.ssl`, line 1209), without
     saying why. A probe could compare saves after `ForceSpellRES` and after the manual way.
-  - The engine's own release in a fight is not yet seen in a lab.
+  - Seen in batch G4 (below): the engine's own releases in fights.
+
+### Batch G4: weapons and releases in game (2026-10-20)
+
+One launch in the hard lab's quiet room: three solo probes, the touch fight again and three
+fights of each group with the engine. All ten phases ran and the lab cleaned up; the engine
+logged no error.
+
+**The solo probes did not isolate what they should.** Each was to spend the creature's spells
+except the one under test (its weapon, Spiritual Hammer, its releases). The lab ran that step in
+the hook for fights against the party only, so the creatures kept their full books. They still
+show:
+
+- PRIES12A cast Harm and struck the dummy (a hit), then attacked with its mace and its fist,
+  5 hits in 5 attacks.
+- PRIES10A held SCS's Spiritual Hammer from the start, and the engine attacked with it (a hit).
+  The engine cast no conjured weapon itself.
+- MAGE18C opened with Time Stop and Improved Alacrity and set off no release at the dummy 250
+  away; its other spells were worth more.
+- In the touch fight SCS's script struck with the Harm hand (`AttackReevaluate`) while the engine
+  waited for SCS's round timer. G3's missing strike was the same gap; without SCS's AI the engine
+  times its rounds itself.
+
+**Six fights:**
+
+| Group | Won | Length | Group hp lost | Group dead | Foes dead |
+| --- | --- | --- | --- | --- | --- |
+| high | 3 of 3 | 108 s | 40 | 0 | 15 of 15 |
+| mid | 0 of 3 | 84 s | 486 | 12 of 12 | 1 of 15 |
+
+(Means per fight.) As in G3, the engine's Time Stops carry the high group (12, two per mage and
+fight), and the hard lab overwhelms the mid group; MAGE8A falls first, after 12 to 19 seconds.
+
+- **Releases:** the engine set off 8 with `ForceSpellRES`: Minor Sequencer `DW#MS22` once in each
+  high fight, `DW#MS0` in two of them, and the defensive `DW#MS12` once in each mid fight, as a
+  defence before the first blows. The one traced outcome was a hit.
+- **Weapon attacks** (`AttackOneRound`): 26 judged, 22 hits, no failure: PRIES12A's mace in every
+  mid fight, and late in two high fights the mages' Melf's Minute Meteors (SCS's `DW#MELF`).
+- SCS still took rounds the engine left to it: hurt allies, and spells the engine does not cast
+  yet (summons, removals).
 
 ### D3
 
