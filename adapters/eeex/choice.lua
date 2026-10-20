@@ -141,6 +141,9 @@ M.moveGrace=8
 M.moveMargin=30
 -- Game ticks a second, for the projectile's counters (lab batch H measured 15.00).
 M.ticksPerSecond=15
+-- The casting aura of a creature's last cast counts from 0 at the cast's start to about 99, then
+-- reads -1 (docs/learned.md, section 2); a cast queued meanwhile starts casting when it frees.
+M.auraTicks=100
 -- What EEex must offer for zones to be read.
 M.zoneRequired={'EEex_Projectile_GetType','EEex_CastUD'}
 local UNSEEN=targeting.STATE.invisible+targeting.STATE.improvedInvisible
@@ -996,6 +999,9 @@ function M.new(g,options)
         frame.self.charge=chargeIn(sprite,rows)
         lastCharge=frame.self.charge and frame.self.charge.item or nil
         frame.self.magicItem=held(sprite)~=nil
+        -- Seconds until the casting aura frees: a cast chosen now starts casting then.
+        local aura=g.EEex_Sprite_GetCastTimer(sprite)
+        frame.self.aura=type(aura)=='number' and aura>=0 and math.max(0,M.auraTicks-aura)/M.ticksPerSecond or 0
         -- A weapon that cannot be read leaves the caster without a weapon attack, nothing more.
         local read,err=pcall(function()
             local own=sense.attack(g,sprite,reader)

@@ -1344,4 +1344,31 @@ assert(claim16(m18,773)==false and ch16:inspect().reasons.timer==4)
 end)()
 groups=groups+1
 
+-- 26. The casting aura (lab batch H5): a cast chosen while the aura of the creature's last cast
+-- runs starts casting when the aura frees, so the choice gets the seconds until then (zones count
+-- the explosions during the casting from there).
+;(function()
+local logic=require('combat-intent.choice')
+local g17=world()
+local m19=g17.add(sprite(1,0,0,255))
+learn(m19,2,'TESTBOLT',2)
+g17.add(sprite(11,100,0,2))
+local ch17=choices.new(g17,{reader=reader,seed=26})
+runtime.install(g17,{choice=ch17,version='test'})
+local decide,seen=logic.decide,{}
+logic.decide=function(input) seen[#seen+1]=input.frame.self.aura;return decide(input) end
+local ok,err=pcall(function()
+    m19.castTimer=70
+    g17.ticks=100
+    assert(g17.BGSE_Claim(m19,'mage','s1')==true)
+    m19.castTimer=-1
+    g17.ticks=300
+    g17.BGSE_Claim(m19,'mage','s1')
+end)
+logic.decide=decide
+assert(ok,err)
+assert(#seen==2 and math.abs(seen[1]-30/15)<1e-9 and seen[2]==0)
+end)()
+groups=groups+1
+
 return groups

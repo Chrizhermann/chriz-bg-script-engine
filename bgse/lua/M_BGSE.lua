@@ -3973,13 +3973,15 @@ factories["combat-intent.zones"]=function(require)
 -- hits immune to itself for a while (Spell Revisions' clouds). Leaving costs no spell, only the
 -- seconds of the walk, so it is taken when it is worth more than that part of a round of the best
 -- other option (combat-intent/choice.lua). The way out is the shortest walk to a point beyond
--- every zone that would hurt it. While it stays, harm from a zone can break its casts; a melee
--- attack counts what walking to its target and standing there does, so a creature fights its way
--- out of a cloud towards an enemy outside and thinks twice before walking into one.
+-- every zone that would hurt it. While it stays, harm from a zone can break its casts: each
+-- explosion during the casting time whose damage lands; a melee attack counts what walking to its
+-- target and standing there does, so a creature fights its way out of a cloud towards an enemy
+-- outside and thinks twice before walking into one.
 --
 -- Inputs are plain values: the caster's frame (its own saves, resistances, level, IDS values,
--- protections and SPLPROT marks; rooted when it cannot walk) and input.zones (side: who cast the
--- zone, 'friend', 'enemy' or 'unknown'; filter: 'all', 'enemies' or 'allies' of its caster).
+-- protections and SPLPROT marks; rooted when it cannot walk; aura, the seconds until the casting
+-- aura of its last cast frees) and input.zones (side: who cast the zone, 'friend', 'enemy' or
+-- 'unknown'; filter: 'all', 'enemies' or 'allies' of its caster).
 -- Nothing here touches the engine or raises on odd data; a zone that cannot be read is left out.
 local targeting=require('combat-intent.targeting')
 local harm=require('combat-intent.harm')
@@ -4176,18 +4178,27 @@ function M.delta(input,q)
 end
 
 -- The chance the caster finishes a cast of the given seconds where it stands: each explosion of
--- a zone around it whose damage lands breaks the cast.
+-- a zone around it whose damage lands breaks the cast. The casting starts when the casting aura
+-- of the creature's last cast frees (f.aura seconds from now) and runs for the casting time. An
+-- explosion whose time is known breaks it with its chance; where explosions are spread evenly, a
+-- part of one breaks it with that part of the chance (lab batch H5: an Ice Storm's next explosion
+-- fell inside a summons' casting time three times, and each time its damage broke the cast).
 function M.through(input,cast)
     if not M.active(input) or not number(cast) or cast<=0 then return 1 end
     local f=input.frame.self
-    local n=0
+    local from=number(f.aura) and f.aura>0 and f.aura or 0
+    local chance=1
     for _,z in ipairs(input.zones) do
         if M.valid(z) and M.inside(z,f) then
-            local p=breaks(z,f)
-            if p>0 then n=n+p*M.count(z,0,cast) end
+            local p=clamp(breaks(z,f),0,1)
+            if p>0 then
+                local n=M.count(z,from,from+cast)
+                local k=math.floor(n)
+                chance=chance*(1-p)^k*(1-p*(n-k))
+            end
         end
     end
-    return math.exp(-n)
+    return chance
 end
 
 -- Whether f cannot walk: held, disabled, webbed or entangled.
@@ -6571,6 +6582,9 @@ M.moveGrace=8
 M.moveMargin=30
 -- Game ticks a second, for the projectile's counters (lab batch H measured 15.00).
 M.ticksPerSecond=15
+-- The casting aura of a creature's last cast counts from 0 at the cast's start to about 99, then
+-- reads -1 (docs/learned.md, section 2); a cast queued meanwhile starts casting when it frees.
+M.auraTicks=100
 -- What EEex must offer for zones to be read.
 M.zoneRequired={'EEex_Projectile_GetType','EEex_CastUD'}
 local UNSEEN=targeting.STATE.invisible+targeting.STATE.improvedInvisible
@@ -7426,6 +7440,9 @@ function M.new(g,options)
         frame.self.charge=chargeIn(sprite,rows)
         lastCharge=frame.self.charge and frame.self.charge.item or nil
         frame.self.magicItem=held(sprite)~=nil
+        -- Seconds until the casting aura frees: a cast chosen now starts casting then.
+        local aura=g.EEex_Sprite_GetCastTimer(sprite)
+        frame.self.aura=type(aura)=='number' and aura>=0 and math.max(0,M.auraTicks-aura)/M.ticksPerSecond or 0
         -- A weapon that cannot be read leaves the caster without a weapon attack, nothing more.
         local read,err=pcall(function()
             local own=sense.attack(g,sprite,reader)

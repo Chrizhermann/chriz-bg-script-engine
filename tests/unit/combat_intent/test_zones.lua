@@ -174,15 +174,36 @@ do
     groups=groups+1
 end
 
--- 5. Casts where the caster stands: each explosion whose damage lands may break them; a save for
--- half still breaks; none outside the zones or without damage.
+-- 5. Casts where the caster stands: each explosion during the casting time whose damage lands
+-- breaks them; a save for half still breaks, a save that negates leaves its chance; explosions
+-- spread evenly break with their part; the casting starts when the casting aura frees; none
+-- outside the zones or without damage.
 do
     local i=input({zones={zone(fire,{next=1})}})
-    assert(near(zones.through(i,3),math.exp(-1)))
+    -- The next explosion comes in a second: a 3-second cast surely breaks (lab batch H5's Ice
+    -- Storm broke three summons so).
+    assert(zones.through(i,3)==0)
     assert(near(zones.through(i,0.5),1))
     local o={resref='TESTBOLT',kind='damage',worth=1,cost=0.1,score=0.9,speed=5}
     zones.adjust(i,o,{})
-    assert(near(o.worth,math.exp(-1)) and near(o.score,o.worth-0.1))
+    assert(o.worth==0 and near(o.score,-0.1))
+    -- With the casting aura free in 2 seconds the cast runs from 2 to 5, between the explosions
+    -- at 1 and 6.
+    i.frame.self.aura=2
+    assert(near(zones.through(i,3),1))
+    i.frame.self.aura=0.5
+    assert(zones.through(i,3)==0)
+    i.frame.self.aura=nil
+    -- A save that negates: each explosion breaks the cast as often as the save fails; a 6-second
+    -- cast sits through the explosions at 1 and 6; spread evenly, a 3-second cast meets three
+    -- fifths of one.
+    local negate=spell('TESTNEGT',4,{fx(12,{p2=8*65536,dice=4,sides=9,save=1})},{target=4},area(256))
+    local n=input({zones={zone(negate,{next=1,every=5})}})
+    local fails=1-targeting.saveChance(negate.roles.damage,n.frame.self)
+    assert(fails>0 and fails<1)
+    assert(near(zones.through(n,3),1-fails))
+    assert(near(zones.through(n,6),(1-fails)^2))
+    assert(near(zones.through(input({zones={zone(negate,{every=5})}}),3),1-0.6*fails))
     -- A potion is not broken; a ranged weapon stays where it is.
     local potion={resref='POTN',kind='heal',worth=1,cost=0,score=1,speed=0,use=true}
     zones.adjust(i,potion,{})
@@ -232,6 +253,17 @@ do
     idle.frame.enemies={foe}
     d,why=choice.decide(idle)
     assert(d and d.kind=='escape')
+    -- The gentle cloud's next explosion comes in 2 seconds: a slow bolt (5.4 seconds) would break
+    -- and is worth nothing, so the way out comes first; the quick bolt lands before it.
+    local slow=spell('TESTSLOW',3,{fx(12,{p2=8*65536,dice=10,sides=6})},{speed=9})
+    local timed=input({spells={row('TESTSLOW',slow,3)},zones={zone(gentle,{next=2})}})
+    timed.frame.enemies={foe}
+    d,why=choice.decide(timed)
+    assert(d and d.kind=='escape' and why=='escape')
+    local quick=input({spells=base.spells,zones={zone(gentle,{next=2})}})
+    quick.frame.enemies={foe}
+    d,why=choice.decide(quick)
+    assert(d and d.resref=='TESTBOLT')
     -- In the caster's own Time Stop the zones are frozen.
     local stopped=input({spells=base.spells,zones={zone(fire)},timeStop={caster=1,left=6}})
     stopped.frame.enemies={foe}
