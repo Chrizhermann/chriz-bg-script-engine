@@ -1079,6 +1079,16 @@ g14.ticks=100
 assert(g14.BGSE_Claim(caster14,'mage','s1')==true)
 local c14=last14('choice')
 assert(c14.castKind=='escape' and c14.spell=='ESCAPE' and c14.zones==1 and c14.worth>0 and c14.walk>0)
+-- The zone's first classification leaves a row with what was read of it.
+local z14=last14('zone')
+assert(z14 and z14.id==900 and z14.tick==100 and z14.resref=='TESTCLDS' and z14.radius==150 and z14.repeats==6 and
+    z14.delay==75 and z14.counter==0 and z14.source==11 and z14.projectile==4 and z14.list=='m_lVertSortFlight' and
+    z14.level==10 and z14.effects==1 and z14.classified==true and z14.x==500 and z14.y==500)
+local function zoneRows14()
+    local n=0
+    for _,row in ipairs(rows14) do if row.kind=='zone' then n=n+1 end end
+    return n
+end
 local queued=#g14.queued
 g14.BGSE_Act(caster14)
 assert(#g14.queued==queued+1)
@@ -1098,6 +1108,7 @@ assert(#g14.queued==queued+1)
 caster14.m_curAction={m_actionID=0};caster14.m_pos={x=tonumber(mx),y=tonumber(my)}
 g14.ticks=140
 assert(g14.BGSE_Claim(caster14,'mage','s1')==true)
+assert(zoneRows14()==1)
 local e14=last14('escaped')
 assert(e14 and e14.out==true and ch14:inspect().counts.escaped==1 and ch14:inspect().moving==0)
 assert(last14('choice').spell=='TESTBOLT')
@@ -1115,6 +1126,7 @@ cloud2.m_id=901;cloud2.m_pos={x=520,y=500};cloud2.m_posDest={x=520,y=500}
 g14.objects[901]=cloud2;AREA14.m_lVertSortFlight={900,901}
 g14.ticks=142
 assert(g14.BGSE_Zones(caster14,'mage','s1')==false)
+assert(zoneRows14()==2 and last14('zone').id==901 and last14('zone').x==520)
 g14.objects[901]=nil;AREA14.m_lVertSortFlight={900}
 caster14.m_pos=outside14
 g14.ticks=143

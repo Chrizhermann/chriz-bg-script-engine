@@ -675,7 +675,8 @@ function M.new(g,options)
         zoneRead={tick=tick,area=key,list=list}
         return list
     end
-    -- What one explosion of a zone delivers, classified once by its object id.
+    -- What one explosion of a zone delivers, classified once by its object id. The first time, a
+    -- 'zone' row keeps what was read of it and whether it could be classified.
     local function zoneSpell(z)
         local c=zoneSpells[z.id]
         if c==nil then
@@ -689,6 +690,9 @@ function M.new(g,options)
             c=ok and type(value)=='table' and value or false
             if not ok then zoneFailed('zone-spell',value) end
             zoneSpells[z.id]=c;zoneSpellCount=zoneSpellCount+1
+            record({kind='zone',tick=now(),id=z.id,resref=z.resref,x=z.x,y=z.y,radius=z.radius,repeats=z.repeats,
+                delay=z.delay,counter=z.counter,source=z.source,projectile=z.projectile,list=z.list,level=z.level,
+                effects=#z.effects,classified=c~=false,filter=c and type(c.area)=='table' and c.area.filter or nil})
         end
         return c or nil
     end
