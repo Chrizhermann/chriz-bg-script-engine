@@ -119,8 +119,8 @@ local root=hook.install(g,{director=dir,version='test'})
 assert(root.director==dir and #g.listeners.started==1 and #g.listeners.destroyed==1)
 local function start(s,a) g.listeners.started[1](s,a);return a end
 
--- 1. Frames: sides by EA, the invisible left out unless the observer sees them, details carry
--- IDS values and protections; a creature on no side has no frame.
+-- 1. Frames: sides by EA, invisible enemies left out unless the observer sees them (invisible
+-- allies stay), details carry IDS values and protections; a creature on no side has no frame.
 g.add(sprite(14,150,0,2,{state=0x10}))
 g.objects[13].m_timedEffectList={effect(101,0,175),effect(12,5,0)}
 local f=sense.frame(g,m1,100,true)
@@ -137,6 +137,11 @@ f=sense.frame(g,m1,100,true)
 local p=f.enemies[3].protections
 assert(#p==3 and p[1].timed==false and p[2].opcode==102 and p[2].timed==true and p[3].opcode==120 and p[3].timed==false)
 assert(f.allies[1].drained==2 and f.self.drained==0 and #f.fallen==0)
+-- An invisible ally stays in sight: its side knows where it is.
+m2.state=0x400000
+f=sense.frame(g,m1,100,false)
+assert(#f.allies==1 and f.allies[1].id==2 and f.allies[1].state==0x400000 and #f.enemies==3)
+m2.state=0
 g.objects[13].m_timedEffectList={effect(101,0,175),effect(12,5,0)}
 g.objects[13].m_equipedEffectList={}
 m2.stats[200]=nil

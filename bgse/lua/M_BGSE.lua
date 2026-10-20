@@ -5524,7 +5524,8 @@ end
 factories["adapters.eeex.sense"]=function(require)
 -- What one creature perceives right now, as plain values: itself and the living creatures it
 -- can see, found with EEex's area search (sight range and line of sight, as the NumCreature()
--- trigger counts them) and minus the invisible ones unless it sees invisible creatures. That
+-- trigger counts them) and minus the invisible enemies unless it sees invisible creatures; its
+-- own side knows where its invisible allies are (SCS's priests cure them, lab batch H). That
 -- search walks only the area's front list; creatures lying down (asleep, unconscious) are in
 -- the back list with the dead, and one counts as seen when the same search from where it lies
 -- finds this creature; the dead allies seen that way are listed apart (frame.fallen). Sides
@@ -6048,7 +6049,7 @@ function M.frame(g,sprite,tick,detailed)
     local function consider(object)
         local other=M.side(object.m_typeAI.m_EnemyAlly)
         if other==nil then return end
-        if not self.seeInvisible and band(g,g.EEex_Sprite_GetState(object),M.unseen)~=0 then return end
+        if other~=side and not self.seeInvisible and band(g,g.EEex_Sprite_GetState(object),M.unseen)~=0 then return end
         local entry=M.actor(g,object)
         if other==side then frame.allies[#frame.allies+1]=entry
         else
