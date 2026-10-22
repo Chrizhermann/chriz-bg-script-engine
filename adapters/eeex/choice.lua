@@ -749,7 +749,8 @@ function M.new(g,options)
     -- Lasting areas (combat-intent/choice.lua): what the group has seen each enemy do in zones that
     -- hurt it, by object id: the explosions it stayed for and the zones it left. insideOf, by zone
     -- object id: the area it lies in and each enemy last seen inside it while it hurt the enemy and
-    -- the enemy could walk, with the zone's explosions left then. Both live only in this session.
+    -- the enemy could walk, with the zone's explosions left then. Both live only in this session:
+    -- object ids are the session's own, so a load forgets them (invalidate).
     local function tally(id,what,n)
         local s=stays[id]
         if not s then
@@ -1371,6 +1372,7 @@ function M.new(g,options)
         pending,running,judging,memory,stop,resumed={},{},{},{},nil,nil
         lastDefence,known,stopCasts,strikes={},{},{},{}
         moves,zoneRead,zoneSpells,zoneSpellCount,zoneBroken={},nil,{},0,false
+        stays,stayCount,insideOf,insideCount,lookedAt={},0,{},0,{}
     end
     function api:inspect()
         local copy=function(t) local c={};for k,v in pairs(t) do c[k]=v end;return c end

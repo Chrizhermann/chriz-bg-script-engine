@@ -87,7 +87,8 @@ Worth is counted in shares of an enemy taken out of the fight (`combat-intent/ch
   through all of them. Any other takes the cheaper of staying and walking out (A): out, it takes
   the explosions until it is out, starting a second after the landing, and loses the walk's
   seconds as a hold of that length. Some stay anyway (C): the chance an enemy stays is what the
-  group has seen it do in zones that hurt it (SUPPORT-01, D3e), from 0.25 worth four sightings.
+  group has seen it do in zones that hurt it (SUPPORT-01, D3e), from 0.25 worth four sightings;
+  a load forgets what it saw.
   Damage counts the explosions' damage together, a disable the chance that one of them lands and
   holds. The choice record keeps, for each enemy, the explosions staying and walking out and the
   chance it stays (`lasting`). The profile's `clouds` switch: `learned` (default), `best` (A

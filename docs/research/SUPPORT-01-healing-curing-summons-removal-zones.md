@@ -314,7 +314,8 @@ the enemy stays anyway.
   remembered with the zone's explosions left; still inside after further explosions, it stayed
   for each of them; seen outside while the zone lasts, it left once. What the group has seen
   lives only in the session (at most `cacheLimit` enemies, `inspect().stays`) and is shared by
-  the whole side.
+  the whole side. A load forgets it, as it forgets the engine's other session state: object ids
+  are the session's own (until 2026-10-23 it outlived a load).
 - **Projectiles:** the reader takes the delay between explosions (offset 0x210), and from the
   area flags bits 8 and 9 (the repetitions are the caster's wizard or priest level) and 14 (the
   first explosion affects no one and does not count; IESDP). No area projectile of the SR lab

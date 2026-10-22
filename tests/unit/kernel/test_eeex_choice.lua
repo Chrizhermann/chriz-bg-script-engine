@@ -1412,8 +1412,8 @@ groups=groups+1
 -- one walks out, one is held, one minds no fire. The engine looks at most every five ticks for an
 -- area: an enemy still inside after explosions stayed for each, one seen outside while the zone
 -- is there left it; the held one counts nothing while held, the fireproof one nothing at all. A
--- zone that is gone is forgotten. The choice gets what the group saw (input.stays), and so does
--- inspect.
+-- zone that is gone is forgotten, and a load forgets everything. The choice gets what the group
+-- saw (input.stays), and so does inspect.
 ;(function()
 local logic=require('combat-intent.choice')
 local AREA28={m_resref=str('AR0028'),m_lVertSortBack={},m_lVertSortFlight={950}}
@@ -1479,6 +1479,20 @@ local ok,err=pcall(function()
     claim(125)
     s=stays()
     assert(s[11].left==0 and s[13]==nil and ch28:inspect().counts.zoneFailures==0)
+    -- A load forgets it all, object ids being the session's own: one seen inside before it is no
+    -- leaver after it, and the engine looks again at once (one seen inside a tick after the load
+    -- left when next seen outside).
+    g28.objects[11].m_pos={x=500,y=500}
+    claim(130)
+    ch28:invalidate()
+    assert(next(stays())==nil)
+    g28.objects[11].m_pos={x=800,y=520};leaver.m_pos={x=500,y=500}
+    claim(131)
+    assert(next(stays())==nil)
+    leaver.m_pos={x=800,y=500}
+    claim(136)
+    s=stays()
+    assert(s[11]==nil and s[12].left==1 and s[12].stay==0)
 end)
 logic.decide=decide
 assert(ok,err)
