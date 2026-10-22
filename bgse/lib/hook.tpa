@@ -11,11 +11,13 @@
 // order untouched. Each hook and copy names its own script, so the engine can tell which of a
 // creature's scripts asks.
 //
-// SCS's cloud escape blocks above the anchor (they set SCS's seencloud timer and run from a
-// cloud or walk at the enemy) stand aside while the engine weighs danger zones for a creature
-// that sees an enemy: they get a last condition that holds when the creature sees no enemy or
-// BGSE_Zones says no; first when their triggers end in an OR group that lacks members, which the
-// condition would otherwise join. Those below the anchor stay as they are.
+// SCS's cloud blocks above the anchor stand aside while the engine weighs danger zones for the
+// creature: its escapes (they set SCS's seencloud timer and run from a cloud or walk at the
+// enemy) and its stand-still while it hears a cloud (NoAction() alone, on a marker's shout). They
+// get a last condition that holds when BGSE_Zones says no (with no enemy in sight it says yes
+// only when the engine leads the creature out of a zone that hurts it); first when their
+// triggers end in an OR group that lacks members, which the condition would otherwise join.
+// Those below the anchor stay as they are.
 //
 // tools/hook_rule.py is the reference version of this rule. Keep the two in step;
 // tests/integration/test_hook_installer.py compares them.
@@ -148,7 +150,7 @@ END
 
 // Hook one decompiled SCS script; bgse_script is its resref in lower case. bgse_result is
 // hooked, not-scs, unsafe-name, no-castspell, already-hooked or no-anchor; only "hooked"
-// changes bgse_baf. bgse_clouds counts the cloud escapes that stand aside.
+// changes bgse_baf. bgse_clouds counts the cloud blocks that stand aside.
 DEFINE_PATCH_FUNCTION bgse_hook_baf
   STR_VAR bgse_baf = ~~
           bgse_script = ~~
@@ -220,14 +222,29 @@ BEGIN
           SET $bgse_cloud(~%n%~) = 0
           READ_ASCII start block (stop - start)
           PATCH_IF (anchor < 0) BEGIN
-            // SCS's cloud escape (tools/hook_rule.py: CLOUD); only those above the anchor change.
+            // SCS's cloud escape or stand-still (tools/hook_rule.py: is_cloud); only those above
+            // the anchor change.
             SET then = INDEX (CASE_SENSITIVE EXACT_MATCH ~%LNL%THEN%LNL%~ ~%block%~)
             PATCH_IF (then > 0) BEGIN
               INNER_PATCH ~%block%~ BEGIN
+                READ_ASCII 0 trig (then)
                 READ_ASCII then resp (BUFFER_LENGTH - then)
               END
               PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~SetGlobalTimer("seencloud","LOCALS",~ ~%resp%~) >= 0) BEGIN
                 SET $bgse_cloud(~%n%~) = 1
+              END ELSE PATCH_IF ((~%trig%~ STRING_CONTAINS_REGEXP ~Heard(\[ANYONE\],\(40[4-9]\|41[0-3]\))~) = 0) BEGIN
+                // Every response is NoAction() alone.
+                SET still_parts = 0
+                SET still_actions = 0
+                SET still_waits = 0
+                INNER_PATCH ~%resp%~ BEGIN
+                  COUNT_REGEXP_INSTANCES CASE_SENSITIVE EXACT_MATCH ~%LNL%  RESPONSE #~ still_parts
+                  COUNT_REGEXP_INSTANCES CASE_SENSITIVE ~^    [A-Za-z_][A-Za-z0-9_]*(~ still_actions
+                  COUNT_REGEXP_INSTANCES CASE_SENSITIVE ~^    NoAction()~ still_waits
+                END
+                PATCH_IF (still_parts > 0) AND (still_actions = still_parts) AND (still_waits = still_parts) BEGIN
+                  SET $bgse_cloud(~%n%~) = 1
+                END
               END
             END
           END
@@ -337,11 +354,11 @@ BEGIN
         END
         READ_ASCII at tail (BUFFER_LENGTH - at)
       END
-      // SCS's cloud escapes above the hook stand aside while the engine weighs danger zones for
-      // a creature that sees an enemy (tools/hook_rule.py: stand_aside), from the last one up so
-      // the blocks before keep their offsets.
+      // SCS's cloud blocks above the hook stand aside while the engine weighs danger zones for
+      // the creature (tools/hook_rule.py: stand_aside), from the last one up so the blocks
+      // before keep their offsets.
       TEXT_SPRINT zguard ~EEex_LuaTrigger("return BGSE_Zones and BGSE_Zones(EEex_LuaTrigger_Object,'%bgse_family%','%bgse_script%') or false")~
-      TEXT_SPRINT group ~  OR(2)%LNL%    !See(NearestEnemyOf(Myself))%LNL%    !%zguard%~
+      TEXT_SPRINT group ~  !%zguard%~
       INNER_PATCH_SAVE head ~%head%~ BEGIN
         FOR (i = anchor - 1; i >= 0; i -= 1) BEGIN
           PATCH_IF ($bgse_cloud(~%i%~) = 1) BEGIN

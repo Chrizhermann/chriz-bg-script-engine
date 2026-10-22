@@ -273,18 +273,21 @@ markers, so it knows every zone, also those SCS marks not, and judges each by th
   walking into a cloud.
 - **Mid-round:** while SCS's round timer runs and the creature is not casting, and when it sees
   no enemy, it still walks out of a zone that hurts it.
-- **SCS's escape stands aside** (HOOK-01, rule 6): the installer gives SCS's escape blocks above
-  the hook a last condition: they run when the creature sees no enemy or `BGSE_Zones` says no.
-  `BGSE_Zones` is true while the gate would ask the engine (switches, registry, the scripts
-  below, no backoff after an error), the choice is on, zones can be read and the creature is on
-  the engine's side; but not while it casts, or swings in a strike or weapon round of the
-  engine's, in a zone that hurts it and that the engine did not know when it chose the action:
-  the hook cannot break an action its own block runs, so SCS breaks it off as it always did. So
-  with no enemy in sight SCS's escape and its stand-still run as before; with one in sight the
-  engine weighs the zones. SCS's escapes below the hook run only when the engine declines and
-  stay as they are. In the SR lab's scripts 9,957 escape blocks in 1,078 hooked scripts get the
-  condition (mage 5,201, priest 2,456, monster 1,360, fighter 940), all of them last (host run of
-  the rule, nothing installed).
+- **SCS's escape stands aside** (HOOK-01, rule 6): the installer gives SCS's escape blocks and its
+  stand-still while it hears a cloud (above the hook) a last condition: they run when
+  `BGSE_Zones` says no. `BGSE_Zones` is true while the gate would ask the engine (switches,
+  registry, the scripts below, no backoff after an error), the choice is on, zones can be read
+  and the creature is on the engine's side; with no enemy in sight only when the engine has a way
+  out of a zone that hurts the creature (its claim then leads it out); and not while it casts, or
+  swings in a strike or weapon round of the engine's, in a zone that hurts it and that the engine
+  did not know when it chose the action: the hook cannot break an action its own block runs, so
+  SCS breaks it off as it always did. So with no enemy in sight and no zone hurting the creature,
+  SCS's escape and stand-still run as before. SCS's cloud blocks below the hook run only when the
+  engine declines and stay as they are. Until 2026-10-22 the escapes ran whenever the creature
+  saw no enemy and the stand-still always (lab batch H7, below). In the SR lab's scripts 9,957
+  escape blocks in 1,078 hooked scripts got the condition (mage 5,201, priest 2,456, monster
+  1,360, fighter 940), all of them last (host run of the rule before the stand-still joined,
+  nothing installed).
 
 In the SR lab, 46 wizard, priest and innate abilities have an area projectile that explodes again
 and again (host census, nothing ran). Most clouds explode every 75 ticks, ten times (Stinking
@@ -513,3 +516,68 @@ entry one below the field counts (docs/learned.md). The same false protection, t
 director's first slice, hid every Spell Revisions area spell that works through such a sub-spell
 (the clouds, Glitterdust, Horror, Breach) from any creature under Protection from Missiles, as a
 zone and as a target. A lab run with the new build checks the mage in the storm.
+
+## Lab batch H7 (2026-10-22)
+
+One launch with the projectile fix (`9b60759`, build `0d0ea6f`): a shield probe, four care fights of
+the engine (conditions on the priests) and two zone fights of the engine.
+
+### Shield probe: what stops a Spell Revisions area spell
+
+A scriptless copy of the party mage cast Ice Storm (`SPWI404`: every 6.7 seconds its sub-spell
+`SPWI404D`, power 4, at each creature an explosion hits) and Acid Fog (`SPWI614`: every 5 seconds
+`SPWI614D`, power 6) at caster level 18, each over six dummies: one bare, five under a protection
+each dummy cast on itself before the clouds came. Hit points lost:
+
+| Protection | Ice Storm (4 explosions) | Acid Fog (10 explosions) |
+| --- | --- | --- |
+| None | 42 | 100 |
+| Protection from Missiles (`SPWI311`) | 42 | 100 |
+| Minor Spell Deflection (`SPWI318`: 6 levels, spell levels 1–4) | 18, the first two stopped | 100 |
+| Spell Deflection (`SPWI522`: 9 levels, 1–7) | 15, the first three stopped | 80, the first two stopped |
+| Greater Spell Deflection (`SPWI701`: 12 levels, 1–9) | 8, the first three stopped | 80, the first two stopped |
+| Globe of Invulnerability (`SPWI602`: levels 1–4) | 0 | 100 |
+
+- The sub-spells meet spell protections as spells cast at the creature: deflections and globes
+  by the sub-spell's power stop them, Protection from Missiles does not. The engine's model
+  (`targeting.protected`, `zones.hit`) gives the same for all twelve dummies, offline with the
+  effects each wore. So the open question from IESDP (whether an explosion's sub-spells pass
+  deflections like the explosion's own effects) is answered for Spell Revisions' clouds: they do
+  not.
+- A deflection takes the sub-spell's power from its levels with each explosion it stops and stops
+  the last one even with fewer levels left (9 levels stop three explosions of power 4), then it is
+  gone. The engine counts a deflection whole while it lasts and sees it gone at its next decision;
+  how many explosions one deflection stops during a single cast it does not count yet.
+
+### The fights
+
+| | Engine, H7 | Engine, H6 | SCS alone, H4 to H6 |
+| --- | --- | --- | --- |
+| Care fights | 4 | 6 | 5 |
+| Group creatures lost a fight | 1.8 | 2.3 | 2.4 |
+| Party members killed a fight | 1.5 | 0.5 | 1.2 |
+| Party hit points left (mean) | 306 | 474 | 393 |
+| Group hit points left (mean) | 184 | 160 | 149 |
+| Summons cast a fight | 3.5 | 1.8 | 3.0 |
+| Weapon rounds a fight (a spell scored higher) | 10 (6) | 7.8 (4.5) | none |
+
+- **The Ice Storm:** the level-12 mage, under SCS's Protection from Missiles as in every fight,
+  walked out of the party's Ice Storm 45 ticks after it came (out 47 ticks later), and no summons
+  began inside a storm.
+- **More deadly:** with four fights only, the group lost fewer creatures and the party far more
+  hit points and members than in H6; summons came about twice as often as in H6. Four fights are
+  a trend, not proof.
+- **Zone fights:** the level-12 mage spent 381 and 339 ticks in the party's clouds, against 432 to
+  990 in H2 to H6: SCS's Protection from Missiles had hidden Spell Revisions' clouds from it as
+  well. The level-8 mage still spent 591 and 906 ticks in them and the level-10 priest 576 in one
+  fight. In the first fight the mage walked four ways out through the overlapping Stinking Cloud
+  and Cloudkill and lost 19 hit points in that time. In the two longest stays the engine never had
+  the round: the creature stood out of the party's sight (400 to 700 px away), so SCS's cloud
+  blocks above the hook ran (HOOK-01, rule 6). The mage stood in
+  an Incendiary Cloud for 37 seconds, 46 px from its centre, and lost 113 hit points while SCS ran
+  `SetInterrupt` and `RunAwayFromNoLeaveArea` from the cloud's marker every three seconds without
+  moving it at all; once the engine had the round it walked out in 47 ticks. The priest stood at
+  the edge of one for 34 seconds and lost 99 (SCS's `NoAction()` while it hears a cloud and sees
+  no enemy). Since then SCS's escapes and stand-still stand aside with no enemy in sight too,
+  whenever the engine has a way out of a zone that hurts the creature (HOOK-01, rule 6; D3e
+  above).

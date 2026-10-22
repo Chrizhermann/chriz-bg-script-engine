@@ -9,12 +9,13 @@ handlers and the like). The original blocks stay where they are, so a declining 
 switched-off engine leaves SCS's order untouched. Each hook and copy names its own script, so
 the engine can tell which of a creature's scripts asks.
 
-SCS's cloud escape blocks above the anchor (they set SCS's seencloud timer and run from a cloud
-or walk at the enemy, genai/ssl/fleecloud.ssl) stand aside while the engine weighs danger zones
-for a creature that sees an enemy: they get a last condition that holds when the creature sees
-no enemy or BGSE_Zones says no. SCS's own triggers still run first, as before, and the engine is
-asked only when SCS would escape. Those below the anchor run only when the engine declines and
-stay as they are.
+SCS's cloud blocks above the anchor stand aside while the engine weighs danger zones for the
+creature: its escapes (they set SCS's seencloud timer and run from a cloud or walk at the enemy,
+genai/ssl/fleecloud.ssl) and its stand-still while it hears a cloud and sees no enemy
+(mage/ssl/generalblocks/fleecloud.ssl). They get a last condition that holds when BGSE_Zones says
+no; with no enemy in sight it says yes only when the engine leads the creature out of a zone that
+hurts it. SCS's own triggers still run first, as before, and the engine is asked only when SCS
+would act. Those below the anchor run only when the engine declines and stay as they are.
 
 Run it on a folder of decompiled scripts to see what an install would do:
     python tools/hook_rule.py <folder-with-baf> [report.json]
@@ -32,6 +33,8 @@ FAMILIES = (('DMWW_mage_', 'mage'), ('DMWW_priest_', 'priest'), ('DMWW_genai_', 
 MONSTER = re.compile(r'DMWW_[a-z_]+_difficulty')
 MARK = 'BGSE_Claim'
 CLOUD = 'SetGlobalTimer("seencloud","LOCALS",'
+# The shouts of SCS's cloud markers (initial/detectcloud.tpa: 404 Cloudkill to 413 Suffocate).
+CLOUD_SHOUT = re.compile(r'Heard\(\[ANYONE\],(40[4-9]|41[0-3])\)')
 OR_LINE = re.compile(r' +OR\((\d+)\)')
 ACTION = re.compile(r'^ {4}([A-Za-z_][A-Za-z0-9_]*)\(', re.M)
 RETARGET = {'SetGlobal', 'SetGlobalTimer', 'IncrementGlobal', 'ClearActions'}
@@ -125,21 +128,31 @@ def open_or(trig):
 
 
 def stand_aside(block, family, script):
-    """A cloud escape block that runs only when the creature sees no enemy or the engine does
-    not weigh zones for it. The condition goes last; first when the triggers end in an OR group
-    that lacks members, which it would otherwise join."""
+    """A cloud block that runs only when the engine does not weigh zones for the creature. The
+    condition goes last; first when the triggers end in an OR group that lacks members, which it
+    would otherwise join."""
     trig, resp = split(block)
-    group = f'  OR(2)\n    !See(NearestEnemyOf(Myself))\n    !{zones_guard(family, script)}'
+    condition = f'  !{zones_guard(family, script)}'
     if open_or(trig):
-        return 'IF\n' + group + '\n' + block[len('IF\n'):]
-    return trig + '\n' + group + resp
+        return 'IF\n' + condition + '\n' + block[len('IF\n'):]
+    return trig + '\n' + condition + resp
+
+
+def is_cloud(block):
+    """SCS's escape from a cloud (it sets the seencloud timer), or its stand-still while it hears
+    a cloud: every response is NoAction() alone and the triggers listen for a marker's shout."""
+    trig, resp = split(block)
+    if CLOUD in resp:
+        return True
+    rs = responses(block)
+    return bool(rs) and all(r == ['NoAction'] for r in rs) and bool(CLOUD_SHOUT.search(trig))
 
 
 def clouds(text, spans, anchor):
-    """Indices of the cloud escape blocks above the anchor."""
+    """Indices of the cloud blocks above the anchor."""
     if anchor is None:
         return []
-    return [i for i in range(anchor) if CLOUD in split(text[spans[i][0]:spans[i][1]])[1]]
+    return [i for i in range(anchor) if is_cloud(text[spans[i][0]:spans[i][1]])]
 
 
 def is_anchor(block):

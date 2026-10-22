@@ -6656,8 +6656,9 @@ factories["adapters.eeex.choice"]=function(require)
 -- still lies outside the zones it leaves, without SCS's round timer, so the engine decides again
 -- once the creature is out; it is held while it walks, and judged by whether it got out. While SCS's
 -- round timer runs, and when the creature sees no enemy, the engine still leads it out of a zone
--- that hurts it, unless it is casting. BGSE_Zones (api:zones) tells SCS's own cloud escape above
--- the hook (bgse/lib/hook.tpa) to stand aside while the engine weighs zones for the creature.
+-- that hurts it, unless it is casting. BGSE_Zones (api:zones) tells SCS's own cloud escape and
+-- stand-still above the hook (bgse/lib/hook.tpa) to stand aside while the engine weighs zones for
+-- the creature.
 local sense=require('adapters.eeex.sense')
 local creature=require('adapters.eeex.creature')
 local resources=require('adapters.eeex.resources')
@@ -7410,8 +7411,9 @@ function M.new(g,options)
         return {own=true,response=response,spell=d.resref,kind='escape',mode=d.mode,point=d.point,exits=d.exits,
             zones=d.zones,walk=d.walk,hits={}}
     end
-    -- While SCS's round timer runs: a way out of a zone that hurts the creature where it stands.
-    local function flee(sprite,id,tick,family)
+    -- A way out of a zone that hurts the creature where it stands (combat-intent/zones.lua's
+    -- option) and the frame it was found on, or nil.
+    local function exit(sprite,tick,family)
         local raw=zoneList(sprite,tick)
         if #raw==0 or not inZone(raw,sprite.m_pos.x,sprite.m_pos.y) then return nil end
         local frame=sense.frame(g,sprite,tick,false)
@@ -7419,7 +7421,11 @@ function M.new(g,options)
         local list=zonesFor(frame,raw)
         if #list==0 then return nil end
         ready(sprite,frame,list)
-        local d=zones.escape({tick=tick,family=family,frame=frame,zones=list,mind=mindFor(sprite,family)})
+        return zones.escape({tick=tick,family=family,frame=frame,zones=list,mind=mindFor(sprite,family)}),frame
+    end
+    -- While SCS's round timer runs, or with no enemy in sight: that way out as the decision.
+    local function flee(sprite,id,tick,family)
+        local d,frame=exit(sprite,tick,family)
         if not d then return nil end
         return escaping(d,frame,id,tick,family,'flee')
     end
@@ -7431,9 +7437,17 @@ function M.new(g,options)
         local s=strikes[id]
         local held=pending[id] or (s and M.ATTACKS[action] and s)
         local cast=running[id]
-        if not held and not targeting.CASTS[action] then return true end
-        local known=(held and held.known) or (cast and targeting.CASTS[action] and cast.known) or {}
         local tick=now()
+        if not held and not targeting.CASTS[action] then
+            -- With no enemy in sight the engine takes the round only to lead the creature out of
+            -- a zone that hurts it (its claim then does, through flee); else SCS's own escape and
+            -- stand-still run (lab batch H7: SCS's run from a cloud's marker left a mage that saw
+            -- no enemy standing in an Incendiary Cloud for 37 seconds).
+            local frame=sense.frame(g,sprite,tick,false)
+            if frame and #frame.enemies>0 then return true end
+            return exit(sprite,tick,family)~=nil
+        end
+        local known=(held and held.known) or (cast and targeting.CASTS[action] and cast.known) or {}
         local fresh={}
         for _,z in ipairs(zoneList(sprite,tick)) do
             if not known[z.id] and inZone({z},sprite.m_pos.x,sprite.m_pos.y) then fresh[#fresh+1]=z end
@@ -7843,11 +7857,12 @@ function M.new(g,options)
         if not value then pending,moves={},{} end
     end
     -- Whether the engine weighs danger zones for creature id of family now (BGSE_Zones: SCS's own
-    -- cloud escape stands aside meanwhile): not for a creature off the engine's side. While it
-    -- casts, or swings in a strike or weapon round of the engine's, the hook cannot break that
-    -- action (its own block runs it), so a zone that hurts the creature where it stands and that
-    -- the engine did not know when it chose the action lets SCS's escape break it off, as SCS's
-    -- creatures always do.
+    -- cloud escape and stand-still stand aside meanwhile): not for a creature off the engine's
+    -- side, and with no enemy in sight only when the engine has a way out of a zone that hurts it.
+    -- While it casts, or swings in a strike or weapon round of the engine's, the hook cannot break
+    -- that action (its own block runs it), so a zone that hurts the creature where it stands and
+    -- that the engine did not know when it chose the action lets SCS's escape break it off, as
+    -- SCS's creatures always do.
     function api:zones(family,id)
         if not (enabled and not missing and M.families[family]==true and zonesReady()) then return false end
         local ok,result=pcall(weighs,id,family)
@@ -7893,8 +7908,8 @@ factories["adapters.eeex.hook"]=function(require)
 -- EEex side of the BCS handoff. A hook block's trigger calls BGSE_Claim(object, family, script)
 -- and its response calls BGSE_Act(object); guarded copies of SCS blocks above the hook call
 -- BGSE_Claim too. script is the hooked script's own resref, written in at install time. SCS's own
--- cloud escape above the hook asks BGSE_Zones(object, family, script) last and stands aside while
--- it is true and the creature sees an enemy: the engine weighs danger zones for it (D3e).
+-- cloud escape and stand-still above the hook ask BGSE_Zones(object, family, script) last and
+-- stand aside while it is true: the engine weighs danger zones for the creature (D3e).
 -- Switches live in the player's Baldur.lua under [BGSE] (Enabled, Mages, Priests, Fighters,
 -- Monsters; all on unless set to 0). The install also writes M_BGSEHK.lua, which sets
 -- BGSE_HOOKED (hooked script -> family); the gate reads it on first use. Errors never escape

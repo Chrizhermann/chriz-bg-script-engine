@@ -1,8 +1,8 @@
 -- EEex side of the BCS handoff. A hook block's trigger calls BGSE_Claim(object, family, script)
 -- and its response calls BGSE_Act(object); guarded copies of SCS blocks above the hook call
 -- BGSE_Claim too. script is the hooked script's own resref, written in at install time. SCS's own
--- cloud escape above the hook asks BGSE_Zones(object, family, script) last and stands aside while
--- it is true and the creature sees an enemy: the engine weighs danger zones for it (D3e).
+-- cloud escape and stand-still above the hook ask BGSE_Zones(object, family, script) last and
+-- stand aside while it is true: the engine weighs danger zones for the creature (D3e).
 -- Switches live in the player's Baldur.lua under [BGSE] (Enabled, Mages, Priests, Fighters,
 -- Monsters; all on unless set to 0). The install also writes M_BGSEHK.lua, which sets
 -- BGSE_HOOKED (hooked script -> family); the gate reads it on first use. Errors never escape

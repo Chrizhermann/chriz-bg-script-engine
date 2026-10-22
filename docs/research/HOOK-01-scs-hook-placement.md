@@ -57,13 +57,18 @@ Python, and `tests/integration/test_hook_installer.py` checks they agree.
      check; when one aims at `LastSeenBy(Myself)`, the target picks right before it too.
 5. The originals stay where they are. A script that is already hooked, has no round timer or
    has no anchor is left as it is, and the installer says so.
-6. SCS's cloud escape blocks above the anchor (those whose response sets the `seencloud` timer)
-   get a last condition, `OR(2) !See(NearestEnemyOf(Myself)) !EEex_LuaTrigger(...BGSE_Zones...)`:
-   they run when the creature sees no enemy or the engine does not weigh danger zones for it
-   now (SUPPORT-01, D3e). SCS's own triggers run first, as before, and the engine is asked only
-   when SCS would escape (EEex compiles each `EEex_LuaTrigger` anew). When the triggers end in an
-   OR group that lacks members, the condition goes first instead, so it never joins that group.
-   Escapes below the anchor run only when the engine declines and stay as they are.
+6. SCS's cloud blocks above the anchor get a last condition, `!EEex_LuaTrigger(...BGSE_Zones...)`:
+   its escapes (the response sets the `seencloud` timer) and its stand-still while it hears a
+   cloud (every response is `NoAction()` alone and the triggers listen for a marker's shout,
+   `Heard([ANYONE],404)` to `413`). They run when the engine does not weigh danger zones for the
+   creature now (SUPPORT-01, D3e); with no enemy in sight it weighs them only when it leads the
+   creature out of a zone that hurts it. SCS's own triggers run first, as before, and the engine
+   is asked only when SCS would act (EEex compiles each `EEex_LuaTrigger` anew). When the
+   triggers end in an OR group that lacks members, the condition goes first instead, so it never
+   joins that group. Cloud blocks below the anchor run only when the engine declines and stay as
+   they are. Until 2026-10-22 the condition was `OR(2) !See(NearestEnemyOf(Myself)) !...BGSE_Zones...`
+   and the stand-still had none, so with no enemy in sight SCS kept these rounds: in lab batch H7
+   that left two casters out of the party's sight in clouds for more than 30 seconds (SUPPORT-01).
 
 The claim is cached per creature and game tick, so the copies and the hook ask once per
 script pass and get the same answer. When the engine declines or is switched off, every

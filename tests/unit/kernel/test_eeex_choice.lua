@@ -1204,10 +1204,16 @@ assert(g14.BGSE_Zones(caster14,'mage','s1')==false)
 ch14:setEnabled(true)
 assert(g14.BGSE_Zones(caster14,'mage','s1')==true)
 -- No enemy in sight (the cloud's caster has walked out of sight), SCS's round timer run out: the
--- mage still walks out of the cloud.
+-- mage still walks out of the cloud. SCS's escape and stand-still stand aside for that way out
+-- (lab batch H7); outside the cloud, with no enemy in sight, they run as before.
 g14.objects[11].m_pos={x=500,y=1500}
 caster14.locals.castspell=0
 g14.ticks=290
+assert(g14.BGSE_Zones(caster14,'mage','s1')==true)
+local inside14=caster14.m_pos
+caster14.m_pos=outside14
+assert(g14.BGSE_Zones(caster14,'mage','s1')==false)
+caster14.m_pos=inside14
 assert(g14.BGSE_Claim(caster14,'mage','s1')==true)
 assert(last14('choice').castKind=='escape' and last14('choice').how=='flee' and ch14:inspect().counts.escapes==3)
 g14.objects[11].m_pos={x=500,y=800}

@@ -39,7 +39,7 @@ ACTION_BASH_FOR ~override~ ~^.+\.bcs$~ BEGIN
         SET bgse_copied += bgse_copies
         SET bgse_aside += bgse_clouds
         TEXT_SPRINT bgse_registry ~%bgse_registry%  ['%bgse_script%']='%bgse_family%',%LNL%~
-        PATCH_LOG ~BGSE hook: %BASH_FOR_RES% (%bgse_family%, %bgse_copies% guarded SCS blocks, %bgse_clouds% SCS cloud escapes)~
+        PATCH_LOG ~BGSE hook: %BASH_FOR_RES% (%bgse_family%, %bgse_copies% guarded SCS blocks, %bgse_clouds% SCS cloud blocks)~
       END ELSE PATCH_IF NOT (~%bgse_result%~ STRING_EQUAL_CASE ~not-scs~) BEGIN
         SET bgse_skipped += 1
         PATCH_PRINT ~BGSE hook: left %BASH_FOR_RES% as it is (%bgse_result%)~
@@ -56,4 +56,4 @@ BGSE_HOOKED={
 %bgse_registry%}
 >>>>>>>>
 COPY ~.../bgse-inline/M_BGSEHK.lua~ ~override~ EVALUATE_BUFFER
-PRINT ~BGSE hook: %bgse_hooked% SCS scripts hooked, %bgse_copied% SCS blocks guarded, %bgse_aside% SCS cloud escapes yield to the engine, %bgse_skipped% left as they are.~
+PRINT ~BGSE hook: %bgse_hooked% SCS scripts hooked, %bgse_copied% SCS blocks guarded, %bgse_aside% SCS cloud blocks yield to the engine, %bgse_skipped% left as they are.~
