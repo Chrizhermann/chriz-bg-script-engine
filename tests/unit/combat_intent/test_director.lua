@@ -56,6 +56,17 @@ assert(near:focus(5)==12)
 local tie=director.new({})
 tie:checkIn(mage,frame(5,{x=200},{enemy(11),enemy(13)}))
 assert(tie:focus(5)==11)
+-- An enemy its minimum hit points (opcode 208) keep where it is looks nearly dead and cannot
+-- die: it is no focus, and the focus moves off one that reaches its minimum (lab batch H9).
+-- Above it, the most wounded is the one with the least above its minimum.
+local floored=director.new({})
+floored:checkIn(mage,frame(5,nil,{enemy(11,{hp=1,minHp=1}),enemy(12,{hp=15})}))
+assert(floored:focus(5)==12)
+local rage=director.new({})
+rage:checkIn(mage,frame(5,nil,{enemy(11,{hp=8,minHp=6}),enemy(12,{hp=5})}))
+assert(rage:focus(5)==11)
+rage:checkIn(mage,frame(6,nil,{enemy(11,{hp=6,minHp=6}),enemy(12,{hp=5})}))
+assert(rage:focus(6)==12)
 groups=groups+1
 
 -- 2. Damage goes to the focus when the focus is a legal target, else the cast stays.

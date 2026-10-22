@@ -346,4 +346,41 @@ do
     assert(g==0 and lasting==math.huge and zones.through(globed,4.8)==1)
     groups=groups+1
 end
+
+-- 10. Minimum hit points (opcode 208): a cloud takes from a creature only what it has above its
+-- minimum and kills no one while it holds, so the most it can lose is what it has above it (30 of
+-- 40 with a minimum of 10: a round's stay of 1.8 explosions loses 0.5, not 0.79), and a creature
+-- at its minimum has nothing to walk out for. SCS's fire takes troll regeneration away, and the
+-- minimum with it: a troll in a fire cloud that does so can die there, in plain fire it cannot.
+do
+    local q={x=400,y=100}
+    local plain=input({zones={zone(fire)}},{hp=30})
+    local floored=input({zones={zone(fire)}},{hp=30,minHp=10})
+    local h=zones.hit(plain,zone(fire),plain.frame.self)
+    local h2,_,floor=zones.hit(floored,zone(fire),floored.frame.self)
+    assert(near(h2,h) and floor==10)
+    assert(near(zones.delta(plain,q),1.5*h) and near(zones.delta(floored,q),0.5-0.3*h))
+    local last=input({zones={zone(fire)}},{hp=1,minHp=1})
+    assert(zones.hit(last,zone(fire),last.frame.self)==0 and select(2,zones.escape(last))=='unharmed')
+    local files={['EFF:TESTTFI']={kind='EFF',resref='TESTTFI',effect=fx(146,{res='TESTTROL',p2=1})},
+        ['SPL:TESTTROL']={kind='SPL',resref='TESTTROL',name=0,flags=0,spellType=1,exclusion=0,school=0,secondary=0,level=1,
+            casting={},abilities={{form=1,flags=0,location=2,target=1,targetCount=0,range=30,minLevel=1,speed=0,
+            projectile=1,effects={fx(321,{res='TESTRG2'})}}}}}
+    local record={kind='SPL',resref='TESTTFIR',name=0,flags=1024,spellType=1,exclusion=0,school=0,secondary=0,level=8,
+        casting={},abilities={{form=1,flags=0,location=2,target=4,targetCount=0,range=30,minLevel=1,speed=3,projectile=2,
+        effects={fx(177,{p1=129,p2=4,res='TESTTFI'}),fx(12,{p2=8*65536,dice=4,sides=9,save=2,saveBonus=-4,special=256,power=4})}}}}
+    local trollFire=spells.classify(record,1,function(kind,key)
+        if kind=='PRO' and key==2 then return area(256) end
+        return files[kind..':'..tostring(key)]
+    end,{level=15})
+    local trollIds={ea=255,general=1,race=129,class=2,specific=0,gender=1,alignment=0}
+    local burning=input({zones={zone(trollFire)}},{hp=10,minHp=1,minHpFrom={TESTRG2=true},ids=trollIds})
+    local hb,_,fb=zones.hit(burning,burning.zones[1],burning.frame.self)
+    assert(fb==0 and near(hb,10/40+0.5))
+    local warm=input({zones={zone(fire)}},{hp=10,minHp=1,minHpFrom={TESTRG2=true},ids=trollIds})
+    local hw,_,fw=zones.hit(warm,warm.zones[1],warm.frame.self)
+    assert(fw==1 and near(hw,9/40))
+    assert(zones.escape(burning).worth>zones.escape(warm).worth)
+    groups=groups+1
+end
 return groups

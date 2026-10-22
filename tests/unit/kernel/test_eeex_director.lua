@@ -137,6 +137,21 @@ f=sense.frame(g,m1,100,true)
 local p=f.enemies[3].protections
 assert(#p==3 and p[1].timed==false and p[2].opcode==102 and p[2].timed==true and p[3].opcode==120 and p[3].timed==false)
 assert(f.allies[1].drained==2 and f.self.drained==0 and #f.fallen==0)
+-- Minimum hit points (MINHITPOINTS, which opcode 208 sets) come with where they come from: the
+-- sources of the 208s above 0 in both lists. One without a source names none.
+local timed,equipped=g.objects[13].m_timedEffectList,g.objects[13].m_equipedEffectList
+local regen,spent,unnamed=effect(208,1,0),effect(208,0,0),effect(208,10,0)
+regen.m_sourceRes,spent.m_sourceRes=str('dwtrrg2'),str('OTHER')
+g.objects[13].stats[83]=1
+g.objects[13].m_timedEffectList,g.objects[13].m_equipedEffectList={regen,spent},{}
+f=sense.frame(g,m1,100,true)
+assert(f.enemies[3].minHp==1 and f.enemies[3].minHpFrom.DWTRRG2 and f.enemies[3].minHpFrom.OTHER==nil)
+assert(f.enemies[1].minHp==0 and f.enemies[1].minHpFrom==nil)
+g.objects[13].m_equipedEffectList={unnamed}
+f=sense.frame(g,m1,100,true)
+assert(f.enemies[3].minHp==1 and f.enemies[3].minHpFrom==nil)
+g.objects[13].stats[83]=nil
+g.objects[13].m_timedEffectList,g.objects[13].m_equipedEffectList=timed,equipped
 -- An invisible ally stays in sight: its side knows where it is.
 m2.state=0x400000
 f=sense.frame(g,m1,100,false)

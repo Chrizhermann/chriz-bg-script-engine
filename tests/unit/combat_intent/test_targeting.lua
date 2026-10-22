@@ -213,4 +213,34 @@ for _,set in ipairs({{},{{opcode=201,p1=9,p2=5}},{{opcode=201,p1=1,p2=4}},{{opco
 end
 groups=groups+1
 
+-- 6. Minimum hit points (opcode 208): the hit points a creature cannot drop below, the share of
+-- its maximum above them, and what a spell leaves it: its minimum, unless the spell takes away
+-- every effect that sets it (SCS's fire takes troll regeneration away). A creature its minimum
+-- keeps where it is takes no damage, so a damage cast does not move to it; a spell that ends the
+-- minimum may.
+assert(targeting.minimum({minHp=10})==10 and targeting.minimum({minHp=0})==0 and targeting.minimum({})==0)
+assert(targeting.room({hp=30,maxHp=100,minHp=10})==0.2 and targeting.room({hp=5,maxHp=100,minHp=10})==0)
+assert(targeting.room({hp=25,maxHp=100})==0.25 and targeting.room({hp=5})==1)
+local regen={['EFF:TESTTFI']={kind='EFF',resref='TESTTFI',effect=fx(146,{res='TESTTROL',p2=1})},
+    ['SPL:TESTTROL']={kind='SPL',resref='TESTTROL',name=0,flags=0,spellType=1,exclusion=0,school=0,secondary=0,
+        level=1,casting={},abilities={{form=1,flags=0,location=2,target=1,targetCount=0,range=30,minLevel=1,speed=0,
+        projectile=1,effects={fx(321,{res='TESTRG2'}),fx(321,{res='TESTRG4'})}}}}}
+local fireBolt=spell('TESTFIBL',{fx(177,{p1=129,p2=4,res='TESTTFI'}),fx(12,{p2=8*65536,dice=6,sides=6})},nil,nil,nil,regen)
+local trollIds={general=1,race=129}
+local function viewOf(s,e) return (spells.view(s,targeting.holds(e))) end
+local regenerating=enemy({ids=trollIds,hp=1,minHp=1,minHpFrom={TESTRG2=true}})
+assert(targeting.floor(regenerating,viewOf(fireBolt,regenerating))==0 and targeting.floor(regenerating,viewOf(bolt,regenerating))==1)
+assert(targeting.floor(regenerating,nil)==1 and targeting.floor(enemy(),viewOf(bolt,enemy()))==0)
+-- Every source must go: one the spell does not take away keeps the minimum, as does one that
+-- names no source (minHpFrom nil); a creature of another race keeps it too.
+local twice=enemy({ids=trollIds,hp=1,minHp=1,minHpFrom={TESTRG2=true,MINHP1=true}})
+assert(targeting.floor(twice,viewOf(fireBolt,twice))==1)
+local unnamed=enemy({ids=trollIds,hp=1,minHp=1})
+assert(targeting.floor(unnamed,viewOf(fireBolt,unnamed))==1)
+local elf=enemy({hp=1,minHp=1,minHpFrom={TESTRG2=true}})
+assert(targeting.floor(elf,viewOf(fireBolt,elf))==1)
+assert(legal(enemy({hp=1,minHp=1}))=='filter' and legal(enemy({hp=11,maxHp=20,minHp=1}))=='ok')
+assert(legal(regenerating,fireBolt,caster,enemy({id=2,x=100,ids=trollIds}))=='ok')
+groups=groups+1
+
 return groups

@@ -19,8 +19,11 @@ local M={}
 M.sightRange=448
 M.GOOD_CUTOFF,M.EVIL_CUTOFF=30,200
 -- STATS.IDS: MAXHITPOINTS, RESISTMAGIC, HELD, SANCTUARY, SEEINVISIBLE, TRUE_SIGHT, LEVELDRAIN,
--- ENTANGLE, WEB.
-M.stats={maxHp=1,mr=18,held=58,sanctuary=63,seeInvisible=81,trueSight=118,levelDrain=200,entangle=62,web=67}
+-- ENTANGLE, WEB, MINHITPOINTS (opcode 208 sets it, IESDP).
+M.stats={maxHp=1,mr=18,held=58,sanctuary=63,seeInvisible=81,trueSight=118,levelDrain=200,entangle=62,web=67,
+    minHp=83}
+-- Opcode 208, minimum hit points.
+M.minimumHp=208
 -- STATE_INVISIBLE and STATE_IMPROVEDINVISIBILITY; STATE_BLIND.
 M.unseen,M.blind=0x400010,0x40000
 -- STATS.IDS: the saving throws, resistances and levels SCS's attack blocks read about their
@@ -74,21 +77,45 @@ local function name(field)
     return ok and type(v)=='string' and text(v) or ''
 end
 
+-- Where a creature's minimum hit points come from: the spells and items whose opcode 208 with a
+-- minimum above 0 is in its effect lists, by source, for what a spell must take away to end the
+-- minimum (combat-intent/targeting.lua's floor). nil when one of them names no source.
+function M.minimumSources(g,sprite)
+    local from,named={},true
+    for _,list in ipairs({sprite.m_timedEffectList,sprite.m_equipedEffectList}) do
+        local seen=0
+        g.EEex_Utility_IterateCPtrList(list,function(effect)
+            seen=seen+1
+            if seen>M.maxEffects then return true end
+            if effect.m_effectId==M.minimumHp and number(effect.m_effectAmount)>0 then
+                local source=name(effect.m_sourceRes)
+                if source=='' then named=false else from[source]=true end
+            end
+        end)
+    end
+    if not named then return nil end
+    return from
+end
+
 -- The plain facts every frame carries for one creature: also its armour class, the creature
 -- its current action is aimed at (-1 for none), its Stoneskin skins and Mirror Images, the
--- levels drained from it, and whether it is webbed or entangled (rooted: it cannot walk).
+-- levels drained from it, whether it is webbed or entangled (rooted: it cannot walk), and the hit
+-- points it cannot drop below (minHp, 0 without a minimum) with where they come from (minHpFrom,
+-- M.minimumSources).
 function M.actor(g,sprite)
     local state=g.EEex_Sprite_GetState(sprite)
     local action=sprite.m_curAction
     local actee=action.m_acteeID and action.m_acteeID.m_Instance
     local mirror=sprite.m_nMirrorImages
+    local minimum=stat(g,sprite,M.stats.minHp)
     return {id=sprite.m_id,x=sprite.m_pos.x,y=sprite.m_pos.y,ea=sprite.m_typeAI.m_EnemyAlly,
         state=state,held=stat(g,sprite,M.stats.held),sanctuary=stat(g,sprite,M.stats.sanctuary),
         hp=sprite.m_baseStats.m_hitPoints,maxHp=stat(g,sprite,M.stats.maxHp),
         mr=stat(g,sprite,M.stats.mr),action=action.m_actionID,ac=stat(g,sprite,M.combat.ac),
         actee=type(actee)=='number' and actee or -1,skins=stat(g,sprite,M.combat.stoneskins),
         mirror=type(mirror)=='number' and mirror or 0,drained=stat(g,sprite,M.stats.levelDrain),
-        rooted=stat(g,sprite,M.stats.entangle)>0 or stat(g,sprite,M.stats.web)>0}
+        rooted=stat(g,sprite,M.stats.entangle)>0 or stat(g,sprite,M.stats.web)>0,
+        minHp=minimum>0 and minimum or 0,minHpFrom=minimum>0 and M.minimumSources(g,sprite) or nil}
 end
 -- A creature's THAC0 with its right-hand and general hit bonuses (as M.attack counts it).
 function M.thac0(g,sprite)

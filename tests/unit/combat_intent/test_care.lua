@@ -102,6 +102,10 @@ assert(pressed.target==2 and near(pressed.worth,(1/3)*30/19))
 -- With 3 hit points left it falls while the spell is cast.
 i.frame.allies[1].hp=3;i.rejected={}
 assert(#only(i)==0 and i.rejected['care-falls']==1)
+-- With minimum hit points (opcode 208) it does not fall, and a heal the fighter takes again
+-- within the horizon gains nothing.
+i.frame.allies[1].minHp=1;i.rejected={}
+assert(#only(i)==0 and i.rejected['care-no-worth']==1)
 groups=groups+1
 
 -- 3. Who gets healed: allies above SCS's level for the caster, not one another member is healing

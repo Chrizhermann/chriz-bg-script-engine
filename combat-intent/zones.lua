@@ -107,20 +107,22 @@ end
 -- What one explosion of z does to friend f inside it once it gets through, on the attack's
 -- scale: its damage, its disable and its conditions, by f's own view of the spell's conditions
 -- (undead and the like); nothing when z spares f's side or a spell protection keeps z out. Also
--- how many of z's next explosions f's protections stop first (stopped). With theirs, f is one of
--- the caster's enemies.
+-- how many of z's next explosions f's protections stop first (stopped), and the hit points z
+-- leaves f at least (targeting.floor: its minimum, unless z takes it away). With theirs, f is
+-- one of the caster's enemies.
 function M.hit(input,z,f,theirs)
-    if not M.reachesSide(z,theirs) then return 0,0 end
+    if not M.reachesSide(z,theirs) then return 0,0,0 end
     local roles=spells.view(z.spell,targeting.holds(f))
-    if type(roles)~='table' then return 0,0 end
+    if type(roles)~='table' then return 0,0,0 end
+    local floor=targeting.floor(f,roles)
     local first=stopped(f,z)
-    if first==math.huge then return 0,first end
+    if first==math.huge then return 0,first,floor end
     local killBonus=type(input.mind)=='table' and input.mind.killBonus or 0
     local worth=0
-    if reaches(roles.damage) then worth=worth+(harm.damage(roles.damage,f,killBonus)) end
-    if reaches(roles.disable) then worth=worth+harm.disable(roles.disable,f,killBonus) end
+    if reaches(roles.damage) then worth=worth+(harm.damage(roles.damage,f,killBonus,floor)) end
+    if reaches(roles.disable) then worth=worth+harm.disable(roles.disable,f,killBonus,floor) end
     if reaches(roles.debuff) then worth=worth+M.debuff(roles.debuff,f) end
-    return worth,first
+    return worth,first,floor
 end
 
 -- The chance one explosion of z that gets through breaks a cast of f's: its damage lands (halved
@@ -213,23 +215,32 @@ local function loss(hurts,f,p,q,speed,t)
     end
     return total
 end
--- The zones that would hurt f where it stands or on its way, with one explosion's harm each and
--- the explosions its protections stop first.
+-- The zones that would hurt f where it stands or on its way, with one explosion's harm each, the
+-- explosions its protections stop first and the hit points each leaves it at least.
 local function hurting(input,f)
     local out={}
     for _,z in ipairs(list(input.zones)) do
         if M.valid(z) then
-            local h,first=M.hit(input,z,f)
-            if h>0 then out[#out+1]={zone=z,hit=h,stopped=first} end
+            local h,first,floor=M.hit(input,z,f)
+            if h>0 then out[#out+1]={zone=z,hit=h,stopped=first,floor=floor} end
         end
     end
     return out
 end
 local function speedOf(f) return number(f.speed) and f.speed>0 and f.speed or M.walkSpeed end
--- The most f can lose: all it is worth and the kill bonus.
-local function cap(input,f)
+-- The most f can lose to the zones that hurt it (hurts): all it is worth and the kill bonus, or
+-- while its minimum holds against all of them, what it has above the lowest they leave it.
+local function cap(input,f,hurts)
     local killBonus=type(input.mind)=='table' and number(input.mind.killBonus) and input.mind.killBonus or 0
-    return targeting.health(f)+killBonus
+    local floor
+    for _,h in ipairs(hurts) do
+        local v=number(h.floor) and h.floor or 0
+        if floor==nil or v<floor then floor=v end
+    end
+    if not floor or floor<=0 or not number(f.hp) or not number(f.maxHp) or f.maxHp<=0 then
+        return targeting.health(f)+killBonus
+    end
+    return math.max(0,math.min(1,(f.hp-floor)/f.maxHp))
 end
 
 -- What walking to q is worth to the caster against standing where it is, in the zones: what it
@@ -243,8 +254,9 @@ function M.delta(input,q)
     if #hurts==0 then return 0 end
     local speed=speedOf(f)
     local t=M.ROUND+targeting.distance(f,q)/speed
-    local stay=math.min(loss(hurts,f,f,f,speed,t),cap(input,f))
-    local go=math.min(loss(hurts,f,f,q,speed,t),cap(input,f))
+    local most=cap(input,f,hurts)
+    local stay=math.min(loss(hurts,f,f,f,speed,t),most)
+    local go=math.min(loss(hurts,f,f,q,speed,t),most)
     return stay-go
 end
 
@@ -325,6 +337,7 @@ function M.escape(input)
     local hurts=hurting(input,f)
     if rooted(f) then return nil,'rooted' end
     local speed=speedOf(f)
+    local most=cap(input,f,hurts)
     local px,py=flat(f)
     local found={}
     for i=0,M.directions-1 do
@@ -350,7 +363,7 @@ function M.escape(input)
         -- Areas start at 0: a point before their edge is no way out.
         if not moved and s<=M.maxWalk and q.x>=0 and q.y>=0 then
             local t=M.ROUND+s/speed
-            local worth=math.min(loss(hurts,f,f,f,speed,t),cap(input,f))-math.min(loss(hurts,f,f,q,speed,t),cap(input,f))
+            local worth=math.min(loss(hurts,f,f,f,speed,t),most)-math.min(loss(hurts,f,f,q,speed,t),most)
             found[#found+1]={point=q,worth=worth,walk=s/speed}
         end
     end

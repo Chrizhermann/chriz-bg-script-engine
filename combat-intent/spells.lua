@@ -37,9 +37,10 @@ for _,op in ipairs({7,8,9,23,41,50,51,52,53,56,57,61,63,64,66,71,72,82,94,95,96,
     244,245,251,252,253,254,255,262,263,265,267,268,269,271,275,276,277,279,281,282,287,290,291,
     293,294,295,296,298,300,302,307,308,309,311,312,313,315,319,320,323,327,328,330,336,338,339,
     340,341,342,347,348,349,350,351,352,353,354,355,356,357,358,359,360,361,362,363,364,365,367,
-    21,59,90,91,92,171,233,266,321}) do NEUTRAL[op]=true end
+    21,59,90,91,92,171,233,266}) do NEUTRAL[op]=true end
 -- 321 and 266 remove the effects or protections of one named resource: SCS and SR use them
--- to refresh their own helpers, so they are bookkeeping, not dispelling.
+-- to refresh their own helpers, so they are bookkeeping, not dispelling. What 321 takes away
+-- is kept all the same (H[321]).
 M.neutral=NEUTRAL
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
@@ -211,6 +212,12 @@ local DISABLES={[24]='panic',[38]='silence',[45]='stun',[76]='feeblemind',[128]=
     [211]='imprison',[213]='maze',[217]='sleep',[241]='charm',[247]='berserk',
     [264]='panic',[13]='death',[55]='death',[209]='death',[238]='death'}
 for op,label in pairs(DISABLES) do H[op]=function(c,e,who,p) kind(c,'disable',label,who,e,p) end end
+-- A creature with minimum hit points (opcode 208) is immune to death by opcode 13; slaying (55),
+-- Power Word, Kill (209) and disintegration (238) still kill it (IESDP): slays.
+for _,op in ipairs({55,209,238}) do
+    local plain=H[op]
+    H[op]=function(c,e,who,p) plain(c,e,who,p);c.roles.disable.slays=true end
+end
 -- Power Word, Kill (209) and Power Word, Stun (210) work only on a creature with fewer than 60 or
 -- 90 hit points left (the engine's own limits): belowHp.
 local function below(op,limit)
@@ -372,6 +379,14 @@ local PROTECTION_KINDS={[65]='blur',[69]='nondetection',[100]='creatureType',
     [153]='sanctuary',[163]='freeAction',[208]='minimumHp',[292]='backstab',
     [297]='turnUndead',[299]='chaosShield',[310]='timestop',[322]='evasion',[335]='sevenEyes'}
 for op,label in pairs(PROTECTION_KINDS) do H[op]=function(c,e,who,p) kind(c,'protection',label,who,e,p) end end
+-- What 321 takes away from its receiver, by the resource that put it there: strips.res, which
+-- neither harms nor helps. A creature's minimum hit points end with the effects that set them
+-- (combat-intent/targeting.lua's floor): SCS's fire, acid and cold spells take away troll
+-- regeneration this way before they hit.
+H[321]=function(c,e,who,p)
+    if type(e.res)~='string' or e.res=='' then return end
+    set(add(c,'strips',who,e,p),'res')[e.res:upper()]=true
+end
 -- Invisibility; parameter 2 = 1 is Improved Invisibility, which attacks do not break.
 H[20]=function(c,e,who,p)
     local r=kind(c,'protection','invisible',who,e,p)
@@ -962,16 +977,19 @@ function M.classify(record,index,lookup,options)
     c.marks=nil
     -- Without conditions every creature gets the same roles, and no view needs the log.
     if #c.conditions==0 then c.conditions=nil;c.log=nil;c.nodes=nil end
+    -- What 321 takes away (strips) is no kind of its own.
     local names={}
     for name,r in pairs(c.roles) do
-        names[#names+1]=name
-        if OFFENSIVE[name] then
-            c.offensive=c.offensive or (r.who.target or r.who.area or r.who.point or r.who.party
-                or r.who.everyone) and true or nil
-            for who in pairs(r.who) do if HARMS_ALLIES[who] then c.friendlyFire=true end end
-            if r.who.area and c.area and c.area.filter~='enemies' then c.friendlyFire=true end
-            if r.who.self and name~='removal' then c.selfHarm=true end
-        else c.beneficial=true end
+        if name~='strips' then
+            names[#names+1]=name
+            if OFFENSIVE[name] then
+                c.offensive=c.offensive or (r.who.target or r.who.area or r.who.point or r.who.party
+                    or r.who.everyone) and true or nil
+                for who in pairs(r.who) do if HARMS_ALLIES[who] then c.friendlyFire=true end end
+                if r.who.area and c.area and c.area.filter~='enemies' then c.friendlyFire=true end
+                if r.who.self and name~='removal' then c.selfHarm=true end
+            else c.beneficial=true end
+        end
     end
     table.sort(names);c.kinds=names
     return c

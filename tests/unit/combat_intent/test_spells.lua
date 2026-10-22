@@ -329,7 +329,8 @@ groups=groups+1
 -- Projectiles without a PRO file are built into the engine: their shape is unknown.
 assert(one(fx(12,{p1=1}),{projectile=66}).projectileUnknown)
 assert(not one(fx(12,{p1=1}),{projectile=1}).projectileUnknown)
-assert(spells.neutral[321] and not spells.neutral[93] and not spells.neutral[168] and not spells.neutral[214])
+assert(spells.neutral[266] and not spells.neutral[321] and not spells.neutral[93] and not spells.neutral[168] and
+    not spells.neutral[214])
 groups=groups+1
 
 -- Shapechanging oneself is a buff, polymorphing others a disable; a time stop held by the
@@ -631,6 +632,30 @@ c=classify(spl('TESTSELF',{ability({fx(39,{duration=60}),fx(146,{target=1,p2=1,t
 assert(c.roles.cure.who.self and c.roles.disable.duration==60)
 c=classify(spl('TESTFIRST',{ability({fx(2,{duration=1}),fx(146,{p2=1,timing=4,duration=6,res='TESTNAP'})})}),gc)
 assert(c.roles.cure.kinds.sleep and c.roles.disable.duration==60)
+groups=groups+1
+
+-- What 321 takes away, by the resource that put it there (strips.res, upper case), is no kind
+-- of its own and neither harms nor helps. SCS's fire spells take troll regeneration away from
+-- trolls only, through a 177 for the troll race. Death by opcode 13 does not slay (a minimum
+-- keeps it out); 55, 209 and 238 do.
+c=one(fx(321,{res='dwtrrg2'}))
+assert(c.roles.strips.who.target and c.roles.strips.res.DWTRRG2 and #c.kinds==0)
+assert(not c.beneficial and not c.offensive and not c.selfHarm)
+local regen=world({
+    ['EFF:TESTTFI']={kind='EFF',resref='TESTTFI',effect=fx(146,{res='TESTTROL',p2=1})},
+    ['SPL:TESTTROL']=spl('TESTTROL',{ability({fx(321,{res='TESTRG2'}),fx(321,{res='TESTRG4'}),
+        fx(177,{timing=4,res='TESTTFX'})})}),
+    ['EFF:TESTTFX']={kind='EFF',resref='TESTTFX',effect=fx(146,{res='TESTTFD',p2=1})},
+    ['SPL:TESTTFD']=spl('TESTTFD',{ability({fx(12,{p1=1,p2=8*65536})})}),
+})
+c=classify(spl('TESTFIRE',{ability({fx(177,{p1=129,p2=4,res='TESTTFI'}),fx(12,{p2=8*65536,dice=6,sides=6})})}),regen)
+local onTroll=spells.view(c,only(troll))
+assert(onTroll.strips.res.TESTRG2 and onTroll.strips.res.TESTRG4 and near(onTroll.damage.amount,22))
+assert(spells.common(c).strips==nil and near(spells.common(c).damage.amount,21))
+assert(#c.kinds==1 and c.kinds[1]=='damage' and c.offensive and not c.beneficial)
+assert(one(fx(13,{})).roles.disable.kinds.death and not one(fx(13,{})).roles.disable.slays)
+for _,op in ipairs({55,209,238}) do assert(one(fx(op,{})).roles.disable.kinds.death and one(fx(op,{})).roles.disable.slays) end
+assert(one(fx(209,{})).roles.disable.belowHp==60)
 groups=groups+1
 
 return groups

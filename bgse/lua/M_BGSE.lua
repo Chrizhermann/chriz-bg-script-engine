@@ -426,9 +426,10 @@ for _,op in ipairs({7,8,9,23,41,50,51,52,53,56,57,61,63,64,66,71,72,82,94,95,96,
     244,245,251,252,253,254,255,262,263,265,267,268,269,271,275,276,277,279,281,282,287,290,291,
     293,294,295,296,298,300,302,307,308,309,311,312,313,315,319,320,323,327,328,330,336,338,339,
     340,341,342,347,348,349,350,351,352,353,354,355,356,357,358,359,360,361,362,363,364,365,367,
-    21,59,90,91,92,171,233,266,321}) do NEUTRAL[op]=true end
+    21,59,90,91,92,171,233,266}) do NEUTRAL[op]=true end
 -- 321 and 266 remove the effects or protections of one named resource: SCS and SR use them
--- to refresh their own helpers, so they are bookkeeping, not dispelling.
+-- to refresh their own helpers, so they are bookkeeping, not dispelling. What 321 takes away
+-- is kept all the same (H[321]).
 M.neutral=NEUTRAL
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
@@ -600,6 +601,12 @@ local DISABLES={[24]='panic',[38]='silence',[45]='stun',[76]='feeblemind',[128]=
     [211]='imprison',[213]='maze',[217]='sleep',[241]='charm',[247]='berserk',
     [264]='panic',[13]='death',[55]='death',[209]='death',[238]='death'}
 for op,label in pairs(DISABLES) do H[op]=function(c,e,who,p) kind(c,'disable',label,who,e,p) end end
+-- A creature with minimum hit points (opcode 208) is immune to death by opcode 13; slaying (55),
+-- Power Word, Kill (209) and disintegration (238) still kill it (IESDP): slays.
+for _,op in ipairs({55,209,238}) do
+    local plain=H[op]
+    H[op]=function(c,e,who,p) plain(c,e,who,p);c.roles.disable.slays=true end
+end
 -- Power Word, Kill (209) and Power Word, Stun (210) work only on a creature with fewer than 60 or
 -- 90 hit points left (the engine's own limits): belowHp.
 local function below(op,limit)
@@ -761,6 +768,14 @@ local PROTECTION_KINDS={[65]='blur',[69]='nondetection',[100]='creatureType',
     [153]='sanctuary',[163]='freeAction',[208]='minimumHp',[292]='backstab',
     [297]='turnUndead',[299]='chaosShield',[310]='timestop',[322]='evasion',[335]='sevenEyes'}
 for op,label in pairs(PROTECTION_KINDS) do H[op]=function(c,e,who,p) kind(c,'protection',label,who,e,p) end end
+-- What 321 takes away from its receiver, by the resource that put it there: strips.res, which
+-- neither harms nor helps. A creature's minimum hit points end with the effects that set them
+-- (combat-intent/targeting.lua's floor): SCS's fire, acid and cold spells take away troll
+-- regeneration this way before they hit.
+H[321]=function(c,e,who,p)
+    if type(e.res)~='string' or e.res=='' then return end
+    set(add(c,'strips',who,e,p),'res')[e.res:upper()]=true
+end
 -- Invisibility; parameter 2 = 1 is Improved Invisibility, which attacks do not break.
 H[20]=function(c,e,who,p)
     local r=kind(c,'protection','invisible',who,e,p)
@@ -1351,16 +1366,19 @@ function M.classify(record,index,lookup,options)
     c.marks=nil
     -- Without conditions every creature gets the same roles, and no view needs the log.
     if #c.conditions==0 then c.conditions=nil;c.log=nil;c.nodes=nil end
+    -- What 321 takes away (strips) is no kind of its own.
     local names={}
     for name,r in pairs(c.roles) do
-        names[#names+1]=name
-        if OFFENSIVE[name] then
-            c.offensive=c.offensive or (r.who.target or r.who.area or r.who.point or r.who.party
-                or r.who.everyone) and true or nil
-            for who in pairs(r.who) do if HARMS_ALLIES[who] then c.friendlyFire=true end end
-            if r.who.area and c.area and c.area.filter~='enemies' then c.friendlyFire=true end
-            if r.who.self and name~='removal' then c.selfHarm=true end
-        else c.beneficial=true end
+        if name~='strips' then
+            names[#names+1]=name
+            if OFFENSIVE[name] then
+                c.offensive=c.offensive or (r.who.target or r.who.area or r.who.point or r.who.party
+                    or r.who.everyone) and true or nil
+                for who in pairs(r.who) do if HARMS_ALLIES[who] then c.friendlyFire=true end end
+                if r.who.area and c.area and c.area.filter~='enemies' then c.friendlyFire=true end
+                if r.who.self and name~='removal' then c.selfHarm=true end
+            else c.beneficial=true end
+        end
     end
     table.sort(names);c.kinds=names
     return c
@@ -1488,6 +1506,16 @@ function M.health(actor)
     if type(actor)~='table' or not number(actor.hp) or not number(actor.maxHp) or actor.maxHp<=0 then return 1 end
     return math.max(0,math.min(1,actor.hp/actor.maxHp))
 end
+-- The hit points a creature cannot drop below: its minimum (minHp, opcode 208), 0 without one.
+function M.minimum(actor)
+    return type(actor)=='table' and number(actor.minHp) and actor.minHp>0 and actor.minHp or 0
+end
+-- The share of a creature's maximum hit points above its minimum: what attacks can still take
+-- from it (its health when it has no minimum).
+function M.room(actor)
+    if type(actor)~='table' or not number(actor.hp) or not number(actor.maxHp) or actor.maxHp<=0 then return 1 end
+    return math.max(0,math.min(1,(actor.hp-M.minimum(actor))/actor.maxHp))
+end
 function M.distance(a,b)
     if type(a)~='table' or type(b)~='table' or not number(a.x) or not number(a.y) or
         not number(b.x) or not number(b.y) then return math.huge end
@@ -1565,14 +1593,33 @@ function M.holds(e)
         return ids.matches(f,e)
     end
 end
--- What the spell does to e, by e's own view of the spell's conditions: its damage and its
--- disable chance. nil when a condition cannot be judged for e.
+-- The hit points e keeps at least while a spell hits it, by roles (the spell's roles for e): its
+-- minimum, unless the spell takes away every effect that sets it (roles.strips by the effects'
+-- sources, e.minHpFrom): SCS's fire, acid and cold spells end troll regeneration, and the
+-- minimum with it, before they hit.
+function M.floor(e,roles)
+    local floor=M.minimum(e)
+    if floor<=0 then return 0 end
+    local from=e.minHpFrom
+    local s=type(roles)=='table' and roles.strips
+    local res=reaches(s) and type(s.res)=='table' and s.res
+    if type(from)~='table' or next(from)==nil or not res then return floor end
+    for source in pairs(from) do
+        if not res[source] then return floor end
+    end
+    return 0
+end
+-- What the spell does to e, by e's own view of the spell's conditions: its damage (none on a
+-- creature its minimum keeps where it is) and its disable chance. nil when a condition cannot be
+-- judged for e.
 local function effect(spell,e)
     local roles,key=spells.view(spell,M.holds(e))
     if type(roles)~='table' or type(key)~='string' or key:find('?',1,true) then return nil end
     local d,x=roles.damage,roles.disable
-    return {damage=reaches(d) and number(d.amount) and d.amount or 0,
-        disable=reaches(x) and number(x.chance) and x.chance or 0}
+    local damage=reaches(d) and number(d.amount) and d.amount or 0
+    local floor=M.floor(e,roles)
+    if floor>0 and number(e.hp) and e.hp<=floor then damage=0 end
+    return {damage=damage,disable=reaches(x) and number(x.chance) and x.chance or 0}
 end
 -- Amounts that differ by less than this are equal (they come from the same arithmetic).
 local EPSILON=1e-9
@@ -1819,13 +1866,16 @@ function M.brokenFree(duration,bf,e)
 end
 
 -- The worth of a damage role on e and the hit points it is expected to take (no more than e has
--- left): the share of e's maximum, and the kill bonus as likely as the hit points it deals
--- (halved on a save, if it allows half) reach those e has left. With spare, e keeps at least one
--- hit point (Harm cannot kill).
-function M.damage(role,e,killBonus,spare)
+-- left above floor): the share of e's maximum, and the kill bonus as likely as the hit points it
+-- deals (halved on a save, if it allows half) reach those e has left. floor: the hit points e
+-- keeps at least (its minimum, targeting.floor; one for a strike that keeps its target alive, as
+-- Harm does); no kill while one holds (lab batch H9: a priest stayed 39 seconds in an Incendiary
+-- Cloud to finish a mage whose minimum kept it at one hit point).
+function M.damage(role,e,killBonus,floor)
     local hp,maxHp=e.hp,e.maxHp
     if not number(hp) or not number(maxHp) or maxHp<=0 or hp<=0 then return 0,0 end
-    if spare then hp=hp-1 end
+    floor=number(floor) and floor>0 and floor or 0
+    hp=hp-floor
     if hp<=0 then return 0,0 end
     local amount=0
     for label,v in pairs(type(role.types)=='table' and role.types or {}) do
@@ -1838,7 +1888,7 @@ function M.damage(role,e,killBonus,spare)
     local expected=amount*land*(role.saveForHalf and 1-save/2 or 1-save)
     local worth=math.min(expected,hp)/maxHp
     local kill=0
-    if amount>=hp and not spare then
+    if amount>=hp and floor<=0 then
         kill=land*((role.saveForHalf and amount/2>=hp) and 1 or 1-save)
     end
     worth=worth+(number(killBonus) and killBonus or 0)*kill
@@ -1849,8 +1899,9 @@ end
 -- (taking a nearly dead creature out is worth less than taking out a healthy one; taking one out
 -- for good is worth what killing it is), times the chance it lands: magic resistance, the saving
 -- throw and the effect's own chance. Nothing on a creature already disabled, outside the role's
--- levels or at or above its hit point limit.
-function M.disable(role,e,killBonus)
+-- levels or at or above its hit point limit. While a minimum holds on e (floor above 0, as for
+-- M.damage), only a death that slays (role.slays, combat-intent/spells.lua) kills it.
+function M.disable(role,e,killBonus,floor)
     if targeting.disabled(e) then return 0 end
     local level=e.level
     if number(level) and ((number(role.maxLevel) and level>role.maxLevel) or (number(role.minLevel) and level<role.minLevel)) then
@@ -1866,6 +1917,7 @@ function M.disable(role,e,killBonus)
         if M.CASTERS_ONLY[label] and not ids.caster(e) then f=f*0.2 end
         if label=='turnUndead' and not (type(e.ids)=='table' and e.ids.general==4) then f=0 end
         if label=='sleep' and role.wakesOnDamage then f=f*0.6 end
+        if label=='death' and number(floor) and floor>0 and not role.slays then f=0 end
         if f>factor then factor,forGood=f,M.FOR_GOOD[label]==true end
     end
     if factor<=0 then return 0 end
@@ -2739,9 +2791,11 @@ end
 -- How harm runs for friend f under threat t with shield s over r rounds: the hit points it has
 -- lost by then (temporary hit points go first), the round it dies in (math.huge if it lives
 -- through them), and what s blocks. Absorbed hits go first; the rest of the harm runs evenly.
+-- A friend with a minimum (targeting.minimum) loses no more than it has above it, and lives.
 function M.course(s,f,t,r)
     local maxHp=number(f.maxHp) and f.maxHp>0 and f.maxHp or 1
     local left=number(f.hp) and f.hp>0 and f.hp or maxHp
+    local floor=targeting.minimum(f)
     local b=M.blocks(s,t,r)
     local weapon=t.weapon.hp*(1-b.rate)
     local hits=t.weapon.hits*(1-b.rate)
@@ -2756,18 +2810,21 @@ function M.course(s,f,t,r)
     else death=math.huge end
     local harm=spell*r
     if lasts<r then harm=harm+weapon*(r-lasts) end
-    return math.max(0,harm-s.hp),death,b
+    local lost=math.max(0,harm-s.hp)
+    if floor>0 then lost,death=math.min(lost,math.max(0,left-floor)),math.huge end
+    return lost,death,b
 end
 
 -- The expected loss of friend f under threat t with shield s over r rounds, on the attack's
--- scale: the share of its hit points it loses, the kill bonus as likely as it dies, and the
--- rounds it is out of the fight, dead or disabled, each worth a round of disable. A protection
--- that keeps a friend alive for longer is worth the rounds it fights in the meantime.
+-- scale: the share of its hit points it loses, the kill bonus as likely as it dies (not while its
+-- minimum holds), and the rounds it is out of the fight, dead or disabled, each worth a round of
+-- disable. A protection that keeps a friend alive for longer is worth the rounds it fights in
+-- the meantime.
 function M.loss(s,f,t,r,killBonus)
     local maxHp=number(f.maxHp) and f.maxHp>0 and f.maxHp or 1
     local left=number(f.hp) and f.hp>0 and f.hp or maxHp
     local harm,death,b=M.course(s,f,t,r)
-    local dies=clamp((harm-0.5*left)/(0.5*left),0,1)
+    local dies=targeting.minimum(f)>0 and 0 or clamp((harm-0.5*left)/(0.5*left),0,1)
     local alive=math.min(death,r)
     local disabled=t.spell.disable*(1-b.disable)*alive
     return math.min(harm,left)/maxHp+killBonus*dies+M.disableRound*(r-alive+disabled)
@@ -3087,9 +3144,9 @@ end
 
 local NONE={weapon={hp=0,hits=0,attacks=0,magicalAttacks=0},spell={hp=0,personal=0,area=0,disable=0,casters=0,level=0}}
 -- What friend f is worth at the end of r rounds under threat t with shield s, if it had hp hit
--- points now: the share of its hit points left then, the kill bonus as likely as it lives, and
--- the rounds it is in the fight (alive and not disabled by enemy spells), each worth a round of
--- disable. Harm runs as defence.course has it.
+-- points now: the share of its hit points left then, the kill bonus as likely as it lives (for
+-- sure while its minimum holds), and the rounds it is in the fight (alive and not disabled by
+-- enemy spells), each worth a round of disable. Harm runs as defence.course has it.
 function M.standing(f,t,s,r,killBonus,hp)
     local maxHp=number(f.maxHp) and f.maxHp>0 and f.maxHp or 1
     if hp<=0 then return 0 end
@@ -3097,7 +3154,7 @@ function M.standing(f,t,s,r,killBonus,hp)
     for k,v in pairs(f) do g[k]=v end
     g.hp=hp
     local harm,death,b=defence.course(s,g,t or NONE,r)
-    local dies=clamp((harm-0.5*hp)/(0.5*hp),0,1)
+    local dies=targeting.minimum(f)>0 and 0 or clamp((harm-0.5*hp)/(0.5*hp),0,1)
     local alive=math.min(death,r)
     local disabled=(t or NONE).spell.disable*(1-b.disable)*alive
     return math.max(0,hp-harm)/maxHp+killBonus*(1-dies)+defence.disableRound*(alive-disabled)
@@ -4205,20 +4262,22 @@ end
 -- What one explosion of z does to friend f inside it once it gets through, on the attack's
 -- scale: its damage, its disable and its conditions, by f's own view of the spell's conditions
 -- (undead and the like); nothing when z spares f's side or a spell protection keeps z out. Also
--- how many of z's next explosions f's protections stop first (stopped). With theirs, f is one of
--- the caster's enemies.
+-- how many of z's next explosions f's protections stop first (stopped), and the hit points z
+-- leaves f at least (targeting.floor: its minimum, unless z takes it away). With theirs, f is
+-- one of the caster's enemies.
 function M.hit(input,z,f,theirs)
-    if not M.reachesSide(z,theirs) then return 0,0 end
+    if not M.reachesSide(z,theirs) then return 0,0,0 end
     local roles=spells.view(z.spell,targeting.holds(f))
-    if type(roles)~='table' then return 0,0 end
+    if type(roles)~='table' then return 0,0,0 end
+    local floor=targeting.floor(f,roles)
     local first=stopped(f,z)
-    if first==math.huge then return 0,first end
+    if first==math.huge then return 0,first,floor end
     local killBonus=type(input.mind)=='table' and input.mind.killBonus or 0
     local worth=0
-    if reaches(roles.damage) then worth=worth+(harm.damage(roles.damage,f,killBonus)) end
-    if reaches(roles.disable) then worth=worth+harm.disable(roles.disable,f,killBonus) end
+    if reaches(roles.damage) then worth=worth+(harm.damage(roles.damage,f,killBonus,floor)) end
+    if reaches(roles.disable) then worth=worth+harm.disable(roles.disable,f,killBonus,floor) end
     if reaches(roles.debuff) then worth=worth+M.debuff(roles.debuff,f) end
-    return worth,first
+    return worth,first,floor
 end
 
 -- The chance one explosion of z that gets through breaks a cast of f's: its damage lands (halved
@@ -4311,23 +4370,32 @@ local function loss(hurts,f,p,q,speed,t)
     end
     return total
 end
--- The zones that would hurt f where it stands or on its way, with one explosion's harm each and
--- the explosions its protections stop first.
+-- The zones that would hurt f where it stands or on its way, with one explosion's harm each, the
+-- explosions its protections stop first and the hit points each leaves it at least.
 local function hurting(input,f)
     local out={}
     for _,z in ipairs(list(input.zones)) do
         if M.valid(z) then
-            local h,first=M.hit(input,z,f)
-            if h>0 then out[#out+1]={zone=z,hit=h,stopped=first} end
+            local h,first,floor=M.hit(input,z,f)
+            if h>0 then out[#out+1]={zone=z,hit=h,stopped=first,floor=floor} end
         end
     end
     return out
 end
 local function speedOf(f) return number(f.speed) and f.speed>0 and f.speed or M.walkSpeed end
--- The most f can lose: all it is worth and the kill bonus.
-local function cap(input,f)
+-- The most f can lose to the zones that hurt it (hurts): all it is worth and the kill bonus, or
+-- while its minimum holds against all of them, what it has above the lowest they leave it.
+local function cap(input,f,hurts)
     local killBonus=type(input.mind)=='table' and number(input.mind.killBonus) and input.mind.killBonus or 0
-    return targeting.health(f)+killBonus
+    local floor
+    for _,h in ipairs(hurts) do
+        local v=number(h.floor) and h.floor or 0
+        if floor==nil or v<floor then floor=v end
+    end
+    if not floor or floor<=0 or not number(f.hp) or not number(f.maxHp) or f.maxHp<=0 then
+        return targeting.health(f)+killBonus
+    end
+    return math.max(0,math.min(1,(f.hp-floor)/f.maxHp))
 end
 
 -- What walking to q is worth to the caster against standing where it is, in the zones: what it
@@ -4341,8 +4409,9 @@ function M.delta(input,q)
     if #hurts==0 then return 0 end
     local speed=speedOf(f)
     local t=M.ROUND+targeting.distance(f,q)/speed
-    local stay=math.min(loss(hurts,f,f,f,speed,t),cap(input,f))
-    local go=math.min(loss(hurts,f,f,q,speed,t),cap(input,f))
+    local most=cap(input,f,hurts)
+    local stay=math.min(loss(hurts,f,f,f,speed,t),most)
+    local go=math.min(loss(hurts,f,f,q,speed,t),most)
     return stay-go
 end
 
@@ -4423,6 +4492,7 @@ function M.escape(input)
     local hurts=hurting(input,f)
     if rooted(f) then return nil,'rooted' end
     local speed=speedOf(f)
+    local most=cap(input,f,hurts)
     local px,py=flat(f)
     local found={}
     for i=0,M.directions-1 do
@@ -4448,7 +4518,7 @@ function M.escape(input)
         -- Areas start at 0: a point before their edge is no way out.
         if not moved and s<=M.maxWalk and q.x>=0 and q.y>=0 then
             local t=M.ROUND+s/speed
-            local worth=math.min(loss(hurts,f,f,f,speed,t),cap(input,f))-math.min(loss(hurts,f,f,q,speed,t),cap(input,f))
+            local worth=math.min(loss(hurts,f,f,f,speed,t),most)-math.min(loss(hurts,f,f,q,speed,t),most)
             found[#found+1]={point=q,worth=worth,walk=s/speed}
         end
     end
@@ -4708,9 +4778,9 @@ local function remembered(input,resref,e,role)
 end
 
 -- The worth of a damage role on e (combat-intent/harm.lua), more on the group's focus, and the hit
--- points it is expected to take. With spare, e keeps at least one hit point (Harm cannot kill).
-local function damageOn(input,row,role,e,spare)
-    local worth,expected=harm.damage(role,e,input.mind.killBonus,spare)
+-- points it is expected to take. floor: the hit points e keeps at least (targeting.floor).
+local function damageOn(input,row,role,e,floor)
+    local worth,expected=harm.damage(role,e,input.mind.killBonus,floor)
     if expected<=0 then return 0,0 end
     local plan=input.plan
     if type(plan)=='table' and plan.focus==e.id then worth=worth*(1+input.mind.focusBonus*input.mind.coordination) end
@@ -4719,13 +4789,13 @@ local function damageOn(input,row,role,e,spare)
 end
 
 -- The worth of a disable role on e (combat-intent/harm.lua): none on an enemy another member has
--- claimed for its disable.
-local function disableOn(input,row,role,e)
+-- claimed for its disable. floor as for damageOn.
+local function disableOn(input,row,role,e,floor)
     if targeting.disabled(e) then return 0 end
     local plan=input.plan
     local reserved=type(plan)=='table' and type(plan.reserved)=='table' and plan.reserved[e.id]
     if reserved and reserved~=input.frame.self.id and input.mind.coordination>=0.5 then return 0 end
-    return harm.disable(role,e,input.mind.killBonus)*remembered(input,row.resref,e,role)
+    return harm.disable(role,e,input.mind.killBonus,floor)*remembered(input,row.resref,e,role)
 end
 
 local function offset(a,b) return b.x-a.x,(b.y-a.y)*4/3 end
@@ -4756,8 +4826,9 @@ end
 -- The worth of the spell's kind of attack on e, and for damage the hit points it is expected to
 -- take.
 local function worthOn(input,row,kind,roles,e)
-    if kind=='damage' then return damageOn(input,row,roles.damage,e) end
-    return disableOn(input,row,roles.disable,e),0
+    local floor=targeting.floor(e,roles)
+    if kind=='damage' then return damageOn(input,row,roles.damage,e,floor) end
+    return disableOn(input,row,roles.disable,e,floor),0
 end
 
 -- What an attack's removal (combat-intent/removal.lua) adds on e, over the rounds left after the
@@ -4837,13 +4908,14 @@ local function lastingOn(input,row,spell,kind,roles,e,center,ctx)
         leave=hitsIn(first,step,last,0,math.min(upto,M.react+walk))
     end
     local stopped=targeting.stopped(e,spell)
+    local floor=targeting.floor(e,roles)
     local function over(n)
         n=n-stopped
         if n<=0 then return 0,0 end
-        if kind=='damage' then return damageOn(input,row,times(roles.damage,n),e) end
+        if kind=='damage' then return damageOn(input,row,times(roles.damage,n),e,floor) end
         local c=math.min(1,sticks(roles.disable,e))
         if c<=0 then return 0,0 end
-        return disableOn(input,row,roles.disable,e)*(1-(1-c)^n)/c,0
+        return disableOn(input,row,roles.disable,e,floor)*(1-(1-c)^n)/c,0
     end
     local ws,hs=over(stay)
     local wl,hl=over(leave)
@@ -4944,16 +5016,18 @@ end
 
 -- What the hit of touch charge w does to e (the strike's roles for e's kind of creature): the
 -- worth of its damage and disable together, and the hit points it is expected to take. A strike
--- that keeps e at one hit point or more (a minimum on e) cannot kill.
+-- that keeps e at one hit point or more (a minimum it puts on e) cannot kill, nor can one while
+-- e's own minimum holds.
 local function strikeOn(input,row,w,e)
     local roles=spells.view(w.strike,targeting.holds(e))
     if type(roles)~='table' then return 0,0 end
-    local floor=roles.protection
-    local spare=type(floor)=='table' and type(floor.kinds)=='table' and floor.kinds.minimumHp and
-        type(floor.who)=='table' and floor.who.target and true or false
+    local own=roles.protection
+    local spare=type(own)=='table' and type(own.kinds)=='table' and own.kinds.minimumHp and
+        type(own.who)=='table' and own.who.target and true or false
+    local floor=math.max(spare and 1 or 0,targeting.floor(e,roles))
     local worth,expected=0,0
-    if reaches(roles.damage) then worth,expected=damageOn(input,row,roles.damage,e,spare) end
-    if reaches(roles.disable) then worth=worth+disableOn(input,row,roles.disable,e) end
+    if reaches(roles.damage) then worth,expected=damageOn(input,row,roles.damage,e,floor) end
+    if reaches(roles.disable) then worth=worth+disableOn(input,row,roles.disable,e,floor) end
     return worth,expected
 end
 -- Whether weapons are out for the caster: its own Time Stop or Improved Alacrity.
@@ -4992,14 +5066,16 @@ end
 -- resistance nor a save lessens, and what it casts or applies, which both do; no spell
 -- protection stops the weapon, one against what its hit casts stops that part. The hits kill
 -- when those expected reach those needed, as likely as the last one lands (two swings that each
--- hit four times in five, needing both: 0.6). The hit's disable counts as likelier the more hits
--- land.
+-- hit four times in five, needing both: 0.6), unless e's minimum holds against them
+-- (targeting.floor): then they take what it has above it. The hit's disable counts as likelier
+-- the more hits land.
 local function hitsOn(input,arms,hits,e)
     local hp,maxHp=e.hp,e.maxHp
     if not number(hits) or hits<=0 or not number(hp) or not number(maxHp) or maxHp<=0 or hp<=0 then return 0,0 end
     local per=number(arms.damage) and arms.damage>0 and arms.damage*resisted(e,weapons.DAMAGE[arms.damageType] or '') or 0
     local roles=type(arms.strike)=='table' and spells.view(arms.strike,targeting.holds(e)) or nil
     if type(roles)~='table' or targeting.protected(e,arms.strike) then roles=nil end
+    local floor=targeting.floor(e,roles)
     if roles and reaches(roles.damage) then
         local role=roles.damage
         local each=0
@@ -5010,14 +5086,15 @@ local function hitsOn(input,arms,hits,e)
         per=per+each*landing(role,e)*(role.saveForHalf and 1-save/2 or 1-save)
     end
     local worth,expected=0,0
-    if per>0 then
-        expected=math.min(hits*per,hp)
-        worth=expected/maxHp+input.mind.killBonus*clamp(hits-math.ceil(hp/per)+1,0,1)
+    if per>0 and hp>floor then
+        expected=math.min(hits*per,hp-floor)
+        worth=expected/maxHp
+        if floor<=0 then worth=worth+input.mind.killBonus*clamp(hits-math.ceil(hp/per)+1,0,1) end
         local plan=input.plan
         if type(plan)=='table' and plan.focus==e.id then worth=worth*(1+input.mind.focusBonus*input.mind.coordination) end
     end
     if roles and reaches(roles.disable) then
-        worth=worth+disableOn(input,{resref=arms.item or ''},roles.disable,e)*math.min(1,hits)
+        worth=worth+disableOn(input,{resref=arms.item or ''},roles.disable,e,floor)*math.min(1,hits)
     end
     return worth,expected
 end
@@ -5419,6 +5496,8 @@ function M.new(config)
         if sink and not pcall(sink,values.copy(copy)) then counts.sinkErrors=counts.sinkErrors+1 end
     end
     local function fresh(e,tick) return e~=nil and tick-e.lastTick<=o.enemyTicks and targeting.alive(e) end
+    -- Whether attacks can take anything from e: no minimum keeps it where it is.
+    local function open(e) return targeting.minimum(e)<=0 or targeting.room(e)>0 end
     local function holder(target,tick)
         local r=reservations[target]
         if r and r.untilTick>tick and members[r.owner] then return r.owner end
@@ -5473,7 +5552,7 @@ function M.new(config)
             if id(e.id) then
                 local seen=enemies[e.id] or {seenBy={}}
                 seen.lastTick=tick;seen.x,seen.y,seen.hp,seen.maxHp=e.x,e.y,e.hp,e.maxHp
-                seen.state,seen.held=e.state,e.held
+                seen.state,seen.held,seen.minHp=e.state,e.held,e.minHp
                 seen.seenBy[member.id]=tick
                 enemies[e.id]=seen
             end
@@ -5484,20 +5563,23 @@ function M.new(config)
         return true
     end
 
-    -- The focus target: kept while it lives and someone sees it; otherwise the enemy seen by
-    -- the most members, then the most wounded, then the nearest to the members who see it.
+    -- The focus target: kept while it lives, someone sees it and attacks can take something
+    -- from it; otherwise the enemy seen by the most members, then the most wounded (by what it
+    -- has above its minimum hit points), then the nearest to the members who see it. An enemy
+    -- its minimum keeps where it is is no focus: it looks nearly dead and cannot die (lab batch
+    -- H9).
     function api:focus(tick)
-        if focus and fresh(enemies[focus],tick) then return focus end
+        if focus and fresh(enemies[focus],tick) and open(enemies[focus]) then return focus end
         local best,bestKey
         for key,e in pairs(enemies) do
-            if fresh(e,tick) then
+            if fresh(e,tick) and open(e) then
                 local seen,far=0,0
                 for member,at in pairs(e.seenBy) do
                     local m=members[member]
                     if m and tick-at<=o.enemyTicks then seen=seen+1;far=far+targeting.distance(m,e) end
                 end
                 if seen>0 then
-                    local k={seen,-targeting.health(e),-far/seen,-key}
+                    local k={seen,-targeting.room(e),-far/seen,-key}
                     local better=bestKey==nil
                     for i=1,#k do
                         if better or k[i]~=bestKey[i] then better=better or k[i]>bestKey[i];break end
@@ -5930,8 +6012,11 @@ local M={}
 M.sightRange=448
 M.GOOD_CUTOFF,M.EVIL_CUTOFF=30,200
 -- STATS.IDS: MAXHITPOINTS, RESISTMAGIC, HELD, SANCTUARY, SEEINVISIBLE, TRUE_SIGHT, LEVELDRAIN,
--- ENTANGLE, WEB.
-M.stats={maxHp=1,mr=18,held=58,sanctuary=63,seeInvisible=81,trueSight=118,levelDrain=200,entangle=62,web=67}
+-- ENTANGLE, WEB, MINHITPOINTS (opcode 208 sets it, IESDP).
+M.stats={maxHp=1,mr=18,held=58,sanctuary=63,seeInvisible=81,trueSight=118,levelDrain=200,entangle=62,web=67,
+    minHp=83}
+-- Opcode 208, minimum hit points.
+M.minimumHp=208
 -- STATE_INVISIBLE and STATE_IMPROVEDINVISIBILITY; STATE_BLIND.
 M.unseen,M.blind=0x400010,0x40000
 -- STATS.IDS: the saving throws, resistances and levels SCS's attack blocks read about their
@@ -5985,21 +6070,45 @@ local function name(field)
     return ok and type(v)=='string' and text(v) or ''
 end
 
+-- Where a creature's minimum hit points come from: the spells and items whose opcode 208 with a
+-- minimum above 0 is in its effect lists, by source, for what a spell must take away to end the
+-- minimum (combat-intent/targeting.lua's floor). nil when one of them names no source.
+function M.minimumSources(g,sprite)
+    local from,named={},true
+    for _,list in ipairs({sprite.m_timedEffectList,sprite.m_equipedEffectList}) do
+        local seen=0
+        g.EEex_Utility_IterateCPtrList(list,function(effect)
+            seen=seen+1
+            if seen>M.maxEffects then return true end
+            if effect.m_effectId==M.minimumHp and number(effect.m_effectAmount)>0 then
+                local source=name(effect.m_sourceRes)
+                if source=='' then named=false else from[source]=true end
+            end
+        end)
+    end
+    if not named then return nil end
+    return from
+end
+
 -- The plain facts every frame carries for one creature: also its armour class, the creature
 -- its current action is aimed at (-1 for none), its Stoneskin skins and Mirror Images, the
--- levels drained from it, and whether it is webbed or entangled (rooted: it cannot walk).
+-- levels drained from it, whether it is webbed or entangled (rooted: it cannot walk), and the hit
+-- points it cannot drop below (minHp, 0 without a minimum) with where they come from (minHpFrom,
+-- M.minimumSources).
 function M.actor(g,sprite)
     local state=g.EEex_Sprite_GetState(sprite)
     local action=sprite.m_curAction
     local actee=action.m_acteeID and action.m_acteeID.m_Instance
     local mirror=sprite.m_nMirrorImages
+    local minimum=stat(g,sprite,M.stats.minHp)
     return {id=sprite.m_id,x=sprite.m_pos.x,y=sprite.m_pos.y,ea=sprite.m_typeAI.m_EnemyAlly,
         state=state,held=stat(g,sprite,M.stats.held),sanctuary=stat(g,sprite,M.stats.sanctuary),
         hp=sprite.m_baseStats.m_hitPoints,maxHp=stat(g,sprite,M.stats.maxHp),
         mr=stat(g,sprite,M.stats.mr),action=action.m_actionID,ac=stat(g,sprite,M.combat.ac),
         actee=type(actee)=='number' and actee or -1,skins=stat(g,sprite,M.combat.stoneskins),
         mirror=type(mirror)=='number' and mirror or 0,drained=stat(g,sprite,M.stats.levelDrain),
-        rooted=stat(g,sprite,M.stats.entangle)>0 or stat(g,sprite,M.stats.web)>0}
+        rooted=stat(g,sprite,M.stats.entangle)>0 or stat(g,sprite,M.stats.web)>0,
+        minHp=minimum>0 and minimum or 0,minHpFrom=minimum>0 and M.minimumSources(g,sprite) or nil}
 end
 -- A creature's THAC0 with its right-hand and general hit bonuses (as M.attack counts it).
 function M.thac0(g,sprite)

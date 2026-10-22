@@ -41,6 +41,8 @@ function M.new(config)
         if sink and not pcall(sink,values.copy(copy)) then counts.sinkErrors=counts.sinkErrors+1 end
     end
     local function fresh(e,tick) return e~=nil and tick-e.lastTick<=o.enemyTicks and targeting.alive(e) end
+    -- Whether attacks can take anything from e: no minimum keeps it where it is.
+    local function open(e) return targeting.minimum(e)<=0 or targeting.room(e)>0 end
     local function holder(target,tick)
         local r=reservations[target]
         if r and r.untilTick>tick and members[r.owner] then return r.owner end
@@ -95,7 +97,7 @@ function M.new(config)
             if id(e.id) then
                 local seen=enemies[e.id] or {seenBy={}}
                 seen.lastTick=tick;seen.x,seen.y,seen.hp,seen.maxHp=e.x,e.y,e.hp,e.maxHp
-                seen.state,seen.held=e.state,e.held
+                seen.state,seen.held,seen.minHp=e.state,e.held,e.minHp
                 seen.seenBy[member.id]=tick
                 enemies[e.id]=seen
             end
@@ -106,20 +108,23 @@ function M.new(config)
         return true
     end
 
-    -- The focus target: kept while it lives and someone sees it; otherwise the enemy seen by
-    -- the most members, then the most wounded, then the nearest to the members who see it.
+    -- The focus target: kept while it lives, someone sees it and attacks can take something
+    -- from it; otherwise the enemy seen by the most members, then the most wounded (by what it
+    -- has above its minimum hit points), then the nearest to the members who see it. An enemy
+    -- its minimum keeps where it is is no focus: it looks nearly dead and cannot die (lab batch
+    -- H9).
     function api:focus(tick)
-        if focus and fresh(enemies[focus],tick) then return focus end
+        if focus and fresh(enemies[focus],tick) and open(enemies[focus]) then return focus end
         local best,bestKey
         for key,e in pairs(enemies) do
-            if fresh(e,tick) then
+            if fresh(e,tick) and open(e) then
                 local seen,far=0,0
                 for member,at in pairs(e.seenBy) do
                     local m=members[member]
                     if m and tick-at<=o.enemyTicks then seen=seen+1;far=far+targeting.distance(m,e) end
                 end
                 if seen>0 then
-                    local k={seen,-targeting.health(e),-far/seen,-key}
+                    local k={seen,-targeting.room(e),-far/seen,-key}
                     local better=bestKey==nil
                     for i=1,#k do
                         if better or k[i]~=bestKey[i] then better=better or k[i]>bestKey[i];break end

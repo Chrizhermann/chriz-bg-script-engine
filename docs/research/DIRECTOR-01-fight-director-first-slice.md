@@ -62,6 +62,9 @@ otherwise check-ins came every 16 ticks.
 - The focus stays while it is alive and seen within that round.
 - Otherwise it goes to the enemy seen by the most members. Ties go to the most wounded, then
   the nearest on average, then the lowest id.
+- Since 2026-10-23, "most wounded" counts what an enemy has above its minimum hit points (opcode
+  208), and an enemy at its minimum is no focus: it looks nearly dead and cannot die (lab batch
+  H9, SUPPORT-01).
 - When the focus lapses (unseen, or dead), the director logs that with the reason.
 
 ### Advice at the start of a member's cast

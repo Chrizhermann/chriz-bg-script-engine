@@ -81,9 +81,9 @@ end
 
 local NONE={weapon={hp=0,hits=0,attacks=0,magicalAttacks=0},spell={hp=0,personal=0,area=0,disable=0,casters=0,level=0}}
 -- What friend f is worth at the end of r rounds under threat t with shield s, if it had hp hit
--- points now: the share of its hit points left then, the kill bonus as likely as it lives, and
--- the rounds it is in the fight (alive and not disabled by enemy spells), each worth a round of
--- disable. Harm runs as defence.course has it.
+-- points now: the share of its hit points left then, the kill bonus as likely as it lives (for
+-- sure while its minimum holds), and the rounds it is in the fight (alive and not disabled by
+-- enemy spells), each worth a round of disable. Harm runs as defence.course has it.
 function M.standing(f,t,s,r,killBonus,hp)
     local maxHp=number(f.maxHp) and f.maxHp>0 and f.maxHp or 1
     if hp<=0 then return 0 end
@@ -91,7 +91,7 @@ function M.standing(f,t,s,r,killBonus,hp)
     for k,v in pairs(f) do g[k]=v end
     g.hp=hp
     local harm,death,b=defence.course(s,g,t or NONE,r)
-    local dies=clamp((harm-0.5*hp)/(0.5*hp),0,1)
+    local dies=targeting.minimum(f)>0 and 0 or clamp((harm-0.5*hp)/(0.5*hp),0,1)
     local alive=math.min(death,r)
     local disabled=(t or NONE).spell.disable*(1-b.disable)*alive
     return math.max(0,hp-harm)/maxHp+killBonus*(1-dies)+defence.disableRound*(alive-disabled)

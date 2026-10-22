@@ -190,6 +190,12 @@ local bare=defence.loss(defence.held({}),f,melee,3,0.5)
 assert(near(bare,1.5+(3-40/38)/3))
 assert(near(defence.loss(defence.shield(stoneskin.roles),f,melee,3,0.5),0.85+0.5*0.7))
 assert(near(defence.loss(defence.shield(mirror.roles),f,melee,3,0.5),1.5+(3-1.5-40/38)/3))
+-- A friend with minimum hit points (opcode 208) loses no more than it has above them and lives:
+-- 30 of 40 with a minimum of 10, no kill bonus and no rounds out of the fight.
+local tough={hp=40,maxHp=40,minHp=10}
+harm,death=defence.course(defence.held({}),tough,melee,3)
+assert(near(harm,30) and death==math.huge)
+assert(near(defence.loss(defence.held({}),tough,melee,3,0.5),30/40))
 -- Temporary hit points go first; spell harm runs alongside absorbed hits.
 local burned={weapon=melee.weapon,spell={hp=10,personal=6,area=4,disable=0,casters=1,level=5}}
 harm,death=defence.course(defence.shield(stoneskin.roles),f,burned,3)

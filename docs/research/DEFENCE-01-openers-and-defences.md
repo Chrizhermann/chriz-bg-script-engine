@@ -556,7 +556,7 @@ enemy.
 - Worth: what the hit does to that enemy (damage and disable), times the chance to hit (the
   caster's THAC0 less the hand's bonus, against the enemy's armour class). A hit that leaves its
   target at least one hit point (Harm's opcode 208) cannot kill and counts the hit points above
-  one.
+  one; nor can a hit while the target's own minimum holds (CHOICE-01).
 - Cost: the spell's level, and the caster's hit points lost to melee weapons that reach the
   target's spot but not its own, for one and a half rounds, times caution. The threat picture's
   round would not tell the spots apart: in it every melee enemy within a round's walk strikes

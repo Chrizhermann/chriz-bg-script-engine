@@ -218,9 +218,9 @@ local function remembered(input,resref,e,role)
 end
 
 -- The worth of a damage role on e (combat-intent/harm.lua), more on the group's focus, and the hit
--- points it is expected to take. With spare, e keeps at least one hit point (Harm cannot kill).
-local function damageOn(input,row,role,e,spare)
-    local worth,expected=harm.damage(role,e,input.mind.killBonus,spare)
+-- points it is expected to take. floor: the hit points e keeps at least (targeting.floor).
+local function damageOn(input,row,role,e,floor)
+    local worth,expected=harm.damage(role,e,input.mind.killBonus,floor)
     if expected<=0 then return 0,0 end
     local plan=input.plan
     if type(plan)=='table' and plan.focus==e.id then worth=worth*(1+input.mind.focusBonus*input.mind.coordination) end
@@ -229,13 +229,13 @@ local function damageOn(input,row,role,e,spare)
 end
 
 -- The worth of a disable role on e (combat-intent/harm.lua): none on an enemy another member has
--- claimed for its disable.
-local function disableOn(input,row,role,e)
+-- claimed for its disable. floor as for damageOn.
+local function disableOn(input,row,role,e,floor)
     if targeting.disabled(e) then return 0 end
     local plan=input.plan
     local reserved=type(plan)=='table' and type(plan.reserved)=='table' and plan.reserved[e.id]
     if reserved and reserved~=input.frame.self.id and input.mind.coordination>=0.5 then return 0 end
-    return harm.disable(role,e,input.mind.killBonus)*remembered(input,row.resref,e,role)
+    return harm.disable(role,e,input.mind.killBonus,floor)*remembered(input,row.resref,e,role)
 end
 
 local function offset(a,b) return b.x-a.x,(b.y-a.y)*4/3 end
@@ -266,8 +266,9 @@ end
 -- The worth of the spell's kind of attack on e, and for damage the hit points it is expected to
 -- take.
 local function worthOn(input,row,kind,roles,e)
-    if kind=='damage' then return damageOn(input,row,roles.damage,e) end
-    return disableOn(input,row,roles.disable,e),0
+    local floor=targeting.floor(e,roles)
+    if kind=='damage' then return damageOn(input,row,roles.damage,e,floor) end
+    return disableOn(input,row,roles.disable,e,floor),0
 end
 
 -- What an attack's removal (combat-intent/removal.lua) adds on e, over the rounds left after the
@@ -347,13 +348,14 @@ local function lastingOn(input,row,spell,kind,roles,e,center,ctx)
         leave=hitsIn(first,step,last,0,math.min(upto,M.react+walk))
     end
     local stopped=targeting.stopped(e,spell)
+    local floor=targeting.floor(e,roles)
     local function over(n)
         n=n-stopped
         if n<=0 then return 0,0 end
-        if kind=='damage' then return damageOn(input,row,times(roles.damage,n),e) end
+        if kind=='damage' then return damageOn(input,row,times(roles.damage,n),e,floor) end
         local c=math.min(1,sticks(roles.disable,e))
         if c<=0 then return 0,0 end
-        return disableOn(input,row,roles.disable,e)*(1-(1-c)^n)/c,0
+        return disableOn(input,row,roles.disable,e,floor)*(1-(1-c)^n)/c,0
     end
     local ws,hs=over(stay)
     local wl,hl=over(leave)
@@ -454,16 +456,18 @@ end
 
 -- What the hit of touch charge w does to e (the strike's roles for e's kind of creature): the
 -- worth of its damage and disable together, and the hit points it is expected to take. A strike
--- that keeps e at one hit point or more (a minimum on e) cannot kill.
+-- that keeps e at one hit point or more (a minimum it puts on e) cannot kill, nor can one while
+-- e's own minimum holds.
 local function strikeOn(input,row,w,e)
     local roles=spells.view(w.strike,targeting.holds(e))
     if type(roles)~='table' then return 0,0 end
-    local floor=roles.protection
-    local spare=type(floor)=='table' and type(floor.kinds)=='table' and floor.kinds.minimumHp and
-        type(floor.who)=='table' and floor.who.target and true or false
+    local own=roles.protection
+    local spare=type(own)=='table' and type(own.kinds)=='table' and own.kinds.minimumHp and
+        type(own.who)=='table' and own.who.target and true or false
+    local floor=math.max(spare and 1 or 0,targeting.floor(e,roles))
     local worth,expected=0,0
-    if reaches(roles.damage) then worth,expected=damageOn(input,row,roles.damage,e,spare) end
-    if reaches(roles.disable) then worth=worth+disableOn(input,row,roles.disable,e) end
+    if reaches(roles.damage) then worth,expected=damageOn(input,row,roles.damage,e,floor) end
+    if reaches(roles.disable) then worth=worth+disableOn(input,row,roles.disable,e,floor) end
     return worth,expected
 end
 -- Whether weapons are out for the caster: its own Time Stop or Improved Alacrity.
@@ -502,14 +506,16 @@ end
 -- resistance nor a save lessens, and what it casts or applies, which both do; no spell
 -- protection stops the weapon, one against what its hit casts stops that part. The hits kill
 -- when those expected reach those needed, as likely as the last one lands (two swings that each
--- hit four times in five, needing both: 0.6). The hit's disable counts as likelier the more hits
--- land.
+-- hit four times in five, needing both: 0.6), unless e's minimum holds against them
+-- (targeting.floor): then they take what it has above it. The hit's disable counts as likelier
+-- the more hits land.
 local function hitsOn(input,arms,hits,e)
     local hp,maxHp=e.hp,e.maxHp
     if not number(hits) or hits<=0 or not number(hp) or not number(maxHp) or maxHp<=0 or hp<=0 then return 0,0 end
     local per=number(arms.damage) and arms.damage>0 and arms.damage*resisted(e,weapons.DAMAGE[arms.damageType] or '') or 0
     local roles=type(arms.strike)=='table' and spells.view(arms.strike,targeting.holds(e)) or nil
     if type(roles)~='table' or targeting.protected(e,arms.strike) then roles=nil end
+    local floor=targeting.floor(e,roles)
     if roles and reaches(roles.damage) then
         local role=roles.damage
         local each=0
@@ -520,14 +526,15 @@ local function hitsOn(input,arms,hits,e)
         per=per+each*landing(role,e)*(role.saveForHalf and 1-save/2 or 1-save)
     end
     local worth,expected=0,0
-    if per>0 then
-        expected=math.min(hits*per,hp)
-        worth=expected/maxHp+input.mind.killBonus*clamp(hits-math.ceil(hp/per)+1,0,1)
+    if per>0 and hp>floor then
+        expected=math.min(hits*per,hp-floor)
+        worth=expected/maxHp
+        if floor<=0 then worth=worth+input.mind.killBonus*clamp(hits-math.ceil(hp/per)+1,0,1) end
         local plan=input.plan
         if type(plan)=='table' and plan.focus==e.id then worth=worth*(1+input.mind.focusBonus*input.mind.coordination) end
     end
     if roles and reaches(roles.disable) then
-        worth=worth+disableOn(input,{resref=arms.item or ''},roles.disable,e)*math.min(1,hits)
+        worth=worth+disableOn(input,{resref=arms.item or ''},roles.disable,e,floor)*math.min(1,hits)
     end
     return worth,expected
 end

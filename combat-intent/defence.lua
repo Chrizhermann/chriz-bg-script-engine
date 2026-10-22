@@ -214,9 +214,11 @@ end
 -- How harm runs for friend f under threat t with shield s over r rounds: the hit points it has
 -- lost by then (temporary hit points go first), the round it dies in (math.huge if it lives
 -- through them), and what s blocks. Absorbed hits go first; the rest of the harm runs evenly.
+-- A friend with a minimum (targeting.minimum) loses no more than it has above it, and lives.
 function M.course(s,f,t,r)
     local maxHp=number(f.maxHp) and f.maxHp>0 and f.maxHp or 1
     local left=number(f.hp) and f.hp>0 and f.hp or maxHp
+    local floor=targeting.minimum(f)
     local b=M.blocks(s,t,r)
     local weapon=t.weapon.hp*(1-b.rate)
     local hits=t.weapon.hits*(1-b.rate)
@@ -231,18 +233,21 @@ function M.course(s,f,t,r)
     else death=math.huge end
     local harm=spell*r
     if lasts<r then harm=harm+weapon*(r-lasts) end
-    return math.max(0,harm-s.hp),death,b
+    local lost=math.max(0,harm-s.hp)
+    if floor>0 then lost,death=math.min(lost,math.max(0,left-floor)),math.huge end
+    return lost,death,b
 end
 
 -- The expected loss of friend f under threat t with shield s over r rounds, on the attack's
--- scale: the share of its hit points it loses, the kill bonus as likely as it dies, and the
--- rounds it is out of the fight, dead or disabled, each worth a round of disable. A protection
--- that keeps a friend alive for longer is worth the rounds it fights in the meantime.
+-- scale: the share of its hit points it loses, the kill bonus as likely as it dies (not while its
+-- minimum holds), and the rounds it is out of the fight, dead or disabled, each worth a round of
+-- disable. A protection that keeps a friend alive for longer is worth the rounds it fights in
+-- the meantime.
 function M.loss(s,f,t,r,killBonus)
     local maxHp=number(f.maxHp) and f.maxHp>0 and f.maxHp or 1
     local left=number(f.hp) and f.hp>0 and f.hp or maxHp
     local harm,death,b=M.course(s,f,t,r)
-    local dies=clamp((harm-0.5*left)/(0.5*left),0,1)
+    local dies=targeting.minimum(f)>0 and 0 or clamp((harm-0.5*left)/(0.5*left),0,1)
     local alive=math.min(death,r)
     local disabled=t.spell.disable*(1-b.disable)*alive
     return math.min(harm,left)/maxHp+killBonus*dies+M.disableRound*(r-alive+disabled)

@@ -666,3 +666,49 @@ priests), then three zone fights of the engine; the cleanup was clean.
   level-12 mage threw Melf's Minute Meteors (range 30, which the engine counts as 480 pixels) at
   a dummy 428 pixels away; the game walked it to about 290 pixels first, back into the cloud
   (19 hit points). Not analysed yet.
+
+## Lab batch H9 (2026-10-23)
+
+One launch with build `c2f88d9`: SCS's run from a Cloudkill standing aside (`b2c0b94`), the
+group's own clouds counted by the explosions each enemy is expected to sit through (`707b78e`,
+CHOICE-01) and a load forgetting what the group saw (`c2f88d9`). Three zone fights of the engine,
+then care fights: three of the engine as it is (`learned`), three with its own clouds counted by
+one explosion (`once`) and two of SCS alone. Every fight closed without an error and the cleanup
+was clean; one SCS fight ended at the lab's time limit after 79 seconds.
+
+| | Engine, learned | Engine, once | SCS alone | Engine, H8 | SCS alone, H4 to H9 |
+| --- | --- | --- | --- | --- | --- |
+| Care fights | 3 | 3 | 2 | 6 | 8 |
+| Group creatures lost a fight | 1.3 | 2.0 | 1.5 | 1.3 | 2.1 |
+| Party members killed a fight | 4.0 | 4.7 | 0.5 | 2.5 | 0.9 |
+| Party hit points left (mean) | 70 | 30 | 354 | 199 | 402 |
+| Group hit points left (mean) | 234 | 175 | 214 | 240 | 168 |
+| Summons cast a fight | 4.0 | 3.7 | 3.0 | 3.5 | 2.6 |
+| Weapon rounds a fight (a spell scored higher) | 9.3 (1.7) | 6.3 (2.7) | none | 7.0 (3.5) | none |
+
+- **The run from a Cloudkill:** no group creature began it inside a party cloud (13 runs outside
+  them in the first zone fight). The group's four casters spent 1,233, 1,728 and 1,194 ticks in
+  the party's clouds (H8: 1,962, 2,499 and 1,053); every group creature lived.
+- **The strongest care batch yet:** in both modes the engine's group killed four to five of the
+  party's six a fight; SCS alone killed 0.5 in the same launch. Three fights a mode are a trend.
+- **Own clouds:** the engine chose none of its own lasting clouds, so `learned` against `once`
+  tells nothing yet. In the care fights the level-12 mage never had Ice Storm (`SPWI404`) among
+  its three best options, though in 26 of its 50 choices an enemy stood with no member of the
+  group within the storm's reach; its Teleport Field (`SPWI421`, enemies only) never made them
+  either. Not explained yet.
+- **Minimum hit points** (fixed 2026-10-23): in the second zone fight the level-12 priest stood at
+  the edge of the party's Incendiary Cloud (238 of 256 pixels from its centre) for 39 seconds,
+  from 228 to 144 hit points, swinging its mace at the party's cloud caster. The lab keeps that
+  caster at one hit point or more (opcode 208, `boostTick` in `labF.lua`), and the engine counted a
+  likely kill each round (0.41 against the way out's 0.05). Such minimums are real game data: 27
+  spells of the lab game deliver opcode 208, among them Barbarian Rage at level 20 (`SPCL152`, 10
+  hit points for 30 seconds), SCS's troll regeneration (`DWTRRG2`, `DWTRRG4`, `DWTRRG12`,
+  `DWTFRG2`: one hit point for two seconds, renewed every second) and invulnerabilities without
+  end. Now the engine reads each creature's minimum (MINHITPOINTS) and the spells and items it
+  comes from (`adapters/eeex/sense.lua`). Damage counts only down to the minimum, and nothing
+  kills while it holds, death by opcode 13 included (IESDP); an enemy at its minimum is no focus
+  and no damage target, and the group's own losses in clouds and under attack stop there too. A
+  spell that takes away every effect setting the minimum is not held back by it: SCS's fire, acid
+  and cold spells end troll regeneration through a 177 for the troll race (`DWTROLFI`,
+  `DWTROLAC`, `DWTROLCO`, opcode 321 on each regeneration spell), so a troll in a party fire
+  cloud still counts as able to die there. (CHOICE-01, DIRECTOR-01)

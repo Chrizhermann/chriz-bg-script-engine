@@ -119,6 +119,13 @@ assert(#list==1 and o.kind=='weapon' and o.target==11 and o.resref=='TESTMACE' a
 assert(near(o.worth,0.8*4.5/60) and o.cost>0 and near(o.score,o.worth-o.cost) and near(o.expected[11],3.6))
 i.frame.enemies={enemy(11,{x=200,hp=4})}
 assert(near(choice.weaponOptions(i)[1].worth,3.6/60+0.5*0.8))
+-- A minimum keeps that enemy alive: the hits take what it has above it and kill no one; at its
+-- minimum there is nothing to take.
+i.frame.enemies={enemy(11,{x=200,hp=4,minHp=1})}
+o=choice.weaponOptions(i)[1]
+assert(near(o.worth,3/60) and near(o.expected[11],3))
+i.frame.enemies={enemy(11,{x=200,hp=1,minHp=1})}
+assert(#choice.weaponOptions(i)==0)
 i.frame.enemies={enemy(11,{x=200,resist={crushing=50}})}
 assert(near(choice.weaponOptions(i)[1].worth,0.8*2.25/60))
 -- Out of reach, immune, behind a Mirror Image: no attack, and why.

@@ -66,6 +66,13 @@ Worth is counted in shares of an enemy taken out of the fight (`combat-intent/ch
   the enemy's health plus the kill bonus. Silence, feeblemind and spell-blocking disables are
   worth a fifth against creatures that do not cast. No disable on an enemy already disabled or
   reserved by another member's disable; none outside the spell's level limits.
+- **Minimum hit points** (opcode 208; fixed 2026-10-23 after lab batch H9, SUPPORT-01): damage
+  counts only down to an enemy's minimum and never kills while it holds, so an enemy at its
+  minimum is no damage target; nor does death by opcode 13 count on it (slaying, Power Word, Kill
+  and disintegration still do, IESDP). A spell that takes away every effect setting the minimum
+  (opcode 321 by the effects' sources) is not held back by it: SCS's fire, acid and cold spells
+  end its troll regeneration so. Weapon hits, strikes, clouds and the group's own losses count the
+  same way.
 - **Saves:** a d20 plus the effect's bonus against the enemy's best allowed save; unknown saves
   count as even odds.
 - **Areas:** the worth on every enemy inside, no option if an ally (or the caster, for an area

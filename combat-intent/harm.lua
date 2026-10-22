@@ -51,13 +51,16 @@ function M.brokenFree(duration,bf,e)
 end
 
 -- The worth of a damage role on e and the hit points it is expected to take (no more than e has
--- left): the share of e's maximum, and the kill bonus as likely as the hit points it deals
--- (halved on a save, if it allows half) reach those e has left. With spare, e keeps at least one
--- hit point (Harm cannot kill).
-function M.damage(role,e,killBonus,spare)
+-- left above floor): the share of e's maximum, and the kill bonus as likely as the hit points it
+-- deals (halved on a save, if it allows half) reach those e has left. floor: the hit points e
+-- keeps at least (its minimum, targeting.floor; one for a strike that keeps its target alive, as
+-- Harm does); no kill while one holds (lab batch H9: a priest stayed 39 seconds in an Incendiary
+-- Cloud to finish a mage whose minimum kept it at one hit point).
+function M.damage(role,e,killBonus,floor)
     local hp,maxHp=e.hp,e.maxHp
     if not number(hp) or not number(maxHp) or maxHp<=0 or hp<=0 then return 0,0 end
-    if spare then hp=hp-1 end
+    floor=number(floor) and floor>0 and floor or 0
+    hp=hp-floor
     if hp<=0 then return 0,0 end
     local amount=0
     for label,v in pairs(type(role.types)=='table' and role.types or {}) do
@@ -70,7 +73,7 @@ function M.damage(role,e,killBonus,spare)
     local expected=amount*land*(role.saveForHalf and 1-save/2 or 1-save)
     local worth=math.min(expected,hp)/maxHp
     local kill=0
-    if amount>=hp and not spare then
+    if amount>=hp and floor<=0 then
         kill=land*((role.saveForHalf and amount/2>=hp) and 1 or 1-save)
     end
     worth=worth+(number(killBonus) and killBonus or 0)*kill
@@ -81,8 +84,9 @@ end
 -- (taking a nearly dead creature out is worth less than taking out a healthy one; taking one out
 -- for good is worth what killing it is), times the chance it lands: magic resistance, the saving
 -- throw and the effect's own chance. Nothing on a creature already disabled, outside the role's
--- levels or at or above its hit point limit.
-function M.disable(role,e,killBonus)
+-- levels or at or above its hit point limit. While a minimum holds on e (floor above 0, as for
+-- M.damage), only a death that slays (role.slays, combat-intent/spells.lua) kills it.
+function M.disable(role,e,killBonus,floor)
     if targeting.disabled(e) then return 0 end
     local level=e.level
     if number(level) and ((number(role.maxLevel) and level>role.maxLevel) or (number(role.minLevel) and level<role.minLevel)) then
@@ -98,6 +102,7 @@ function M.disable(role,e,killBonus)
         if M.CASTERS_ONLY[label] and not ids.caster(e) then f=f*0.2 end
         if label=='turnUndead' and not (type(e.ids)=='table' and e.ids.general==4) then f=0 end
         if label=='sleep' and role.wakesOnDamage then f=f*0.6 end
+        if label=='death' and number(floor) and floor>0 and not role.slays then f=0 end
         if f>factor then factor,forGood=f,M.FOR_GOOD[label]==true end
     end
     if factor<=0 then return 0 end

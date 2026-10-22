@@ -53,6 +53,16 @@ function M.health(actor)
     if type(actor)~='table' or not number(actor.hp) or not number(actor.maxHp) or actor.maxHp<=0 then return 1 end
     return math.max(0,math.min(1,actor.hp/actor.maxHp))
 end
+-- The hit points a creature cannot drop below: its minimum (minHp, opcode 208), 0 without one.
+function M.minimum(actor)
+    return type(actor)=='table' and number(actor.minHp) and actor.minHp>0 and actor.minHp or 0
+end
+-- The share of a creature's maximum hit points above its minimum: what attacks can still take
+-- from it (its health when it has no minimum).
+function M.room(actor)
+    if type(actor)~='table' or not number(actor.hp) or not number(actor.maxHp) or actor.maxHp<=0 then return 1 end
+    return math.max(0,math.min(1,(actor.hp-M.minimum(actor))/actor.maxHp))
+end
 function M.distance(a,b)
     if type(a)~='table' or type(b)~='table' or not number(a.x) or not number(a.y) or
         not number(b.x) or not number(b.y) then return math.huge end
@@ -130,14 +140,33 @@ function M.holds(e)
         return ids.matches(f,e)
     end
 end
--- What the spell does to e, by e's own view of the spell's conditions: its damage and its
--- disable chance. nil when a condition cannot be judged for e.
+-- The hit points e keeps at least while a spell hits it, by roles (the spell's roles for e): its
+-- minimum, unless the spell takes away every effect that sets it (roles.strips by the effects'
+-- sources, e.minHpFrom): SCS's fire, acid and cold spells end troll regeneration, and the
+-- minimum with it, before they hit.
+function M.floor(e,roles)
+    local floor=M.minimum(e)
+    if floor<=0 then return 0 end
+    local from=e.minHpFrom
+    local s=type(roles)=='table' and roles.strips
+    local res=reaches(s) and type(s.res)=='table' and s.res
+    if type(from)~='table' or next(from)==nil or not res then return floor end
+    for source in pairs(from) do
+        if not res[source] then return floor end
+    end
+    return 0
+end
+-- What the spell does to e, by e's own view of the spell's conditions: its damage (none on a
+-- creature its minimum keeps where it is) and its disable chance. nil when a condition cannot be
+-- judged for e.
 local function effect(spell,e)
     local roles,key=spells.view(spell,M.holds(e))
     if type(roles)~='table' or type(key)~='string' or key:find('?',1,true) then return nil end
     local d,x=roles.damage,roles.disable
-    return {damage=reaches(d) and number(d.amount) and d.amount or 0,
-        disable=reaches(x) and number(x.chance) and x.chance or 0}
+    local damage=reaches(d) and number(d.amount) and d.amount or 0
+    local floor=M.floor(e,roles)
+    if floor>0 and number(e.hp) and e.hp<=floor then damage=0 end
+    return {damage=damage,disable=reaches(x) and number(x.chance) and x.chance or 0}
 end
 -- Amounts that differ by less than this are equal (they come from the same arithmetic).
 local EPSILON=1e-9

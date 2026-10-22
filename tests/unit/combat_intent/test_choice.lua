@@ -467,4 +467,38 @@ do
 end
 groups=groups+1
 
+-- 19. Minimum hit points (opcode 208; lab batch H9: a priest stayed 39 seconds in a cloud to
+-- finish a mage its minimum kept at one hit point): a bolt takes only what an enemy has above
+-- its minimum and kills no one while it holds, so an enemy at its minimum is no target; Finger
+-- of Death (opcode 13) does not kill it either, a slaying does. SCS's fire takes troll
+-- regeneration away, and the minimum with it.
+i=enemies(input({spells={row('TESTBOLT',bolt,3)}}),{enemy(11,{x=150,hp=1,minHp=1}),enemy(12,{x=300})})
+d,reason,options=choice.decide(i)
+assert(d.target==12 and #options==1)
+i=enemies(input({spells={row('TESTBOLT',bolt,3)}}),{enemy(11,{x=150,hp=10,minHp=1}),enemy(12,{x=300,hp=10})})
+d,reason,options=choice.decide(i)
+assert(d.target==12 and near(d.worth,0.2+0.5) and options[2].target==11)
+assert(near(options[2].worth,9/50) and near(options[2].expected[11],9))
+i=enemies(input({spells={row('TESTFOD',finger,7)}}),{enemy(11,{minHp=1})})
+assert(select(2,choice.decide(i))=='no-option')
+local slay=spell('TESTSLAY',7,{fx(55,{save=4})})
+i=enemies(input({spells={row('TESTSLAY',slay,7)}}),{enemy(11,{minHp=1})})
+assert(near(choice.decide(i).worth,1.5*0.95))
+local fireBolt=classified('TESTFIBL',3,{fx(177,{p1=129,p2=4,res='TESTTFI'}),fx(12,{p2=FIRE,dice=6,sides=6})},
+    {['EFF:TESTTFI']={kind='EFF',resref='TESTTFI',effect=fx(146,{res='TESTTROL',p2=1})},
+    ['SPL:TESTTROL']={kind='SPL',resref='TESTTROL',name=0,flags=0,spellType=1,exclusion=0,school=0,secondary=0,level=1,
+        casting={},abilities={{form=1,flags=0,location=2,target=1,targetCount=0,range=30,minLevel=1,speed=0,
+        projectile=1,effects={fx(321,{res='TESTRG2'})}}}}})
+local function troll(id,fields)
+    local e=enemy(id,{hp=1,minHp=1,minHpFrom={TESTRG2=true},ids={ea=2,general=1,race=129,class=2,specific=0,gender=1,alignment=0}})
+    for k,v in pairs(fields or {}) do e[k]=v end
+    return e
+end
+i=enemies(input({spells={row('TESTFIBL',fireBolt,3),row('TESTBOLT',bolt,3)}}),{troll(11)})
+d=choice.decide(i)
+assert(d.resref=='TESTFIBL' and d.target==11 and near(d.worth,1/50+0.5))
+i=enemies(input({spells={row('TESTBOLT',bolt,3)}}),{troll(11)})
+assert(select(2,choice.decide(i))=='no-option')
+groups=groups+1
+
 return groups
