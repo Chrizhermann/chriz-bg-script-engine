@@ -253,7 +253,10 @@ markers, so it knows every zone, also those SCS marks not, and judges each by th
   saves; disables it does not shrug off (Cloudkill's death only up to its levels); conditions
   (Stinking Cloud's spell failure counts as a silence, 0.7, blindness 0.3, deafness 0.2, disease
   0.1, casters' conditions a fifth on others); nothing when its spell protections keep the zone
-  out or the zone spares its side.
+  out or the zone spares its side. Turnings, deflections and traps that count down keep it out
+  only for as many explosions as their levels last: each explosion that reaches the creature takes
+  its sub-spell's power from them, and they stop the last one even with fewer levels left
+  (`targeting.stopped`, lab batch H7); the explosions after that hurt and break casts.
 - **Worth of leaving:** the explosions it would sit through in the next round if it stayed,
   counted from when it would be out, at most one per period where a zone makes those it hits
   immune to itself for a while (Spell Revisions' clouds, opcode 206), and no more than it is worth.
@@ -546,8 +549,11 @@ each dummy cast on itself before the clouds came. Hit points lost:
   not.
 - A deflection takes the sub-spell's power from its levels with each explosion it stops and stops
   the last one even with fewer levels left (9 levels stop three explosions of power 4), then it is
-  gone. The engine counts a deflection whole while it lasts and sees it gone at its next decision;
-  how many explosions one deflection stops during a single cast it does not count yet.
+  gone. Since 2026-10-22 the engine counts this for its own creatures in a zone: a turning,
+  deflection or trap with L levels left stops the next ⌈L/power⌉ explosions (several of them one
+  after another), and the explosions after them hurt and break casts (D3e above). What the
+  creature loses with the protection itself (it no longer stops the enemies' own spells) does not
+  count yet, so a creature under a deflection still stays in a cloud while the deflection lasts.
 
 ### The fights
 

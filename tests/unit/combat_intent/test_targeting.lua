@@ -186,4 +186,31 @@ local unread=enemy();unread.protections=nil
 assert(legal(unread)=='protected')
 groups=groups+1
 
+-- 5. How many casts in a row protections stop (a storm's explosions, each casting its sub-spell of
+-- power 4 at the creature): turnings, deflections and traps that count down stop as many as their
+-- levels last, the last one even with fewer levels left (lab batch H7: Minor Spell Deflection's 6
+-- levels stopped two, Spell Deflection's 9 and Greater Spell Deflection's 12 three); several of
+-- them one after another; anything else for as long as it lasts; unknown protections everything.
+local function stops(protections,s) return targeting.stopped(enemy({protections=protections}),s or ice) end
+assert(stops({})==0 and stops({{opcode=201,p1=9,p2=5}})==0)
+assert(stops({{opcode=201,p1=6,p2=4}})==2 and stops({{opcode=201,p1=9,p2=4}})==3 and stops({{opcode=201,p1=12,p2=4}})==3)
+assert(stops({{opcode=201,p1=4,p2=4}})==1 and stops({{opcode=201,p1=1,p2=4}})==1)
+assert(stops({{opcode=200,p1=10,p2=4},{opcode=201,p1=9,p2=4}})==6 and stops({{opcode=259,p1=8,p2=4}})==2)
+-- A deflection names each power it covers in a row of its own: only the row of this power counts.
+local deflection={}
+for power=1,7 do deflection[#deflection+1]={opcode=201,p1=9,p2=power} end
+assert(stops(deflection)==3)
+assert(stops({{opcode=201,p1=9,p2=4},{opcode=102,p1=4}})==math.huge and stops({{opcode=102,p1=4}})==math.huge)
+assert(stops({{opcode=83,p2=6}})==math.huge and stops({{opcode=199,p1=4}})==math.huge)
+-- Levels that cannot be read count as lasting.
+assert(stops({{opcode=201,p2=4}})==math.huge and stops({{opcode=201,p1=0,p2=4}})==math.huge)
+assert(targeting.stopped(unread,ice)==math.huge)
+-- A turning stops a cast at the creature (power 3) as often as its levels last.
+assert(targeting.stopped(enemy({protections={{opcode=200,p1=10,p2=3}}}),anyHold)==4)
+-- Whether a protection stops a cast at all is whether it stops at least one.
+for _,set in ipairs({{},{{opcode=201,p1=9,p2=5}},{{opcode=201,p1=1,p2=4}},{{opcode=102,p1=4}}}) do
+    assert(targeting.protected(enemy({protections=set}),ice)==(stops(set)>0))
+end
+groups=groups+1
+
 return groups

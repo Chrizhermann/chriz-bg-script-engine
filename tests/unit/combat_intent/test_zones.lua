@@ -303,5 +303,47 @@ do
     i.frame.self.protections={{opcode=83,p1=0,p2=97}}
     assert(zones.hit(i,i.zones[1],i.frame.self)==0 and zones.through(i,4.8)==1)
     groups=groups+1
+
+    -- 9. Each explosion that reaches a creature under a turning, deflection or trap that counts
+    -- down takes the sub-spell's power from its levels: the first ones do nothing, those after it
+    -- hurt and break casts (lab batch H7: Spell Deflection's 9 levels stopped three of an Ice
+    -- Storm's explosions of power 4, and the fourth hurt).
+    local every=101/15
+    local function under(levels,fields)
+        local z=zone(ice,{next=1,every=every,left=40})
+        for k,v in pairs(fields or {}) do z[k]=v end
+        return input({zones={z}},{protections={{opcode=201,p1=levels,p2=4}}})
+    end
+    local deflected=under(9)
+    local h,first=zones.hit(deflected,deflected.zones[1],deflected.frame.self)
+    local bare=input({zones={zone(ice,{next=1,every=every,left=40})}})
+    local plain,none=zones.hit(bare,bare.zones[1],bare.frame.self)
+    assert(first==3 and none==0 and h>0 and near(h,plain))
+    -- A 4.8-second cast during the explosion in a second: stopped. With 4 levels the deflection
+    -- stops that one, and a cast from 2 to 9.8 meets the explosion at 7.7, which breaks it.
+    assert(zones.through(deflected,4.8)==1)
+    local thin=under(4)
+    assert(zones.through(thin,4.8)==1)
+    thin.frame.self.aura=2
+    assert(zones.through(thin,7.8)==0)
+    local seen=zones.explain(thin,7.8)
+    assert(#seen==1 and seen[1].stopped==1 and seen[1].count==1 and seen[1].breaks==1)
+    assert(zones.explain(bare,4.8)[1].stopped==nil)
+    -- Staying a round costs nothing while the deflection lasts; the way out is worth nothing.
+    assert(zones.delta(deflected,{x=400,y=100})<=1e-9)
+    local _,why=zones.escape(deflected)
+    assert(why=='no-worth')
+    -- With one explosion left to stop, a round's stay (and the walk out) meets one that gets
+    -- through, at 7.7: leaving saves that one, as it saves one without the deflection, whose
+    -- first explosion comes during the walk either way.
+    local worn=under(4)
+    local o=zones.escape(worn)
+    local open=zones.escape(bare)
+    assert(o and open and o.worth>0 and near(o.worth,plain) and near(open.worth,plain))
+    -- A globe against the sub-spell's power keeps the whole storm out.
+    local globed=input({zones={zone(ice,{next=1,every=every})}},{protections={{opcode=201,p1=9,p2=4},{opcode=102,p1=4}}})
+    local g,lasting=zones.hit(globed,globed.zones[1],globed.frame.self)
+    assert(g==0 and lasting==math.huge and zones.through(globed,4.8)==1)
+    groups=groups+1
 end
 return groups

@@ -1599,21 +1599,50 @@ local function stops(p,spell,fromSelf)
     if BY_RESOURCE[op] then return type(p.res)=='string' and p.res~='' and p.res==spell.resref end
     return false
 end
--- A spell another one casts at the target (spell.delivered, combat-intent/spells.lua) meets the
--- target's protections again by its own power, school and secondary type: either stops the whole.
+-- Turnings, deflections and traps that count down (200, 201, 259) hold their levels in parameter
+-- 1: each cast they stop takes its power from them, and they stop the last one even with fewer
+-- levels left, then end (lab batch H7: Spell Deflection's 9 levels stopped three of an Ice
+-- Storm's explosions of power 4, then the fourth hurt).
+local COUNTS_DOWN={[200]=true,[201]=true,[259]=true}
+-- What one cast of spell takes from protection p: the power of each part p stops, 0 when it
+-- stops none, nil when it stops the cast without counting down. A spell another one casts at the
+-- target (spell.delivered, combat-intent/spells.lua) meets the target's protections again by its
+-- own power, school and secondary type: either stops the whole.
+local function taken(p,spell,fromSelf)
+    local power,hit=0,false
+    local function meet(part)
+        if not stops(p,part,fromSelf) then return end
+        hit=true
+        local v=number(part.power) and part.power or part.level
+        power=power+(number(v) and v or 0)
+    end
+    meet(spell)
+    for _,d in ipairs(type(spell.delivered)=='table' and spell.delivered or {}) do
+        if type(d)=='table' and d.to~='self' then meet(d) end
+    end
+    if not hit then return 0 end
+    if not COUNTS_DOWN[p.opcode] or not (number(p.p1) and p.p1>0) or power<=0 then return nil end
+    return power
+end
+-- How many casts of spell in a row target's spell protections stop from now (a cloud's
+-- explosions): 0 when none does, math.huge when one stops it for as long as it lasts, else as
+-- many as the turnings, deflections and traps that count down stop before their levels run out,
+-- one after another (each cast meets one of them). Unknown protections stop everything.
 -- fromSelf: the target casts the spell itself.
-function M.protected(target,spell,fromSelf)
-    if type(target.protections)~='table' then return true end
+function M.stopped(target,spell,fromSelf)
+    if type(target.protections)~='table' then return math.huge end
+    local count=0
     for _,p in ipairs(target.protections) do
         if type(p)=='table' then
-            if stops(p,spell,fromSelf) then return true end
-            for _,d in ipairs(type(spell.delivered)=='table' and spell.delivered or {}) do
-                if type(d)=='table' and d.to~='self' and stops(p,d,fromSelf) then return true end
-            end
+            local power=taken(p,spell,fromSelf)
+            if power==nil then return math.huge end
+            if power>0 then count=count+math.ceil(p.p1/power) end
         end
     end
-    return false
+    return count
 end
+-- Whether target's spell protections stop a cast of spell.
+function M.protected(target,spell,fromSelf) return M.stopped(target,spell,fromSelf)>0 end
 
 -- Whether target may take the cast instead of original, the enemy the creature's script chose
 -- (both entries of the caster's frame). Nothing here is stricter than "no worse than the
@@ -4064,7 +4093,8 @@ factories["combat-intent.zones"]=function(require)
 -- the creature in it, as the engine's own attacks judge an enemy (combat-intent/harm.lua): the
 -- damage that gets through its resistances, magic resistance and saves, the disables it does not
 -- shrug off (Cloudkill's death only up to its levels), conditions such as Stinking Cloud's spell
--- failure, and the spell protections that keep it out.
+-- failure, and the spell protections that keep it out (turnings, deflections and traps that count
+-- down only for as many explosions as their levels last).
 --
 -- What leaving is worth: the explosions the creature would sit through in the next round if it
 -- stayed, counted from when it would be out, at most one per round where a zone makes those it
@@ -4144,36 +4174,47 @@ function M.debuff(role,f)
     return factor*length*(0.5+0.5*targeting.health(f))*chance
 end
 
--- What one explosion of z does to friend f inside it, on the attack's scale: its damage, its
--- disable and its conditions, by f's own view of the spell's conditions (undead and the like)
--- and its spell protections; nothing when z spares f's side.
+-- How many of z's next explosions f's spell protections stop (targeting.stopped): math.huge
+-- while one keeps z out for as long as it lasts, a few while turnings, deflections and traps
+-- count down (each explosion that reaches f takes its power from them), 0 without any.
+local function stopped(f,z)
+    if type(f.protections)~='table' then return 0 end
+    return targeting.stopped(f,z.spell)
+end
+-- What one explosion of z does to friend f inside it once it gets through, on the attack's
+-- scale: its damage, its disable and its conditions, by f's own view of the spell's conditions
+-- (undead and the like); nothing when z spares f's side or a spell protection keeps z out. Also
+-- how many of z's next explosions f's protections stop first (stopped).
 function M.hit(input,z,f)
-    if not M.reachesSide(z) then return 0 end
+    if not M.reachesSide(z) then return 0,0 end
     local roles=spells.view(z.spell,targeting.holds(f))
-    if type(roles)~='table' then return 0 end
-    if type(f.protections)=='table' and targeting.protected(f,z.spell) then return 0 end
+    if type(roles)~='table' then return 0,0 end
+    local first=stopped(f,z)
+    if first==math.huge then return 0,first end
     local killBonus=type(input.mind)=='table' and input.mind.killBonus or 0
     local worth=0
     if reaches(roles.damage) then worth=worth+(harm.damage(roles.damage,f,killBonus)) end
     if reaches(roles.disable) then worth=worth+harm.disable(roles.disable,f,killBonus) end
     if reaches(roles.debuff) then worth=worth+M.debuff(roles.debuff,f) end
-    return worth
+    return worth,first
 end
 
--- The chance one explosion of z breaks a cast of f's: its damage lands (halved still breaks it).
+-- The chance one explosion of z that gets through breaks a cast of f's: its damage lands (halved
+-- still breaks it); and how many of z's next explosions f's protections stop first.
 local function breaks(z,f)
-    if not M.reachesSide(z) then return 0 end
+    if not M.reachesSide(z) then return 0,0 end
     local roles=spells.view(z.spell,targeting.holds(f))
     local d=type(roles)=='table' and roles.damage
-    if not reaches(d) then return 0 end
-    if type(f.protections)=='table' and targeting.protected(f,z.spell) then return 0 end
+    if not reaches(d) then return 0,0 end
+    local first=stopped(f,z)
+    if first==math.huge then return 0,first end
     local any=false
     for label,v in pairs(type(d.types)=='table' and d.types or {}) do
         if number(v) and v>0 and harm.resisted(f,label)>0 then any=true end
     end
-    if not any and not (number(d.percent) and d.percent>0) then return 0 end
+    if not any and not (number(d.percent) and d.percent>0) then return 0,first end
     local land=targeting.landing(d,f)
-    return d.saveForHalf and land or land*(1-targeting.saveChance(d,f))
+    return d.saveForHalf and land or land*(1-targeting.saveChance(d,f)),first
 end
 
 -- Seconds between the explosions of z that can hit one creature: those of z, or longer when z
@@ -4232,22 +4273,30 @@ local function spans(z,p,q,speed,t)
     return out
 end
 
--- What f would lose to the zones that hurt it: hurts lists {zone, hit} (one explosion's harm).
--- staying puts f at p until time t; walking takes it from p to q and leaves it there.
+-- What f would lose to the zones that hurt it: hurts lists {zone, hit, stopped} (one explosion's
+-- harm, and how many explosions its protections stop first, in the order they reach it). staying
+-- puts f at p until time t; walking takes it from p to q and leaves it there.
 local function loss(hurts,f,p,q,speed,t)
     local total=0
     for _,h in ipairs(hurts) do
-        for _,s in ipairs(spans(h.zone,p,q,speed,t)) do total=total+h.hit*M.count(h.zone,s[1],s[2]) end
+        local free=h.stopped or 0
+        for _,s in ipairs(spans(h.zone,p,q,speed,t)) do
+            local n=M.count(h.zone,s[1],s[2])
+            local kept=math.min(n,free)
+            free=free-kept
+            total=total+h.hit*(n-kept)
+        end
     end
     return total
 end
--- The zones that would hurt f where it stands or on its way, with one explosion's harm each.
+-- The zones that would hurt f where it stands or on its way, with one explosion's harm each and
+-- the explosions its protections stop first.
 local function hurting(input,f)
     local out={}
     for _,z in ipairs(list(input.zones)) do
         if M.valid(z) then
-            local h=M.hit(input,z,f)
-            if h>0 then out[#out+1]={zone=z,hit=h} end
+            local h,first=M.hit(input,z,f)
+            if h>0 then out[#out+1]={zone=z,hit=h,stopped=first} end
         end
     end
     return out
@@ -4281,6 +4330,12 @@ end
 -- explosion whose time is known breaks it with its chance; where explosions are spread evenly, a
 -- part of one breaks it with that part of the chance (lab batch H5: an Ice Storm's next explosion
 -- fell inside a summons' casting time three times, and each time its damage broke the cast).
+-- Explosions the creature's protections stop break nothing; those before the casting starts use
+-- them up first.
+local function sits(z,f,from,cast,first)
+    local free=math.max(0,(first or 0)-M.count(z,0,from))
+    return math.max(0,M.count(z,from,from+cast)-free)
+end
 function M.through(input,cast)
     if not M.active(input) or not number(cast) or cast<=0 then return 1 end
     local f=input.frame.self
@@ -4288,9 +4343,10 @@ function M.through(input,cast)
     local chance=1
     for _,z in ipairs(input.zones) do
         if M.valid(z) and M.inside(z,f) then
-            local p=clamp(breaks(z,f),0,1)
+            local p,first=breaks(z,f)
+            p=clamp(p,0,1)
             if p>0 then
-                local n=M.count(z,from,from+cast)
+                local n=sits(z,f,from,cast,first)
                 local k=math.floor(n)
                 chance=chance*(1-p)^k*(1-p*(n-k))
             end
@@ -4300,8 +4356,9 @@ function M.through(input,cast)
 end
 
 -- For the lab log: each zone around the caster with the seconds to its next explosion and until
--- it ends, when the casting would begin (aura), the explosions a cast of the given seconds sits
--- through and the chance one breaks it.
+-- it ends, when the casting would begin (aura), the explosions during a cast of the given seconds
+-- that get through and the chance one breaks it, and while turnings, deflections or traps count
+-- down, how many explosions they stop first.
 function M.explain(input,cast)
     local out={}
     if not M.active(input) or not number(cast) or cast<=0 then return out end
@@ -4309,8 +4366,9 @@ function M.explain(input,cast)
     local from=number(f.aura) and f.aura>0 and f.aura or 0
     for _,z in ipairs(input.zones) do
         if M.valid(z) and M.inside(z,f) then
-            out[#out+1]={id=z.id,next=z.next,left=z.left,from=from,count=M.count(z,from,from+cast),
-                breaks=clamp(breaks(z,f),0,1)}
+            local p,first=breaks(z,f)
+            out[#out+1]={id=z.id,next=z.next,left=z.left,from=from,count=sits(z,f,from,cast,first),
+                breaks=clamp(p,0,1),stopped=first>0 and first<math.huge and first or nil}
         end
     end
     return out

@@ -177,21 +177,50 @@ local function stops(p,spell,fromSelf)
     if BY_RESOURCE[op] then return type(p.res)=='string' and p.res~='' and p.res==spell.resref end
     return false
 end
--- A spell another one casts at the target (spell.delivered, combat-intent/spells.lua) meets the
--- target's protections again by its own power, school and secondary type: either stops the whole.
+-- Turnings, deflections and traps that count down (200, 201, 259) hold their levels in parameter
+-- 1: each cast they stop takes its power from them, and they stop the last one even with fewer
+-- levels left, then end (lab batch H7: Spell Deflection's 9 levels stopped three of an Ice
+-- Storm's explosions of power 4, then the fourth hurt).
+local COUNTS_DOWN={[200]=true,[201]=true,[259]=true}
+-- What one cast of spell takes from protection p: the power of each part p stops, 0 when it
+-- stops none, nil when it stops the cast without counting down. A spell another one casts at the
+-- target (spell.delivered, combat-intent/spells.lua) meets the target's protections again by its
+-- own power, school and secondary type: either stops the whole.
+local function taken(p,spell,fromSelf)
+    local power,hit=0,false
+    local function meet(part)
+        if not stops(p,part,fromSelf) then return end
+        hit=true
+        local v=number(part.power) and part.power or part.level
+        power=power+(number(v) and v or 0)
+    end
+    meet(spell)
+    for _,d in ipairs(type(spell.delivered)=='table' and spell.delivered or {}) do
+        if type(d)=='table' and d.to~='self' then meet(d) end
+    end
+    if not hit then return 0 end
+    if not COUNTS_DOWN[p.opcode] or not (number(p.p1) and p.p1>0) or power<=0 then return nil end
+    return power
+end
+-- How many casts of spell in a row target's spell protections stop from now (a cloud's
+-- explosions): 0 when none does, math.huge when one stops it for as long as it lasts, else as
+-- many as the turnings, deflections and traps that count down stop before their levels run out,
+-- one after another (each cast meets one of them). Unknown protections stop everything.
 -- fromSelf: the target casts the spell itself.
-function M.protected(target,spell,fromSelf)
-    if type(target.protections)~='table' then return true end
+function M.stopped(target,spell,fromSelf)
+    if type(target.protections)~='table' then return math.huge end
+    local count=0
     for _,p in ipairs(target.protections) do
         if type(p)=='table' then
-            if stops(p,spell,fromSelf) then return true end
-            for _,d in ipairs(type(spell.delivered)=='table' and spell.delivered or {}) do
-                if type(d)=='table' and d.to~='self' and stops(p,d,fromSelf) then return true end
-            end
+            local power=taken(p,spell,fromSelf)
+            if power==nil then return math.huge end
+            if power>0 then count=count+math.ceil(p.p1/power) end
         end
     end
-    return false
+    return count
 end
+-- Whether target's spell protections stop a cast of spell.
+function M.protected(target,spell,fromSelf) return M.stopped(target,spell,fromSelf)>0 end
 
 -- Whether target may take the cast instead of original, the enemy the creature's script chose
 -- (both entries of the caster's frame). Nothing here is stricter than "no worse than the
