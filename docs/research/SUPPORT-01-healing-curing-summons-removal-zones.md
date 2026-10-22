@@ -487,3 +487,19 @@ engine six times and SCS alone twice, then two zone fights of the engine.
   cast would begin after the explosion. The choice record now keeps the aura, the chance the cast
   finishes and the zones around the caster (`a814cdb`); a short lab run decides.
 - **Zone fights:** the engine kept every group creature alive, as before.
+
+### The Ice Storm, found (`9b60759`)
+
+The casting aura was not the cause: the H6 samples show the mage's casting counter at −1 (free)
+during and after its weapon round. SCS pre-buffs the mage at the start of each fight with
+Protection from Missiles (`DWSW311`, 60 seconds), whose immunities by projectile name arrows,
+bolts and the like by their PROJECTL.IDS entries, arrows at entry 1. The engine compared each
+immunity with the spell's projectile field both as it is and one below it, so entry 1 also
+matched field 1, no projectile, which the sub-spell Ice Storm casts at each creature it hits
+(`SPWI404D`) has. So the mage counted the storm harmless: its casts there kept their full worth
+and no way out was worth anything. The storm's damage did reach it (13 hit points about ten
+ticks after an explosion, Stoneskins untouched), and its explosions broke the casts. Now only the
+entry one below the field counts (docs/learned.md). The same false protection, there since the
+director's first slice, hid every Spell Revisions area spell that works through such a sub-spell
+(the clouds, Glitterdust, Horror, Breach) from any creature under Protection from Missiles, as a
+zone and as a target. A lab run with the new build checks the mage in the storm.
