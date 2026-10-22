@@ -453,3 +453,37 @@ engine and 114 with SCS alone, with about the same hit points left.
   AI mages, if any, should use combos such as Improved Alacrity and then Secret Word again and
   again at the party (Entropy Shield gone at once, the next spell at once); Irenicus is a
   candidate for such nasty combos. Design with Christopher.
+
+## Lab batch H6 (2026-10-22)
+
+Ten fights in one launch with the zone break chance (`47755c6`), the spell-slot share (`9d65843`)
+and invisibility counted once (`fe03fc4`): eight care fights (conditions on the priests), the
+engine six times and SCS alone twice, then two zone fights of the engine.
+
+| | Engine, H6 | Engine, H4 and H5 | SCS alone, H4 to H6 |
+| --- | --- | --- | --- |
+| Care fights | 6 | 4 | 5 |
+| Group creatures lost a fight | 2.3 | 2.3 | 2.4 |
+| Party members killed a fight | 0.5 | 0.5 | 1.2 |
+| Party hit points left (mean) | 474 | 443 | 393 |
+| Group hit points left (mean) | 160 | 150 | 149 |
+| Summons cast a fight | 1.8 | 2.0 | 3.0 |
+| Weapon rounds a fight (a spell scored higher) | 7.8 (4.5) | 9.8 (7.0) | none |
+
+- **As safe, less deadly:** the engine keeps its group alive as well as SCS alone, yet kills fewer
+  of the party and leaves it more hit points. The slot share and the invisibility fix changed
+  little here.
+- **The slot share** was below 1 in 116 of the engine's 197 choices in H6 and below a half in 81:
+  under the party's fighters the casters expect to live a round or two. Weapon rounds while a
+  spell scored higher fell from 7.0 to 4.5 a fight.
+- **Summons stay the gap:** SCS alone cast 3.0 summons a fight, the engine 1.8.
+- **The Ice Storm again:** in two fights the level-12 mage began Conjure Lesser Water Elemental
+  inside the party's Ice Storm twice; three of the four casts had the storm's next explosion
+  inside their 4.8 seconds of casting (2.0, 3.5 and 3.8 seconds away), and two of those broke
+  when its damage landed (the mage's hit points fell mid-cast). Offline the same storm gives such
+  a cast no chance, so the engine saw something else in game. Before each of the three the mage
+  had been attacking with its weapon (AttackOneRound, AttackReevaluate). Suspicion: the casting
+  timer the engine reads as the casting aura also runs during attack rounds, so it thought the
+  cast would begin after the explosion. The choice record now keeps the aura, the chance the cast
+  finishes and the zones around the caster (`a814cdb`); a short lab run decides.
+- **Zone fights:** the engine kept every group creature alive, as before.
