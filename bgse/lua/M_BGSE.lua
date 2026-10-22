@@ -1079,6 +1079,11 @@ local function send(c,state,e,where,depth,p)
         local inner={}
         for k,v in pairs(eff.effect) do inner[k]=v end
         inner.target=2
+        -- The EFF's effect runs with the 177's own timing and duration, not the file's (IESDP:
+        -- the 177 copies both into the decoded effect every tick; 283 is its cursed kind). So
+        -- Conjure Lesser Water Elemental's summons through DWLESWAT lasts the 177's 114 seconds.
+        if number(e.timing) then inner.timing=e.timing end
+        if number(e.duration) then inner.duration=e.duration end
         -- With a non-zero IDS entry, 177 and 283 deliver only to creatures of that type (entry
         -- 0 matches anyone: bard songs and most SR spells use EA 0). The type is a condition of
         -- what they deliver, not of the whole spell: SCS's troll extras ride on fire and acid

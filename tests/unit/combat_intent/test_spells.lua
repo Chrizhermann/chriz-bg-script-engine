@@ -143,6 +143,15 @@ assert(c.conditional and c.conditions[1].ids==4 and c.conditions[1].entry==4 and
 -- The type is a condition of what the 177 brings: only a creature of that type takes it.
 local yes,no=function() return true end,function() return false end
 assert(spells.view(c,yes).damage.amount==4 and spells.view(c,no).damage==nil and spells.common(c).damage==nil)
+-- The EFF's effect runs with the 177's timing and duration, not the file's (IESDP): a summons the
+-- file names for good lasts the 177's 114 seconds (Conjure Lesser Water Elemental), a 30-second
+-- hold behind a permanent 177 stays.
+local carried=world({['EFF:TESTSUMN']={kind='EFF',resref='TESTSUMN',effect=fx(67,{res='TESTCRE',timing=1,target=1})},
+    ['EFF:TESTHLDE']={kind='EFF',resref='TESTHLDE',effect=fx(175,{duration=30,p2=3,target=1})}})
+c=classify(spl('TESTCONJ',{ability({fx(177,{res='TESTSUMN',p2=2,duration=114,target=1})},{target=4})}),carried)
+assert(c.roles.summon and c.roles.summon.duration==114)
+c=classify(spl('TESTHLDC',{ability({fx(177,{res='TESTHLDE',p2=2,timing=1})})}),carried)
+assert(c.roles.disable and c.roles.disable.duration=='permanent')
 groups=groups+1
 
 -- 272 repeats an EFF: once a second, every p1 seconds, or p1 times a second.
