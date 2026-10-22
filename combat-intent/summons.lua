@@ -11,9 +11,12 @@
 -- input.creatures: each creature the ready spells name, as M.profile reads its CRE record and
 -- weapon (the adapter reads them). Nothing here touches the engine or raises on odd data.
 --
--- Worth is on the attack's scale: each summoned creature's fight over the horizon, the share of
--- an enemy its hits take (as a weapon attack is worth) and the share of a friend its body spares by
--- drawing its part of the enemies' blows, up to its own hit points. Only fighters on the caster's
+-- Worth is on the attack's scale: each summoned creature's fight, the share of an enemy its hits
+-- take (as a weapon attack is worth) and the share of a friend its body spares by drawing its part
+-- of the enemies' blows, up to its own hit points. It fights over the rest of the fight after the
+-- cast, as both sides' strength makes it (combat-intent/threat.lua, M.rest; at most the profile's
+-- fightCap), no longer than the summons lasts and only while it lives; so an early summons counts
+-- much and a late one little (Christopher, 2026-10-22, agreed). Only fighters on the caster's
 -- side count:
 -- - a creature no one can see or select (its own effects remove its avatar or its selection
 --   circle: SCS's markers for its storms and clouds, a kit's helper) or without a weapon is no
@@ -140,14 +143,14 @@ local function foes(frame)
     return ac/n,hp/n,n
 end
 
--- The worth of one summoned creature c over r rounds: the share of an enemy its hits take, and the
--- share of a friend its body spares, up to its hit points, by drawing share of the blows of the
--- enemies that can strike (the summons is one more body among the friends).
+-- The worth of one summoned creature c over r rounds: the share of an enemy its hits take while it
+-- lives, and the share of a friend its body spares, up to its hit points, by drawing share of the
+-- blows of the enemies that can strike (the summons is one more body among the friends). It lives
+-- until the blows it draws have taken its hit points.
 function M.fight(c,frame,r,share)
     if type(c)~='table' or not c.fighter or not number(r) or r<=0 then return 0 end
     local ac,hp,n=foes(frame)
     if n==0 then return 0 end
-    local offense=r*c.apr*threat.hitChance(c.thac0,ac)*c.damage/hp
     local blows=0
     for _,e in ipairs(list(frame.enemies)) do
         if targeting.alive(e) and not targeting.disabled(e) then
@@ -155,13 +158,16 @@ function M.fight(c,frame,r,share)
             blows=blows+a.apr*threat.hitChance(a.thac0,c.ac)*a.damage
         end
     end
+    local drawn=blows*(number(share) and share or 0)
+    local life=drawn>0 and c.maxHp/drawn or math.huge
+    local offense=math.min(r,life)*c.apr*threat.hitChance(c.thac0,ac)*c.damage/hp
     local friends,mean=0,0
     for _,f in ipairs(threat.friends(frame)) do
         friends=friends+1
         mean=mean+(number(f.maxHp) and f.maxHp>0 and f.maxHp or 1)
     end
     mean=friends>0 and mean/friends or 1
-    local soak=math.min(c.maxHp,r*blows*(number(share) and share or 0))/mean
+    local soak=math.min(c.maxHp,r*drawn)/mean
     return offense+soak
 end
 
@@ -214,8 +220,10 @@ end
 
 -- Every summons the caster can cast now: {resref, kind='summon', mode, worth, cost, score,
 -- hits={}, slack=0, speed, creatures (the resrefs it names), monsters (true when it also brings
--- creatures from monster tables), count (the fighters it brings), and self, target or point}. rejected (optional) counts why ready summoning spells gave none; a spell
--- whose creatures are all helpers (no fighters) is no summons and counts nothing.
+-- creatures from monster tables), count (the fighters it brings), rest (the seconds of the fight
+-- it reckoned with), and self, target or point}. rejected (optional) counts why ready summoning
+-- spells gave none; a spell whose creatures are all helpers (no fighters) is no summons and counts
+-- nothing.
 function M.options(input,rejected)
     local out={}
     local function reject(why) if rejected then rejected['summon-'..why]=(rejected['summon-'..why] or 0)+1 end end
@@ -223,7 +231,7 @@ function M.options(input,rejected)
     local frame=input.frame
     if type(frame)~='table' or type(frame.self)~='table' or type(mind)~='table' then return out end
     local creatures=type(input.creatures)=='table' and input.creatures or {}
-    local horizon=number(mind.horizon) and mind.horizon or 18
+    local rest=threat.rest(frame,number(mind.fightCap) and mind.fightCap or 60)
     local side=M.side(frame.self.ea)
     local summoned=0
     for _,a in ipairs(list(frame.allies)) do
@@ -240,7 +248,11 @@ function M.options(input,rejected)
                 if why~='no-summon' and why~='unclassified' then reject(why) end
             else
                 local cast=(number(spell.speed) and spell.speed or 0)*M.speedSeconds
-                local r=math.max(0,horizon-cast)/M.ROUND
+                -- A summons of limited duration goes when it ends (IESDP: opcode 67 unsummons its
+                -- creature after the effect's duration unless the effect is permanent).
+                local span=rest-cast
+                if number(role.duration) then span=math.min(span,role.duration) end
+                local r=math.max(0,span)/M.ROUND
                 local level=number(row.level) and row.level or number(spell.level) and spell.level or 1
                 local fromFile=list(role.fromFile)
                 local worth,count,named,listed=0,0,{},0
@@ -281,7 +293,7 @@ function M.options(input,rejected)
                         (number(mind.castCost) and mind.castCost or 0)*cast
                     local value=worth*through
                     local option={resref=row.resref,kind='summon',worth=value,cost=cost,score=value-cost,hits={},slack=0,
-                        speed=number(spell.speed) and spell.speed or 0,creatures=named,count=count,
+                        speed=number(spell.speed) and spell.speed or 0,creatures=named,count=count,rest=rest,
                         monsters=type(role.kinds)=='table' and role.kinds.monsters==true or nil}
                     if where.self then option.self=true;option.mode='self'
                     elseif where.target then option.target=where.target;option.mode='creature'

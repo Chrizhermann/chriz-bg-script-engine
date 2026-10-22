@@ -126,12 +126,21 @@ reads.
 `combat-intent/summons.lua`. Summons compete with attacks, defences and care every round, on the
 attack's scale:
 
-- **Worth:** each creature the spell brings is worth its fight over the horizon (the cast's
-  remaining seconds of the 18): the share of an enemy its hits take (its attacks, THAC0 and damage
-  against the enemies' mean armour class and hit points, as a weapon attack is worth), and the
+- **Worth:** each creature the spell brings is worth its fight over the rest of the fight after
+  the cast (below): the share of an enemy its hits take (its attacks, THAC0 and damage against the
+  enemies' mean armour class and hit points, as a weapon attack is worth) while it lives, and the
   share of a friend its body spares, up to its own hit points, by drawing its part of the blows of
   the enemies that can strike. Each further creature draws a smaller part, so a horde is worth less
-  than its count times one.
+  than its count times one. It lives until the blows it draws have taken its hit points, and fights
+  no longer than the summons lasts: opcode 67 unsummons its creature when the effect ends, unless
+  it is permanent (IESDP); a summons through an EFF lasts the 177's duration (`e468f19`).
+- **The rest of the fight** (`threat.rest`; agreed with Christopher 2026-10-22, before that the
+  horizon of 18 seconds): each side's harm a round (the weapons of its creatures that are not
+  disabled, against the other side's mean armour class, and its casters' spells at 1.2 hit points
+  a caster level) against the other side's hit points left. The side that needs fewer rounds ends
+  it, at most the profile's `fightCap` (60 seconds). So an early summons counts much and a late one
+  little; the kind of summons is in its creatures' worth. The choice record keeps the estimate
+  (`rest`). Preferences of single summoners come with the per-fight design.
 - **The creatures:** read from their CRE files (`adapters/eeex/resources.lua`: hit points, armour
   class, THAC0, attacks, strength, level, IDS values, items, slots and the opcodes of their own
   effects), the weapon in their first weapon slot and, for a launcher, the ammunition in the first
@@ -444,8 +453,9 @@ engine and 114 with SCS alone, with about the same hit points left.
   expect to live ("ja, auf jeden Fall"). Built 2026-10-22 for every kind of spell option
   (CHOICE-01, "Spell slots"); not yet tried in the lab.
 - **Summons:** many factors: early in a fight good, mid-fight it can be good, late situational;
-  the kind of summons; the summoner, who may prefer summons over other spells. How far to model
-  it is open.
+  the kind of summons; the summoner, who may prefer summons over other spells. Agreed 2026-10-22:
+  a summons counts over the expected rest of the fight, at most its own duration (built the same
+  day, "Summons" above); single summoners' preferences come with the per-fight design.
 - **Time Stop:** Christopher is fixing durations that run on for others during a Time Stop; the
   double Time Stop's side effects are left alone here.
 - **Testing:** both his own playtests (docs/playtest.md) and a lab party that plays like a human.

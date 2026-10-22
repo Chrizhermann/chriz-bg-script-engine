@@ -78,7 +78,7 @@ groups=groups+1
 -- landing on the caster (the creature appears where the spell is aimed). Not an image or a change
 -- of shape alone, a summons against the caster, one cast at another creature, nor one the
 -- classifier could not read in full. Mode 2 takes the side from the creature's file.
-local horde=spell('TESTHORD',3,{fx(67,{res='TESTMON',target=1}),fx(67,{res='TESTMON',target=1})})
+local horde=spell('TESTHORD',3,{fx(67,{res='TESTMON',target=1,duration=180}),fx(67,{res='TESTMON',target=1,duration=180})})
 local role,why=summons.summon(horde)
 assert(role and role.creatures.TESTMON==2 and role.who.self and not role.fromFile)
 assert(select(2,summons.summon(nil))=='unclassified' and select(2,summons.summon(spell('TESTBOLT',3,{fx(12,{dice=6,sides=6})})))=='no-summon')
@@ -93,9 +93,9 @@ assert(select(2,summons.summon(spell('TESTEVIL',4,{fx(127,{p1=2,p2=6,target=1})}
 groups=groups+1
 
 -- 3. One summoned creature's fight over r rounds: the share of an enemy its hits take (its hits
--- against the enemies' mean armour class, of their mean hit points), and the share of a friend
--- its body spares by drawing its part of the enemies' blows, up to its own hit points. Disabled
--- enemies strike no one; a creature that does not fight is worth nothing.
+-- against the enemies' mean armour class, of their mean hit points) while it lives, and the share
+-- of a friend its body spares by drawing its part of the enemies' blows, up to its own hit points.
+-- Disabled enemies strike no one; a creature that does not fight is worth nothing.
 local function enemy(id,fields)
     local e={id=id,x=300,y=100,hp=60,maxHp=60,state=0,held=0,sanctuary=0,mr=0,action=0,ac=5,
         ids={ea=2,general=1,race=1,class=2,specific=0,gender=1,alignment=0x11},protections={},
@@ -113,13 +113,16 @@ local monster={maxHp=40,ac=5,thac0=10,apr=2,damage=6,fighter=true,gender=6,ea=25
 -- Hits 0.8 a swing: offense 2*2*0.8*6/60; the enemy's 8 a round, half of them, for 2 rounds.
 assert(near(summons.fight(monster,frame(),2,1/2),0.32+8/50))
 assert(near(summons.fight(monster,frame(),2,1),0.32+16/50))
-assert(near(summons.fight({maxHp=5,ac=5,thac0=10,apr=2,damage=6,fighter=true},frame(),2,1),0.32+5/50))
+-- Five hit points drawing all 8 a round last 5/8 of a round, and strike that long.
+assert(near(summons.fight({maxHp=5,ac=5,thac0=10,apr=2,damage=6,fighter=true},frame(),2,1),0.32*5/16+5/50))
 assert(near(summons.fight(monster,frame({enemies={enemy(11,{held=1})}}),2,1/2),0.32))
 assert(summons.fight({maxHp=40,fighter=false},frame(),2,1)==0 and summons.fight(monster,frame({enemies={}}),2,1)==0)
 groups=groups+1
 
--- 4. Options. Two of them in three rounds (no casting time): each 0.48 of the enemy, the first
--- one body among two drawing half the enemy's blows, the second a third; cost three spell levels.
+-- 4. Options. The fight lasts 25 seconds more: the caster's spells (a level-12 mage, 14.4 a
+-- round) take the enemy's 60 hit points in 25, the enemy's 8 a round the caster's 50 in 37.5. Two
+-- of them over those 25 seconds (no casting time): each 0.16 of the enemy a round, the first one
+-- body among two drawing half the enemy's blows, the second a third; cost three spell levels.
 -- Cast at the enemy's spot.
 local function row(resref,s,level,fields)
     local r={resref=resref,level=level,ready=1,memorized=1,usable=true,list='wizard',spell=s}
@@ -137,15 +140,18 @@ local rejected={}
 local list=summons.options(i,rejected)
 local o=list[1]
 assert(#list==1 and o.kind=='summon' and o.mode=='point' and o.point.x==300 and o.point.y==100 and o.count==2)
-assert(near(o.worth,0.48+12/50+0.48+8/50) and near(o.cost,0.09) and near(o.score,o.worth-o.cost))
+local r=25/6
+local both=r*0.16+r*4/50+r*0.16+r*8/3/50
+assert(near(o.worth,both) and near(o.cost,0.09) and near(o.score,o.worth-o.cost))
 assert(o.creatures[1]=='TESTMON' and #o.hits==0 and o.resref=='TESTHORD' and next(rejected)==nil)
 -- A spell slot costs input.slots of its price (combat-intent/choice.lua).
 i.slots=0.5;assert(near(summons.options(i)[1].cost,0.045));i.slots=nil
--- Casting time: fewer rounds before the horizon, and harm while casting can break it.
-i.spells={row('TESTHORD',spell('TESTHORD',3,{fx(67,{res='TESTMON',target=1}),fx(67,{res='TESTMON',target=1})},{speed=9}),3)}
+-- Casting time: fewer rounds of the fight left, and harm while casting can break it.
+i.spells={row('TESTHORD',spell('TESTHORD',3,{fx(67,{res='TESTMON',target=1,duration=180}),
+    fx(67,{res='TESTMON',target=1,duration=180})},{speed=9}),3)}
 i.frame.enemies[1].x=150
 o=summons.options(i)[1]
-assert(o.worth<(0.48+12/50+0.48+8/50)*(18-5.4)/18 and near(o.cost,0.09+0.02*5.4))
+assert(o.worth<both*(25-5.4)/25 and near(o.cost,0.09+0.02*5.4))
 groups=groups+1
 
 -- 5. Where it goes: the group's focus in range, else the nearest enemy in range, else toward the
@@ -160,10 +166,10 @@ i.plan={focus=13}
 i.frame.enemies={enemy(11,{x=1100})}
 o=summons.options(i)[1]
 assert(o.point.x==100+480 and o.point.y==100)
-i.spells={row('TESTSELF',spell('TESTSELF',7,{fx(67,{res='TESTMON',target=1})},{target=5,range=1}),7)}
+i.spells={row('TESTSELF',spell('TESTSELF',7,{fx(67,{res='TESTMON',target=1,duration=180})},{target=5,range=1}),7)}
 o=summons.options(i)[1]
 assert(o.self and o.mode=='self' and not o.point)
-i.spells={row('TESTGATE',spell('TESTGATE',7,{fx(67,{res='TESTMON',target=1})},{target=1,range=10}),7)}
+i.spells={row('TESTGATE',spell('TESTGATE',7,{fx(67,{res='TESTMON',target=1,duration=180})},{target=1,range=10}),7)}
 rejected={}
 assert(#summons.options(i,rejected)==0 and rejected['summon-out-of-reach']==1)
 i.frame.enemies={enemy(11,{x=200})}
@@ -176,7 +182,7 @@ groups=groups+1
 -- a creature that cannot be read counts as unknown. Monster tables count as creatures of twice the
 -- spell's level. At the cap of summoned allies in view no more summoned creatures come; a summoned
 -- demon does not count for it.
-i=input({spells={row('TESTWISH',spell('TESTWISH',7,{fx(67,{res='TESTGENI',p2=2,target=1})},{target=5}),7)},
+i=input({spells={row('TESTWISH',spell('TESTWISH',7,{fx(67,{res='TESTGENI',p2=2,target=1,duration=180})},{target=5}),7)},
     creatures={TESTGENI={maxHp=200,ac=3,thac0=-3,apr=1,damage=18,fighter=true,gender=4,ea=128}}})
 rejected={}
 assert(#summons.options(i,rejected)==0 and rejected['summon-other-side']==1)
@@ -187,7 +193,7 @@ rejected={}
 assert(#summons.options(i,rejected)==0 and next(rejected)==nil)
 i.creatures={}
 assert(#summons.options(i,rejected)==0 and rejected['summon-unknown-creature']==1)
-i=input({spells={row('TESTMONS',spell('TESTMONS',4,{fx(127,{p1=2,p2=1,target=1})}),4)}})
+i=input({spells={row('TESTMONS',spell('TESTMONS',4,{fx(127,{p1=2,p2=1,target=1,duration=180})}),4)}})
 o=summons.options(i)[1]
 assert(o and o.count==2 and #o.creatures==0)
 i=input()
@@ -226,6 +232,56 @@ assert(how=='best' and d.kind=='summon' and d.resref=='TESTHORD')
 i.creatures={}
 d,how=choice.decide(i)
 assert(d.kind=='weapon' and how=='weapon')
+groups=groups+1
+
+-- 8. How long the fight lasts (combat-intent/threat.lua, M.rest): each side's harm a round against
+-- the other side's hit points left; the side that needs fewer rounds ends it, at most the cap.
+local threat=require('combat-intent.threat')
+local f=frame()
+assert(near(threat.rest(f,60),25) and near(threat.rest(f,20),20))
+-- The enemy at 12 hit points ends in 5 seconds. Held, it strikes no one, but the caster's spells
+-- still end it.
+f.enemies[1].hp=12
+assert(near(threat.rest(f,60),5))
+f.enemies[1].hp=60
+f.enemies[1].held=1
+assert(near(threat.rest(f,60),25))
+f.enemies[1].held=0
+-- The caster's weapon in hand counts with its spells: a mace, one attack hitting 0.8 for 4.5.
+f.self.weapon={item='TESTMACE',damage=4.5,damageType=2,apr=1,thac0=10,ranged=false,flags=0,enchantment=0}
+assert(near(threat.rest(f,60),6*60/(14.4+3.6)))
+-- A fighter without a weapon in hand harms no one: the enemy ends it, in 37.5 seconds. With
+-- neither side harming, the cap; with no enemy left, nothing.
+f.self.weapon=nil
+f.self.ids={class=2,gender=1}
+assert(near(threat.rest(f,60),37.5))
+f.enemies[1].attack=false
+assert(threat.rest(f,60)==60 and threat.rest(frame({enemies={}}),60)==0)
+assert(threat.rest(frame({enemies={enemy(11,{hp=0,state=0x800})}}),60)==0)
+-- Early the summons counts over the fight's 25 seconds, late (the enemy at 12 hit points) over its
+-- 5; one that takes longer to cast than the fight has left brings nothing.
+i=input()
+local early=summons.options(i)[1].worth
+i.frame.enemies[1].hp=12
+assert(near(summons.options(i)[1].worth,early*5/25))
+i.spells={row('TESTHORD',spell('TESTHORD',3,{fx(67,{res='TESTMON',target=1,duration=180}),
+    fx(67,{res='TESTMON',target=1,duration=180})},{speed=9}),3)}
+rejected={}
+assert(#summons.options(i,rejected)==0 and rejected['summon-no-worth']==1)
+-- No longer than it lasts: a summons of 6 seconds fights one round. One for good fights the whole
+-- rest of the fight; one of limited timing and no duration goes at once (the game unsummons it
+-- when its effect ends).
+i=input({spells={row('TESTSHRT',spell('TESTSHRT',3,{fx(67,{res='TESTMON',target=1,duration=6})}),3)}})
+assert(near(summons.options(i)[1].worth,0.16+4/50))
+i.spells={row('TESTPERM',spell('TESTPERM',3,{fx(67,{res='TESTMON',target=1,timing=1})}),3)}
+assert(near(summons.options(i)[1].worth,r*(0.16+4/50)))
+i.spells={row('TESTGONE',spell('TESTGONE',3,{fx(67,{res='TESTMON',target=1})}),3)}
+rejected={}
+assert(#summons.options(i,rejected)==0 and rejected['summon-no-worth']==1)
+-- The profile's cap on the fight's length.
+i=input({mind=mind.new({fightCap=12})})
+assert(near(summons.options(i)[1].worth,both*12/25))
+assert(mind.new().fightCap==60 and select(2,mind.new({fightCap=-1}))=='fightCap')
 groups=groups+1
 
 return groups

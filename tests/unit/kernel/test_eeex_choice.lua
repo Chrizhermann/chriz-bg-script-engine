@@ -932,8 +932,9 @@ local CRES={TESTMON={kind='CRE',resref='TESTMON',hp=40,maxHp=40,ac=5,thac0=10,ap
     strengthExtra=0,ea=255,general=4,race=1,class=2,specific=0,gender=6,alignment=0,items={'TESTCLAW'},slots=slots12,
     opcodes={326}}}
 ITEMS.TESTCLAW=weapon('TESTCLAW',{flags=0},{dice=1,sides=6,damageType=3})
-records.TESTHORD=spl('TESTHORD',3,{fx(67,{target=1,res='TESTMON'}),fx(67,{target=1,res='TESTMON'})},4,1)
-records.TESTVOID=spl('TESTVOID',3,{fx(67,{target=1,res='TESTNONE'})},4,1)
+records.TESTHORD=spl('TESTHORD',3,{fx(67,{target=1,res='TESTMON',duration=180}),
+    fx(67,{target=1,res='TESTMON',duration=180})},4,1)
+records.TESTVOID=spl('TESTVOID',3,{fx(67,{target=1,res='TESTNONE',duration=180})},4,1)
 local reads12=0
 local reader12={problems={},lookup=reader.lookup,get=function(kind,resref)
         if kind=='CRE' then reads12=reads12+1;return CRES[resref] end
@@ -958,6 +959,8 @@ assert(g12.BGSE_Claim(conjurer,'mage','s1')==true)
 local c12=last12('choice')
 assert(c12.castKind=='summon' and c12.spell=='TESTHORD' and c12.mode=='point' and c12.point.x==200 and c12.point.y==0)
 assert(c12.count==2 and c12.creatures[1]=='TESTMON' and ch12:inspect().counts.summons==1 and reads12==1)
+-- The log shows the seconds of the fight it reckoned with.
+assert(type(c12.rest)=='number' and c12.rest>0)
 g12.BGSE_Act(conjurer)
 assert(g12.queued[#g12.queued].text=='SetGlobalTimer("castspell","LOCALS",ONE_ROUND)\nSpellPointRES("TESTHORD",[200.0])')
 g12.listeners.started[1](conjurer,action(95,'TESTHORD',-1))
@@ -982,7 +985,7 @@ g12.add(sprite(12,200,1200,2))
 g12.ticks=200
 assert(g12.BGSE_Claim(voidCaster,'mage','s1')==false and ch12:inspect().counts.summons==1)
 -- From a monster table: a new summoned ally counts, a new ally of another gender does not.
-records.TESTTABL=spl('TESTTABL',3,{fx(127,{target=1,p1=2,res='TESTMONS'})},4,1)
+records.TESTTABL=spl('TESTTABL',3,{fx(127,{target=1,p1=2,res='TESTMONS',duration=180})},4,1)
 local tabler=g12.add(sprite(3,0,2400,255))
 learn(tabler,2,'TESTTABL')
 g12.add(sprite(13,200,2400,2)).stats[2]=5

@@ -1073,7 +1073,7 @@ function M.new(g,options)
             target=d.target,point=d.point,score=d.score,worth=d.worth,hits=d.hits,how=why,top=top,
             focus=input.plan.focus,rule=d.rule,stop=input.timeStop and input.timeStop.left or nil,
             alacrity=frame.self.alacrity or nil,release=d.release,use=d.use,creatures=d.creatures,count=d.count,
-            slots=input.slots,finish=d.finish,aura=frame.self.aura~=0 and frame.self.aura or nil,
+            rest=d.rest,slots=input.slots,finish=d.finish,aura=frame.self.aura~=0 and frame.self.aura or nil,
             inZones=zoneView(input,d)})
         -- A disable claims its targets in the group at once, so that another member deciding
         -- before this cast starts leaves them alone; any other decision gives earlier claims back.

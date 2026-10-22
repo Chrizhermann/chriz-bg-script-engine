@@ -198,14 +198,7 @@ function M.pressure(frame,target)
     if targeting.alive(caster) then
         local c={}
         for k,v in pairs(caster) do c[k]=v end
-        local w=caster.weapon
-        c.attack=false
-        if type(w)=='table' and number(w.damage) then
-            local flags=number(w.flags) and w.flags or 0
-            c.attack={apr=number(w.apr) and w.apr or caster.apr,thac0=number(w.thac0) and w.thac0 or caster.thac0,
-                damage=w.damage,ranged=w.ranged==true,range=w.range,
-                magical=(number(w.enchantment) and w.enchantment>0) or math.floor(flags/64)%2==1}
-        end
+        c.attack=threat.wielded(caster)
         attackers[1]=c
     end
     for _,a in ipairs(list(frame.allies)) do if targeting.alive(a) then attackers[#attackers+1]=a end end

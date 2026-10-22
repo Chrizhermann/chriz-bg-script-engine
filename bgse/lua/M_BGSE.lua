@@ -1902,6 +1902,9 @@ M.default={
     -- Summons (D3c): no more summoning once this many summoned allies are in view (the game's own
     -- limit for summoned creatures is five).
     summonCap=5,
+    -- Seconds the rest of a fight counts for at most (combat-intent/threat.lua, M.rest): a summons
+    -- fights over the rest of the fight, as both sides' strength makes it.
+    fightCap=60,
 }
 
 local function share(v) return type(v)=='number' and v==v and v>=0 and v<=1 end
@@ -1915,7 +1918,7 @@ local function resrefs(v)
 end
 local CHECKS={coordination=share,best=share,band=share,economy=amount,minValue=amount,
     focusBonus=amount,killBonus=amount,caution=amount,horizon=amount,redefend=amount,acute=share,
-    castCost=amount,allySpells=resrefs,slowSpeed=amount,touchReach=amount,summonCap=amount,
+    castCost=amount,allySpells=resrefs,slowSpeed=amount,touchReach=amount,summonCap=amount,fightCap=amount,
     openers=function(v) return type(v)=='boolean' end,
     touch=function(v) return type(v)=='boolean' end,
     weapons=function(v) return type(v)=='boolean' end,
@@ -2107,6 +2110,63 @@ function M.picture(frame)
         end
     end
     return out
+end
+
+-- The caster's weapon in hand (frame.self.weapon, adapters/eeex/sense.lua) as attack data, or
+-- false without one: the caster strikes with it or not at all.
+function M.wielded(caster)
+    local w=type(caster)=='table' and caster.weapon
+    if type(w)~='table' or not number(w.damage) then return false end
+    local flags=number(w.flags) and w.flags or 0
+    return {apr=number(w.apr) and w.apr or caster.apr,thac0=number(w.thac0) and w.thac0 or caster.thac0,
+        damage=w.damage,ranged=w.ranged==true,range=w.range,
+        magical=(number(w.enchantment) and w.enchantment>0) or math.floor(flags/64)%2==1}
+end
+
+-- How many seconds the fight is expected to last from now, from both sides' strength: each side's
+-- harm a round (the weapons of its living creatures that are not disabled, against the other
+-- side's mean armour class, and its casters' spells at spellPerLevel a caster level) against the
+-- other side's hit points left. The side that needs fewer rounds ends it; neither side's harm
+-- falls as its creatures die, so this errs short. At most cap seconds; 0 when a side has no one
+-- left.
+function M.rest(frame,cap)
+    cap=number(cap) and cap>=0 and cap or math.huge
+    if type(frame)~='table' then return 0 end
+    local friends=M.friends(frame)
+    local enemies={}
+    for _,e in ipairs(type(frame.enemies)=='table' and frame.enemies or {}) do
+        if targeting.alive(e) then enemies[#enemies+1]=e end
+    end
+    if #friends==0 or #enemies==0 then return 0 end
+    local function body(side)
+        local hp,ac=0,0
+        for _,c in ipairs(side) do
+            hp=hp+(number(c.hp) and c.hp>0 and c.hp or number(c.maxHp) and c.maxHp>0 and c.maxHp or 1)
+            ac=ac+(number(c.ac) and c.ac or 10)
+        end
+        return hp,ac/#side
+    end
+    local function harm(side,ac)
+        local total=0
+        for _,c in ipairs(side) do
+            if not targeting.disabled(c) then
+                local held=c.attack
+                if c==frame.self then held=M.wielded(c) end
+                if held~=false then
+                    local a=M.attack({attack=held})
+                    total=total+a.apr*M.hitChance(a.thac0,ac)*a.damage
+                end
+                total=total+M.casting(c)*M.spellPerLevel*(number(c.level) and c.level or 1)
+            end
+        end
+        return total
+    end
+    local ourHp,ourAc=body(friends)
+    local theirHp,theirAc=body(enemies)
+    local ours,theirs=harm(friends,theirAc),harm(enemies,ourAc)
+    local win=ours>0 and M.ROUND*theirHp/ours or math.huge
+    local lose=theirs>0 and M.ROUND*ourHp/theirs or math.huge
+    return math.min(win,lose,cap)
 end
 return M
 end
@@ -3254,9 +3314,12 @@ factories["combat-intent.summons"]=function(require)
 -- input.creatures: each creature the ready spells name, as M.profile reads its CRE record and
 -- weapon (the adapter reads them). Nothing here touches the engine or raises on odd data.
 --
--- Worth is on the attack's scale: each summoned creature's fight over the horizon, the share of
--- an enemy its hits take (as a weapon attack is worth) and the share of a friend its body spares by
--- drawing its part of the enemies' blows, up to its own hit points. Only fighters on the caster's
+-- Worth is on the attack's scale: each summoned creature's fight, the share of an enemy its hits
+-- take (as a weapon attack is worth) and the share of a friend its body spares by drawing its part
+-- of the enemies' blows, up to its own hit points. It fights over the rest of the fight after the
+-- cast, as both sides' strength makes it (combat-intent/threat.lua, M.rest; at most the profile's
+-- fightCap), no longer than the summons lasts and only while it lives; so an early summons counts
+-- much and a late one little (Christopher, 2026-10-22, agreed). Only fighters on the caster's
 -- side count:
 -- - a creature no one can see or select (its own effects remove its avatar or its selection
 --   circle: SCS's markers for its storms and clouds, a kit's helper) or without a weapon is no
@@ -3383,14 +3446,14 @@ local function foes(frame)
     return ac/n,hp/n,n
 end
 
--- The worth of one summoned creature c over r rounds: the share of an enemy its hits take, and the
--- share of a friend its body spares, up to its hit points, by drawing share of the blows of the
--- enemies that can strike (the summons is one more body among the friends).
+-- The worth of one summoned creature c over r rounds: the share of an enemy its hits take while it
+-- lives, and the share of a friend its body spares, up to its hit points, by drawing share of the
+-- blows of the enemies that can strike (the summons is one more body among the friends). It lives
+-- until the blows it draws have taken its hit points.
 function M.fight(c,frame,r,share)
     if type(c)~='table' or not c.fighter or not number(r) or r<=0 then return 0 end
     local ac,hp,n=foes(frame)
     if n==0 then return 0 end
-    local offense=r*c.apr*threat.hitChance(c.thac0,ac)*c.damage/hp
     local blows=0
     for _,e in ipairs(list(frame.enemies)) do
         if targeting.alive(e) and not targeting.disabled(e) then
@@ -3398,13 +3461,16 @@ function M.fight(c,frame,r,share)
             blows=blows+a.apr*threat.hitChance(a.thac0,c.ac)*a.damage
         end
     end
+    local drawn=blows*(number(share) and share or 0)
+    local life=drawn>0 and c.maxHp/drawn or math.huge
+    local offense=math.min(r,life)*c.apr*threat.hitChance(c.thac0,ac)*c.damage/hp
     local friends,mean=0,0
     for _,f in ipairs(threat.friends(frame)) do
         friends=friends+1
         mean=mean+(number(f.maxHp) and f.maxHp>0 and f.maxHp or 1)
     end
     mean=friends>0 and mean/friends or 1
-    local soak=math.min(c.maxHp,r*blows*(number(share) and share or 0))/mean
+    local soak=math.min(c.maxHp,r*drawn)/mean
     return offense+soak
 end
 
@@ -3457,8 +3523,10 @@ end
 
 -- Every summons the caster can cast now: {resref, kind='summon', mode, worth, cost, score,
 -- hits={}, slack=0, speed, creatures (the resrefs it names), monsters (true when it also brings
--- creatures from monster tables), count (the fighters it brings), and self, target or point}. rejected (optional) counts why ready summoning spells gave none; a spell
--- whose creatures are all helpers (no fighters) is no summons and counts nothing.
+-- creatures from monster tables), count (the fighters it brings), rest (the seconds of the fight
+-- it reckoned with), and self, target or point}. rejected (optional) counts why ready summoning
+-- spells gave none; a spell whose creatures are all helpers (no fighters) is no summons and counts
+-- nothing.
 function M.options(input,rejected)
     local out={}
     local function reject(why) if rejected then rejected['summon-'..why]=(rejected['summon-'..why] or 0)+1 end end
@@ -3466,7 +3534,7 @@ function M.options(input,rejected)
     local frame=input.frame
     if type(frame)~='table' or type(frame.self)~='table' or type(mind)~='table' then return out end
     local creatures=type(input.creatures)=='table' and input.creatures or {}
-    local horizon=number(mind.horizon) and mind.horizon or 18
+    local rest=threat.rest(frame,number(mind.fightCap) and mind.fightCap or 60)
     local side=M.side(frame.self.ea)
     local summoned=0
     for _,a in ipairs(list(frame.allies)) do
@@ -3483,7 +3551,11 @@ function M.options(input,rejected)
                 if why~='no-summon' and why~='unclassified' then reject(why) end
             else
                 local cast=(number(spell.speed) and spell.speed or 0)*M.speedSeconds
-                local r=math.max(0,horizon-cast)/M.ROUND
+                -- A summons of limited duration goes when it ends (IESDP: opcode 67 unsummons its
+                -- creature after the effect's duration unless the effect is permanent).
+                local span=rest-cast
+                if number(role.duration) then span=math.min(span,role.duration) end
+                local r=math.max(0,span)/M.ROUND
                 local level=number(row.level) and row.level or number(spell.level) and spell.level or 1
                 local fromFile=list(role.fromFile)
                 local worth,count,named,listed=0,0,{},0
@@ -3524,7 +3596,7 @@ function M.options(input,rejected)
                         (number(mind.castCost) and mind.castCost or 0)*cast
                     local value=worth*through
                     local option={resref=row.resref,kind='summon',worth=value,cost=cost,score=value-cost,hits={},slack=0,
-                        speed=number(spell.speed) and spell.speed or 0,creatures=named,count=count,
+                        speed=number(spell.speed) and spell.speed or 0,creatures=named,count=count,rest=rest,
                         monsters=type(role.kinds)=='table' and role.kinds.monsters==true or nil}
                     if where.self then option.self=true;option.mode='self'
                     elseif where.target then option.target=where.target;option.mode='creature'
@@ -3739,14 +3811,7 @@ function M.pressure(frame,target)
     if targeting.alive(caster) then
         local c={}
         for k,v in pairs(caster) do c[k]=v end
-        local w=caster.weapon
-        c.attack=false
-        if type(w)=='table' and number(w.damage) then
-            local flags=number(w.flags) and w.flags or 0
-            c.attack={apr=number(w.apr) and w.apr or caster.apr,thac0=number(w.thac0) and w.thac0 or caster.thac0,
-                damage=w.damage,ranged=w.ranged==true,range=w.range,
-                magical=(number(w.enchantment) and w.enchantment>0) or math.floor(flags/64)%2==1}
-        end
+        c.attack=threat.wielded(caster)
         attackers[1]=c
     end
     for _,a in ipairs(list(frame.allies)) do if targeting.alive(a) then attackers[#attackers+1]=a end end
@@ -7595,7 +7660,7 @@ function M.new(g,options)
             target=d.target,point=d.point,score=d.score,worth=d.worth,hits=d.hits,how=why,top=top,
             focus=input.plan.focus,rule=d.rule,stop=input.timeStop and input.timeStop.left or nil,
             alacrity=frame.self.alacrity or nil,release=d.release,use=d.use,creatures=d.creatures,count=d.count,
-            slots=input.slots,finish=d.finish,aura=frame.self.aura~=0 and frame.self.aura or nil,
+            rest=d.rest,slots=input.slots,finish=d.finish,aura=frame.self.aura~=0 and frame.self.aura or nil,
             inZones=zoneView(input,d)})
         -- A disable claims its targets in the group at once, so that another member deciding
         -- before this cast starts leaves them alone; any other decision gives earlier claims back.

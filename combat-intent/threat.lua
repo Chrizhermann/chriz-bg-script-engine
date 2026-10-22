@@ -163,4 +163,61 @@ function M.picture(frame)
     end
     return out
 end
+
+-- The caster's weapon in hand (frame.self.weapon, adapters/eeex/sense.lua) as attack data, or
+-- false without one: the caster strikes with it or not at all.
+function M.wielded(caster)
+    local w=type(caster)=='table' and caster.weapon
+    if type(w)~='table' or not number(w.damage) then return false end
+    local flags=number(w.flags) and w.flags or 0
+    return {apr=number(w.apr) and w.apr or caster.apr,thac0=number(w.thac0) and w.thac0 or caster.thac0,
+        damage=w.damage,ranged=w.ranged==true,range=w.range,
+        magical=(number(w.enchantment) and w.enchantment>0) or math.floor(flags/64)%2==1}
+end
+
+-- How many seconds the fight is expected to last from now, from both sides' strength: each side's
+-- harm a round (the weapons of its living creatures that are not disabled, against the other
+-- side's mean armour class, and its casters' spells at spellPerLevel a caster level) against the
+-- other side's hit points left. The side that needs fewer rounds ends it; neither side's harm
+-- falls as its creatures die, so this errs short. At most cap seconds; 0 when a side has no one
+-- left.
+function M.rest(frame,cap)
+    cap=number(cap) and cap>=0 and cap or math.huge
+    if type(frame)~='table' then return 0 end
+    local friends=M.friends(frame)
+    local enemies={}
+    for _,e in ipairs(type(frame.enemies)=='table' and frame.enemies or {}) do
+        if targeting.alive(e) then enemies[#enemies+1]=e end
+    end
+    if #friends==0 or #enemies==0 then return 0 end
+    local function body(side)
+        local hp,ac=0,0
+        for _,c in ipairs(side) do
+            hp=hp+(number(c.hp) and c.hp>0 and c.hp or number(c.maxHp) and c.maxHp>0 and c.maxHp or 1)
+            ac=ac+(number(c.ac) and c.ac or 10)
+        end
+        return hp,ac/#side
+    end
+    local function harm(side,ac)
+        local total=0
+        for _,c in ipairs(side) do
+            if not targeting.disabled(c) then
+                local held=c.attack
+                if c==frame.self then held=M.wielded(c) end
+                if held~=false then
+                    local a=M.attack({attack=held})
+                    total=total+a.apr*M.hitChance(a.thac0,ac)*a.damage
+                end
+                total=total+M.casting(c)*M.spellPerLevel*(number(c.level) and c.level or 1)
+            end
+        end
+        return total
+    end
+    local ourHp,ourAc=body(friends)
+    local theirHp,theirAc=body(enemies)
+    local ours,theirs=harm(friends,theirAc),harm(enemies,ourAc)
+    local win=ours>0 and M.ROUND*theirHp/ours or math.huge
+    local lose=theirs>0 and M.ROUND*ourHp/theirs or math.huge
+    return math.min(win,lose,cap)
+end
 return M

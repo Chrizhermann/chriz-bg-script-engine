@@ -56,6 +56,9 @@ M.default={
     -- Summons (D3c): no more summoning once this many summoned allies are in view (the game's own
     -- limit for summoned creatures is five).
     summonCap=5,
+    -- Seconds the rest of a fight counts for at most (combat-intent/threat.lua, M.rest): a summons
+    -- fights over the rest of the fight, as both sides' strength makes it.
+    fightCap=60,
 }
 
 local function share(v) return type(v)=='number' and v==v and v>=0 and v<=1 end
@@ -69,7 +72,7 @@ local function resrefs(v)
 end
 local CHECKS={coordination=share,best=share,band=share,economy=amount,minValue=amount,
     focusBonus=amount,killBonus=amount,caution=amount,horizon=amount,redefend=amount,acute=share,
-    castCost=amount,allySpells=resrefs,slowSpeed=amount,touchReach=amount,summonCap=amount,
+    castCost=amount,allySpells=resrefs,slowSpeed=amount,touchReach=amount,summonCap=amount,fightCap=amount,
     openers=function(v) return type(v)=='boolean' end,
     touch=function(v) return type(v)=='boolean' end,
     weapons=function(v) return type(v)=='boolean' end,
