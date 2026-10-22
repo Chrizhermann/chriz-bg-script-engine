@@ -111,11 +111,17 @@ assert(t[1].weapon.attacks==0 and t[2].weapon.attacks==4)
 i.frame.enemies[1].seeInvisible=true
 t=threat.picture(i.frame)
 assert(t[1].weapon.attacks==2 and t[2].weapon.attacks==2)
+-- What comes from enemies that see invisible creatures stays apart (seeing): invisibility does
+-- not keep it away.
+assert(near(t[1].weapon.seeing,t[1].weapon.hp) and t[1].weapon.seeing>0 and t[2].weapon.seeing==0)
 i=input({mage(21,300)})
 i.frame.allies={{id=2,x=120,y=100,hp=80,maxHp=80,state=0,ac=2}}
 t=threat.picture(i.frame)
 assert(near(t[1].spell.hp,6) and near(t[2].spell.hp,6) and near(t[1].spell.personal,3.6) and near(t[1].spell.disable,0.075))
-assert(t[1].spell.level==5 and t[1].weapon.attacks==0)
+assert(t[1].spell.level==5 and t[1].weapon.attacks==0 and t[1].spell.seeing==0)
+i.frame.enemies[1].seeInvisible=true
+assert(near(threat.picture(i.frame)[1].spell.seeing,3.6))
+i.frame.enemies[1].seeInvisible=nil
 i.frame.enemies[1].action=31;i.frame.enemies[1].actee=2
 t=threat.picture(i.frame)
 assert(t[1].spell.hp==0 and near(t[2].spell.hp,12))
@@ -191,6 +197,21 @@ assert(near(harm,30+34) and near(death,8/3.8+(40-10*8/3.8)/48))
 local padded=defence.shield(stoneskin.roles);padded.hp=20
 harm=defence.course(padded,f,burned,3)
 assert(near(harm,44))
+-- Invisibility keeps away only harm from enemies that do not see invisible creatures. A friend
+-- hidden now meets only enemies that see it (threat.picture), so what hides it keeps nothing
+-- more away; against half from such enemies, half of what it would.
+local hiddenNow=defence.held({state=0x400000})
+local seen={weapon={hp=38,hits=3.8,attacks=4,magicalAttacks=4,seeing=38},
+    spell={hp=10,personal=6,area=4,disable=0.15,casters=1,level=5,seeing=6}}
+harm,death=defence.course(hiddenNow,f,seen,3)
+assert(near(harm,144) and near(death,40/48))
+local b=defence.blocks(hiddenNow,seen,3)
+assert(b.rate==0 and b.personal==0 and b.spell==0 and b.disable==0)
+local halfSeen={weapon={hp=38,hits=3.8,attacks=4,magicalAttacks=4,seeing=19},
+    spell={hp=10,personal=6,area=4,disable=0.15,casters=1,level=5,seeing=3}}
+b=defence.blocks(hiddenNow,halfSeen,3)
+assert(near(b.rate,0.45) and near(b.personal,0.45) and near(b.disable,0.45))
+assert(near(defence.blocks(hiddenNow,burned,3).rate,0.9))
 groups=groups+1
 
 -- 4. Weighing: two fighters at a caster with no protection make Protection from Magical
@@ -234,6 +255,16 @@ local ct=threat.picture(i.frame)[1]
 assert(near(defence.through(i,ct,0.6),math.exp(-0.38)) and near(defence.through(i,ct,5.4),math.exp(-3.42)))
 i.frame.self.guard={stoneskins=8}
 assert(defence.through(i,ct,0.6)==1 and defence.through(i,ct,5.4)==1)
+-- Improved Invisibility is worth casting at fighters that cannot see it, not at fighters that
+-- see invisible creatures; hidden already from those, the caster is in their full danger.
+i=input({fighter(11,130),fighter(12,135)},{row('TESTIINV',improved,4)})
+assert(find(defence.options(i,{}),'TESTIINV').worth>0)
+i.frame.enemies[1].seeInvisible=true;i.frame.enemies[2].seeInvisible=true
+rejected={}
+assert(#defence.options(i,rejected)==0 and rejected['no-worth']==1)
+i.frame.self.state=0x400000
+i.mind.acute=0.5
+assert(defence.acute(i,threat.picture(i.frame)))
 groups=groups+1
 
 -- 5. The pause after a defence, like SCS's redefend timer, unless the caster is in acute danger.

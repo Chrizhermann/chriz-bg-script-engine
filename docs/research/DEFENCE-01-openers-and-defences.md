@@ -190,6 +190,12 @@ copy.
   and a 15% chance a round to disable the friend it casts at. These numbers are rough on purpose.
 - An invisible friend is safe from the weapons and aimed spells of enemies that do not see
   invisible creatures.
+- What comes from enemies that see invisible creatures is kept apart (`seeing`); invisibility
+  keeps away only 90% of the rest. Fixed 2026-10-22: a friend hidden now meets only enemies that
+  see it, yet its invisibility cut their harm once more, so a mage under Improved Invisibility
+  facing fighters with True Seeing saw a tenth of its danger; and a new invisibility took 90% off
+  fighters that see through it. Not counted yet: plain invisibility ends with the friend's next
+  cast or attack, and the enemies that cannot see it now come back then.
 
 **Worth** (`combat-intent/defence.lua`), on the attack's scale. A defence is worth the loss it
 saves its receivers within the horizon (18 seconds, or less if the spell ends sooner). A friend's

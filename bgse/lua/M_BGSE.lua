@@ -2022,16 +2022,18 @@ local function sees(e,f) return e.seeInvisible==true or not targeting.has(f.stat
 local function entry(t,id)
     local r=t[id]
     if not r then
-        r={weapon={hp=0,hits=0,attacks=0,magicalAttacks=0},
-            spell={hp=0,personal=0,area=0,disable=0,casters=0,level=0},attackers={},casters={}}
+        r={weapon={hp=0,hits=0,attacks=0,magicalAttacks=0,seeing=0},
+            spell={hp=0,personal=0,area=0,disable=0,casters=0,level=0,seeing=0},attackers={},casters={}}
         t[id]=r
     end
     return r
 end
 
 -- The threat to each friend (the caster and its living allies), by id. Each entry has weapon
--- {hp, hits, attacks, magicalAttacks} and spell {hp, personal, area, disable, casters, level}
--- per round, and the ids of the enemies behind them.
+-- {hp, hits, attacks, magicalAttacks, seeing} and spell {hp, personal, area, disable, casters,
+-- level, seeing} per round, and the ids of the enemies behind them. seeing: the weapon hit
+-- points and the aimed spell harm (personal) that come from enemies that see invisible
+-- creatures, which invisibility does not keep away (combat-intent/defence.lua).
 function M.picture(frame)
     local out={}
     local friends=M.friends(frame)
@@ -2061,6 +2063,7 @@ function M.picture(frame)
                 r.weapon.hits=r.weapon.hits+a.apr*hit
                 r.weapon.attacks=r.weapon.attacks+a.apr
                 if a.magical then r.weapon.magicalAttacks=r.weapon.magicalAttacks+a.apr end
+                if e.seeInvisible==true then r.weapon.seeing=r.weapon.seeing+a.apr*hit*a.damage end
                 r.attackers[#r.attackers+1]=e.id
             end
             -- Spells: the friend it casts at, else spread over the friends it sees. Areas reach
@@ -2082,6 +2085,7 @@ function M.picture(frame)
                     local open=sees(e,f)
                     local personal=open and harm*M.personal or 0
                     r.spell.personal=r.spell.personal+personal
+                    if e.seeInvisible==true then r.spell.seeing=r.spell.seeing+personal end
                     r.spell.area=r.spell.area+harm*(1-M.personal)
                     r.spell.hp=r.spell.personal+r.spell.area
                     if open then r.spell.disable=math.min(0.95,r.spell.disable+weight*M.disablePerRound/#near) end
@@ -2447,7 +2451,8 @@ M.SPELL_TYPES={fire=0.3,cold=0.15,electricity=0.15,acid=0.1,magic=0.2}
 M.PHYSICAL={'slashing','crushing','piercing'}
 -- Share of spells one school makes up, for an immunity to a school.
 M.schoolShare=1/8
--- Share of attackers that do not see invisible creatures.
+-- Share of the harm from enemies that do not see invisible creatures that invisibility keeps away
+-- (areas and answers such as True Seeing still find some).
 M.unseeing=0.9
 -- A speed point of casting time is a tenth of a round.
 M.speedSeconds=0.6
@@ -2554,6 +2559,14 @@ function M.held(friend)
     return s
 end
 
+-- The share of harm invisibility keeps away: M.unseeing of what does not come from enemies that
+-- see invisible creatures (threat.picture's seeing). A friend hidden now meets only enemies that
+-- see it, so what hides it keeps nothing more away; all of it when seeing is not known.
+local function unseen(total,seeing)
+    if not number(total) or total<=0 then return M.unseeing end
+    return M.unseeing*clamp(1-(number(seeing) and seeing or 0)/total,0,1)
+end
+
 -- The share of levels 1 to top in a set, or in either of two.
 local function share(set,top,other)
     if top<1 then return 0 end
@@ -2580,8 +2593,9 @@ function M.blocks(s,t,r)
         local bonus=s.armor+(s.blur and 3 or 0)
         if bonus>0 and hit>0 then open=open*math.max(0.05,hit-0.05*bonus)/hit end
         -- Improved Invisibility lasts through attacks; plain invisibility ends with the next cast.
-        if s.improved then open=open*(1-M.unseeing)
-        elseif s.invisible then open=open*(1-M.unseeing/math.max(r,1)) end
+        local hidden=unseen(w.hp,w.seeing)
+        if s.improved then open=open*(1-hidden)
+        elseif s.invisible then open=open*(1-hidden/math.max(r,1)) end
         local physical=0
         for _,label in ipairs(M.PHYSICAL) do physical=physical+clamp((s.resist[label] or 0)/100,0,1) end
         rate=1-open*(1-physical/#M.PHYSICAL)
@@ -2594,12 +2608,13 @@ function M.blocks(s,t,r)
     local open=(1-typed)*(1-mr)*(1-clamp(s.schools*M.schoolShare,0,1))
     local area=1-open*(1-share(s.all,top))
     local personal=1-open*(1-share(s.all,top,s.personal))
-    if s.improved then personal=1-(1-personal)*(1-M.unseeing)
-    elseif s.invisible then personal=1-(1-personal)*(1-M.unseeing/math.max(r,1)) end
+    local hidden=unseen(sp.personal,sp.seeing)
+    if s.improved then personal=1-(1-personal)*(1-hidden)
+    elseif s.invisible then personal=1-(1-personal)*(1-hidden/math.max(r,1)) end
     local kinds=0
     for kind,part in pairs(M.DISABLES) do if s.covers[kind] then kinds=kinds+part end end
     local free=(1-clamp(kinds,0,1))*(1-share(s.all,top,s.personal))*(1-mr)*(1-clamp(0.05*s.saves,0,0.5))
-    if s.improved then free=free*(1-M.unseeing) end
+    if s.improved then free=free*(1-hidden) end
     return {rate=rate,pool=pool,spell=sp.personal*personal+sp.area*area,personal=personal,disable=1-free}
 end
 
@@ -4401,8 +4416,7 @@ end
 -- than rounds it can expect to live, "ja, auf jeden Fall"): the share of a slot's cost that
 -- counts now, the rounds the caster lives under the threat it sees, with what protects it now
 -- (combat-intent/defence.lua), over the copies it has ready of spells that do something in a
--- fight; 1 while it has the rounds for all of them. A spell a round: plain invisibility, which
--- ends with the next cast, counts spread over those rounds. Every spell's cost counts the share
+-- fight; 1 while it has the rounds for all of them. Every spell's cost counts the share
 -- (input.slots), an item's does not.
 function M.slotShare(input)
     local left=0
@@ -4414,7 +4428,7 @@ function M.slotShare(input)
     local caster=input.frame.self
     local t=threat.picture(input.frame)[caster.id]
     if not t then return 1 end
-    local _,rounds=defence.course(defence.held(caster),caster,t,left)
+    local _,rounds=defence.course(defence.held(caster),caster,t,1)
     if type(rounds)~='number' or rounds~=rounds then return 1 end
     return clamp(math.max(1,rounds)/left,0,1)
 end

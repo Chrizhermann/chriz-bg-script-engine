@@ -100,8 +100,7 @@ end
 -- than rounds it can expect to live, "ja, auf jeden Fall"): the share of a slot's cost that
 -- counts now, the rounds the caster lives under the threat it sees, with what protects it now
 -- (combat-intent/defence.lua), over the copies it has ready of spells that do something in a
--- fight; 1 while it has the rounds for all of them. A spell a round: plain invisibility, which
--- ends with the next cast, counts spread over those rounds. Every spell's cost counts the share
+-- fight; 1 while it has the rounds for all of them. Every spell's cost counts the share
 -- (input.slots), an item's does not.
 function M.slotShare(input)
     local left=0
@@ -113,7 +112,7 @@ function M.slotShare(input)
     local caster=input.frame.self
     local t=threat.picture(input.frame)[caster.id]
     if not t then return 1 end
-    local _,rounds=defence.course(defence.held(caster),caster,t,left)
+    local _,rounds=defence.course(defence.held(caster),caster,t,1)
     if type(rounds)~='number' or rounds~=rounds then return 1 end
     return clamp(math.max(1,rounds)/left,0,1)
 end

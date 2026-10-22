@@ -44,7 +44,8 @@ M.SPELL_TYPES={fire=0.3,cold=0.15,electricity=0.15,acid=0.1,magic=0.2}
 M.PHYSICAL={'slashing','crushing','piercing'}
 -- Share of spells one school makes up, for an immunity to a school.
 M.schoolShare=1/8
--- Share of attackers that do not see invisible creatures.
+-- Share of the harm from enemies that do not see invisible creatures that invisibility keeps away
+-- (areas and answers such as True Seeing still find some).
 M.unseeing=0.9
 -- A speed point of casting time is a tenth of a round.
 M.speedSeconds=0.6
@@ -151,6 +152,14 @@ function M.held(friend)
     return s
 end
 
+-- The share of harm invisibility keeps away: M.unseeing of what does not come from enemies that
+-- see invisible creatures (threat.picture's seeing). A friend hidden now meets only enemies that
+-- see it, so what hides it keeps nothing more away; all of it when seeing is not known.
+local function unseen(total,seeing)
+    if not number(total) or total<=0 then return M.unseeing end
+    return M.unseeing*clamp(1-(number(seeing) and seeing or 0)/total,0,1)
+end
+
 -- The share of levels 1 to top in a set, or in either of two.
 local function share(set,top,other)
     if top<1 then return 0 end
@@ -177,8 +186,9 @@ function M.blocks(s,t,r)
         local bonus=s.armor+(s.blur and 3 or 0)
         if bonus>0 and hit>0 then open=open*math.max(0.05,hit-0.05*bonus)/hit end
         -- Improved Invisibility lasts through attacks; plain invisibility ends with the next cast.
-        if s.improved then open=open*(1-M.unseeing)
-        elseif s.invisible then open=open*(1-M.unseeing/math.max(r,1)) end
+        local hidden=unseen(w.hp,w.seeing)
+        if s.improved then open=open*(1-hidden)
+        elseif s.invisible then open=open*(1-hidden/math.max(r,1)) end
         local physical=0
         for _,label in ipairs(M.PHYSICAL) do physical=physical+clamp((s.resist[label] or 0)/100,0,1) end
         rate=1-open*(1-physical/#M.PHYSICAL)
@@ -191,12 +201,13 @@ function M.blocks(s,t,r)
     local open=(1-typed)*(1-mr)*(1-clamp(s.schools*M.schoolShare,0,1))
     local area=1-open*(1-share(s.all,top))
     local personal=1-open*(1-share(s.all,top,s.personal))
-    if s.improved then personal=1-(1-personal)*(1-M.unseeing)
-    elseif s.invisible then personal=1-(1-personal)*(1-M.unseeing/math.max(r,1)) end
+    local hidden=unseen(sp.personal,sp.seeing)
+    if s.improved then personal=1-(1-personal)*(1-hidden)
+    elseif s.invisible then personal=1-(1-personal)*(1-hidden/math.max(r,1)) end
     local kinds=0
     for kind,part in pairs(M.DISABLES) do if s.covers[kind] then kinds=kinds+part end end
     local free=(1-clamp(kinds,0,1))*(1-share(s.all,top,s.personal))*(1-mr)*(1-clamp(0.05*s.saves,0,0.5))
-    if s.improved then free=free*(1-M.unseeing) end
+    if s.improved then free=free*(1-hidden) end
     return {rate=rate,pool=pool,spell=sp.personal*personal+sp.area*area,personal=personal,disable=1-free}
 end
 

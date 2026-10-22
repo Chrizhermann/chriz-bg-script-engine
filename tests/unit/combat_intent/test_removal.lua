@@ -161,6 +161,17 @@ assert(dh>0 and near(dh,0.5*removal.on(i,through,enemy(11,{wards={pfmw15},mr=50}
 -- Without the fighter, the caster's own side cannot use what opens: no worth.
 i.frame.allies={}
 assert(select(2,removal.on(i,breach,e,3))=='no-worth')
+-- An invisibility purge opens a hidden enemy to the side as far as it cannot see it: less with a
+-- fighter that sees invisible creatures, nothing when the caster sees them too.
+local hidden=enemy(11,{state=0x400000})
+i.frame.allies={fighter(2)}
+local pw=removal.on(i,purge,hidden,3)
+i.frame.allies={fighter(2,{seeInvisible=true})}
+local pw2=removal.on(i,purge,hidden,3)
+assert(pw2>0 and pw2<pw)
+i.frame.self.seeInvisible=true
+assert(select(2,removal.on(i,purge,hidden,3))=='no-worth')
+i.frame.self.seeInvisible=nil
 groups=groups+1
 
 -- 5. What a removal frees an enemy of counts against it: a dispel on an enemy the caster's side

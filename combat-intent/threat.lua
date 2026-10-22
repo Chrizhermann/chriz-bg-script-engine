@@ -87,16 +87,18 @@ local function sees(e,f) return e.seeInvisible==true or not targeting.has(f.stat
 local function entry(t,id)
     local r=t[id]
     if not r then
-        r={weapon={hp=0,hits=0,attacks=0,magicalAttacks=0},
-            spell={hp=0,personal=0,area=0,disable=0,casters=0,level=0},attackers={},casters={}}
+        r={weapon={hp=0,hits=0,attacks=0,magicalAttacks=0,seeing=0},
+            spell={hp=0,personal=0,area=0,disable=0,casters=0,level=0,seeing=0},attackers={},casters={}}
         t[id]=r
     end
     return r
 end
 
 -- The threat to each friend (the caster and its living allies), by id. Each entry has weapon
--- {hp, hits, attacks, magicalAttacks} and spell {hp, personal, area, disable, casters, level}
--- per round, and the ids of the enemies behind them.
+-- {hp, hits, attacks, magicalAttacks, seeing} and spell {hp, personal, area, disable, casters,
+-- level, seeing} per round, and the ids of the enemies behind them. seeing: the weapon hit
+-- points and the aimed spell harm (personal) that come from enemies that see invisible
+-- creatures, which invisibility does not keep away (combat-intent/defence.lua).
 function M.picture(frame)
     local out={}
     local friends=M.friends(frame)
@@ -126,6 +128,7 @@ function M.picture(frame)
                 r.weapon.hits=r.weapon.hits+a.apr*hit
                 r.weapon.attacks=r.weapon.attacks+a.apr
                 if a.magical then r.weapon.magicalAttacks=r.weapon.magicalAttacks+a.apr end
+                if e.seeInvisible==true then r.weapon.seeing=r.weapon.seeing+a.apr*hit*a.damage end
                 r.attackers[#r.attackers+1]=e.id
             end
             -- Spells: the friend it casts at, else spread over the friends it sees. Areas reach
@@ -147,6 +150,7 @@ function M.picture(frame)
                     local open=sees(e,f)
                     local personal=open and harm*M.personal or 0
                     r.spell.personal=r.spell.personal+personal
+                    if e.seeInvisible==true then r.spell.seeing=r.spell.seeing+personal end
                     r.spell.area=r.spell.area+harm*(1-M.personal)
                     r.spell.hp=r.spell.personal+r.spell.area
                     if open then r.spell.disable=math.min(0.95,r.spell.disable+weight*M.disablePerRound/#near) end
