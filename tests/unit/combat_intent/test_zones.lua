@@ -276,4 +276,32 @@ do
     assert(d and d.kind~='escape')
     groups=groups+1
 end
+
+-- 8. A storm whose explosions cast a sub-spell at each creature they hit (Spell Revisions' Ice
+-- Storm; the sub-spell has no projectile, field 1) hurts a caster under Protection from Missiles,
+-- whose immunities name arrows, bolts and the like, and breaks its casts (lab batch H6: such a
+-- mage counted the storm harmless and began summons that its explosions broke).
+do
+    local sub={kind='SPL',resref='TESTICED',name=0,flags=1024,spellType=1,exclusion=0,school=0,secondary=0,level=4,
+        casting={},abilities={{form=1,flags=0,location=2,target=1,targetCount=0,range=30,minLevel=1,speed=4,projectile=1,
+        effects={fx(12,{p2=2*65536,dice=2,sides=8,power=4})}}}}
+    local record={kind='SPL',resref='TESTICE',name=0,flags=1024,spellType=1,exclusion=0,school=0,secondary=0,level=4,
+        casting={},abilities={{form=1,flags=0,location=2,target=4,targetCount=0,range=30,minLevel=1,speed=4,projectile=98,
+        effects={fx(146,{p2=1,res='TESTICED',power=4})}}}}
+    local ice=spells.classify(record,1,function(kind,key)
+        if kind=='PRO' and key==98 then return area(256) end
+        if kind=='SPL' and key=='TESTICED' then return sub end
+    end,{level=12})
+    assert(ice.delivered[1].projectile==1)
+    local missiles={}
+    for _,p2 in ipairs({1,3,4,6,9,11,14,15,16,19,26,29,31,34,101,102,257}) do
+        missiles[#missiles+1]={opcode=83,p1=0,p2=p2}
+    end
+    local i=input({zones={zone(ice,{next=2,every=101/15})}},{protections=missiles})
+    assert(zones.hit(i,i.zones[1],i.frame.self)>0 and zones.through(i,4.8)==0)
+    -- An immunity to the storm's own projectile (entry 97) keeps it out.
+    i.frame.self.protections={{opcode=83,p1=0,p2=97}}
+    assert(zones.hit(i,i.zones[1],i.frame.self)==0 and zones.through(i,4.8)==1)
+    groups=groups+1
+end
 return groups

@@ -1567,7 +1567,12 @@ local EPSILON=1e-9
 -- the last four let effects through that pass turnings (spell.unbounced) or come through an
 -- explosion (spell.explodes). From the protected creature itself (fromSelf), turnings,
 -- deflections, traps, protections by school or secondary type and the bounce of a resource
--- stop nothing, and a globe only a hostile spell (spell.hostile). All by IESDP.
+-- stop nothing, and a globe only a hostile spell (spell.hostile). All by IESDP. Immunity (83)
+-- and bounce (197) by projectile name a PROJECTL.IDS entry, one less than the projectile field
+-- of the spell's ability (docs/learned.md); the entry of the same number is another projectile:
+-- Protection from Missiles' arrows (entry 1) are no immunity to field 1, no projectile, which
+-- the sub-spells Spell Revisions' area spells cast at each creature have (lab batch H6: a mage
+-- under it counted the party's Ice Storm harmless and began summons that its explosions broke).
 local BOUNCES={[199]=1,[200]=2,[201]=2,[259]=2}
 local BY_SCHOOL={[202]=true,[204]=true,[223]=true,[227]=true}
 local BY_SECONDARY={[203]=true,[205]=true,[226]=true,[228]=true}
@@ -1576,7 +1581,7 @@ local function stops(p,spell,fromSelf)
     local op=p.opcode
     local opcodes=type(spell.opcodes)=='table' and spell.opcodes or {}
     if op==101 or op==198 then return opcodes[p.p2]==true end
-    if op==83 or op==197 then return number(spell.projectile) and (p.p2==spell.projectile or p.p2+1==spell.projectile) end
+    if op==83 or op==197 then return number(spell.projectile) and number(p.p2) and p.p2+1==spell.projectile end
     local power=number(spell.power) and spell.power or spell.level
     if op==102 then return p.p1==power and not (fromSelf and not spell.hostile) end
     if fromSelf and (BOUNCES[op] or BY_SCHOOL[op] or BY_SECONDARY[op] or op==207) then return false end

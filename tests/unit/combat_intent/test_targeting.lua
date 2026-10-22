@@ -167,7 +167,18 @@ assert(not targeting.protected({protections={{opcode=200,p1=10,p2=3},{opcode=204
 assert(targeting.protected({protections={{opcode=207,res='TESTHOLD'}}},anyHold))
 assert(targeting.protected({protections={{opcode=206,res='TESTKIND'}}},kind,true))
 assert(targeting.protected({protections={{opcode=101,p2=17}}},kind,true))
-assert(shielded({opcode=83,p2=1})=='protected' and shielded({opcode=197,p2=2})=='protected')
+-- Projectile immunities (83) and bounces (197) name a PROJECTL.IDS entry, one less than the
+-- spell's projectile field; the entry of the same number is the neighbouring projectile. The
+-- sub-spell a storm's explosions cast at each creature has none (field 1): the arrows of
+-- Protection from Missiles (entries 1 and 3) do not stop it, an immunity to the storm's own
+-- projectile does (lab batch H6).
+assert(shielded({opcode=83,p2=1})=='protected' and shielded({opcode=197,p2=1})=='protected')
+assert(shielded({opcode=83,p2=2})=='ok' and shielded({opcode=197,p2=2})=='ok')
+local ice=spell('TESTICE',{fx(146,{p2=1,res='TESTSUB4',power=4})},{target=4,projectile=7},{level=4},nil,subs)
+assert(ice.explodes==true and ice.delivered[1].projectile==1)
+assert(not targeting.protected(enemy({protections={{opcode=83,p2=1},{opcode=83,p2=3}}}),ice))
+assert(targeting.protected(enemy({protections={{opcode=83,p2=6}}}),ice))
+assert(not targeting.protected(enemy({protections={{opcode=83,p2=7}}}),ice))
 assert(legal(enemy({protections={{opcode=205,p2=10}}}),bolt)=='protected')
 assert(legal(enemy({protections={{opcode=205,p2=10}}}),anyHold)=='ok')
 -- Unknown protections: not a replacement.
