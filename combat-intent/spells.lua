@@ -500,7 +500,13 @@ function M.abilityForLevel(record,level)
     return chosen
 end
 
-local function area(projectile)
+-- An area projectile's shape and whom it spares. One that explodes again and again (clouds and
+-- storms) also gives its explosions (the repetitions, or the caster's casting level where area
+-- flag 8 or 9 says so, IESDP; level is the level the spell is classified at), the seconds between
+-- them (every delay+1 ticks, lab batch H) and whether its first explosion reaches no one and does
+-- not count (flag 14, skip first condition). The first one goes off where it lands (lab, zone
+-- probe: Stinking Cloud's repetitions dropped from 10 to 9 on arrival).
+local function area(projectile,level)
     if type(projectile)~='table' or projectile.type~=3 then return nil end
     local flags=projectile.areaFlags or 0
     local function bit(v,n) return math.floor(v/2^n)%2==1 end
@@ -515,6 +521,13 @@ local function area(projectile)
     if bit(ext,14) then a.line=true end
     if bit(ext,15) then a.rectangle=true end
     if bit(flags,15) then a.maxTargets=average(projectile.targetDice or 0,projectile.targetSides or 0) end
+    local explosions=number(projectile.repeats) and projectile.repeats or 1
+    if bit(flags,8) or bit(flags,9) then explosions=number(level) and level or 1 end
+    if explosions>1 and number(projectile.delay) and projectile.delay>=0 then
+        a.explosions=math.floor(explosions)
+        a.every=(projectile.delay+1)/15
+        if bit(flags,14) then a.skipFirst=true end
+    end
     return a
 end
 
@@ -741,7 +754,7 @@ local function send(c,state,e,where,depth,p)
     if type(ability)~='table' then return state.miss(c,'SPL',res) end
     local to=receiver(e,where)
     if op==148 then to='point' end
-    local subArea=op~=326 and area(state.lookup('PRO',ability.projectile)) or nil
+    local subArea=op~=326 and area(state.lookup('PRO',ability.projectile),state.level) or nil
     -- What a cast delivers is checked against the receiver's spell protections by its own power,
     -- school, secondary type, hostility and projectile (326 applies effects without a cast). to:
     -- who receives it.
@@ -927,7 +940,7 @@ function M.classify(record,index,lookup,options)
     -- MISSILE.IDS, not PROJECTL.IDS), so their shape is unknown here.
     local pro=state.lookup('PRO',ability.projectile)
     if pro==nil and number(ability.projectile) and ability.projectile>1 then c.projectileUnknown=true end
-    c.area=area(pro)
+    c.area=area(pro,state.level)
     -- The spell's own effects reach creatures through an explosion (an area projectile), which
     -- turnings, deflections and traps let through (IESDP); a sub-spell's area does not count here.
     c.explodes=c.area~=nil

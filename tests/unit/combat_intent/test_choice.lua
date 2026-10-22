@@ -372,4 +372,99 @@ end
 assert(near(drink.cost,0.03) and near(cast.cost,0.09/8))
 groups=groups+1
 
+-- 18. Lasting areas (D3e; Christopher, 2026-10-23: "Ich würde eine Mischung aus A und C machen"):
+-- a storm of four explosions 101 ticks apart, each casting a sub-spell of power 4 that deals 10
+-- cold damage, lands on an enemy of 50 hit points (one explosion: 0.2). Staying, it sits through
+-- all four in the rest of the fight (36 seconds): 0.8. Walking out, it takes the first only and
+-- loses 2.8 seconds, as a hold that long. A, the cheaper of the two: 0.356; C, staying anyway as
+-- often as the group has seen it stay (a quarter before any sighting): 0.467. One that cannot walk
+-- sits through all; one asleep wakes at the first hit. The rest of the fight caps the explosions;
+-- a first explosion that reaches no one is walked away from; a deflection stops the first three;
+-- a globe keeps the storm out. An ally or the caster may stand in it when it does nothing to them.
+do
+    local function storm(proFields,subEffects)
+        local sub={kind='SPL',resref='TESTSTMD',name=0,flags=1024,spellType=1,exclusion=0,school=0,secondary=0,level=4,
+            casting={},abilities={{form=1,flags=0,location=2,target=1,targetCount=0,range=30,minLevel=1,speed=4,projectile=1,
+            effects=subEffects or {fx(12,{p1=10,p2=2*65536,power=4})}}}}
+        local pro=area(256)
+        pro.repeats,pro.delay=4,100
+        for k,v in pairs(proFields or {}) do pro[k]=v end
+        local record={kind='SPL',resref='TESTSTRM',name=0,flags=1024,spellType=1,exclusion=0,school=0,secondary=0,level=4,
+            casting={},abilities={{form=1,flags=0,location=2,target=4,targetCount=0,range=30,minLevel=1,speed=3,projectile=98,
+            effects={fx(146,{p2=1,res='TESTSTMD',power=4})}}}}
+        return spells.classify(record,1,function(kind,key)
+            if kind=='PRO' and key==98 then return pro end
+            if kind=='SPL' and key=='TESTSTMD' then return sub end
+        end,{level=12})
+    end
+    local ice=storm()
+    assert(ice.area.explosions==4 and near(ice.area.every,101/15) and not ice.area.skipFirst)
+    local function cast(s,clouds,e,fields)
+        local at=enemies(input({spells={row('TESTSTRM',s,4)},mind=mind.new({clouds=clouds})}),{e or enemy(11,{x=400,y=100})})
+        for k,v in pairs(fields or {}) do at[k]=v end
+        for _,o in ipairs(choice.options(at)) do if o.resref=='TESTSTRM' then return o end end
+    end
+    local walk=2.8/18
+    local o=cast(ice,'once')
+    assert(near(o.worth,0.2) and o.lasting==nil and near(o.expected[11],10))
+    o=cast(ice,'best')
+    assert(near(o.worth,0.2+walk) and #o.lasting==1 and near(o.expected[11],10))
+    local l=o.lasting[1]
+    assert(l.id==11 and l.stay==4 and l.leave==1 and l.q==0 and l.stopped==nil)
+    o=cast(ice,'learned')
+    assert(near(o.worth,0.25*0.8+0.75*(0.2+walk)) and near(o.lasting[1].q,0.25) and near(o.expected[11],0.25*40+0.75*10))
+    -- What the group has seen the enemy do: four explosions it stayed for, or four zones it left.
+    o=cast(ice,'learned',nil,{stays={[11]={stay=4,left=0}}})
+    assert(near(o.lasting[1].q,5/8) and near(o.worth,5/8*0.8+3/8*(0.2+walk)))
+    o=cast(ice,'learned',nil,{stays={[11]={stay=0,left=4}}})
+    assert(near(o.lasting[1].q,1/8) and near(o.worth,1/8*0.8+7/8*(0.2+walk)))
+    -- Webbed or held: all four. Asleep: the first hit wakes it.
+    for _,fields in ipairs({{rooted=true},{held=1}}) do
+        fields.x,fields.y=400,100
+        for _,mode in ipairs({'best','learned'}) do
+            o=cast(ice,mode,enemy(11,fields))
+            assert(near(o.worth,0.8) and o.lasting[1].stay==4 and o.lasting[1].leave==4)
+        end
+    end
+    o=cast(ice,'learned',enemy(11,{x=400,y=100,state=1}))
+    assert(near(o.worth,0.25*0.8+0.75*(0.2+walk)) and o.lasting[1].leave==1)
+    -- A short rest of the fight: the first explosion only.
+    o=cast(ice,'learned',nil,{mind=mind.new({fightCap=5})})
+    assert(near(o.worth,0.2) and o.lasting[1].stay==1 and o.lasting[1].leave==1)
+    -- A first explosion that reaches no one: walking out costs only the walk.
+    local late=storm({areaFlags=16384})
+    assert(late.area.skipFirst)
+    o=cast(late,'best')
+    assert(near(o.worth,walk) and o.lasting[1].stay==4 and o.lasting[1].leave==0)
+    -- Explosions 3.4 seconds apart: the second comes before the enemy, starting a second late, is out.
+    o=cast(storm({delay=50}),'best')
+    assert(near(o.worth,0.4+walk) and o.lasting[1].stay==4 and o.lasting[1].leave==2)
+    -- A deflection of 9 levels stops three explosions of power 4; one explosion finds it protected.
+    local deflected=enemy(11,{x=400,y=100,protections={{opcode=201,p1=9,p2=4}}})
+    assert(cast(ice,'once',deflected)==nil)
+    o=cast(ice,'best',deflected)
+    assert(near(o.worth,walk) and o.lasting[1].stopped==3)
+    o=cast(ice,'learned',deflected)
+    assert(near(o.worth,0.25*0.2+0.75*walk))
+    assert(cast(ice,'learned',enemy(11,{x=400,y=100,protections={{opcode=102,p1=4}}}))==nil)
+    -- A hold that sticks 19 times in 20 is worth more over four explosions than the walk out.
+    local stuck=storm(nil,{fx(175,{p2=3,p1=1,duration=30,save=1,power=4})})
+    o=cast(stuck,'best')
+    assert(o.kind=='disable' and near(o.worth,1-0.05^4))
+    -- An ally or the caster in the storm: only when it does nothing to them (a globe).
+    local at=enemies(input({spells={row('TESTSTRM',ice,4)}}),{enemy(11,{x=400,y=100})})
+    at.frame.allies={{id=2,x=400,y=110,hp=10,maxHp=10,state=0}}
+    local _,_,_,why=choice.decide(at)
+    assert(why['ally-in-area']==1)
+    at.frame.allies[1].protections={{opcode=102,p1=4}}
+    assert(choice.decide(at).resref=='TESTSTRM')
+    at.frame.allies={}
+    at.frame.self.x=300
+    _,_,_,why=choice.decide(at)
+    assert(why['caster-in-area']==1)
+    at.frame.self.protections={{opcode=102,p1=4}}
+    assert(choice.decide(at).resref=='TESTSTRM')
+end
+groups=groups+1
+
 return groups

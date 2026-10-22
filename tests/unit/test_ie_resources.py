@@ -99,6 +99,7 @@ def build_pro(kind):
     data[0x4C:0x54] = ref('ok')
     if kind == 3:
         struct.pack_into('<HHHH', data, 0x200, 0x11, 8, 2, 300)
+        struct.pack_into('<H', data, 0x210, 75)
         struct.pack_into('<H', data, 0x214, 7)
         data[0x216] = 3
         struct.pack_into('<H', data, 0x21A, 12)
@@ -254,7 +255,7 @@ def test_eff_v2():
 def test_pro_area_keys_only_for_type_3():
     base = {'kind', 'resref', 'type', 'speed', 'flags', 'width', 'extFlags', 'creatureValue1',
             'creatureType1', 'creatureValue2', 'creatureType2', 'defaultSpell', 'successSpell'}
-    area = {'areaFlags', 'rayCount', 'trigger', 'radius', 'secondary', 'repeats',
+    area = {'areaFlags', 'rayCount', 'trigger', 'radius', 'delay', 'secondary', 'repeats',
             'explosionProjectile', 'coneWidth', 'extAreaFlags', 'targetDice', 'targetSides'}
     plain = ie.parse_pro(build_pro(2), 'fireball')
     assert set(plain) == base and plain['resref'] == 'FIREBALL'
@@ -263,7 +264,7 @@ def test_pro_area_keys_only_for_type_3():
     big = ie.parse_pro(build_pro(3), 'fireball')
     assert set(big) == base | area
     assert (big['areaFlags'], big['rayCount'], big['trigger'], big['radius']) == (0x11, 8, 2, 300)
-    assert (big['secondary'], big['repeats'], big['explosionProjectile']) == (7, 3, 12)
+    assert (big['delay'], big['secondary'], big['repeats'], big['explosionProjectile']) == (75, 7, 3, 12)
     assert (big['coneWidth'], big['extAreaFlags'], big['targetDice'], big['targetSides']) == (
         90, 0x55, 2, 6)
 

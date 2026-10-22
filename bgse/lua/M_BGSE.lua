@@ -889,7 +889,13 @@ function M.abilityForLevel(record,level)
     return chosen
 end
 
-local function area(projectile)
+-- An area projectile's shape and whom it spares. One that explodes again and again (clouds and
+-- storms) also gives its explosions (the repetitions, or the caster's casting level where area
+-- flag 8 or 9 says so, IESDP; level is the level the spell is classified at), the seconds between
+-- them (every delay+1 ticks, lab batch H) and whether its first explosion reaches no one and does
+-- not count (flag 14, skip first condition). The first one goes off where it lands (lab, zone
+-- probe: Stinking Cloud's repetitions dropped from 10 to 9 on arrival).
+local function area(projectile,level)
     if type(projectile)~='table' or projectile.type~=3 then return nil end
     local flags=projectile.areaFlags or 0
     local function bit(v,n) return math.floor(v/2^n)%2==1 end
@@ -904,6 +910,13 @@ local function area(projectile)
     if bit(ext,14) then a.line=true end
     if bit(ext,15) then a.rectangle=true end
     if bit(flags,15) then a.maxTargets=average(projectile.targetDice or 0,projectile.targetSides or 0) end
+    local explosions=number(projectile.repeats) and projectile.repeats or 1
+    if bit(flags,8) or bit(flags,9) then explosions=number(level) and level or 1 end
+    if explosions>1 and number(projectile.delay) and projectile.delay>=0 then
+        a.explosions=math.floor(explosions)
+        a.every=(projectile.delay+1)/15
+        if bit(flags,14) then a.skipFirst=true end
+    end
     return a
 end
 
@@ -1130,7 +1143,7 @@ local function send(c,state,e,where,depth,p)
     if type(ability)~='table' then return state.miss(c,'SPL',res) end
     local to=receiver(e,where)
     if op==148 then to='point' end
-    local subArea=op~=326 and area(state.lookup('PRO',ability.projectile)) or nil
+    local subArea=op~=326 and area(state.lookup('PRO',ability.projectile),state.level) or nil
     -- What a cast delivers is checked against the receiver's spell protections by its own power,
     -- school, secondary type, hostility and projectile (326 applies effects without a cast). to:
     -- who receives it.
@@ -1316,7 +1329,7 @@ function M.classify(record,index,lookup,options)
     -- MISSILE.IDS, not PROJECTL.IDS), so their shape is unknown here.
     local pro=state.lookup('PRO',ability.projectile)
     if pro==nil and number(ability.projectile) and ability.projectile>1 then c.projectileUnknown=true end
-    c.area=area(pro)
+    c.area=area(pro,state.level)
     -- The spell's own effects reach creatures through an explosion (an area projectile), which
     -- turnings, deflections and traps let through (IESDP); a sub-spell's area does not count here.
     c.explodes=c.area~=nil
@@ -1934,6 +1947,11 @@ M.default={
     -- Seconds the rest of a fight counts for at most (combat-intent/threat.lua, M.rest): a summons
     -- fights over the rest of the fight, as both sides' strength makes it.
     fightCap=60,
+    -- The caster's own clouds and storms (combat-intent/choice.lua): 'learned' counts the
+    -- explosions each enemy is expected to sit through, by the cheaper of staying and walking out
+    -- and by what the group has seen it do in clouds; 'best' only by the cheaper choice; 'once'
+    -- counts one explosion.
+    clouds='learned',
 }
 
 local function share(v) return type(v)=='number' and v==v and v>=0 and v<=1 end
@@ -1952,7 +1970,8 @@ local CHECKS={coordination=share,best=share,band=share,economy=amount,minValue=a
     touch=function(v) return type(v)=='boolean' end,
     weapons=function(v) return type(v)=='boolean' end,
     memory=function(v) return type(v)=='boolean' end,
-    knowledge=function(v) return v=='scs' end}
+    knowledge=function(v) return v=='scs' end,
+    clouds=function(v) return v=='learned' or v=='best' or v=='once' end}
 
 local function copy(t)
     local c={}
@@ -4149,11 +4168,13 @@ function M.active(input)
         type(input.frame)=='table' and type(input.frame.self)=='table' and openers.ownStop(input)==nil
 end
 function M.inside(z,p,margin) return targeting.distance(z,p)<=z.radius+(margin or 0) end
--- Whether z's explosions reach the caster's side: a zone for its caster's enemies spares a
--- friend's side, one for its caster's allies spares an enemy's.
-function M.reachesSide(z)
-    if z.filter=='enemies' then return z.side~='friend' end
-    if z.filter=='allies' then return z.side~='enemy' end
+-- Whether z's explosions reach the caster's side, or with theirs its enemies' side: a zone for
+-- its caster's enemies spares that caster's side, one for its caster's allies spares the other.
+function M.reachesSide(z,theirs)
+    local side=z.side
+    if theirs then side=side=='friend' and 'enemy' or side=='enemy' and 'friend' or side end
+    if z.filter=='enemies' then return side~='friend' end
+    if z.filter=='allies' then return side~='enemy' end
     return true
 end
 
@@ -4184,9 +4205,10 @@ end
 -- What one explosion of z does to friend f inside it once it gets through, on the attack's
 -- scale: its damage, its disable and its conditions, by f's own view of the spell's conditions
 -- (undead and the like); nothing when z spares f's side or a spell protection keeps z out. Also
--- how many of z's next explosions f's protections stop first (stopped).
-function M.hit(input,z,f)
-    if not M.reachesSide(z) then return 0,0 end
+-- how many of z's next explosions f's protections stop first (stopped). With theirs, f is one of
+-- the caster's enemies.
+function M.hit(input,z,f,theirs)
+    if not M.reachesSide(z,theirs) then return 0,0 end
     local roles=spells.view(z.spell,targeting.holds(f))
     if type(roles)~='table' then return 0,0 end
     local first=stopped(f,z)
@@ -4375,7 +4397,8 @@ function M.explain(input,cast)
 end
 
 -- Whether f cannot walk: held, disabled, webbed or entangled.
-local function rooted(f) return f.rooted==true or targeting.disabled(f) end
+function M.rooted(f) return f.rooted==true or targeting.disabled(f) end
+local rooted=M.rooted
 
 -- Whether a zone hurts the caster where it stands.
 function M.harmed(input)
@@ -4520,6 +4543,21 @@ factories["combat-intent.choice"]=function(require)
 -- walking to its target and standing there does in them. A way out of a zone that hurts the
 -- caster comes first when what leaving is worth beats the share of a round the walk takes from
 -- the best other choice.
+--
+-- Lasting areas (D3e; Christopher, 2026-10-23: "Ich würde eine Mischung aus A und C machen"): a
+-- cloud or storm of the caster's own counts the explosions each enemy inside is expected to sit
+-- through, not one. The first goes off where it lands (unless the projectile skips it), the next
+-- every few seconds while it lasts; one that Spell Revisions' clouds make immune to them for a
+-- while is hit when that wears off (combat-intent/zones.lua, period). Only explosions in the rest
+-- of the fight count (combat-intent/threat.lua, rest), the first always, and those the enemy's
+-- turnings, deflections and traps stop come first. An enemy that cannot walk sits through all of
+-- them. Any other takes the cheaper of staying and walking out (A): out, it takes the explosions
+-- until it is out, starting M.react seconds after the landing, and loses the walk's seconds as a
+-- hold of that length. Some enemies stay anyway (C): the chance an enemy stays is what the group
+-- has seen it do in zones that hurt it (input.stays: the explosions it stayed for and the zones it
+-- left, adapters/eeex/choice.lua), from M.stayPrior worth M.stayWeight sightings. An ally or the
+-- caster may stand in the caster's own area when the area does nothing to it. The profile's
+-- clouds switch: 'learned', 'best' (A alone) or 'once' (one explosion, as before).
 local targeting=require('combat-intent.targeting')
 local harm=require('combat-intent.harm')
 local defence=require('combat-intent.defence')
@@ -4555,6 +4593,11 @@ local OTHER={'removal','heal','raise','cure','summon'}
 local GLOBAL={everyone=true,nonparty=true,casterGroup=true,party=true}
 -- GENDER.IDS: SUMMONED, ILLUSIONARY, SUMMONED_DEMON.
 M.SUMMONED=removal.SUMMONED
+-- Lasting areas: the seconds an enemy takes to start walking out of a fresh cloud, and the chance
+-- it stays before the group has seen it in one, worth this many sightings.
+M.react=1
+M.stayPrior=0.25
+M.stayWeight=4
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
 local function clamp(v,a,b) if v<a then return a elseif v>b then return b end return v end
@@ -4631,13 +4674,16 @@ local function aimable(caster,e,spell)
     return true
 end
 -- What the spell does to e, or nil and why it does not work on e: its roles for e's kind of
--- creature (spells.view) must hold the attack, and e's spell protections must not stop it.
-local function affects(spell,e,kind)
+-- creature (spells.view) must hold the attack, and e's spell protections must not stop it. A
+-- lasting area gets through once the turnings, deflections and traps that count down are spent.
+local function affects(spell,e,kind,lasting)
     local roles,key=spells.view(spell,targeting.holds(e))
     if type(roles)~='table' or not reaches(roles[kind]) then
         return nil,type(key)=='string' and key:find('?',1,true) and 'unknown-filter' or 'filter'
     end
-    if targeting.protected(e,spell) then return nil,'protected' end
+    if lasting then
+        if targeting.stopped(e,spell)==math.huge then return nil,'protected' end
+    elseif targeting.protected(e,spell) then return nil,'protected' end
     return roles
 end
 
@@ -4723,13 +4769,111 @@ local function stripped(input,spell,e)
     return (removal.on(input,spell,e,math.max(0,horizon-cast)/removal.ROUND))
 end
 
+-- Lasting areas (see the top). Whether the spell's area is one the profile counts by its
+-- explosions.
+local function lastingArea(input,spell)
+    local a=spell.area
+    return input.mind.clouds~='once' and type(a)=='table' and number(a.explosions) and a.explosions>1 and
+        number(a.every) and a.every>0 or false
+end
+-- The hits of a schedule (the first at first seconds after the landing, then one every step up
+-- to the last explosion) during [from, to].
+local function hitsIn(first,step,last,from,to)
+    to=math.min(to,last)
+    if to<from then return 0 end
+    local lo=math.max(0,math.ceil((from-first)/step-1e-9))
+    local hi=math.floor((to-first)/step+1e-9)
+    return math.max(0,hi-lo+1)
+end
+-- Whether e cannot walk out of a cloud (zones.rooted), unless it only sleeps and the cloud's
+-- damage wakes it.
+local SLEEP=targeting.STATE.sleeping
+local function stuck(e,damages)
+    if not zones.rooted(e) then return false end
+    if damages and e.rooted~=true and not (number(e.held) and e.held>0) and targeting.has(e.state,SLEEP) and
+        not targeting.has(e.state,targeting.DISABLED-SLEEP) then return false end
+    return true
+end
+-- The chance e stays in a cloud that hurts it: what the group has seen, after the prior.
+local function stayChance(input,e)
+    local s=type(input.stays)=='table' and input.stays[e.id] or nil
+    local stay=type(s)=='table' and number(s.stay) and s.stay>0 and s.stay or 0
+    local left=type(s)=='table' and number(s.left) and s.left>0 and s.left or 0
+    return (M.stayPrior*M.stayWeight+stay)/(M.stayWeight+stay+left)
+end
+-- role with n times its amounts: the damage of n explosions together.
+local function times(role,n)
+    local r={}
+    for k,v in pairs(role) do r[k]=v end
+    r.types={}
+    for label,v in pairs(type(role.types)=='table' and role.types or {}) do r.types[label]=number(v) and v*n or v end
+    if number(role.percent) then r.percent=role.percent*n end
+    return r
+end
+-- The share of casts of role that land on e and hold: magic resistance, the saving throw and the
+-- effect's own chance.
+local function sticks(role,e)
+    return landing(role,e)*(1-M.saveChance(role,e))*clamp(number(role.chance) and role.chance or 1,0,1)
+end
+-- What a lasting area is worth on e inside it at center: the worth of its kind of attack over the
+-- explosions e is expected to sit through, the hit points it is expected to take, and for the log
+-- how many it would sit through staying and walking out and the chance it stays. ctx keeps the
+-- rest of the fight for one choice.
+local function lastingOn(input,row,spell,kind,roles,e,center,ctx)
+    local a=spell.area
+    local caster=input.frame.self
+    local every=a.every
+    local step=every*math.max(1,math.ceil(zones.period({every=every,spell=spell})/every-1e-9))
+    local first=a.skipFirst and every or 0
+    local last=first+(a.explosions-1)*every
+    ctx.rest=ctx.rest or threat.rest(input.frame,number(input.mind.fightCap) and input.mind.fightCap or 60)
+    local cast=(number(spell.speed) and spell.speed or 0)*zones.speedSeconds+(number(caster.aura) and caster.aura>0 and caster.aura or 0)
+    local upto=math.max(first,ctx.rest-cast)
+    local stay=hitsIn(first,step,last,0,upto)
+    local leave,walk=stay,0
+    if not stuck(e,reaches(roles.damage)) then
+        local speed=number(e.speed) and e.speed>0 and e.speed or zones.walkSpeed
+        walk=math.max(0,a.radius-targeting.distance(a.cone and caster or center,e)+zones.margin)/speed
+        leave=hitsIn(first,step,last,0,math.min(upto,M.react+walk))
+    end
+    local stopped=targeting.stopped(e,spell)
+    local function over(n)
+        n=n-stopped
+        if n<=0 then return 0,0 end
+        if kind=='damage' then return damageOn(input,row,times(roles.damage,n),e) end
+        local c=math.min(1,sticks(roles.disable,e))
+        if c<=0 then return 0,0 end
+        return disableOn(input,row,roles.disable,e)*(1-(1-c)^n)/c,0
+    end
+    local ws,hs=over(stay)
+    local wl,hl=over(leave)
+    if walk>0 then wl=wl+walk/M.fullSeconds*(0.5+0.5*targeting.health(e)) end
+    local q=input.mind.clouds=='best' and 0 or stayChance(input,e)
+    local wb,hb=ws,hs
+    if wl<ws then wb,hb=wl,hl end
+    return q*ws+(1-q)*wb,q*hs+(1-q)*hb,{id=e.id,stay=stay,leave=leave,q=q,stopped=stopped>0 and stopped or nil}
+end
+-- Whether an area of the caster's own does nothing to friend f in it (the caster or an ally): its
+-- spell protections stop every explosion, or the spell's roles for f's kind of creature, judged
+-- on all their conditions, hold no damage, disable or condition that gets through (zones.hit
+-- weighs it as it would a zone around f).
+local function spared(input,spell,f)
+    if type(f)~='table' then return false end
+    local worth,first=zones.hit(input,{spell=spell,side='friend',filter=spell.area.filter},f)
+    if first>=(number(spell.area.explosions) and spell.area.explosions or 1) then return true end
+    local _,key=spells.view(spell,targeting.holds(f))
+    if type(key)~='string' or key:find('?',1,true) then return false end
+    return worth<=0
+end
+
 -- One option: the spell aimed at a creature or a point, its worth, cost and score, or nil
--- and why it is no option.
-local function evaluate(input,row,spell,kind,mode,aim)
+-- and why it is no option. ctx keeps what one choice works out once (the rest of the fight).
+local function evaluate(input,row,spell,kind,mode,aim,ctx)
     local frame=input.frame
     local caster=frame.self
     local a=spell.area
     local worth,hits,slack,expected=0,{},0,{}
+    local sat
     if mode=='creature' then
         local e=aim.enemy
         local roles,why=affects(spell,e,kind)
@@ -4752,25 +4896,31 @@ local function evaluate(input,row,spell,kind,mode,aim)
             local inside,near=shape(spell,caster,center,aim.point)
             if a.filter~='enemies' then
                 for _,ally in ipairs(type(frame.allies)=='table' and frame.allies or {}) do
-                    if targeting.alive(ally) and near(ally) then return nil,'ally-in-area' end
+                    if targeting.alive(ally) and near(ally) and not spared(input,spell,ally) then return nil,'ally-in-area' end
                 end
-                -- A cone starts at the caster; any other area must keep it out.
+                -- A cone starts at the caster; any other area must keep it out, unless it does
+                -- nothing to the caster.
                 if not a.cone then
-                    if mode=='self-area' then
-                        if not a.skipsCenter then return nil,'caster-in-area' end
-                    elseif near(caster) then return nil,'caster-in-area' end
+                    local within
+                    if mode=='self-area' then within=not a.skipsCenter else within=near(caster) end
+                    if within and not spared(input,spell,caster) then return nil,'caster-in-area' end
                 end
             end
+            local lasting=lastingArea(input,spell)
+            if lasting then sat={} end
             -- How far the nearest hit enemy is from the area's edge: an area that holds its
             -- enemies well inside still hits them after a step.
             slack=math.huge
             for _,e in ipairs(frame.enemies) do
-                local roles=targeting.alive(e) and inside(e) and affects(spell,e,kind)
+                local roles=targeting.alive(e) and inside(e) and affects(spell,e,kind,lasting)
                 if roles then
-                    local w,hp=worthOn(input,row,kind,roles,e)
+                    local w,hp,seen
+                    if lasting then w,hp,seen=lastingOn(input,row,spell,kind,roles,e,center,ctx)
+                    else w,hp=worthOn(input,row,kind,roles,e) end
                     w=w+stripped(input,spell,e)
                     if w>0 then
                         worth=worth+w;hits[#hits+1]=e.id;expected[e.id]=hp
+                        if seen then sat[#sat+1]=seen end
                         slack=math.min(slack,a.radius-targeting.distance(a.cone and caster or center,e))
                     end
                 end
@@ -4784,6 +4934,7 @@ local function evaluate(input,row,spell,kind,mode,aim)
     local option={resref=row.resref,kind=kind,mode=mode,worth=worth,cost=cost,score=worth-cost,hits=hits,slack=slack,
         speed=number(spell.speed) and spell.speed or 0,release=spell.release or nil}
     if kind=='damage' then option.expected=expected end
+    if sat and #sat>0 then option.lasting=sat end
     if aim.enemy and (mode=='creature' or mode=='creature-area') then option.target=aim.enemy.id
     elseif mode=='point-area' then option.point={x=math.floor(aim.point.x+0.5),y=math.floor(aim.point.y+0.5)}
     elseif mode=='self-area' then option.self=true
@@ -4999,7 +5150,7 @@ end
 -- optional) counts why the ready attack spells gave none: out-of-reach (no enemy in range), or
 -- evaluate's reason per aim.
 function M.options(input,rejected)
-    local out={}
+    local out,ctx={},{}
     local function reject(why) if rejected then rejected[why]=(rejected[why] or 0)+1 end end
     for _,row in ipairs(type(input.spells)=='table' and input.spells or {}) do
         if type(row)=='table' and number(row.ready) and row.ready>0 and row.usable then
@@ -5018,7 +5169,7 @@ function M.options(input,rejected)
                 local list=aims(input,spell,mode)
                 if #list==0 then reject('out-of-reach') end
                 for _,aim in ipairs(list) do
-                    local option,why=evaluate(input,row,spell,kind,mode,aim)
+                    local option,why=evaluate(input,row,spell,kind,mode,aim,ctx)
                     if option then
                         local key=tostring(option.target)..':'..(option.point and option.point.x..','..option.point.y or '')
                         if not seen[key] then
@@ -5658,7 +5809,7 @@ local function pro(v,resref)
     if kind==3 then
         if v.size<0x24C then fail('area projectile truncated') end
         r.areaFlags=v.u16(0x200);r.rayCount=v.u16(0x202);r.trigger=v.u16(0x204)
-        r.radius=v.u16(0x206);r.secondary=v.u16(0x214);r.repeats=v.u8(0x216)
+        r.radius=v.u16(0x206);r.delay=v.u16(0x210);r.secondary=v.u16(0x214);r.repeats=v.u8(0x216)
         r.explosionProjectile=v.u16(0x21A);r.coneWidth=v.u16(0x224)
         r.extAreaFlags=v.u32(0x240);r.targetDice=v.u16(0x244);r.targetSides=v.u16(0x246)
     end
@@ -5835,8 +5986,8 @@ local function name(field)
 end
 
 -- The plain facts every frame carries for one creature: also its armour class, the creature
--- its current action is aimed at (-1 for none), its Stoneskin skins and Mirror Images, and the
--- levels drained from it.
+-- its current action is aimed at (-1 for none), its Stoneskin skins and Mirror Images, the
+-- levels drained from it, and whether it is webbed or entangled (rooted: it cannot walk).
 function M.actor(g,sprite)
     local state=g.EEex_Sprite_GetState(sprite)
     local action=sprite.m_curAction
@@ -5847,7 +5998,8 @@ function M.actor(g,sprite)
         hp=sprite.m_baseStats.m_hitPoints,maxHp=stat(g,sprite,M.stats.maxHp),
         mr=stat(g,sprite,M.stats.mr),action=action.m_actionID,ac=stat(g,sprite,M.combat.ac),
         actee=type(actee)=='number' and actee or -1,skins=stat(g,sprite,M.combat.stoneskins),
-        mirror=type(mirror)=='number' and mirror or 0,drained=stat(g,sprite,M.stats.levelDrain)}
+        mirror=type(mirror)=='number' and mirror or 0,drained=stat(g,sprite,M.stats.levelDrain),
+        rooted=stat(g,sprite,M.stats.entangle)>0 or stat(g,sprite,M.stats.web)>0}
 end
 -- A creature's THAC0 with its right-hand and general hit bonuses (as M.attack counts it).
 function M.thac0(g,sprite)
@@ -6787,6 +6939,9 @@ M.moveGrace=8
 M.moveMargin=30
 -- Game ticks a second, for the projectile's counters (lab batch H measured 15.00).
 M.ticksPerSecond=15
+-- Ticks between two looks at what enemies do in the zones of an area (a third of a second; zones
+-- explode a second or more apart).
+M.lookTicks=5
 -- The casting aura of a creature's last cast counts from 0 at the cast's start to about 99, then
 -- reads -1 (docs/learned.md, section 2); a cast queued meanwhile starts casting when it frees.
 M.auraTicks=100
@@ -6879,7 +7034,10 @@ function M.new(g,options)
     -- read at a tick; zoneSpells: each zone's classification by object id (false when it cannot be
     -- classified); zoneBroken: zones could not be read at all this session.
     local moves,zoneRead,zoneSpells,zoneSpellCount,zoneBroken={},nil,{},0,false
-    local counts={escapes=0,escaped=0,unescaped=0,zoneFailures=0,decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
+    -- stays and insideOf: what the group has seen its enemies do in zones (look); lookedAt: the
+    -- tick each area was last looked at.
+    local stays,stayCount,insideOf,insideCount,lookedAt={},0,{},0,{}
+    local counts={escapes=0,escaped=0,unescaped=0,zoneFailures=0,stayed=0,left=0,decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
         hits=0,misses=0,errors=0,holds=0,frozen=0,marks=0,markFailures=0,defences=0,guarded=0,unguarded=0,
         guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0,arms=0,attacks=0,attackHits=0,
         weaponFailures=0,releases=0,heals=0,cures=0,potions=0,cared=0,uncared=0,summons=0,conjured=0,
@@ -7314,13 +7472,14 @@ function M.new(g,options)
             record({kind='error',where=where,error=zoneError})
         end
     end
-    -- The zones of the creature's area at tick, read once a tick for each area (sense.zones).
+    -- The zones of the creature's area at tick, read once a tick for each area (sense.zones), and
+    -- the area's resref.
     local function zoneList(sprite,tick)
         if not zonesReady() then return {} end
         local area=sprite.m_pArea
         if area==nil then return {} end
         local key=text(area.m_resref:get())
-        if zoneRead and zoneRead.tick==tick and zoneRead.area==key then return zoneRead.list end
+        if zoneRead and zoneRead.tick==tick and zoneRead.area==key then return zoneRead.list,key end
         local ok,list,bad,last=pcall(sense.zones,g,area,tick)
         if not ok then
             zoneBroken=true;zoneFailed('zones',list)
@@ -7328,7 +7487,7 @@ function M.new(g,options)
         end
         if bad>0 then zoneFailed('zone',last) end
         zoneRead={tick=tick,area=key,list=list}
-        return list
+        return list,key
     end
     -- What one explosion of a zone delivers, classified once by its object id. The first time, a
     -- 'zone' row keeps what was read of it and whether it could be classified.
@@ -7377,12 +7536,77 @@ function M.new(g,options)
                 local every=(z.delay+1)*tick
                 local soon=z.counter>=0 and z.counter<=z.delay and (z.counter+1)*tick or nil
                 out[#out+1]={id=z.id,x=z.x,y=z.y,radius=z.radius,every=every,next=soon,
-                    left=(soon or every)+(z.repeats-1)*every+tick,
+                    left=(soon or every)+(z.repeats-1)*every+tick,repeats=z.repeats,
                     side=zoneSide(z,frame),filter=type(c.area)=='table' and c.area.filter or 'all',spell=c,resref=z.resref,
                     source=z.source}
             end
         end
         return out
+    end
+    -- Lasting areas (combat-intent/choice.lua): what the group has seen each enemy do in zones that
+    -- hurt it, by object id: the explosions it stayed for and the zones it left. insideOf, by zone
+    -- object id: the area it lies in and each enemy last seen inside it while it hurt the enemy and
+    -- the enemy could walk, with the zone's explosions left then. Both live only in this session.
+    local function tally(id,what,n)
+        local s=stays[id]
+        if not s then
+            if stayCount>=M.cacheLimit then stays,stayCount={},0 end
+            s={stay=0,left=0};stays[id]=s;stayCount=stayCount+1
+        end
+        s[what]=s[what]+n
+        if what=='stay' then counts.stayed=counts.stayed+n else counts.left=counts.left+n end
+    end
+    -- Forgets the zones of area that are gone (not in present).
+    local function forget(area,present)
+        for id,v in pairs(insideOf) do
+            if v.area==area and not present[id] then insideOf[id]=nil;insideCount=insideCount-1 end
+        end
+    end
+    -- What the creature sees its enemies do in the zones of its area, at most once every lookTicks
+    -- for each area: an enemy inside a zone that hurts it (zones.hit, with its marks for the zones'
+    -- SPLPROT conditions, the creature as the other creature) and able to walk stayed for each
+    -- explosion since it was last seen inside, and left the zone when next seen outside while the
+    -- zone is still there. Fair play: only enemies the creature perceives count.
+    local function look(sprite,tick,family)
+        local raw,area=zoneList(sprite,tick)
+        if not area or (lookedAt[area] and tick>=lookedAt[area] and tick-lookedAt[area]<M.lookTicks) then return end
+        lookedAt[area]=tick
+        if #raw==0 then forget(area,{});return end
+        local frame=sense.frame(g,sprite,tick,true)
+        if not frame or sense.side(frame.self.ea)~='evil' or #frame.enemies==0 then return end
+        local list=zonesFor(frame,raw)
+        local wanted={}
+        for _,z in ipairs(list) do spells.rows(z.spell,wanted) end
+        if next(wanted)~=nil then
+            local _,bad,last=sense.splprot(g,sprite,frame,wanted)
+            if bad>0 then zoneFailed('zone-splprot',last) end
+        end
+        local input={tick=tick,family=family,frame=frame,zones=list,mind=mindFor(sprite,family)}
+        local present={}
+        for _,z in ipairs(list) do
+            present[z.id]=true
+            local inside=insideOf[z.id]
+            for _,e in ipairs(frame.enemies) do
+                if type(e)=='table' and e.id~=nil and targeting.alive(e) then
+                    local was=inside and inside.who[e.id]
+                    if zones.rooted(e) then
+                        if was then inside.who[e.id]=nil end
+                    elseif zones.inside(z,e) then
+                        if zones.hit(input,z,e,true)>0 then
+                            if was and z.repeats<was then tally(e.id,'stay',was-z.repeats) end
+                            if not inside then
+                                if insideCount>=M.cacheLimit then insideOf,insideCount={},0 end
+                                inside={area=area,who={}};insideOf[z.id]=inside;insideCount=insideCount+1
+                            end
+                            inside.who[e.id]=z.repeats
+                        end
+                    elseif was then
+                        tally(e.id,'left',1);inside.who[e.id]=nil
+                    end
+                end
+            end
+        end
+        forget(area,present)
     end
     -- For the choice record: the zones around the caster as the choice weighed them for its cast
     -- (zones.explain), nil without any.
@@ -7399,15 +7623,13 @@ function M.new(g,options)
         end
         return false
     end
-    -- What zones weigh about the caster itself: its saves, resistances, protections and IDS values,
-    -- whether it is webbed or entangled, and its marks for the SPLPROT conditions of the zones'
-    -- spells (as their receiver, with the zone's caster as the other creature).
+    -- What zones weigh about the caster itself: its saves, resistances, protections and IDS values
+    -- (whether it is webbed or entangled comes with every frame), and its marks for the SPLPROT
+    -- conditions of the zones' spells (as their receiver, with the zone's caster as the other
+    -- creature).
     local function ready(sprite,frame,list)
         local self=frame.self
-        local ok,err=pcall(function()
-            sense.details(g,sprite,self)
-            self.rooted=g.EEex_Sprite_GetStat(sprite,sense.stats.entangle)>0 or g.EEex_Sprite_GetStat(sprite,sense.stats.web)>0
-        end)
+        local ok,err=pcall(sense.details,g,sprite,self)
         if not ok then zoneFailed('zone-self',err) end
         for _,z in ipairs(list) do
             local wanted={}
@@ -7557,6 +7779,8 @@ function M.new(g,options)
         local sprite=get(id)
         if not sprite then return decline('no-sprite') end
         judge(tick)
+        local looked,lookError=pcall(look,sprite,tick,family)
+        if not looked then zoneFailed('zone-look',lookError) end
         local p=pending[id]
         if p then
             -- A cast queued while the casting aura (the round of the creature's last cast) runs
@@ -7685,7 +7909,7 @@ function M.new(g,options)
         local holder,left=timeStop()
         local input={tick=tick,family=family,frame=frame,spells=rows,items=carried,lastDefence=lastDefence[id],
             plan=director and director:plan(id,tick) or {},memory=memory[id] or {},mind=mindFor(sprite,family),rng=rng,
-            creatures=summoned(rows)}
+            creatures=summoned(rows),stays=stays}
         -- The zones in the area, with what they weigh about the caster itself.
         local raw=zoneList(sprite,tick)
         local seen={}
@@ -7733,7 +7957,7 @@ function M.new(g,options)
             focus=input.plan.focus,rule=d.rule,stop=input.timeStop and input.timeStop.left or nil,
             alacrity=frame.self.alacrity or nil,release=d.release,use=d.use,creatures=d.creatures,count=d.count,
             rest=d.rest,slots=input.slots,finish=d.finish,aura=frame.self.aura~=0 and frame.self.aura or nil,
-            inZones=zoneView(input,d)})
+            inZones=zoneView(input,d),lasting=d.lasting})
         -- A disable claims its targets in the group at once, so that another member deciding
         -- before this cast starts leaves them alone; any other decision gives earlier claims back.
         if director then
@@ -7956,7 +8180,8 @@ function M.new(g,options)
             pending=open,running=busy,judging=#judging,remembered=remembered,log=rows,lastError=lastError or false,
             markError=markError or false,guardError=guardError or false,weaponError=weaponError or false,
             wardError=wardError or false,zoneError=zoneError or false,moving=(function()
-                local n=0;for _ in pairs(moves) do n=n+1 end;return n end)()}
+                local n=0;for _ in pairs(moves) do n=n+1 end;return n end)(),stays=(function()
+                local c={};for id,s in pairs(stays) do c[id]={stay=s.stay,left=s.left} end;return c end)()}
     end
     return api
 end

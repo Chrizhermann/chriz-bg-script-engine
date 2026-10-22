@@ -354,6 +354,7 @@ def parse_pro(data, resref):
         record.update({
             'areaFlags': _unpack('<H', data, 0x200)[0], 'rayCount': _unpack('<H', data, 0x202)[0],
             'trigger': _unpack('<H', data, 0x204)[0], 'radius': _unpack('<H', data, 0x206)[0],
+            'delay': _unpack('<H', data, 0x210)[0],
             'secondary': _unpack('<H', data, 0x214)[0], 'repeats': data[0x216],
             'explosionProjectile': _unpack('<H', data, 0x21A)[0],
             'coneWidth': _unpack('<H', data, 0x224)[0],

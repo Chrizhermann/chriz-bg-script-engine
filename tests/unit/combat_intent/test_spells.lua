@@ -58,6 +58,28 @@ c=classify(fireball,world({['PRO:99']=pro({areaFlags=64})}))
 assert(c.area.filter=='enemies' and not c.friendlyFire)
 groups=groups+1
 
+-- An area that explodes again and again (clouds and storms): its explosions, the seconds between
+-- them (delay+1 ticks) and a first explosion that reaches no one (area flag 14). Where flag 8 or
+-- 9 says so the caster's casting level replaces the repetitions (IESDP). One explosion, or no
+-- delay read, is no lasting area. A sub-spell's area counts the same.
+local cloud=spl('TESTCLD',{ability({fx(12,{p2=2*65536,p1=10})},{target=4,projectile=98})})
+c=classify(cloud,world({['PRO:98']=pro({repeats=4,delay=100})}),{level=12})
+assert(c.area.explosions==4 and near(c.area.every,101/15) and not c.area.skipFirst)
+c=classify(cloud,world({['PRO:98']=pro({repeats=10,delay=75,areaFlags=16384})}),{level=12})
+assert(c.area.explosions==10 and near(c.area.every,76/15) and c.area.skipFirst)
+for _,flag in ipairs({256,512}) do
+    c=classify(cloud,world({['PRO:98']=pro({repeats=3,delay=75,areaFlags=flag})}),{level=12})
+    assert(c.area.explosions==12)
+end
+c=classify(cloud,world({['PRO:98']=pro({repeats=1,delay=75})}),{level=12})
+assert(c.area and c.area.explosions==nil and c.area.every==nil)
+c=classify(cloud,world({['PRO:98']=pro({repeats=4})}),{level=12})
+assert(c.area and c.area.explosions==nil)
+local outer=spl('TESTOUT',{ability({fx(146,{p2=1,res='TESTCLD'})},{target=4,projectile=1})})
+c=classify(outer,world({['SPL:TESTCLD']=cloud,['PRO:98']=pro({repeats=4,delay=100})}),{level=12})
+assert(c.area and c.area.explosions==4)
+groups=groups+1
+
 -- Sleep: waking on damage (parameter 2 = 0) and the level range in the dice fields.
 local sleep=spl('SPWI116',{ability({fx(39,{dice=4,save=1})},{target=4,projectile=99})})
 c=classify(sleep,world({['PRO:99']=pro()}))

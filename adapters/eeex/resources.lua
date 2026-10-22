@@ -129,7 +129,7 @@ local function pro(v,resref)
     if kind==3 then
         if v.size<0x24C then fail('area projectile truncated') end
         r.areaFlags=v.u16(0x200);r.rayCount=v.u16(0x202);r.trigger=v.u16(0x204)
-        r.radius=v.u16(0x206);r.secondary=v.u16(0x214);r.repeats=v.u8(0x216)
+        r.radius=v.u16(0x206);r.delay=v.u16(0x210);r.secondary=v.u16(0x214);r.repeats=v.u8(0x216)
         r.explosionProjectile=v.u16(0x21A);r.coneWidth=v.u16(0x224)
         r.extAreaFlags=v.u32(0x240);r.targetDice=v.u16(0x244);r.targetSides=v.u16(0x246)
     end

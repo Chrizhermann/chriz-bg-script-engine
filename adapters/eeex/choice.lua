@@ -142,6 +142,9 @@ M.moveGrace=8
 M.moveMargin=30
 -- Game ticks a second, for the projectile's counters (lab batch H measured 15.00).
 M.ticksPerSecond=15
+-- Ticks between two looks at what enemies do in the zones of an area (a third of a second; zones
+-- explode a second or more apart).
+M.lookTicks=5
 -- The casting aura of a creature's last cast counts from 0 at the cast's start to about 99, then
 -- reads -1 (docs/learned.md, section 2); a cast queued meanwhile starts casting when it frees.
 M.auraTicks=100
@@ -234,7 +237,10 @@ function M.new(g,options)
     -- read at a tick; zoneSpells: each zone's classification by object id (false when it cannot be
     -- classified); zoneBroken: zones could not be read at all this session.
     local moves,zoneRead,zoneSpells,zoneSpellCount,zoneBroken={},nil,{},0,false
-    local counts={escapes=0,escaped=0,unescaped=0,zoneFailures=0,decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
+    -- stays and insideOf: what the group has seen its enemies do in zones (look); lookedAt: the
+    -- tick each area was last looked at.
+    local stays,stayCount,insideOf,insideCount,lookedAt={},0,{},0,{}
+    local counts={escapes=0,escaped=0,unescaped=0,zoneFailures=0,stayed=0,left=0,decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
         hits=0,misses=0,errors=0,holds=0,frozen=0,marks=0,markFailures=0,defences=0,guarded=0,unguarded=0,
         guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0,arms=0,attacks=0,attackHits=0,
         weaponFailures=0,releases=0,heals=0,cures=0,potions=0,cared=0,uncared=0,summons=0,conjured=0,
@@ -669,13 +675,14 @@ function M.new(g,options)
             record({kind='error',where=where,error=zoneError})
         end
     end
-    -- The zones of the creature's area at tick, read once a tick for each area (sense.zones).
+    -- The zones of the creature's area at tick, read once a tick for each area (sense.zones), and
+    -- the area's resref.
     local function zoneList(sprite,tick)
         if not zonesReady() then return {} end
         local area=sprite.m_pArea
         if area==nil then return {} end
         local key=text(area.m_resref:get())
-        if zoneRead and zoneRead.tick==tick and zoneRead.area==key then return zoneRead.list end
+        if zoneRead and zoneRead.tick==tick and zoneRead.area==key then return zoneRead.list,key end
         local ok,list,bad,last=pcall(sense.zones,g,area,tick)
         if not ok then
             zoneBroken=true;zoneFailed('zones',list)
@@ -683,7 +690,7 @@ function M.new(g,options)
         end
         if bad>0 then zoneFailed('zone',last) end
         zoneRead={tick=tick,area=key,list=list}
-        return list
+        return list,key
     end
     -- What one explosion of a zone delivers, classified once by its object id. The first time, a
     -- 'zone' row keeps what was read of it and whether it could be classified.
@@ -732,12 +739,77 @@ function M.new(g,options)
                 local every=(z.delay+1)*tick
                 local soon=z.counter>=0 and z.counter<=z.delay and (z.counter+1)*tick or nil
                 out[#out+1]={id=z.id,x=z.x,y=z.y,radius=z.radius,every=every,next=soon,
-                    left=(soon or every)+(z.repeats-1)*every+tick,
+                    left=(soon or every)+(z.repeats-1)*every+tick,repeats=z.repeats,
                     side=zoneSide(z,frame),filter=type(c.area)=='table' and c.area.filter or 'all',spell=c,resref=z.resref,
                     source=z.source}
             end
         end
         return out
+    end
+    -- Lasting areas (combat-intent/choice.lua): what the group has seen each enemy do in zones that
+    -- hurt it, by object id: the explosions it stayed for and the zones it left. insideOf, by zone
+    -- object id: the area it lies in and each enemy last seen inside it while it hurt the enemy and
+    -- the enemy could walk, with the zone's explosions left then. Both live only in this session.
+    local function tally(id,what,n)
+        local s=stays[id]
+        if not s then
+            if stayCount>=M.cacheLimit then stays,stayCount={},0 end
+            s={stay=0,left=0};stays[id]=s;stayCount=stayCount+1
+        end
+        s[what]=s[what]+n
+        if what=='stay' then counts.stayed=counts.stayed+n else counts.left=counts.left+n end
+    end
+    -- Forgets the zones of area that are gone (not in present).
+    local function forget(area,present)
+        for id,v in pairs(insideOf) do
+            if v.area==area and not present[id] then insideOf[id]=nil;insideCount=insideCount-1 end
+        end
+    end
+    -- What the creature sees its enemies do in the zones of its area, at most once every lookTicks
+    -- for each area: an enemy inside a zone that hurts it (zones.hit, with its marks for the zones'
+    -- SPLPROT conditions, the creature as the other creature) and able to walk stayed for each
+    -- explosion since it was last seen inside, and left the zone when next seen outside while the
+    -- zone is still there. Fair play: only enemies the creature perceives count.
+    local function look(sprite,tick,family)
+        local raw,area=zoneList(sprite,tick)
+        if not area or (lookedAt[area] and tick>=lookedAt[area] and tick-lookedAt[area]<M.lookTicks) then return end
+        lookedAt[area]=tick
+        if #raw==0 then forget(area,{});return end
+        local frame=sense.frame(g,sprite,tick,true)
+        if not frame or sense.side(frame.self.ea)~='evil' or #frame.enemies==0 then return end
+        local list=zonesFor(frame,raw)
+        local wanted={}
+        for _,z in ipairs(list) do spells.rows(z.spell,wanted) end
+        if next(wanted)~=nil then
+            local _,bad,last=sense.splprot(g,sprite,frame,wanted)
+            if bad>0 then zoneFailed('zone-splprot',last) end
+        end
+        local input={tick=tick,family=family,frame=frame,zones=list,mind=mindFor(sprite,family)}
+        local present={}
+        for _,z in ipairs(list) do
+            present[z.id]=true
+            local inside=insideOf[z.id]
+            for _,e in ipairs(frame.enemies) do
+                if type(e)=='table' and e.id~=nil and targeting.alive(e) then
+                    local was=inside and inside.who[e.id]
+                    if zones.rooted(e) then
+                        if was then inside.who[e.id]=nil end
+                    elseif zones.inside(z,e) then
+                        if zones.hit(input,z,e,true)>0 then
+                            if was and z.repeats<was then tally(e.id,'stay',was-z.repeats) end
+                            if not inside then
+                                if insideCount>=M.cacheLimit then insideOf,insideCount={},0 end
+                                inside={area=area,who={}};insideOf[z.id]=inside;insideCount=insideCount+1
+                            end
+                            inside.who[e.id]=z.repeats
+                        end
+                    elseif was then
+                        tally(e.id,'left',1);inside.who[e.id]=nil
+                    end
+                end
+            end
+        end
+        forget(area,present)
     end
     -- For the choice record: the zones around the caster as the choice weighed them for its cast
     -- (zones.explain), nil without any.
@@ -754,15 +826,13 @@ function M.new(g,options)
         end
         return false
     end
-    -- What zones weigh about the caster itself: its saves, resistances, protections and IDS values,
-    -- whether it is webbed or entangled, and its marks for the SPLPROT conditions of the zones'
-    -- spells (as their receiver, with the zone's caster as the other creature).
+    -- What zones weigh about the caster itself: its saves, resistances, protections and IDS values
+    -- (whether it is webbed or entangled comes with every frame), and its marks for the SPLPROT
+    -- conditions of the zones' spells (as their receiver, with the zone's caster as the other
+    -- creature).
     local function ready(sprite,frame,list)
         local self=frame.self
-        local ok,err=pcall(function()
-            sense.details(g,sprite,self)
-            self.rooted=g.EEex_Sprite_GetStat(sprite,sense.stats.entangle)>0 or g.EEex_Sprite_GetStat(sprite,sense.stats.web)>0
-        end)
+        local ok,err=pcall(sense.details,g,sprite,self)
         if not ok then zoneFailed('zone-self',err) end
         for _,z in ipairs(list) do
             local wanted={}
@@ -912,6 +982,8 @@ function M.new(g,options)
         local sprite=get(id)
         if not sprite then return decline('no-sprite') end
         judge(tick)
+        local looked,lookError=pcall(look,sprite,tick,family)
+        if not looked then zoneFailed('zone-look',lookError) end
         local p=pending[id]
         if p then
             -- A cast queued while the casting aura (the round of the creature's last cast) runs
@@ -1040,7 +1112,7 @@ function M.new(g,options)
         local holder,left=timeStop()
         local input={tick=tick,family=family,frame=frame,spells=rows,items=carried,lastDefence=lastDefence[id],
             plan=director and director:plan(id,tick) or {},memory=memory[id] or {},mind=mindFor(sprite,family),rng=rng,
-            creatures=summoned(rows)}
+            creatures=summoned(rows),stays=stays}
         -- The zones in the area, with what they weigh about the caster itself.
         local raw=zoneList(sprite,tick)
         local seen={}
@@ -1088,7 +1160,7 @@ function M.new(g,options)
             focus=input.plan.focus,rule=d.rule,stop=input.timeStop and input.timeStop.left or nil,
             alacrity=frame.self.alacrity or nil,release=d.release,use=d.use,creatures=d.creatures,count=d.count,
             rest=d.rest,slots=input.slots,finish=d.finish,aura=frame.self.aura~=0 and frame.self.aura or nil,
-            inZones=zoneView(input,d)})
+            inZones=zoneView(input,d),lasting=d.lasting})
         -- A disable claims its targets in the group at once, so that another member deciding
         -- before this cast starts leaves them alone; any other decision gives earlier claims back.
         if director then
@@ -1311,7 +1383,8 @@ function M.new(g,options)
             pending=open,running=busy,judging=#judging,remembered=remembered,log=rows,lastError=lastError or false,
             markError=markError or false,guardError=guardError or false,weaponError=weaponError or false,
             wardError=wardError or false,zoneError=zoneError or false,moving=(function()
-                local n=0;for _ in pairs(moves) do n=n+1 end;return n end)()}
+                local n=0;for _ in pairs(moves) do n=n+1 end;return n end)(),stays=(function()
+                local c={};for id,s in pairs(stays) do c[id]={stay=s.stay,left=s.left} end;return c end)()}
     end
     return api
 end

@@ -69,8 +69,29 @@ Worth is counted in shares of an enemy taken out of the fight (`combat-intent/ch
 - **Saves:** a d20 plus the effect's bonus against the enemy's best allowed save; unknown saves
   count as even odds.
 - **Areas:** the worth on every enemy inside, no option if an ally (or the caster, for an area
-  away from it) stands within the radius plus 32 pixels. Distances count heights 4/3. Point
-  areas are tried on each enemy's spot and on the middle of the enemies around it.
+  away from it) stands within the radius plus 32 pixels, unless the area does nothing to it: its
+  spell protections stop every explosion, or nothing the spell delivers to its kind of creature
+  gets through, judged on all the spell's conditions (since 2026-10-23; allies carry no
+  resistances yet, so this mostly means globes, deflections and immunities). Distances count
+  heights 4/3. Point areas are tried on each enemy's spot and on the middle of the enemies around
+  it.
+- **Lasting areas** (D3e; Christopher, 2026-10-23: "eine Mischung aus A und C"): a cloud or storm
+  of the caster's own (an area projectile with more than one explosion: its repetitions, or the
+  caster's level where the projectile says so, one every delay+1 ticks) counts the explosions
+  each enemy inside is expected to sit through, not one. The first goes off where it lands
+  unless the projectile skips it; where Spell Revisions' clouds make those they hit immune to
+  them for a while, one each such period. Only explosions in the rest of the fight count (the
+  rest the caster expects under the threat it sees, at most 60 seconds, less its casting time),
+  the first always, and those the enemy's turnings, deflections and traps stop come first. An
+  enemy that cannot walk (held, webbed, entangled, or asleep in a cloud that does no damage) sits
+  through all of them. Any other takes the cheaper of staying and walking out (A): out, it takes
+  the explosions until it is out, starting a second after the landing, and loses the walk's
+  seconds as a hold of that length. Some stay anyway (C): the chance an enemy stays is what the
+  group has seen it do in zones that hurt it (SUPPORT-01, D3e), from 0.25 worth four sightings.
+  Damage counts the explosions' damage together, a disable the chance that one of them lands and
+  holds. The choice record keeps, for each enemy, the explosions staying and walking out and the
+  chance it stays (`lasting`). The profile's `clouds` switch: `learned` (default), `best` (A
+  alone) or `once` (one explosion, as before).
 - **Cost:** 0.03 of an enemy per spell level, times the profile's economy, so a small spell
   finishes a nearly dead enemy and strong spells wait for strong enemies.
 - **Spell slots** (Christopher, 2026-10-21; built 2026-10-22): a slot costs less when the caster

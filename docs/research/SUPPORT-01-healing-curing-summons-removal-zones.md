@@ -297,16 +297,36 @@ and again (host census, nothing ran). Most clouds explode every 75 ticks, ten ti
 Cloud, Cloudkill, Web, Acid Fog, Incendiary Cloud); storms every 100 ticks, four times (Ice Storm,
 Fire Storm, Meteor Swarm). Most deliver their effects through spells they cast on each creature.
 
+**Own clouds** (built 2026-10-23; Christopher: "Ich würde eine Mischung aus A und C machen"):
+until then the engine weighed its own cloud by one explosion. In the eighteen care fights of H2
+to H7 the level-12 mage never chose Ice Storm (four explosions); SCS alone cast it in three of
+its six care fights (six casts, four storms landed), mostly at the party's fighters, and the
+lab's fighters stayed for two to four of a storm's explosions. In three of the engine's fights
+the storm came from SCS's script, in rounds the engine declined. Now an area of the caster's own
+that explodes again and again counts the explosions each enemy inside is expected to sit through
+(CHOICE-01, "Lasting areas"): the cheaper of staying and walking out, mixed with the chance that
+the enemy stays anyway.
+
+- **What the group sees:** the adapter looks at each zone at most every 5 ticks, from the view of
+  a creature of the engine's side that decides and sees enemies. An enemy inside a zone that
+  hurts it (its resistances and spell protections as the engine reads them) and able to walk is
+  remembered with the zone's explosions left; still inside after further explosions, it stayed
+  for each of them; seen outside while the zone lasts, it left once. What the group has seen
+  lives only in the session (at most `cacheLimit` enemies, `inspect().stays`) and is shared by
+  the whole side.
+- **Projectiles:** the reader takes the delay between explosions (offset 0x210), and from the
+  area flags bits 8 and 9 (the repetitions are the caster's wizard or priest level) and 14 (the
+  first explosion affects no one and does not count; IESDP). No area projectile of the SR lab
+  sets bit 8 or 9. The first explosion goes off when the projectile lands (docs/learned.md).
+- **Friends in the area:** an area that does not spare friends no longer waits while an ally or
+  the caster stands in it where it does nothing to them (CHOICE-01, "Areas").
+- Not tried in the lab yet.
+
 Not yet: no protections against zones (Protection from Fire and the like); ways out do not prefer
-spots that keep enemies in sight or range; the engine does not cast clouds for their lingering
-harm on enemies (its zones are only dangers to its own); a cast under way is not broken off for a
-zone by the engine itself. The engine weighs its own cloud by one explosion: in the eighteen care
-fights of H2 to H7 the level-12 mage never chose Ice Storm (four explosions); SCS alone cast it in
-three of its six care fights (six casts, four storms landed), mostly at the party's fighters, and
-the lab's fighters stayed for two to four of a storm's explosions. In three of the engine's
-fights the storm came from SCS's script, in rounds the engine declined. An area that does not
-spare friends also waits while the caster stands in it, even where the caster is immune to it
-(proposal to Christopher, 2026-10-22).
+spots that keep enemies in sight or range; a cast under way is not broken off for a zone by the
+engine itself; spells such as Cloudkill count by their main kind alone (the disable), so their
+damage on enemies above its levels does not count; what a deflection is worth against the
+enemies' other spells once a cloud has used it up does not count either.
 
 ## Lab batch H (2026-10-20 and 21)
 

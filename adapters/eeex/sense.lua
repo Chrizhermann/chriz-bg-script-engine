@@ -75,8 +75,8 @@ local function name(field)
 end
 
 -- The plain facts every frame carries for one creature: also its armour class, the creature
--- its current action is aimed at (-1 for none), its Stoneskin skins and Mirror Images, and the
--- levels drained from it.
+-- its current action is aimed at (-1 for none), its Stoneskin skins and Mirror Images, the
+-- levels drained from it, and whether it is webbed or entangled (rooted: it cannot walk).
 function M.actor(g,sprite)
     local state=g.EEex_Sprite_GetState(sprite)
     local action=sprite.m_curAction
@@ -87,7 +87,8 @@ function M.actor(g,sprite)
         hp=sprite.m_baseStats.m_hitPoints,maxHp=stat(g,sprite,M.stats.maxHp),
         mr=stat(g,sprite,M.stats.mr),action=action.m_actionID,ac=stat(g,sprite,M.combat.ac),
         actee=type(actee)=='number' and actee or -1,skins=stat(g,sprite,M.combat.stoneskins),
-        mirror=type(mirror)=='number' and mirror or 0,drained=stat(g,sprite,M.stats.levelDrain)}
+        mirror=type(mirror)=='number' and mirror or 0,drained=stat(g,sprite,M.stats.levelDrain),
+        rooted=stat(g,sprite,M.stats.entangle)>0 or stat(g,sprite,M.stats.web)>0}
 end
 -- A creature's THAC0 with its right-hand and general hit bonuses (as M.attack counts it).
 function M.thac0(g,sprite)

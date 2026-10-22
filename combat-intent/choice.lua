@@ -53,6 +53,21 @@
 -- walking to its target and standing there does in them. A way out of a zone that hurts the
 -- caster comes first when what leaving is worth beats the share of a round the walk takes from
 -- the best other choice.
+--
+-- Lasting areas (D3e; Christopher, 2026-10-23: "Ich würde eine Mischung aus A und C machen"): a
+-- cloud or storm of the caster's own counts the explosions each enemy inside is expected to sit
+-- through, not one. The first goes off where it lands (unless the projectile skips it), the next
+-- every few seconds while it lasts; one that Spell Revisions' clouds make immune to them for a
+-- while is hit when that wears off (combat-intent/zones.lua, period). Only explosions in the rest
+-- of the fight count (combat-intent/threat.lua, rest), the first always, and those the enemy's
+-- turnings, deflections and traps stop come first. An enemy that cannot walk sits through all of
+-- them. Any other takes the cheaper of staying and walking out (A): out, it takes the explosions
+-- until it is out, starting M.react seconds after the landing, and loses the walk's seconds as a
+-- hold of that length. Some enemies stay anyway (C): the chance an enemy stays is what the group
+-- has seen it do in zones that hurt it (input.stays: the explosions it stayed for and the zones it
+-- left, adapters/eeex/choice.lua), from M.stayPrior worth M.stayWeight sightings. An ally or the
+-- caster may stand in the caster's own area when the area does nothing to it. The profile's
+-- clouds switch: 'learned', 'best' (A alone) or 'once' (one explosion, as before).
 local targeting=require('combat-intent.targeting')
 local harm=require('combat-intent.harm')
 local defence=require('combat-intent.defence')
@@ -88,6 +103,11 @@ local OTHER={'removal','heal','raise','cure','summon'}
 local GLOBAL={everyone=true,nonparty=true,casterGroup=true,party=true}
 -- GENDER.IDS: SUMMONED, ILLUSIONARY, SUMMONED_DEMON.
 M.SUMMONED=removal.SUMMONED
+-- Lasting areas: the seconds an enemy takes to start walking out of a fresh cloud, and the chance
+-- it stays before the group has seen it in one, worth this many sightings.
+M.react=1
+M.stayPrior=0.25
+M.stayWeight=4
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
 local function clamp(v,a,b) if v<a then return a elseif v>b then return b end return v end
@@ -164,13 +184,16 @@ local function aimable(caster,e,spell)
     return true
 end
 -- What the spell does to e, or nil and why it does not work on e: its roles for e's kind of
--- creature (spells.view) must hold the attack, and e's spell protections must not stop it.
-local function affects(spell,e,kind)
+-- creature (spells.view) must hold the attack, and e's spell protections must not stop it. A
+-- lasting area gets through once the turnings, deflections and traps that count down are spent.
+local function affects(spell,e,kind,lasting)
     local roles,key=spells.view(spell,targeting.holds(e))
     if type(roles)~='table' or not reaches(roles[kind]) then
         return nil,type(key)=='string' and key:find('?',1,true) and 'unknown-filter' or 'filter'
     end
-    if targeting.protected(e,spell) then return nil,'protected' end
+    if lasting then
+        if targeting.stopped(e,spell)==math.huge then return nil,'protected' end
+    elseif targeting.protected(e,spell) then return nil,'protected' end
     return roles
 end
 
@@ -256,13 +279,111 @@ local function stripped(input,spell,e)
     return (removal.on(input,spell,e,math.max(0,horizon-cast)/removal.ROUND))
 end
 
+-- Lasting areas (see the top). Whether the spell's area is one the profile counts by its
+-- explosions.
+local function lastingArea(input,spell)
+    local a=spell.area
+    return input.mind.clouds~='once' and type(a)=='table' and number(a.explosions) and a.explosions>1 and
+        number(a.every) and a.every>0 or false
+end
+-- The hits of a schedule (the first at first seconds after the landing, then one every step up
+-- to the last explosion) during [from, to].
+local function hitsIn(first,step,last,from,to)
+    to=math.min(to,last)
+    if to<from then return 0 end
+    local lo=math.max(0,math.ceil((from-first)/step-1e-9))
+    local hi=math.floor((to-first)/step+1e-9)
+    return math.max(0,hi-lo+1)
+end
+-- Whether e cannot walk out of a cloud (zones.rooted), unless it only sleeps and the cloud's
+-- damage wakes it.
+local SLEEP=targeting.STATE.sleeping
+local function stuck(e,damages)
+    if not zones.rooted(e) then return false end
+    if damages and e.rooted~=true and not (number(e.held) and e.held>0) and targeting.has(e.state,SLEEP) and
+        not targeting.has(e.state,targeting.DISABLED-SLEEP) then return false end
+    return true
+end
+-- The chance e stays in a cloud that hurts it: what the group has seen, after the prior.
+local function stayChance(input,e)
+    local s=type(input.stays)=='table' and input.stays[e.id] or nil
+    local stay=type(s)=='table' and number(s.stay) and s.stay>0 and s.stay or 0
+    local left=type(s)=='table' and number(s.left) and s.left>0 and s.left or 0
+    return (M.stayPrior*M.stayWeight+stay)/(M.stayWeight+stay+left)
+end
+-- role with n times its amounts: the damage of n explosions together.
+local function times(role,n)
+    local r={}
+    for k,v in pairs(role) do r[k]=v end
+    r.types={}
+    for label,v in pairs(type(role.types)=='table' and role.types or {}) do r.types[label]=number(v) and v*n or v end
+    if number(role.percent) then r.percent=role.percent*n end
+    return r
+end
+-- The share of casts of role that land on e and hold: magic resistance, the saving throw and the
+-- effect's own chance.
+local function sticks(role,e)
+    return landing(role,e)*(1-M.saveChance(role,e))*clamp(number(role.chance) and role.chance or 1,0,1)
+end
+-- What a lasting area is worth on e inside it at center: the worth of its kind of attack over the
+-- explosions e is expected to sit through, the hit points it is expected to take, and for the log
+-- how many it would sit through staying and walking out and the chance it stays. ctx keeps the
+-- rest of the fight for one choice.
+local function lastingOn(input,row,spell,kind,roles,e,center,ctx)
+    local a=spell.area
+    local caster=input.frame.self
+    local every=a.every
+    local step=every*math.max(1,math.ceil(zones.period({every=every,spell=spell})/every-1e-9))
+    local first=a.skipFirst and every or 0
+    local last=first+(a.explosions-1)*every
+    ctx.rest=ctx.rest or threat.rest(input.frame,number(input.mind.fightCap) and input.mind.fightCap or 60)
+    local cast=(number(spell.speed) and spell.speed or 0)*zones.speedSeconds+(number(caster.aura) and caster.aura>0 and caster.aura or 0)
+    local upto=math.max(first,ctx.rest-cast)
+    local stay=hitsIn(first,step,last,0,upto)
+    local leave,walk=stay,0
+    if not stuck(e,reaches(roles.damage)) then
+        local speed=number(e.speed) and e.speed>0 and e.speed or zones.walkSpeed
+        walk=math.max(0,a.radius-targeting.distance(a.cone and caster or center,e)+zones.margin)/speed
+        leave=hitsIn(first,step,last,0,math.min(upto,M.react+walk))
+    end
+    local stopped=targeting.stopped(e,spell)
+    local function over(n)
+        n=n-stopped
+        if n<=0 then return 0,0 end
+        if kind=='damage' then return damageOn(input,row,times(roles.damage,n),e) end
+        local c=math.min(1,sticks(roles.disable,e))
+        if c<=0 then return 0,0 end
+        return disableOn(input,row,roles.disable,e)*(1-(1-c)^n)/c,0
+    end
+    local ws,hs=over(stay)
+    local wl,hl=over(leave)
+    if walk>0 then wl=wl+walk/M.fullSeconds*(0.5+0.5*targeting.health(e)) end
+    local q=input.mind.clouds=='best' and 0 or stayChance(input,e)
+    local wb,hb=ws,hs
+    if wl<ws then wb,hb=wl,hl end
+    return q*ws+(1-q)*wb,q*hs+(1-q)*hb,{id=e.id,stay=stay,leave=leave,q=q,stopped=stopped>0 and stopped or nil}
+end
+-- Whether an area of the caster's own does nothing to friend f in it (the caster or an ally): its
+-- spell protections stop every explosion, or the spell's roles for f's kind of creature, judged
+-- on all their conditions, hold no damage, disable or condition that gets through (zones.hit
+-- weighs it as it would a zone around f).
+local function spared(input,spell,f)
+    if type(f)~='table' then return false end
+    local worth,first=zones.hit(input,{spell=spell,side='friend',filter=spell.area.filter},f)
+    if first>=(number(spell.area.explosions) and spell.area.explosions or 1) then return true end
+    local _,key=spells.view(spell,targeting.holds(f))
+    if type(key)~='string' or key:find('?',1,true) then return false end
+    return worth<=0
+end
+
 -- One option: the spell aimed at a creature or a point, its worth, cost and score, or nil
--- and why it is no option.
-local function evaluate(input,row,spell,kind,mode,aim)
+-- and why it is no option. ctx keeps what one choice works out once (the rest of the fight).
+local function evaluate(input,row,spell,kind,mode,aim,ctx)
     local frame=input.frame
     local caster=frame.self
     local a=spell.area
     local worth,hits,slack,expected=0,{},0,{}
+    local sat
     if mode=='creature' then
         local e=aim.enemy
         local roles,why=affects(spell,e,kind)
@@ -285,25 +406,31 @@ local function evaluate(input,row,spell,kind,mode,aim)
             local inside,near=shape(spell,caster,center,aim.point)
             if a.filter~='enemies' then
                 for _,ally in ipairs(type(frame.allies)=='table' and frame.allies or {}) do
-                    if targeting.alive(ally) and near(ally) then return nil,'ally-in-area' end
+                    if targeting.alive(ally) and near(ally) and not spared(input,spell,ally) then return nil,'ally-in-area' end
                 end
-                -- A cone starts at the caster; any other area must keep it out.
+                -- A cone starts at the caster; any other area must keep it out, unless it does
+                -- nothing to the caster.
                 if not a.cone then
-                    if mode=='self-area' then
-                        if not a.skipsCenter then return nil,'caster-in-area' end
-                    elseif near(caster) then return nil,'caster-in-area' end
+                    local within
+                    if mode=='self-area' then within=not a.skipsCenter else within=near(caster) end
+                    if within and not spared(input,spell,caster) then return nil,'caster-in-area' end
                 end
             end
+            local lasting=lastingArea(input,spell)
+            if lasting then sat={} end
             -- How far the nearest hit enemy is from the area's edge: an area that holds its
             -- enemies well inside still hits them after a step.
             slack=math.huge
             for _,e in ipairs(frame.enemies) do
-                local roles=targeting.alive(e) and inside(e) and affects(spell,e,kind)
+                local roles=targeting.alive(e) and inside(e) and affects(spell,e,kind,lasting)
                 if roles then
-                    local w,hp=worthOn(input,row,kind,roles,e)
+                    local w,hp,seen
+                    if lasting then w,hp,seen=lastingOn(input,row,spell,kind,roles,e,center,ctx)
+                    else w,hp=worthOn(input,row,kind,roles,e) end
                     w=w+stripped(input,spell,e)
                     if w>0 then
                         worth=worth+w;hits[#hits+1]=e.id;expected[e.id]=hp
+                        if seen then sat[#sat+1]=seen end
                         slack=math.min(slack,a.radius-targeting.distance(a.cone and caster or center,e))
                     end
                 end
@@ -317,6 +444,7 @@ local function evaluate(input,row,spell,kind,mode,aim)
     local option={resref=row.resref,kind=kind,mode=mode,worth=worth,cost=cost,score=worth-cost,hits=hits,slack=slack,
         speed=number(spell.speed) and spell.speed or 0,release=spell.release or nil}
     if kind=='damage' then option.expected=expected end
+    if sat and #sat>0 then option.lasting=sat end
     if aim.enemy and (mode=='creature' or mode=='creature-area') then option.target=aim.enemy.id
     elseif mode=='point-area' then option.point={x=math.floor(aim.point.x+0.5),y=math.floor(aim.point.y+0.5)}
     elseif mode=='self-area' then option.self=true
@@ -532,7 +660,7 @@ end
 -- optional) counts why the ready attack spells gave none: out-of-reach (no enemy in range), or
 -- evaluate's reason per aim.
 function M.options(input,rejected)
-    local out={}
+    local out,ctx={},{}
     local function reject(why) if rejected then rejected[why]=(rejected[why] or 0)+1 end end
     for _,row in ipairs(type(input.spells)=='table' and input.spells or {}) do
         if type(row)=='table' and number(row.ready) and row.ready>0 and row.usable then
@@ -551,7 +679,7 @@ function M.options(input,rejected)
                 local list=aims(input,spell,mode)
                 if #list==0 then reject('out-of-reach') end
                 for _,aim in ipairs(list) do
-                    local option,why=evaluate(input,row,spell,kind,mode,aim)
+                    local option,why=evaluate(input,row,spell,kind,mode,aim,ctx)
                     if option then
                         local key=tostring(option.target)..':'..(option.point and option.point.x..','..option.point.y or '')
                         if not seen[key] then

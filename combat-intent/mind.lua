@@ -59,6 +59,11 @@ M.default={
     -- Seconds the rest of a fight counts for at most (combat-intent/threat.lua, M.rest): a summons
     -- fights over the rest of the fight, as both sides' strength makes it.
     fightCap=60,
+    -- The caster's own clouds and storms (combat-intent/choice.lua): 'learned' counts the
+    -- explosions each enemy is expected to sit through, by the cheaper of staying and walking out
+    -- and by what the group has seen it do in clouds; 'best' only by the cheaper choice; 'once'
+    -- counts one explosion.
+    clouds='learned',
 }
 
 local function share(v) return type(v)=='number' and v==v and v>=0 and v<=1 end
@@ -77,7 +82,8 @@ local CHECKS={coordination=share,best=share,band=share,economy=amount,minValue=a
     touch=function(v) return type(v)=='boolean' end,
     weapons=function(v) return type(v)=='boolean' end,
     memory=function(v) return type(v)=='boolean' end,
-    knowledge=function(v) return v=='scs' end}
+    knowledge=function(v) return v=='scs' end,
+    clouds=function(v) return v=='learned' or v=='best' or v=='once' end}
 
 local function copy(t)
     local c={}

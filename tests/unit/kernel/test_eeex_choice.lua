@@ -1406,4 +1406,83 @@ assert(last and last.kind=='choice' and last.slots==seen[1].given)
 end)()
 groups=groups+1
 
+-- 28. Lasting areas (D3e; Christopher, 2026-10-23): what the group sees its enemies do in zones
+-- that hurt them. The mage's own cloud (4d9 fire a hit, sparing the mage's allies) holds four
+-- enemies of the party: one stays,
+-- one walks out, one is held, one minds no fire. The engine looks at most every five ticks for an
+-- area: an enemy still inside after explosions stayed for each, one seen outside while the zone
+-- is there left it; the held one counts nothing while held, the fireproof one nothing at all. A
+-- zone that is gone is forgotten. The choice gets what the group saw (input.stays), and so does
+-- inspect.
+;(function()
+local logic=require('combat-intent.choice')
+local AREA28={m_resref=str('AR0028'),m_lVertSortBack={},m_lVertSortFlight={950}}
+local g28=world()
+local isSprite28=g28.EEex_GameObject_IsSprite
+g28.EEex_GameObject_IsSprite=function(o,allowDead) return o~=nil and o.projectile==nil and isSprite28(o,allowDead) end
+g28.EEex_Projectile_Type={CProjectileArea=8}
+g28.EEex_Projectile_GetType=function(o) return o.projectile or 1 end
+g28.EEex_CastUD=function(o) return o end
+local hot={m_effectId=12,m_durationType=1,m_duration=0,m_effectAmount=0,m_dWFlags=8*65536,m_flags=1,m_probabilityUpper=100,
+    m_probabilityLower=0,m_res=str(''),m_numDice=4,m_diceSize=9,m_savingThrow=0,m_saveMod=0,m_special=0,m_spellLevel=4,
+    m_casterLevel=10,m_sourceRes=str('TESTOWNC')}
+local cloud={m_id=950,projectile=8,state=0,m_nRepetitionCount=4,m_bReachedDestination=1,m_pos={x=500,y=500},
+    m_posDest={x=500,y=500},m_explosionRange=150,m_nDelay=75,m_nDelayCount=0,m_sourceId=1,m_projectileType=3,
+    m_resref=str('CLOUD'),m_effectList={hot}}
+g28.objects[950]=cloud
+local reader28={problems={},get=reader.get,lookup=function(kind,key)
+        if kind=='PRO' and key==4 then
+            return {kind='PRO',resref='CLOUD',type=3,speed=20,flags=0,extFlags=0,areaFlags=64,trigger=150,radius=150,
+                coneWidth=0,repeats=10,delay=75}
+        end
+        return reader.lookup(kind,key)
+    end}
+local mage28=g28.add(sprite(1,700,500,255,{m_pArea=AREA28}))
+learn(mage28,2,'TESTBOLT',2)
+g28.add(sprite(11,500,500,2,{m_pArea=AREA28}))
+local leaver=g28.add(sprite(12,520,500,2,{m_pArea=AREA28}))
+local held=g28.add(sprite(13,480,500,2,{m_pArea=AREA28}))
+held.stats[58]=1
+g28.add(sprite(14,500,520,2,{m_pArea=AREA28})).stats[14]=100
+local dir28=directors.new(g28,{reader=reader28})
+local ch28=choices.new(g28,{reader=reader28,director=dir28,seed=28})
+runtime.install(g28,{director=dir28,choice=ch28,version='test'})
+local decide,seen=logic.decide,nil
+logic.decide=function(input) seen=input.stays;return decide(input) end
+local ok,err=pcall(function()
+    local function claim(tick) g28.ticks=tick;g28.BGSE_Claim(mage28,'mage','s1') end
+    local function stays() return ch28:inspect().stays end
+    claim(100)
+    assert(next(stays())==nil and ch28:inspect().counts.zoneFailures==0)
+    -- An explosion goes by: the stayer is still inside, the other has walked out. Three ticks
+    -- after the last look is too soon; five is not.
+    cloud.m_nRepetitionCount=3;leaver.m_pos={x=800,y=500}
+    claim(103)
+    assert(next(stays())==nil)
+    claim(105)
+    local s=stays()
+    assert(s[11].stay==1 and s[11].left==0 and s[12].stay==0 and s[12].left==1 and s[13]==nil and s[14]==nil)
+    assert(ch28:inspect().counts.stayed==1 and ch28:inspect().counts.left==1)
+    -- No explosion since: nothing new. Two more: two more stays. The held one is free and inside.
+    claim(110)
+    assert(stays()[11].stay==1)
+    cloud.m_nRepetitionCount=1;held.stats[58]=0
+    claim(115)
+    s=stays()
+    assert(s[11].stay==3 and s[13]==nil and s[14]==nil)
+    assert(seen and seen[11].stay==3 and seen[12].left==1)
+    -- Gone, then read again with the enemies outside: forgotten, so nobody left it.
+    AREA28.m_lVertSortFlight={}
+    claim(120)
+    AREA28.m_lVertSortFlight={950}
+    g28.objects[11].m_pos={x=800,y=520};held.m_pos={x=820,y=500}
+    claim(125)
+    s=stays()
+    assert(s[11].left==0 and s[13]==nil and ch28:inspect().counts.zoneFailures==0)
+end)
+logic.decide=decide
+assert(ok,err)
+end)()
+groups=groups+1
+
 return groups

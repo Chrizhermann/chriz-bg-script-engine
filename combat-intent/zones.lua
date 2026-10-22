@@ -70,11 +70,13 @@ function M.active(input)
         type(input.frame)=='table' and type(input.frame.self)=='table' and openers.ownStop(input)==nil
 end
 function M.inside(z,p,margin) return targeting.distance(z,p)<=z.radius+(margin or 0) end
--- Whether z's explosions reach the caster's side: a zone for its caster's enemies spares a
--- friend's side, one for its caster's allies spares an enemy's.
-function M.reachesSide(z)
-    if z.filter=='enemies' then return z.side~='friend' end
-    if z.filter=='allies' then return z.side~='enemy' end
+-- Whether z's explosions reach the caster's side, or with theirs its enemies' side: a zone for
+-- its caster's enemies spares that caster's side, one for its caster's allies spares the other.
+function M.reachesSide(z,theirs)
+    local side=z.side
+    if theirs then side=side=='friend' and 'enemy' or side=='enemy' and 'friend' or side end
+    if z.filter=='enemies' then return side~='friend' end
+    if z.filter=='allies' then return side~='enemy' end
     return true
 end
 
@@ -105,9 +107,10 @@ end
 -- What one explosion of z does to friend f inside it once it gets through, on the attack's
 -- scale: its damage, its disable and its conditions, by f's own view of the spell's conditions
 -- (undead and the like); nothing when z spares f's side or a spell protection keeps z out. Also
--- how many of z's next explosions f's protections stop first (stopped).
-function M.hit(input,z,f)
-    if not M.reachesSide(z) then return 0,0 end
+-- how many of z's next explosions f's protections stop first (stopped). With theirs, f is one of
+-- the caster's enemies.
+function M.hit(input,z,f,theirs)
+    if not M.reachesSide(z,theirs) then return 0,0 end
     local roles=spells.view(z.spell,targeting.holds(f))
     if type(roles)~='table' then return 0,0 end
     local first=stopped(f,z)
@@ -296,7 +299,8 @@ function M.explain(input,cast)
 end
 
 -- Whether f cannot walk: held, disabled, webbed or entangled.
-local function rooted(f) return f.rooted==true or targeting.disabled(f) end
+function M.rooted(f) return f.rooted==true or targeting.disabled(f) end
+local rooted=M.rooted
 
 -- Whether a zone hurts the caster where it stands.
 function M.harmed(input)
