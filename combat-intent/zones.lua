@@ -249,6 +249,23 @@ function M.through(input,cast)
     return chance
 end
 
+-- For the lab log: each zone around the caster with the seconds to its next explosion and until
+-- it ends, when the casting would begin (aura), the explosions a cast of the given seconds sits
+-- through and the chance one breaks it.
+function M.explain(input,cast)
+    local out={}
+    if not M.active(input) or not number(cast) or cast<=0 then return out end
+    local f=input.frame.self
+    local from=number(f.aura) and f.aura>0 and f.aura or 0
+    for _,z in ipairs(input.zones) do
+        if M.valid(z) and M.inside(z,f) then
+            out[#out+1]={id=z.id,next=z.next,left=z.left,from=from,count=M.count(z,from,from+cast),
+                breaks=clamp(breaks(z,f),0,1)}
+        end
+    end
+    return out
+end
+
 -- Whether f cannot walk: held, disabled, webbed or entangled.
 local function rooted(f) return f.rooted==true or targeting.disabled(f) end
 
@@ -322,7 +339,8 @@ end
 
 -- An option with the zones counted: a melee attack or a strike gains what walking to its target
 -- is worth (M.delta: out of harm, or into it); a cast where the caster stands loses what the zones
--- around it may break. Changes the option's worth and score in place.
+-- around it may break (the chance it finishes kept as finish, for the log). Changes the option's
+-- worth and score in place.
 function M.adjust(input,o,enemyAt)
     if not M.active(input) or type(o)~='table' or not number(o.worth) then return o end
     if o.kind=='escape' then return o end
@@ -331,7 +349,7 @@ function M.adjust(input,o,enemyAt)
         if e then o.worth=o.worth+M.delta(input,e) end
     elseif not o.use and o.kind~='weapon' then
         local cast=(number(o.speed) and o.speed or 0)*M.speedSeconds
-        if cast>0 then o.worth=o.worth*M.through(input,cast) end
+        if cast>0 then o.finish=M.through(input,cast);o.worth=o.worth*o.finish end
     end
     o.score=o.worth-(number(o.cost) and o.cost or 0)
     return o

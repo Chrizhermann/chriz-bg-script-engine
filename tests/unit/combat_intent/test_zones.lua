@@ -186,7 +186,12 @@ do
     assert(near(zones.through(i,0.5),1))
     local o={resref='TESTBOLT',kind='damage',worth=1,cost=0.1,score=0.9,speed=5}
     zones.adjust(i,o,{})
-    assert(o.worth==0 and near(o.score,-0.1))
+    assert(o.worth==0 and near(o.score,-0.1) and o.finish==0)
+    -- For the log: the zone around the caster, its next explosion, the explosions the cast sits
+    -- through and the chance one breaks it.
+    local seen=zones.explain(i,3)
+    assert(#seen==1 and seen[1].next==1 and seen[1].count==1 and seen[1].breaks==1 and seen[1].from==0)
+    assert(#zones.explain(input({zones={zone(fire,{next=1})}},{x=600}),3)==0)
     -- With the casting aura free in 2 seconds the cast runs from 2 to 5, between the explosions
     -- at 1 and 6.
     i.frame.self.aura=2

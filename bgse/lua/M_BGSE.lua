@@ -4224,6 +4224,23 @@ function M.through(input,cast)
     return chance
 end
 
+-- For the lab log: each zone around the caster with the seconds to its next explosion and until
+-- it ends, when the casting would begin (aura), the explosions a cast of the given seconds sits
+-- through and the chance one breaks it.
+function M.explain(input,cast)
+    local out={}
+    if not M.active(input) or not number(cast) or cast<=0 then return out end
+    local f=input.frame.self
+    local from=number(f.aura) and f.aura>0 and f.aura or 0
+    for _,z in ipairs(input.zones) do
+        if M.valid(z) and M.inside(z,f) then
+            out[#out+1]={id=z.id,next=z.next,left=z.left,from=from,count=M.count(z,from,from+cast),
+                breaks=clamp(breaks(z,f),0,1)}
+        end
+    end
+    return out
+end
+
 -- Whether f cannot walk: held, disabled, webbed or entangled.
 local function rooted(f) return f.rooted==true or targeting.disabled(f) end
 
@@ -4297,7 +4314,8 @@ end
 
 -- An option with the zones counted: a melee attack or a strike gains what walking to its target
 -- is worth (M.delta: out of harm, or into it); a cast where the caster stands loses what the zones
--- around it may break. Changes the option's worth and score in place.
+-- around it may break (the chance it finishes kept as finish, for the log). Changes the option's
+-- worth and score in place.
 function M.adjust(input,o,enemyAt)
     if not M.active(input) or type(o)~='table' or not number(o.worth) then return o end
     if o.kind=='escape' then return o end
@@ -4306,7 +4324,7 @@ function M.adjust(input,o,enemyAt)
         if e then o.worth=o.worth+M.delta(input,e) end
     elseif not o.use and o.kind~='weapon' then
         local cast=(number(o.speed) and o.speed or 0)*M.speedSeconds
-        if cast>0 then o.worth=o.worth*M.through(input,cast) end
+        if cast>0 then o.finish=M.through(input,cast);o.worth=o.worth*o.finish end
     end
     o.score=o.worth-(number(o.cost) and o.cost or 0)
     return o
@@ -7232,6 +7250,14 @@ function M.new(g,options)
         end
         return out
     end
+    -- For the choice record: the zones around the caster as the choice weighed them for its cast
+    -- (zones.explain), nil without any.
+    local function zoneView(input,d)
+        local cast=(type(d.speed)=='number' and d.speed or 0)*zones.speedSeconds
+        if cast<=0 or d.use or not zones.active(input) then return nil end
+        local rows=zones.explain(input,cast)
+        return #rows>0 and rows or nil
+    end
     -- Whether a point lies in one of the zones read, or at their edge.
     local function inZone(raw,x,y)
         for _,z in ipairs(raw) do
@@ -7532,7 +7558,7 @@ function M.new(g,options)
         local top={}
         for i=1,math.min(3,#options) do
             local o=options[i]
-            top[i]={spell=o.resref,kind=o.kind,target=o.target,point=o.point,score=o.score,hits=#o.hits}
+            top[i]={spell=o.resref,kind=o.kind,target=o.target,point=o.point,score=o.score,hits=#o.hits,finish=o.finish}
         end
         if not d then
             if why~='no-option' then
@@ -7559,7 +7585,8 @@ function M.new(g,options)
             target=d.target,point=d.point,score=d.score,worth=d.worth,hits=d.hits,how=why,top=top,
             focus=input.plan.focus,rule=d.rule,stop=input.timeStop and input.timeStop.left or nil,
             alacrity=frame.self.alacrity or nil,release=d.release,use=d.use,creatures=d.creatures,count=d.count,
-            slots=input.slots})
+            slots=input.slots,finish=d.finish,aura=frame.self.aura~=0 and frame.self.aura or nil,
+            inZones=zoneView(input,d)})
         -- A disable claims its targets in the group at once, so that another member deciding
         -- before this cast starts leaves them alone; any other decision gives earlier claims back.
         if director then

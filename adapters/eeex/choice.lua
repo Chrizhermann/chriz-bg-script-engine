@@ -738,6 +738,14 @@ function M.new(g,options)
         end
         return out
     end
+    -- For the choice record: the zones around the caster as the choice weighed them for its cast
+    -- (zones.explain), nil without any.
+    local function zoneView(input,d)
+        local cast=(type(d.speed)=='number' and d.speed or 0)*zones.speedSeconds
+        if cast<=0 or d.use or not zones.active(input) then return nil end
+        local rows=zones.explain(input,cast)
+        return #rows>0 and rows or nil
+    end
     -- Whether a point lies in one of the zones read, or at their edge.
     local function inZone(raw,x,y)
         for _,z in ipairs(raw) do
@@ -1038,7 +1046,7 @@ function M.new(g,options)
         local top={}
         for i=1,math.min(3,#options) do
             local o=options[i]
-            top[i]={spell=o.resref,kind=o.kind,target=o.target,point=o.point,score=o.score,hits=#o.hits}
+            top[i]={spell=o.resref,kind=o.kind,target=o.target,point=o.point,score=o.score,hits=#o.hits,finish=o.finish}
         end
         if not d then
             if why~='no-option' then
@@ -1065,7 +1073,8 @@ function M.new(g,options)
             target=d.target,point=d.point,score=d.score,worth=d.worth,hits=d.hits,how=why,top=top,
             focus=input.plan.focus,rule=d.rule,stop=input.timeStop and input.timeStop.left or nil,
             alacrity=frame.self.alacrity or nil,release=d.release,use=d.use,creatures=d.creatures,count=d.count,
-            slots=input.slots})
+            slots=input.slots,finish=d.finish,aura=frame.self.aura~=0 and frame.self.aura or nil,
+            inZones=zoneView(input,d)})
         -- A disable claims its targets in the group at once, so that another member deciding
         -- before this cast starts leaves them alone; any other decision gives earlier claims back.
         if director then

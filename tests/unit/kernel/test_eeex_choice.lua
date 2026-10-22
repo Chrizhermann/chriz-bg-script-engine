@@ -1153,7 +1153,8 @@ assert(g14.BGSE_Claim(caster14,'mage','s1')==true)
 assert(zoneRows14()==1)
 local e14=last14('escaped')
 assert(e14 and e14.out==true and ch14:inspect().counts.escaped==1 and ch14:inspect().moving==0)
-assert(last14('choice').spell=='TESTBOLT')
+-- Out of the cloud the bolt finishes for sure; the record names no zone around the mage.
+assert(last14('choice').spell=='TESTBOLT' and last14('choice').finish==1 and last14('choice').inZones==nil)
 g14.BGSE_Act(caster14)
 assert(g14.queued[#g14.queued].text=='SetGlobalTimer("castspell","LOCALS",ONE_ROUND)\nSpellRES("TESTBOLT",EEex_Target("BGSE"))')
 -- The engine's cast waits to start: the cloud it knew when it chose the cast keeps SCS's escape
