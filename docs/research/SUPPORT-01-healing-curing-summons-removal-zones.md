@@ -441,7 +441,8 @@ engine and 114 with SCS alone, with about the same hit points left.
 - **Judge by effect:** what counts is whether the engine's groups beat their enemies better and
   would react more intelligently to a human player, not whether they match SCS.
 - **Spell slots:** a slot costs less when the caster has more spells left than rounds it can
-  expect to live ("ja, auf jeden Fall"). To build.
+  expect to live ("ja, auf jeden Fall"). Built 2026-10-22 for every kind of spell option
+  (CHOICE-01, "Spell slots"); not yet tried in the lab.
 - **Summons:** many factors: early in a fight good, mid-fight it can be good, late situational;
   the kind of summons; the summoner, who may prefer summons over other spells. How far to model
   it is open.

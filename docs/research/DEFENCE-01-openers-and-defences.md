@@ -216,8 +216,8 @@ empty until Christopher agrees exceptions.
 
 - Defence options join the attack options in one ranking, with the same random pick near the
   best.
-- Costs: 0.03 per spell level (times the profile's economy), plus `castCost` (0.02) per second of
-  casting time.
+- Costs: 0.03 per spell level (times the profile's economy and the spell-slot share of
+  CHOICE-01), plus `castCost` (0.02) per second of casting time.
 - The worth is multiplied by the chance the cast gets through: each hit or aimed spell that gets
   past what protects the caster now can break it.
 - `caution` (1) weights every defence; 0 turns them off.

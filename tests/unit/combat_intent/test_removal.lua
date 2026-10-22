@@ -196,6 +196,8 @@ i.frame.allies={fighter(2,{x=150}),fighter(3,{x=310})}
 i.frame.enemies={enemy(11,{wards={pfmw}}),enemy(12,{x=260,wards={ward(120,{source='TESTPFMW',power=8,level=15},{p2=1})}})}
 local list=removal.options(i)
 assert(#list==1 and list[1].kind=='removal' and list[1].mode=='creature' and list[1].target==11 and list[1].score>0)
+-- A spell slot costs input.slots of its price (combat-intent/choice.lua); the casting time does not.
+i.slots=0.5;assert(near(list[1].cost-removal.options(i)[1].cost,0.15*0.5));i.slots=nil
 i.spells={row('TESTDISP',dispel,3)}
 i.frame.enemies[1].wards={ward(120,{source='TESTPFMW',power=8,level=15},{p2=1})}
 list=removal.options(i)

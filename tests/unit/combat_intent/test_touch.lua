@@ -162,6 +162,8 @@ local cheap=choice.decide(input({spells={row('TESTHARM',harm,6)},frame={self=i.f
     enemies={enemy(11,{x=200,attack={apr=0.5,thac0=20,damage=1}})},allies={}}}))
 local costly=choice.options(i)[1]
 assert(costly.kind=='touch' and costly.target==11 and costly.cost>cheap.cost)
+-- A spell slot costs input.slots of its price (combat-intent/choice.lua); standing there does not.
+i.slots=0.5;assert(near(costly.cost-choice.options(i)[1].cost,0.18*0.5));i.slots=nil
 groups=groups+1
 
 -- 6. The strike: with a charge in hand, at the enemy in reach where the hit is worth most times

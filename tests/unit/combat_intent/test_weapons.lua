@@ -187,6 +187,8 @@ i.frame.enemies={enemy(11,{x=400})}
 o=choice.options(i)[1]
 assert(o.kind=='arm' and o.self and o.mode=='self' and o.target==11 and o.resref=='TESTMMM' and o.item=='TESTMET')
 assert(near(o.worth,40/60) and near(o.cost,0.09) and near(o.expected[11],40))
+-- A spell slot costs input.slots of its price (combat-intent/choice.lua).
+i.slots=0.5;assert(near(choice.options(i)[1].cost,0.045));i.slots=nil
 d,why=choice.decide(i)
 assert(why=='best' and d.kind=='arm')
 -- A melee blade costs the hit points lost standing next to its enemy, the rounds it fights.

@@ -311,4 +311,65 @@ i=enemies(input({spells={row('TESTBALL',ball,3)}}),{enemy(11,{x=400,y=100}),enem
 assert(#choice.options(i)==2)
 groups=groups+1
 
+-- 17. Spell slots (Christopher, 2026-10-21): a slot costs less when the caster has more spells
+-- ready than rounds it can expect to live. Two fighters deal the caster 38 hit points a round
+-- (40 left): with eight bolts ready a slot costs the rounds it lives over eight. The round it is
+-- in always counts; without threat, or with no more spells than rounds, a slot costs in full.
+-- Copies count; spells it cannot cast now or that do nothing in a fight do not. Skins keep it
+-- standing longer. A drink costs in full.
+local threat=require('combat-intent.threat')
+local function near(a,b) return math.abs(a-b)<1e-9 end
+local function brute(id,fields)
+    local e=enemy(id,{x=130,ac=4,action=3,actee=1,attack={apr=2,thac0=5,damage=10,magical=true}})
+    for k,v in pairs(fields or {}) do e[k]=v end
+    return e
+end
+local function bolts(n)
+    local list={}
+    for k=1,n do list[k]=row('TESTBOLT',bolt,3) end
+    return list
+end
+i=enemies(input({spells=bolts(8)}),{brute(11),brute(12)})
+local t=threat.picture(i.frame)[1]
+assert(near(t.weapon.hp,38) and t.spell.hp==0)
+assert(near(choice.slotShare(i),(40/38)/8))
+i=enemies(input({spells=bolts(2)}),{brute(11)})
+assert(choice.slotShare(i)==1)
+i.spells=bolts(4);assert(near(choice.slotShare(i),(40/19)/4))
+i=enemies(input({spells=bolts(4)}),{brute(11),brute(12),brute(13),brute(14)})
+assert(near(choice.slotShare(i),1/4))
+i.spells=bolts(1);assert(choice.slotShare(i)==1)
+i=enemies(input({spells=bolts(8)}),{enemy(11,{x=1000}),enemy(12,{x=1020})})
+assert(choice.slotShare(i)==1)
+i=enemies(input({spells=bolts(4)}),{brute(11),brute(12)})
+i.spells[1].ready=3
+i.spells[5]=row('TESTBOLT',bolt,3,{usable=false})
+i.spells[6]=row('TESTBOLT',bolt,3,{ready=0})
+i.spells[7]=row('TESTODD',nil,3)
+i.spells[8]=row('TESTNONE',{roles={}},3)
+assert(near(choice.slotShare(i),(40/38)/6))
+i=enemies(input({spells=bolts(8)}),{brute(11),brute(12)})
+i.frame.self.guard={stoneskins=8}
+assert(near(choice.slotShare(i),(8/3.8+40/38)/8))
+-- In decide the share comes along unless given (input.slots). A bolt worth 0.26 against fighters
+-- of 80 hit points stays below the minimum worth at full price; with about a round to live and
+-- eight bolts ready the caster casts it.
+local function brutes(hp) return {brute(11,{hp=hp,maxHp=hp}),brute(12,{hp=hp,maxHp=hp})} end
+i=enemies(input({spells=bolts(1)}),brutes(80))
+d,reason=choice.decide(i);assert(d==nil and reason=='nothing-good')
+i.spells=bolts(8)
+d,reason=choice.decide(i)
+assert(d.resref=='TESTBOLT' and reason=='best' and near(d.cost,0.09*(40/38)/8) and i.slots==nil)
+i.slots=1;assert(select(2,choice.decide(i))=='nothing-good')
+i.slots=0.5;assert(near(choice.decide(i).cost,0.045))
+i=enemies(input({spells=bolts(8),items={{resref='TESTPOTN',abilities={{effect=potion,uses=1}}}}}),brutes(80))
+i.frame.self.hp=10
+local _,_,listed=choice.decide(i)
+local drink,cast
+for _,o in ipairs(listed) do
+    if o.resref=='TESTPOTN' then drink=o elseif o.resref=='TESTBOLT' then cast=cast or o end
+end
+assert(near(drink.cost,0.03) and near(cast.cost,0.09/8))
+groups=groups+1
+
 return groups

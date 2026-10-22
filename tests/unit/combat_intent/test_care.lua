@@ -92,6 +92,8 @@ i.spells={row('TESTCURE',cure,4)}
 local o=only(i)[1]
 assert(o.kind=='heal' and o.target==2 and o.mode=='ally' and near(o.worth,0.3) and o.hits[1]==2)
 assert(near(o.cost,0.12+0.02*1.8))
+-- A spell slot costs input.slots of its price (combat-intent/choice.lua); the casting time does not.
+i.slots=0.5;assert(near(only(i)[1].cost,0.06+0.02*1.8));i.slots=nil
 -- An enemy fighter at the ally (19 hit points a round): it falls either way, but the heal keeps
 -- it standing about a round and a half longer.
 i.frame.enemies={enemy(11,{x=150,attack={apr=2,thac0=5,damage=10},actee=2})}
@@ -188,6 +190,7 @@ i.frame.self.hp=15
 i.items={{resref='TESTPOTN',abilities={{effect=potion,uses=1}}}}
 o=only(i)[1]
 assert(o.use==true and o.self and o.resref=='TESTPOTN' and near(o.worth,25/50) and near(o.cost,0.03))
+i.slots=0.25;assert(near(only(i)[1].cost,0.03));i.slots=nil
 i.items[1].abilities[1].uses=0
 assert(#only(i)==0)
 i.items[1].abilities[1].uses=2

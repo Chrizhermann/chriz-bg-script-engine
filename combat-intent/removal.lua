@@ -66,6 +66,8 @@ local UNSEEN=targeting.STATE.invisible+targeting.STATE.improvedInvisible
 local FRIENDS={self=true,party=true,everyone=true,casterGroup=true}
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
+-- The share of a spell slot's cost that counts now (combat-intent/choice.lua, M.slotShare).
+local function slots(input) return number(input.slots) and input.slots or 1 end
 local function list(t) return type(t)=='table' and t or {} end
 local function clamp(v,a,b) if v<a then return a elseif v>b then return b end return v end
 local function range(spell) return number(spell.range) and spell.range*targeting.rangeUnit or 0 end
@@ -421,7 +423,7 @@ function M.options(input,rejected,attack)
                     pictures=pictures or threat.picture(frame)
                     local through=defence.through(input,pictures[caster.id],cast)
                     local level=number(row.level) and row.level or number(spell.level) and spell.level or 1
-                    local cost=(number(mind.economy) and mind.economy or 1)*M.costPerLevel*level+
+                    local cost=(number(mind.economy) and mind.economy or 1)*slots(input)*M.costPerLevel*level+
                         (number(mind.castCost) and mind.castCost or 0)*cast
                     local value=best.worth*through
                     local option={resref=row.resref,kind='removal',worth=value,cost=cost,score=value-cost,hits=best.hits,

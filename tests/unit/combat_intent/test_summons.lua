@@ -139,6 +139,8 @@ local o=list[1]
 assert(#list==1 and o.kind=='summon' and o.mode=='point' and o.point.x==300 and o.point.y==100 and o.count==2)
 assert(near(o.worth,0.48+12/50+0.48+8/50) and near(o.cost,0.09) and near(o.score,o.worth-o.cost))
 assert(o.creatures[1]=='TESTMON' and #o.hits==0 and o.resref=='TESTHORD' and next(rejected)==nil)
+-- A spell slot costs input.slots of its price (combat-intent/choice.lua).
+i.slots=0.5;assert(near(summons.options(i)[1].cost,0.045));i.slots=nil
 -- Casting time: fewer rounds before the horizon, and harm while casting can break it.
 i.spells={row('TESTHORD',spell('TESTHORD',3,{fx(67,{res='TESTMON',target=1}),fx(67,{res='TESTMON',target=1})},{speed=9}),3)}
 i.frame.enemies[1].x=150

@@ -50,6 +50,8 @@ M.costPerLevel=0.03
 M.itemLevel=1
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
+-- The share of a spell slot's cost that counts now (combat-intent/choice.lua, M.slotShare).
+local function slots(input) return number(input.slots) and input.slots or 1 end
 local function clamp(v,a,b) if v<a then return a elseif v>b then return b end return v end
 local function list(t) return type(t)=='table' and t or {} end
 
@@ -303,7 +305,7 @@ function M.options(input,rejected)
         -- walk to an ally cost.
         local through=item and 1 or defence.through(input,pictures[caster.id],cast)
         local walk=best.aim.walk/M.walkSpeed
-        local cost=(number(mind.economy) and mind.economy or 1)*M.costPerLevel*(item and M.itemLevel or level)+
+        local cost=(number(mind.economy) and mind.economy or 1)*M.costPerLevel*(item and M.itemLevel or slots(input)*level)+
             (number(mind.castCost) and mind.castCost or 0)*(cast+walk)
         local worth=best.worth*through
         local option={resref=resref,kind=gives.heal and 'heal' or 'cure',worth=worth,cost=cost,score=worth-cost,

@@ -55,6 +55,8 @@ M.enemyAc=5
 M.enemyHp=60
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
+-- The share of a spell slot's cost that counts now (combat-intent/choice.lua, M.slotShare).
+local function slots(input) return number(input.slots) and input.slots or 1 end
 local function clamp(v,a,b) if v<a then return a elseif v>b then return b end return v end
 local function amount(role,label)
     local a=type(role)=='table' and role.amounts
@@ -447,7 +449,7 @@ function M.options(input,rejected)
                     local cast=(number(spell.speed) and spell.speed or 0)*M.speedSeconds
                     local through=M.through(input,ct,cast)
                     local level=number(row.level) and row.level or number(spell.level) and spell.level or 1
-                    local cost=(number(mind.economy) and mind.economy or 1)*M.costPerLevel*level+
+                    local cost=(number(mind.economy) and mind.economy or 1)*slots(input)*M.costPerLevel*level+
                         (number(mind.castCost) and mind.castCost or 0)*cast
                     local worth=best.worth*through*(number(mind.caution) and mind.caution or 1)
                     local option={resref=row.resref,kind='defence',worth=worth,cost=cost,score=worth-cost,

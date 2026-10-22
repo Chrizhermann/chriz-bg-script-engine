@@ -2458,6 +2458,8 @@ M.enemyAc=5
 M.enemyHp=60
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
+-- The share of a spell slot's cost that counts now (combat-intent/choice.lua, M.slotShare).
+local function slots(input) return number(input.slots) and input.slots or 1 end
 local function clamp(v,a,b) if v<a then return a elseif v>b then return b end return v end
 local function amount(role,label)
     local a=type(role)=='table' and role.amounts
@@ -2850,7 +2852,7 @@ function M.options(input,rejected)
                     local cast=(number(spell.speed) and spell.speed or 0)*M.speedSeconds
                     local through=M.through(input,ct,cast)
                     local level=number(row.level) and row.level or number(spell.level) and spell.level or 1
-                    local cost=(number(mind.economy) and mind.economy or 1)*M.costPerLevel*level+
+                    local cost=(number(mind.economy) and mind.economy or 1)*slots(input)*M.costPerLevel*level+
                         (number(mind.castCost) and mind.castCost or 0)*cast
                     local worth=best.worth*through*(number(mind.caution) and mind.caution or 1)
                     local option={resref=row.resref,kind='defence',worth=worth,cost=cost,score=worth-cost,
@@ -2921,6 +2923,8 @@ M.costPerLevel=0.03
 M.itemLevel=1
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
+-- The share of a spell slot's cost that counts now (combat-intent/choice.lua, M.slotShare).
+local function slots(input) return number(input.slots) and input.slots or 1 end
 local function clamp(v,a,b) if v<a then return a elseif v>b then return b end return v end
 local function list(t) return type(t)=='table' and t or {} end
 
@@ -3174,7 +3178,7 @@ function M.options(input,rejected)
         -- walk to an ally cost.
         local through=item and 1 or defence.through(input,pictures[caster.id],cast)
         local walk=best.aim.walk/M.walkSpeed
-        local cost=(number(mind.economy) and mind.economy or 1)*M.costPerLevel*(item and M.itemLevel or level)+
+        local cost=(number(mind.economy) and mind.economy or 1)*M.costPerLevel*(item and M.itemLevel or slots(input)*level)+
             (number(mind.castCost) and mind.castCost or 0)*(cast+walk)
         local worth=best.worth*through
         local option={resref=resref,kind=gives.heal and 'heal' or 'cure',worth=worth,cost=cost,score=worth-cost,
@@ -3260,6 +3264,8 @@ M.enemyAc=5
 M.enemyHp=60
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
+-- The share of a spell slot's cost that counts now (combat-intent/choice.lua, M.slotShare).
+local function slots(input) return number(input.slots) and input.slots or 1 end
 local function list(t) return type(t)=='table' and t or {} end
 local function average(dice,sides)
     if number(dice) and number(sides) and dice>0 and sides>0 then return dice*(sides+1)/2 end
@@ -3489,7 +3495,7 @@ function M.options(input,rejected)
                 else
                     pictures=pictures or threat.picture(frame)
                     local through=defence.through(input,pictures[frame.self.id],cast)
-                    local cost=(number(mind.economy) and mind.economy or 1)*M.costPerLevel*level+
+                    local cost=(number(mind.economy) and mind.economy or 1)*slots(input)*M.costPerLevel*level+
                         (number(mind.castCost) and mind.castCost or 0)*cast
                     local value=worth*through
                     local option={resref=row.resref,kind='summon',worth=value,cost=cost,score=value-cost,hits={},slack=0,
@@ -3576,6 +3582,8 @@ local UNSEEN=targeting.STATE.invisible+targeting.STATE.improvedInvisible
 local FRIENDS={self=true,party=true,everyone=true,casterGroup=true}
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
+-- The share of a spell slot's cost that counts now (combat-intent/choice.lua, M.slotShare).
+local function slots(input) return number(input.slots) and input.slots or 1 end
 local function list(t) return type(t)=='table' and t or {} end
 local function clamp(v,a,b) if v<a then return a elseif v>b then return b end return v end
 local function range(spell) return number(spell.range) and spell.range*targeting.rangeUnit or 0 end
@@ -3931,7 +3939,7 @@ function M.options(input,rejected,attack)
                     pictures=pictures or threat.picture(frame)
                     local through=defence.through(input,pictures[caster.id],cast)
                     local level=number(row.level) and row.level or number(spell.level) and spell.level or 1
-                    local cost=(number(mind.economy) and mind.economy or 1)*M.costPerLevel*level+
+                    local cost=(number(mind.economy) and mind.economy or 1)*slots(input)*M.costPerLevel*level+
                         (number(mind.castCost) and mind.castCost or 0)*cast
                     local value=best.worth*through
                     local option={resref=row.resref,kind='removal',worth=value,cost=cost,score=value-cost,hits=best.hits,
@@ -4353,6 +4361,7 @@ local care=require('combat-intent.care')
 local summons=require('combat-intent.summons')
 local removal=require('combat-intent.removal')
 local zones=require('combat-intent.zones')
+local threat=require('combat-intent.threat')
 local openers=require('combat-intent.openers')
 local touch=require('combat-intent.touch')
 local weapons=require('combat-intent.weapons')
@@ -4387,6 +4396,29 @@ local function reaches(role) return type(role)=='table' and type(role.who)=='tab
 local function benefits(role)
     return type(role)=='table' and type(role.who)=='table' and (role.who.target or role.who.area or role.who.point or role.who.party)
 end
+
+-- Spell slots (Christopher, 2026-10-21: a slot costs less when the caster has more spells left
+-- than rounds it can expect to live, "ja, auf jeden Fall"): the share of a slot's cost that
+-- counts now, the rounds the caster lives under the threat it sees, with what protects it now
+-- (combat-intent/defence.lua), over the copies it has ready of spells that do something in a
+-- fight; 1 while it has the rounds for all of them. A spell a round: plain invisibility, which
+-- ends with the next cast, counts spread over those rounds. Every spell's cost counts the share
+-- (input.slots), an item's does not.
+function M.slotShare(input)
+    local left=0
+    for _,row in ipairs(type(input.spells)=='table' and input.spells or {}) do
+        if type(row)=='table' and number(row.ready) and row.ready>0 and row.usable and type(row.spell)=='table' and
+            type(row.spell.roles)=='table' and next(row.spell.roles)~=nil then left=left+row.ready end
+    end
+    if left<=1 then return 1 end
+    local caster=input.frame.self
+    local t=threat.picture(input.frame)[caster.id]
+    if not t then return 1 end
+    local _,rounds=defence.course(defence.held(caster),caster,t,left)
+    if type(rounds)~='number' or rounds~=rounds then return 1 end
+    return clamp(math.max(1,rounds)/left,0,1)
+end
+local function slots(input) return number(input.slots) and input.slots or 1 end
 
 -- 'damage' or 'disable' and how the spell is aimed, or nil and why the engine leaves it out.
 function M.attack(spell)
@@ -4583,7 +4615,7 @@ local function evaluate(input,row,spell,kind,mode,aim)
     end
     if worth<=0 then return nil,'no-worth' end
     local level=number(row.level) and row.level or number(spell.level) and spell.level or 1
-    local cost=input.mind.economy*M.costPerLevel*level
+    local cost=input.mind.economy*slots(input)*M.costPerLevel*level
     local option={resref=row.resref,kind=kind,mode=mode,worth=worth,cost=cost,score=worth-cost,hits=hits,slack=slack,
         speed=number(spell.speed) and spell.speed or 0,release=spell.release or nil}
     if kind=='damage' then option.expected=expected end
@@ -4630,7 +4662,7 @@ local function touchOptions(input,row,spell,w,out,reject)
             if worth>0 then
                 local p=touch.hitChance(caster,e,w)
                 local exposure=maxHp and mind.caution*touch.exposure(frame,e)*touch.exposedRounds/maxHp or 0
-                local cost=mind.economy*M.costPerLevel*level+exposure
+                local cost=mind.economy*slots(input)*M.costPerLevel*level+exposure
                 out[#out+1]={resref=row.resref,kind='touch',mode='self',self=true,target=e.id,worth=worth*p,
                     cost=cost,score=worth*p-cost,hits={e.id},slack=0,hit=p,expected={[e.id]=expected*p},
                     speed=number(spell.speed) and spell.speed or 0,item=w.item}
@@ -4696,7 +4728,7 @@ local function armOptions(input,row,spell,arms,out,reject)
     end
     if not target then reject('no-worth');return end
     local level=number(row.level) and row.level or number(spell.level) and spell.level or 1
-    local cost=mind.economy*M.costPerLevel*level
+    local cost=mind.economy*slots(input)*M.costPerLevel*level
     local maxHp=number(caster.maxHp) and caster.maxHp>0 and caster.maxHp or nil
     if not arms.ranged and maxHp then
         for _,e in ipairs(frame.enemies) do
@@ -5002,10 +5034,17 @@ end
 -- The attack, defence, heal or cure, summons, removal, opener, strike, weapon attack or way out of
 -- a zone to do now, or nil and why; the options come along for the log, and without a choice the
 -- count of reasons the ready spells gave none. Leaving costs no spell, only the seconds of the
--- walk: it comes first when it is worth more than that share of a round of the choice.
+-- walk: it comes first when it is worth more than that share of a round of the choice. Spell
+-- slots cost input.slots of their price, M.slotShare's when it is not given.
 function M.decide(input)
     if type(input)~='table' or type(input.frame)~='table' or type(input.frame.self)~='table' or
         type(input.frame.enemies)~='table' or type(input.mind)~='table' then return nil,'bad-input',{} end
+    if input.slots==nil then
+        local view={}
+        for k,v in pairs(input) do view[k]=v end
+        view.slots=M.slotShare(input)
+        input=view
+    end
     local d,why,options,rejected=pick(input)
     local escape=zones.active(input) and zones.escape(input) or nil
     if escape then
@@ -7472,6 +7511,8 @@ function M.new(g,options)
             input.timeStop={caster=holder,left=left}
             if holder==id then input.stopCasts=stopCasts[id] or {} end
         end
+        -- The share of a spell slot's cost that counts now, kept for the log.
+        input.slots=choice.slotShare(input)
         local d,why,options,rejected=choice.decide(input)
         lastDetail=rejected
         local top={}
@@ -7482,7 +7523,7 @@ function M.new(g,options)
         if not d then
             if why~='no-option' then
                 record({kind='decline',tick=tick,member=id,family=family,reason=why,top=top,charge=lastCharge,
-                    rejected=lastCharge and rejected or nil})
+                    rejected=lastCharge and rejected or nil,slots=input.slots})
             end
             return decline(why)
         end
@@ -7503,7 +7544,8 @@ function M.new(g,options)
         record({kind='choice',tick=tick,member=id,family=family,spell=d.resref,castKind=d.kind,mode=d.mode,
             target=d.target,point=d.point,score=d.score,worth=d.worth,hits=d.hits,how=why,top=top,
             focus=input.plan.focus,rule=d.rule,stop=input.timeStop and input.timeStop.left or nil,
-            alacrity=frame.self.alacrity or nil,release=d.release,use=d.use,creatures=d.creatures,count=d.count})
+            alacrity=frame.self.alacrity or nil,release=d.release,use=d.use,creatures=d.creatures,count=d.count,
+            slots=input.slots})
         -- A disable claims its targets in the group at once, so that another member deciding
         -- before this cast starts leaves them alone; any other decision gives earlier claims back.
         if director then

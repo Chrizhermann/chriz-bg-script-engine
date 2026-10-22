@@ -1371,4 +1371,29 @@ assert(#seen==2 and math.abs(seen[1]-30/15)<1e-9 and seen[2]==0)
 end)()
 groups=groups+1
 
+-- 27. Spell slots (Christopher, 2026-10-21): the choice gets the share of a slot's cost
+-- (combat-intent/choice.lua, slotShare) for the caster's ready spells under the threat it sees,
+-- and the record keeps it for the lab.
+;(function()
+local logic=require('combat-intent.choice')
+local g18=world()
+local m20=g18.add(sprite(1,0,0,255))
+learn(m20,2,'TESTBOLT',12)
+g18.add(sprite(11,100,0,2))
+local ch18=choices.new(g18,{reader=reader,seed=27})
+local rows={}
+ch18:setSink(function(row) rows[#rows+1]=row end)
+runtime.install(g18,{choice=ch18,version='test'})
+local decide,seen=logic.decide,{}
+logic.decide=function(input) seen[#seen+1]={given=input.slots,share=logic.slotShare(input)};return decide(input) end
+local ok,err=pcall(function() g18.ticks=100;g18.BGSE_Claim(m20,'mage','s1') end)
+logic.decide=decide
+assert(ok,err)
+local last
+for _,r in ipairs(rows) do if r.kind=='choice' or r.kind=='decline' then last=r end end
+assert(#seen==1 and type(seen[1].given)=='number' and seen[1].given==seen[1].share and seen[1].given<1)
+assert(last and last.kind=='choice' and last.slots==seen[1].given)
+end)()
+groups=groups+1
+
 return groups

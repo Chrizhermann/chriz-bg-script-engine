@@ -205,6 +205,9 @@ local o=find(opts,'TESTPFMW')
 assert(o and o.kind=='defence' and o.self and o.mode=='self' and o.hits[1]==1)
 assert(near(o.worth,bare*math.exp(-0.38)) and near(o.cost,0.18+0.02*0.6))
 assert(find(opts,'TESTSTON').worth<o.worth and find(opts,'TESTMIRR').worth<find(opts,'TESTSTON').worth)
+-- A spell slot costs input.slots of its price (combat-intent/choice.lua); the casting time does not.
+i.slots=0.25
+assert(near(find(defence.options(i,{}),'TESTPFMW').cost,0.18*0.25+0.02*0.6))
 -- Held enemies threaten no one.
 i=input({fighter(11,130,{held=1}),fighter(12,135,{held=1})},list)
 rejected={}

@@ -46,6 +46,8 @@ M.enemyAc=5
 M.enemyHp=60
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
+-- The share of a spell slot's cost that counts now (combat-intent/choice.lua, M.slotShare).
+local function slots(input) return number(input.slots) and input.slots or 1 end
 local function list(t) return type(t)=='table' and t or {} end
 local function average(dice,sides)
     if number(dice) and number(sides) and dice>0 and sides>0 then return dice*(sides+1)/2 end
@@ -275,7 +277,7 @@ function M.options(input,rejected)
                 else
                     pictures=pictures or threat.picture(frame)
                     local through=defence.through(input,pictures[frame.self.id],cast)
-                    local cost=(number(mind.economy) and mind.economy or 1)*M.costPerLevel*level+
+                    local cost=(number(mind.economy) and mind.economy or 1)*slots(input)*M.costPerLevel*level+
                         (number(mind.castCost) and mind.castCost or 0)*cast
                     local value=worth*through
                     local option={resref=row.resref,kind='summon',worth=value,cost=cost,score=value-cost,hits={},slack=0,

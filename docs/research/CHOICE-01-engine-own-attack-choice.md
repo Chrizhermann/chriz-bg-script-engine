@@ -73,6 +73,17 @@ Worth is counted in shares of an enemy taken out of the fight (`combat-intent/ch
   areas are tried on each enemy's spot and on the middle of the enemies around it.
 - **Cost:** 0.03 of an enemy per spell level, times the profile's economy, so a small spell
   finishes a nearly dead enemy and strong spells wait for strong enemies.
+- **Spell slots** (Christopher, 2026-10-21; built 2026-10-22): a slot costs less when the caster
+  has more spells left than rounds it can expect to live. The level part of every spell's cost
+  (attacks, touch spells, conjured weapons, defences, heals and cures, summons, removals) is
+  multiplied by the rounds it lives over the copies it has ready of spells that do something in
+  a fight, at most 1. The rounds come from the threat it sees now and what protects it now
+  (DEFENCE-01's harm course; plain invisibility, which the next cast ends, counts spread over
+  those rounds); the round it is in always counts. Eight spells and about a round to live: an
+  eighth of the price. No one threatening it, or no more spells than rounds: the full price.
+  Items, casting time and walking are no slots and cost in full. The lab log keeps the share
+  with every choice and decline (`slots`). Not counted yet: more casts a round under Improved
+  Alacrity or in its own Time Stop, and fights that end before the caster would fall.
 - **Pick:** with probability `best` (0.6 by default) the best option, otherwise a uniform draw
   from the options within `band` (0.2) of it.
 - **Memory:** a cast that ended with no effect on its target is a miss. A miss with no save and

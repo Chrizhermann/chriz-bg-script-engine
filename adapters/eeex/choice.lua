@@ -1031,6 +1031,8 @@ function M.new(g,options)
             input.timeStop={caster=holder,left=left}
             if holder==id then input.stopCasts=stopCasts[id] or {} end
         end
+        -- The share of a spell slot's cost that counts now, kept for the log.
+        input.slots=choice.slotShare(input)
         local d,why,options,rejected=choice.decide(input)
         lastDetail=rejected
         local top={}
@@ -1041,7 +1043,7 @@ function M.new(g,options)
         if not d then
             if why~='no-option' then
                 record({kind='decline',tick=tick,member=id,family=family,reason=why,top=top,charge=lastCharge,
-                    rejected=lastCharge and rejected or nil})
+                    rejected=lastCharge and rejected or nil,slots=input.slots})
             end
             return decline(why)
         end
@@ -1062,7 +1064,8 @@ function M.new(g,options)
         record({kind='choice',tick=tick,member=id,family=family,spell=d.resref,castKind=d.kind,mode=d.mode,
             target=d.target,point=d.point,score=d.score,worth=d.worth,hits=d.hits,how=why,top=top,
             focus=input.plan.focus,rule=d.rule,stop=input.timeStop and input.timeStop.left or nil,
-            alacrity=frame.self.alacrity or nil,release=d.release,use=d.use,creatures=d.creatures,count=d.count})
+            alacrity=frame.self.alacrity or nil,release=d.release,use=d.use,creatures=d.creatures,count=d.count,
+            slots=input.slots})
         -- A disable claims its targets in the group at once, so that another member deciding
         -- before this cast starts leaves them alone; any other decision gives earlier claims back.
         if director then
