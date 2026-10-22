@@ -300,7 +300,13 @@ Fire Storm, Meteor Swarm). Most deliver their effects through spells they cast o
 Not yet: no protections against zones (Protection from Fire and the like); ways out do not prefer
 spots that keep enemies in sight or range; the engine does not cast clouds for their lingering
 harm on enemies (its zones are only dangers to its own); a cast under way is not broken off for a
-zone by the engine itself.
+zone by the engine itself. The engine weighs its own cloud by one explosion: in the eighteen care
+fights of H2 to H7 the level-12 mage never chose Ice Storm (four explosions); SCS alone cast it in
+three of its six care fights (six casts, four storms landed), mostly at the party's fighters, and
+the lab's fighters stayed for two to four of a storm's explosions. In three of the engine's
+fights the storm came from SCS's script, in rounds the engine declined. An area that does not
+spare friends also waits while the caster stands in it, even where the caster is immune to it
+(proposal to Christopher, 2026-10-22).
 
 ## Lab batch H (2026-10-20 and 21)
 
