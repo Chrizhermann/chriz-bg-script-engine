@@ -11,11 +11,13 @@ the engine can tell which of a creature's scripts asks.
 
 SCS's cloud blocks above the anchor stand aside while the engine weighs danger zones for the
 creature: its escapes (they set SCS's seencloud timer and run from a cloud or walk at the enemy,
-genai/ssl/fleecloud.ssl) and its stand-still while it hears a cloud and sees no enemy
-(mage/ssl/generalblocks/fleecloud.ssl). They get a last condition that holds when BGSE_Zones says
-no; with no enemy in sight it says yes only when the engine leads the creature out of a zone that
-hurts it. SCS's own triggers still run first, as before, and the engine is asked only when SCS
-would act. Those below the anchor run only when the engine declines and stay as they are.
+genai/ssl/fleecloud.ssl), its mages' run from a Cloudkill before they see the enemy (only
+SetInterrupt and a run from the marker it heard, mage/ssl/generalblocks/gohostile.ssl) and its
+stand-still while it hears a cloud and sees no enemy (mage/ssl/generalblocks/fleecloud.ssl).
+They get a last condition that holds when BGSE_Zones says no; with no enemy in sight it says yes
+only when the engine leads the creature out of a zone that hurts it. SCS's own triggers still run
+first, as before, and the engine is asked only when SCS would act. Those below the anchor run
+only when the engine declines and stay as they are.
 
 Run it on a folder of decompiled scripts to see what an install would do:
     python tools/hook_rule.py <folder-with-baf> [report.json]
@@ -33,8 +35,12 @@ FAMILIES = (('DMWW_mage_', 'mage'), ('DMWW_priest_', 'priest'), ('DMWW_genai_', 
 MONSTER = re.compile(r'DMWW_[a-z_]+_difficulty')
 MARK = 'BGSE_Claim'
 CLOUD = 'SetGlobalTimer("seencloud","LOCALS",'
-# The shouts of SCS's cloud markers (initial/detectcloud.tpa: 404 Cloudkill to 413 Suffocate).
-CLOUD_SHOUT = re.compile(r'Heard\(\[ANYONE\],(40[4-9]|41[0-3])\)')
+# A trigger that hears one of SCS's cloud markers shout (initial/detectcloud.tpa: 404 Cloudkill to
+# 413 Suffocate); !Heard listens for none.
+CLOUD_SHOUT = re.compile(r'^ +Heard\(\[ANYONE\],(40[4-9]|41[0-3])\)', re.M)
+# A run from the marker the creature heard, and the interrupt switches around it.
+RUN_FROM_MARKER = re.compile(r'^ {4}RunAwayFrom[A-Za-z]*\(LastHeardBy\(Myself\),', re.M)
+INTERRUPT = re.compile(r'^ {4}SetInterrupt\(', re.M)
 OR_LINE = re.compile(r' +OR\((\d+)\)')
 ACTION = re.compile(r'^ {4}([A-Za-z_][A-Za-z0-9_]*)\(', re.M)
 RETARGET = {'SetGlobal', 'SetGlobalTimer', 'IncrementGlobal', 'ClearActions'}
@@ -139,13 +145,21 @@ def stand_aside(block, family, script):
 
 
 def is_cloud(block):
-    """SCS's escape from a cloud (it sets the seencloud timer), or its stand-still while it hears
-    a cloud: every response is NoAction() alone and the triggers listen for a marker's shout."""
+    """SCS's escape from a cloud (it sets the seencloud timer), or a block whose triggers hear a
+    marker's shout and that only stands still (every response is NoAction() alone) or only runs
+    from the marker it heard (as many runs from LastHeardBy(Myself) as responses, and nothing else
+    but SetInterrupt; lab batches H7 and H8: SCS's mages' run from a Cloudkill, which sets no
+    timer, kept mages standing in an Incendiary Cloud for 34 to 38 seconds)."""
     trig, resp = split(block)
     if CLOUD in resp:
         return True
     rs = responses(block)
-    return bool(rs) and all(r == ['NoAction'] for r in rs) and bool(CLOUD_SHOUT.search(trig))
+    if not rs or not CLOUD_SHOUT.search(trig):
+        return False
+    if all(r == ['NoAction'] for r in rs):
+        return True
+    runs = len(RUN_FROM_MARKER.findall(resp))
+    return runs == len(rs) and sum(len(r) for r in rs) == runs + len(INTERRUPT.findall(resp))
 
 
 def clouds(text, spans, anchor):

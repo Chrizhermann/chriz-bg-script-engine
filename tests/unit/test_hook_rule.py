@@ -15,19 +15,19 @@ def text(name):
 def test_mage_hook_sits_before_the_action_choice_with_guarded_copies():
     source = text('B-HKMAG')
     spans, anchor, copies = hook_rule.plan(source)
-    # Setup, prebuff, first-round cast, cloud escape and SCS's stand-still in a cloud stay
-    # above; the alacrity block is the first block of the per-round choice.
-    assert anchor == 5
+    # Setup, prebuff, first-round cast, cloud escape, SCS's stand-still in a cloud and its run
+    # from a Cloudkill stay above; the alacrity block is the first block of the per-round choice.
+    assert anchor == 6
     # Two target picks and the special that aims at LastSeenBy, then the bookkeeping run with
     # its state-only middle block. The perceiving item block is not bookkeeping, but making
     # an item is more than a combat round, so it is kept too. The filler, the item-free state
     # block and the spellbook-gated ForceSpellRES are not copied.
-    assert copies == [6, 7, 8, 9, 10, 11, 14]
+    assert copies == [7, 8, 9, 10, 11, 12, 15]
     patched, reason, family, count = hook_rule.patch(source, 'B-HKMAG')
     assert (reason, family, count) == ('hooked', 'mage', 7)
-    # Above the hook only the cloud escape and stand-still change (test_cloud_blocks_above_...).
+    # Above the hook only the cloud blocks change (test_cloud_blocks_above_...).
     head = source[:spans[anchor][0]]
-    for i in (3, 4):
+    for i in (3, 4, 5):
         cloud = source[spans[i][0]:spans[i][1]]
         head = head.replace(cloud, hook_rule.stand_aside(cloud, 'mage', 'b-hkmag'), 1)
     tail = source[spans[anchor][0]:]
@@ -64,13 +64,14 @@ def test_scripts_left_as_they_are(name, reason):
 
 
 def test_cloud_blocks_above_the_hook_yield_to_the_engine():
-    # The mage's escape (SCS's fleecloud blocks) and its stand-still while it hears a cloud and
-    # sees no enemy take the condition after their own triggers (lab batch H7: out of the
-    # party's sight, SCS's run from a cloud's marker and its stand-still kept two casters in
-    # clouds for more than 30 seconds).
+    # The mage's escape (SCS's fleecloud blocks), its stand-still while it hears a cloud and sees
+    # no enemy and its run from a Cloudkill's marker before it sees the enemy (gohostile) take the
+    # condition after their own triggers (lab batches H7 and H8: out of the party's sight, SCS's
+    # run from a cloud's marker and its stand-still kept casters in clouds for more than 30
+    # seconds).
     source = text('B-HKMAG')
     spans, anchor, _ = hook_rule.plan(source)
-    assert hook_rule.clouds(source, spans, anchor) == [3, 4]
+    assert hook_rule.clouds(source, spans, anchor) == [3, 4, 5]
     patched = hook_rule.patch(source, 'B-HKMAG')[0]
     zones = hook_rule.zones_guard('mage', 'b-hkmag')
     assert zones == ('EEex_LuaTrigger("return BGSE_Zones and BGSE_Zones(EEex_LuaTrigger_Object,'
@@ -78,7 +79,10 @@ def test_cloud_blocks_above_the_hook_yield_to_the_engine():
     escape = ('    !See(NearestEnemyOf(Myself))\n  !' + zones +
               '\nTHEN\n  RESPONSE #100\n    SetGlobalTimer("seencloud","LOCALS",20)\n')
     still = '    Heard([ANYONE],411)\n  !' + zones + '\nTHEN\n  RESPONSE #100\n    NoAction()\nEND\n'
-    assert patched.count(escape) == 1 and patched.count(still) == 1 and patched.count(zones) == 2
+    run = ('  Range(LastHeardBy(Myself),20)\n  !' + zones + '\nTHEN\n  RESPONSE #100\n    SetInterrupt(FALSE)\n'
+           '    RunAwayFromNoLeaveArea(LastHeardBy(Myself),45)\n')
+    assert patched.count(escape) == 1 and patched.count(still) == 1 and patched.count(run) == 1
+    assert patched.count(zones) == 3
     # The ranged fighter's escape ends in an OR group that lacks a member: the condition goes
     # first. Its escape below the hook runs only when the engine declines and stays, and so does
     # its NoAction() that listens for no cloud.
@@ -99,6 +103,17 @@ def test_cloud_blocks_above_the_hook_yield_to_the_engine():
     (['!See(NearestEnemyOf(Myself))', 'Heard([ANYONE],414)'], ['NoAction()'], False),
     (['Heard([ANYONE],410)'], ['NoAction()', 'Continue()'], False),
     (['Global("removedpotions","LOCALS",1)'], ['NoAction()'], False),
+    # A run from the marker it heard, with or without the interrupt switches (gohostile).
+    (['Heard([ANYONE],404)', '!See([PC])'],
+     ['SetInterrupt(FALSE)', 'RunAwayFromNoLeaveArea(LastHeardBy(Myself),45)', 'SetInterrupt(TRUE)'], True),
+    (['OR(2)', '  Heard([ANYONE],405)', '  Heard([ANYONE],409)'], ['RunAwayFrom(LastHeardBy(Myself),30)'], True),
+    # Not a cloud's marker, a run from someone else, more than a run, or listening for no cloud.
+    (['Heard([ANYONE],99)'], ['RunAwayFromNoLeaveArea(LastHeardBy(Myself),180)'], False),
+    (['Heard([ANYONE],404)'], ['RunAwayFromNoLeaveArea(NearestEnemyOf(Myself),45)'], False),
+    (['Heard([ANYONE],404)'], ['SetInterrupt(FALSE)', 'RunAwayFromNoLeaveArea(LastHeardBy(Myself),45)',
+                               'Spell(Myself,WIZARD_MIRROR_IMAGE)'], False),
+    (['!Heard([ANYONE],404)'], ['RunAwayFromNoLeaveArea(LastHeardBy(Myself),45)'], False),
+    (['!Heard([ANYONE],404)', '!See(NearestEnemyOf(Myself))'], ['NoAction()'], False),
 ])
 def test_cloud_blocks_are_escapes_or_a_stand_still_on_a_marker_shout(triggers, actions, cloud):
     lines = ''.join(f'  {t}\n' for t in triggers)

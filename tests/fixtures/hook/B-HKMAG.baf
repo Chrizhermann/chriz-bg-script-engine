@@ -55,6 +55,17 @@ THEN
 END
 
 IF
+  Heard([ANYONE],404)
+  !See([PC])
+  Range(LastHeardBy(Myself),20)
+THEN
+  RESPONSE #100
+    SetInterrupt(FALSE)
+    RunAwayFromNoLeaveArea(LastHeardBy(Myself),45)
+    SetInterrupt(TRUE)
+END
+
+IF
   CheckStatGT(Myself,0,WIZARD_IMPROVED_ALACRITY)
   GlobalTimerNotExpired("castspell","LOCALS")
 THEN

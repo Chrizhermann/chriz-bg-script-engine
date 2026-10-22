@@ -13,11 +13,12 @@
 //
 // SCS's cloud blocks above the anchor stand aside while the engine weighs danger zones for the
 // creature: its escapes (they set SCS's seencloud timer and run from a cloud or walk at the
-// enemy) and its stand-still while it hears a cloud (NoAction() alone, on a marker's shout). They
-// get a last condition that holds when BGSE_Zones says no (with no enemy in sight it says yes
-// only when the engine leads the creature out of a zone that hurts it); first when their
-// triggers end in an OR group that lacks members, which the condition would otherwise join.
-// Those below the anchor stay as they are.
+// enemy), its mages' run from a Cloudkill before they see the enemy (SetInterrupt and a run from
+// the marker it heard, on a marker's shout) and its stand-still while it hears a cloud
+// (NoAction() alone, on a marker's shout). They get a last condition that holds when BGSE_Zones
+// says no (with no enemy in sight it says yes only when the engine leads the creature out of a
+// zone that hurts it); first when their triggers end in an OR group that lacks members, which
+// the condition would otherwise join. Those below the anchor stay as they are.
 //
 // tools/hook_rule.py is the reference version of this rule. Keep the two in step;
 // tests/integration/test_hook_installer.py compares them.
@@ -232,17 +233,24 @@ BEGIN
               END
               PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~SetGlobalTimer("seencloud","LOCALS",~ ~%resp%~) >= 0) BEGIN
                 SET $bgse_cloud(~%n%~) = 1
-              END ELSE PATCH_IF ((~%trig%~ STRING_CONTAINS_REGEXP ~Heard(\[ANYONE\],\(40[4-9]\|41[0-3]\))~) = 0) BEGIN
-                // Every response is NoAction() alone.
+              END ELSE PATCH_IF ((~%trig%~ STRING_CONTAINS_REGEXP ~%LNL% +Heard(\[ANYONE\],\(40[4-9]\|41[0-3]\))~) = 0) BEGIN
+                // It hears a marker's shout (not !Heard). Every response is NoAction() alone, or
+                // it runs from the marker it heard once a response with nothing else but
+                // SetInterrupt.
                 SET still_parts = 0
                 SET still_actions = 0
                 SET still_waits = 0
+                SET still_runs = 0
+                SET still_switches = 0
                 INNER_PATCH ~%resp%~ BEGIN
                   COUNT_REGEXP_INSTANCES CASE_SENSITIVE EXACT_MATCH ~%LNL%  RESPONSE #~ still_parts
                   COUNT_REGEXP_INSTANCES CASE_SENSITIVE ~^    [A-Za-z_][A-Za-z0-9_]*(~ still_actions
                   COUNT_REGEXP_INSTANCES CASE_SENSITIVE ~^    NoAction()~ still_waits
+                  COUNT_REGEXP_INSTANCES CASE_SENSITIVE ~^    RunAwayFrom[A-Za-z]*(LastHeardBy(Myself),~ still_runs
+                  COUNT_REGEXP_INSTANCES CASE_SENSITIVE ~^    SetInterrupt(~ still_switches
                 END
-                PATCH_IF (still_parts > 0) AND (still_actions = still_parts) AND (still_waits = still_parts) BEGIN
+                PATCH_IF (still_parts > 0) AND (((still_actions = still_parts) AND (still_waits = still_parts))
+                    OR ((still_runs = still_parts) AND (still_actions = still_runs + still_switches))) BEGIN
                   SET $bgse_cloud(~%n%~) = 1
                 END
               END

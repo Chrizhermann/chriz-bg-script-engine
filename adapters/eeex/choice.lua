@@ -69,9 +69,9 @@
 -- still lies outside the zones it leaves, without SCS's round timer, so the engine decides again
 -- once the creature is out; it is held while it walks, and judged by whether it got out. While SCS's
 -- round timer runs, and when the creature sees no enemy, the engine still leads it out of a zone
--- that hurts it, unless it is casting. BGSE_Zones (api:zones) tells SCS's own cloud escape and
--- stand-still above the hook (bgse/lib/hook.tpa) to stand aside while the engine weighs zones for
--- the creature.
+-- that hurts it, unless it is casting. BGSE_Zones (api:zones) tells SCS's own cloud blocks above
+-- the hook (escapes, runs from a marker and stand-still; bgse/lib/hook.tpa) to stand aside while
+-- the engine weighs zones for the creature.
 local sense=require('adapters.eeex.sense')
 local creature=require('adapters.eeex.creature')
 local resources=require('adapters.eeex.resources')
@@ -923,9 +923,10 @@ function M.new(g,options)
         local tick=now()
         if not held and not targeting.CASTS[action] then
             -- With no enemy in sight the engine takes the round only to lead the creature out of
-            -- a zone that hurts it (its claim then does, through flee); else SCS's own escape and
-            -- stand-still run (lab batch H7: SCS's run from a cloud's marker left a mage that saw
-            -- no enemy standing in an Incendiary Cloud for 37 seconds).
+            -- a zone that hurts it (its claim then does, through flee); else SCS's own escapes,
+            -- runs from a marker and stand-still run (lab batches H7 and H8: SCS's run from a
+            -- Cloudkill's marker left mages that saw no enemy standing in an Incendiary Cloud for
+            -- 34 to 38 seconds).
             local frame=sense.frame(g,sprite,tick,false)
             if frame and #frame.enemies>0 then return true end
             return exit(sprite,tick,family)~=nil
@@ -1342,7 +1343,7 @@ function M.new(g,options)
         if not value then pending,moves={},{} end
     end
     -- Whether the engine weighs danger zones for creature id of family now (BGSE_Zones: SCS's own
-    -- cloud escape and stand-still stand aside meanwhile): not for a creature off the engine's
+    -- cloud blocks stand aside meanwhile): not for a creature off the engine's
     -- side, and with no enemy in sight only when the engine has a way out of a zone that hurts it.
     -- While it casts, or swings in a strike or weapon round of the engine's, the hook cannot break
     -- that action (its own block runs it), so a zone that hurts the creature where it stands and

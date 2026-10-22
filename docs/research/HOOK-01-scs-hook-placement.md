@@ -58,17 +58,24 @@ Python, and `tests/integration/test_hook_installer.py` checks they agree.
 5. The originals stay where they are. A script that is already hooked, has no round timer or
    has no anchor is left as it is, and the installer says so.
 6. SCS's cloud blocks above the anchor get a last condition, `!EEex_LuaTrigger(...BGSE_Zones...)`:
-   its escapes (the response sets the `seencloud` timer) and its stand-still while it hears a
-   cloud (every response is `NoAction()` alone and the triggers listen for a marker's shout,
-   `Heard([ANYONE],404)` to `413`). They run when the engine does not weigh danger zones for the
-   creature now (SUPPORT-01, D3e); with no enemy in sight it weighs them only when it leads the
-   creature out of a zone that hurts it. SCS's own triggers run first, as before, and the engine
-   is asked only when SCS would act (EEex compiles each `EEex_LuaTrigger` anew). When the
-   triggers end in an OR group that lacks members, the condition goes first instead, so it never
-   joins that group. Cloud blocks below the anchor run only when the engine declines and stay as
-   they are. Until 2026-10-22 the condition was `OR(2) !See(NearestEnemyOf(Myself)) !...BGSE_Zones...`
-   and the stand-still had none, so with no enemy in sight SCS kept these rounds: in lab batch H7
-   that left two casters out of the party's sight in clouds for more than 30 seconds (SUPPORT-01).
+   its escapes (the response sets the `seencloud` timer), and the blocks whose triggers hear a
+   marker's shout (`Heard([ANYONE],404)` to `413`; `!Heard` hears none) and that only stand still
+   (every response is `NoAction()` alone: the stand-still while it hears a cloud) or only run
+   from the marker they heard (as many `RunAwayFrom…(LastHeardBy(Myself),…)` as responses and
+   nothing else but `SetInterrupt`: the mages' run from a Cloudkill before they see the enemy,
+   `mage/ssl/generalblocks/gohostile.ssl`). They run when the engine does not weigh danger zones
+   for the creature now (SUPPORT-01, D3e); with no enemy in sight it weighs them only when it
+   leads the creature out of a zone that hurts it. SCS's own triggers run first, as before, and
+   the engine is asked only when SCS would act (EEex compiles each `EEex_LuaTrigger` anew). When
+   the triggers end in an OR group that lacks members, the condition goes first instead, so it
+   never joins that group. Cloud blocks below the anchor run only when the engine declines and
+   stay as they are. Until 2026-10-22 the condition was
+   `OR(2) !See(NearestEnemyOf(Myself)) !...BGSE_Zones...` and the stand-still had none, so with no
+   enemy in sight SCS kept these rounds; until 2026-10-23 the run from a Cloudkill had none. In lab
+   batches H7 and H8 that run kept mages out of the party's sight standing in an Incendiary Cloud
+   for 34 to 38 seconds (SUPPORT-01). In the SR lab's 1,148 hooked scripts 11,496 blocks get the
+   condition, all of it last: 9,957 escapes, 952 stand-stills and 587 runs from a marker (585 in
+   mage scripts, 2 in monster scripts; host run of the rule, nothing installed).
 
 The claim is cached per creature and game tick, so the copies and the hook ask once per
 script pass and get the same answer. When the engine declines or is switched off, every

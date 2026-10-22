@@ -276,9 +276,9 @@ markers, so it knows every zone, also those SCS marks not, and judges each by th
   walking into a cloud.
 - **Mid-round:** while SCS's round timer runs and the creature is not casting, and when it sees
   no enemy, it still walks out of a zone that hurts it.
-- **SCS's escape stands aside** (HOOK-01, rule 6): the installer gives SCS's escape blocks and its
-  stand-still while it hears a cloud (above the hook) a last condition: they run when
-  `BGSE_Zones` says no. `BGSE_Zones` is true while the gate would ask the engine (switches,
+- **SCS's escape stands aside** (HOOK-01, rule 6): the installer gives SCS's escape blocks, its
+  mages' run from a Cloudkill before they see the enemy and its stand-still while it hears a
+  cloud (above the hook) a last condition: they run when `BGSE_Zones` says no. `BGSE_Zones` is true while the gate would ask the engine (switches,
   registry, the scripts below, no backoff after an error), the choice is on, zones can be read
   and the creature is on the engine's side; with no enemy in sight only when the engine has a way
   out of a zone that hurts the creature (its claim then leads it out); and not while it casts, or
@@ -287,10 +287,11 @@ markers, so it knows every zone, also those SCS marks not, and judges each by th
   SCS breaks it off as it always did. So with no enemy in sight and no zone hurting the creature,
   SCS's escape and stand-still run as before. SCS's cloud blocks below the hook run only when the
   engine declines and stay as they are. Until 2026-10-22 the escapes ran whenever the creature
-  saw no enemy and the stand-still always (lab batch H7, below). In the SR lab's scripts 9,957
-  escape blocks in 1,078 hooked scripts got the condition (mage 5,201, priest 2,456, monster
-  1,360, fighter 940), all of them last (host run of the rule before the stand-still joined,
-  nothing installed).
+  saw no enemy and the stand-still always (lab batch H7, below); until 2026-10-23 the run from a
+  Cloudkill always (lab batch H8, below). In the SR lab's 1,148 hooked scripts 11,496 blocks get
+  the condition, all of them last: 9,957 escapes (mage 5,201, priest 2,456, monster 1,360,
+  fighter 940), 952 stand-stills (mage 560, priest 307, monster 85) and 587 runs from a Cloudkill
+  (mage 585, monster 2; host run of the rule, nothing installed).
 
 In the SR lab, 46 wizard, priest and innate abilities have an area projectile that explodes again
 and again (host census, nothing ran). Most clouds explode every 75 ticks, ten times (Stinking
@@ -326,7 +327,8 @@ Not yet: no protections against zones (Protection from Fire and the like); ways 
 spots that keep enemies in sight or range; a cast under way is not broken off for a zone by the
 engine itself; spells such as Cloudkill count by their main kind alone (the disable), so their
 damage on enemies above its levels does not count; what a deflection is worth against the
-enemies' other spells once a cloud has used it up does not count either.
+enemies' other spells once a cloud has used it up does not count either; a ranged attack the game
+walks closer to its target first can lead into a zone (lab batch H8, below).
 
 ## Lab batch H (2026-10-20 and 21)
 
@@ -612,4 +614,54 @@ each dummy cast on itself before the clouds came. Hit points lost:
   the edge of one for 34 seconds and lost 99 (SCS's `NoAction()` while it hears a cloud and sees
   no enemy). Since then SCS's escapes and stand-still stand aside with no enemy in sight too,
   whenever the engine has a way out of a zone that hurts the creature (HOOK-01, rule 6; D3e
-  above).
+  above). The mage's run was not one of those escapes but the mages' run from a Cloudkill, which
+  got the condition only after lab batch H8 (below).
+
+## Lab batch H8 (2026-10-23)
+
+One launch with build `9cdf859`: the summons' rest of the fight (`2d60ce0`), SCS's cloud blocks
+standing aside with no enemy in sight (`d0128d1`), deflections in a cloud (`130281a`) and EFF
+files' timing (`e468f19`). Six care fights of the engine and two of SCS alone (conditions on the
+priests), then three zone fights of the engine; the cleanup was clean.
+
+| | Engine, H8 | Engine, H7 | Engine, H6 | SCS alone, H4 to H8 |
+| --- | --- | --- | --- | --- |
+| Care fights | 6 | 4 | 6 | 7 |
+| Group creatures lost a fight | 1.3 | 1.8 | 2.3 | 2.3 |
+| Party members killed a fight | 2.5 | 1.5 | 0.5 | 1.1 |
+| Party hit points left (mean) | 199 | 306 | 474 | 388 |
+| Group hit points left (mean) | 240 | 184 | 160 | 150 |
+| Summons cast a fight | 3.5 | 3.5 | 1.8 | 2.7 |
+| Weapon rounds a fight (a spell scored higher) | 7.0 (3.5) | 10 (6) | 7.8 (4.5) | none |
+
+- **The strongest batch yet:** the engine's group lost the fewest creatures and killed the most
+  of the party's six, with the most hit points left. SCS alone in the same launch lost 2.0
+  creatures a fight and killed 1.0. Six fights are a trend; it holds since H6.
+- **Summons over the rest of the fight:** the summons' choice records counted 23 to 56 seconds of
+  fight in the care fights and the cap of 60 (57 once) against the zone fights' dummies.
+- **Zone fights:** the group's four casters spent 1,962, 2,499 and 1,053 ticks in the party's
+  clouds, against 1,464 and 1,722 in H7; every group creature lived. The engine led them out 30
+  times.
+- **The run from a Cloudkill** (fixed 2026-10-23): in the second zone fight both mages stood in
+  the party's Incendiary Cloud for 34 and 38 seconds out of the party's sight; the level-12 mage
+  89 pixels from its centre (186 to 122 hit points), the level-8 mage at its edge (176 to 68).
+  Each had walked out of a Cloudkill and stood 272 and 278 pixels from its centre, just outside,
+  when the Incendiary Cloud came down on them. Above the hook, SCS's mage scripts run from a
+  Cloudkill's marker before they see the enemy (`mage/ssl/generalblocks/gohostile.ssl`:
+  `Heard([ANYONE],404)`, `!See([PC])`, `Range(LastHeardBy(Myself),20)`, then `SetInterrupt(FALSE)`,
+  `RunAwayFromNoLeaveArea(LastHeardBy(Myself),45)`, `SetInterrupt(TRUE)`). That block sets no
+  `seencloud` timer, so rule 6 had not given it the condition: it fired every 48 ticks while they
+  heard the Cloudkill, the hook was never reached, and the run never moved them. When the
+  Cloudkill's marker fell quiet the engine walked each out within two seconds. The same block
+  kept H7's mage in its Incendiary Cloud. Now rule 6 also covers blocks that hear a marker's shout
+  and only run from the marker they heard (HOOK-01).
+- **SCS's runs rarely move anyone here:** of 500 runs from a marker or an enemy (action 355) that
+  group creatures began in the SCS-alone zone fights of H1 and H3, the zone fights of H7 and H8
+  and four care fights of H8, 92 moved the creature more than 8 pixels within three seconds; the
+  others left it where it stood, most of all in the zone fights. Where no zone hurts it, SCS's
+  runs and stand-still still take the rounds of a creature that sees no enemy, as designed (D3e):
+  in one care fight the level-12 mage stood 13 seconds beside the party's Ice Storm, unhurt.
+- **A ranged attack walked back into a cloud:** right after it left the Incendiary Cloud, the
+  level-12 mage threw Melf's Minute Meteors (range 30, which the engine counts as 480 pixels) at
+  a dummy 428 pixels away; the game walked it to about 290 pixels first, back into the cloud
+  (19 hit points). Not analysed yet.
