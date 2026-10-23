@@ -693,9 +693,15 @@ was clean; one SCS fight ended at the lab's time limit after 79 seconds.
   party's six a fight; SCS alone killed 0.5 in the same launch. Three fights a mode are a trend.
 - **Own clouds:** the engine chose none of its own lasting clouds, so `learned` against `once`
   tells nothing yet. In the care fights the level-12 mage never had Ice Storm (`SPWI404`) among
-  its three best options, though in 26 of its 50 choices an enemy stood with no member of the
-  group within the storm's reach; its Teleport Field (`SPWI421`, enemies only) never made them
-  either. Not explained yet.
+  its three best options. Replayed offline with the engine's own code on the logged positions
+  (2026-10-24), the storm was no option at most of its 50 choices: a member of the group, a summon
+  or the party mage the group had charmed stood within its reach plus the allies' margin (287 of
+  304 aims; a first count with a smaller margin and without the charmed mage had found a free
+  target at 26 choices). Where it was one, Horror (`SPWI205`) on the same enemies scored higher:
+  the storm's 2d8 cold an explosion meets the party's 50% magic resistance and the fighters' 150
+  to 166 hit points, the party mage's stoneskins catch it, and its slot costs twice Horror's. No
+  fault; against this party the choice holds. Teleport Field (`SPWI421`) only moves enemies, so
+  the engine weighs it as no attack.
 - **Minimum hit points** (fixed 2026-10-23): in the second zone fight the level-12 priest stood at
   the edge of the party's Incendiary Cloud (238 of 256 pixels from its centre) for 39 seconds,
   from 228 to 144 hit points, swinging its mace at the party's cloud caster. The lab keeps that

@@ -48,7 +48,12 @@ Of 8,910 hostile creature files:
   (`IsMoron`): they hit the nearest enemy and skip the smarter retargeting, but flee clouds like
   the others (the same twelve escape blocks per script).
 
-## Proposed: where the wit comes from
+## Where the wit comes from (agreed 2026-10-24)
+
+Christopher: "Reihenfolge Override, Art des Monsters, gewollte Int- und Wisdom-Werte und
+Schwierigkeit, das gefällt mir gut." Real INT and WIS for every creature would be better, but the
+files often carry templates, so the kind does most of the work: a few categories first, oriented
+on SCS, split finer later if worth it ("Wir können die ja immer kleiner machen später").
 
 1. **Override** for the creature or its group, when one is set.
 2. **Kind, as SCS judges it,** for the base step: SCS's unintelligent creatures dull, casters
@@ -58,6 +63,11 @@ Of 8,910 hostile creature files:
    the creature takes danger and how fast pain drives it out (low: it shrugs a cloud off and stays
    longer; high: it leaves early).
 4. **Difficulty** shifts INT as agreed.
+
+Later, if worth the work: each monster's intelligence from the old AD&D books. The second
+edition's monster entries give an intelligence class (from non-intelligent through animal, semi,
+low, average and so on to godlike, each a range of scores) and a morale class, but no wisdom.
+That needs a source we may use; only the classes would be taken, no text.
 
 Examples: a wolf (animal) is dull: it foresees nothing but bolts once the fire bites; an ettin
 (7/7) is normal but unwise, so it often stays in an Ice Storm to fight and leaves when it hurts;
