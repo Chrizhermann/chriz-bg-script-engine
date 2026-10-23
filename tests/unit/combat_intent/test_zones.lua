@@ -383,4 +383,71 @@ do
     assert(zones.escape(burning).worth>zones.escape(warm).worth)
     groups=groups+1
 end
+
+-- 11. Wit (combat-intent/mind.lua): a normal creature counts explosions spread evenly, not from the
+-- next one; a dull one counts no zone in its options and leaves only when the pain drives it out,
+-- then whatever else it could do; WIS weighs leaving and walking in; a berserk or raging creature
+-- stays while it has more than half its hit points.
+do
+    local function with(step,danger,fields,self)
+        local i=input(fields,self)
+        i.mind=mind.new({wit=step,danger=danger or 1})
+        return i
+    end
+    -- The next explosion comes in a second: it surely breaks a clever creature's 3-second cast; a
+    -- normal one counts three fifths of an explosion, a dull one none.
+    local clever=with('clever',1,{zones={zone(fire,{next=1})}})
+    local normal=with('normal',1,{zones={zone(fire,{next=1})}})
+    local dull=with('dull',1,{zones={zone(fire,{next=1})}})
+    assert(zones.through(clever,3)==0 and near(zones.through(normal,3),0.4) and zones.through(dull,3)==1)
+    assert(near(zones.explain(normal,3)[1].count,0.6) and zones.explain(clever,3)[1].count==1)
+    -- A normal creature's way out is worth what an even spread of explosions takes; WIS weighs it.
+    local even=zones.escape(with('clever',1,{zones={zone(fire)}}))
+    local seen=zones.escape(normal)
+    assert(seen and near(seen.worth,even.worth) and not seen.forced)
+    local careless=zones.escape(with('normal',0.5,{zones={zone(fire,{next=1})}}))
+    assert(near(careless.worth,0.5*seen.worth))
+    local q={x=400,y=100}
+    assert(near(zones.delta(with('normal',0.5,{zones={zone(fire)}}),q),0.5*zones.delta(with('normal',1,{zones={zone(fire)}}),q)))
+    assert(zones.delta(with('dull',1,{zones={zone(fire)}}),q)==0)
+    -- A dull creature sees no cloud: no way out, and walking into one costs it nothing.
+    local _,why=zones.escape(dull)
+    assert(why=='dull')
+    local outside=with('dull',1,{zones={zone(fire)}},{x=600})
+    local into={resref='SWORD',kind='weapon',melee=true,worth=0.3,cost=0,score=0.3,speed=0,target=6}
+    zones.adjust(outside,into,{[6]={id=6,x=120,y=100}})
+    assert(into.worth==0.3 and into.score==0.3)
+    -- In pain it leaves, even where leaving gains nothing (the cloud ends before it is out).
+    local pained=with('dull',1,{zones={zone(fire)},pained=true})
+    local out=zones.escape(pained)
+    assert(out and out.forced and out.kind=='escape' and #out.zones==1)
+    local ending=zones.escape(with('dull',1,{zones={zone(fire,{left=1})},pained=true}))
+    assert(ending and ending.forced and ending.worth<=0)
+    assert(select(2,zones.escape(with('normal',1,{zones={zone(fire,{left=1})}})))=='no-worth')
+    -- Its chance to leave grows with the share of hit points lost, times its danger weight.
+    assert(zones.painChance({hp=40,maxHp=40},1)==0 and near(zones.painChance({hp=30,maxHp=40},1),0.5))
+    assert(zones.painChance({hp=10,maxHp=40},1)==1 and near(zones.painChance({hp=30,maxHp=40},0.5),0.25))
+    -- Berserk or raging: it stays while it has more than half its hit points.
+    assert(select(2,zones.escape(with('clever',1,{zones={zone(fire)}},{state=0x2})))=='raging')
+    assert(select(2,zones.escape(with('clever',1,{zones={zone(fire)}},{raging=true})))=='raging')
+    assert(zones.escape(with('clever',1,{zones={zone(fire)}},{raging=true,hp=15})).kind=='escape')
+    assert(select(2,zones.escape(with('dull',1,{zones={zone(fire)},pained=true},{raging=true})))=='raging')
+    -- In the choice: a dull caster casts as if there were no cloud, until the pain drives it out.
+    local fight=with('dull',1,{zones={zone(fire)},spells={row('TESTBOLT',bolt,3)}})
+    fight.frame.enemies={enemy(5)}
+    local calm=with('dull',1,{spells={row('TESTBOLT',bolt,3)}})
+    calm.frame.enemies={enemy(5)}
+    local d,how=choice.decide(fight)
+    local c=choice.decide(calm)
+    assert(d and d.resref=='TESTBOLT' and how~='escape' and near(d.worth,c.worth))
+    fight.pained=true
+    d,how=choice.decide(fight)
+    assert(d.kind=='escape' and d.forced and how=='escape')
+    -- A clever caster weighs the cloud: the bolt is worth less there.
+    local wise=with('clever',1,{zones={zone(fire,{next=1})},spells={row('TESTBOLT',bolt,3)}})
+    wise.frame.enemies={enemy(5)}
+    local options=select(3,choice.decide(wise))
+    for _,o in ipairs(options) do if o.resref=='TESTBOLT' then assert(o.worth<c.worth) end end
+    groups=groups+1
+end
 return groups

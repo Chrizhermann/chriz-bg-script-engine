@@ -52,7 +52,9 @@
 -- option. Harm from them can break a cast where it stands; a melee attack or a strike counts what
 -- walking to its target and standing there does in them. A way out of a zone that hurts the
 -- caster comes first when what leaving is worth beats the share of a round the walk takes from
--- the best other choice.
+-- the best other choice. How much of this a creature sees is its wit (combat-intent/mind.lua): a
+-- dull one counts no zone and leaves only when the pain drives it out, then whatever else it
+-- could do.
 --
 -- Lasting areas (D3e; Christopher, 2026-10-23: "Ich würde eine Mischung aus A und C machen"): a
 -- cloud or storm of the caster's own counts the explosions each enemy inside is expected to sit
@@ -867,8 +869,9 @@ end
 -- The attack, defence, heal or cure, summons, removal, opener, strike, weapon attack or way out of
 -- a zone to do now, or nil and why; the options come along for the log, and without a choice the
 -- count of reasons the ready spells gave none. Leaving costs no spell, only the seconds of the
--- walk: it comes first when it is worth more than that share of a round of the choice. Spell
--- slots cost input.slots of their price, M.slotShare's when it is not given.
+-- walk: it comes first when it is worth more than that share of a round of the choice, or when the
+-- pain drives a dull creature out (forced). Spell slots cost input.slots of their price,
+-- M.slotShare's when it is not given.
 function M.decide(input)
     if type(input)~='table' or type(input.frame)~='table' or type(input.frame.self)~='table' or
         type(input.frame.enemies)~='table' or type(input.mind)~='table' then return nil,'bad-input',{} end
@@ -882,7 +885,7 @@ function M.decide(input)
     local escape=zones.active(input) and zones.escape(input) or nil
     if escape then
         local score=d and number(d.score) and d.score or 0
-        if escape.worth>math.max(0,score)*escape.walk/zones.ROUND then
+        if escape.forced or escape.worth>math.max(0,score)*escape.walk/zones.ROUND then
             local list={escape}
             for _,o in ipairs(type(options)=='table' and options or {}) do list[#list+1]=o end
             return escape,'escape',list

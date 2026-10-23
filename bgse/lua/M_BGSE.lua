@@ -1940,8 +1940,9 @@ end
 factories["combat-intent.mind"]=function(require)
 -- How a creature thinks: the knobs that may differ between groups and single creatures
 -- (Christopher, 2026-10-18: "Gruppen und einzelne Kreaturen müssen verschiedene Intelligenzen
--- haben"). Only the default profile exists so far; which creature or group gets which profile
--- is designed later with him. Plain values; nothing here touches the engine.
+-- haben"). The default profile, and each creature's wit around danger zones (M.wit); further
+-- profiles for creatures or groups are designed with him fight by fight. Plain values; nothing
+-- here touches the engine.
 local M={}
 M.default={
     -- 0 to 1: how much the group's plan counts (its focus target, one disabler per target).
@@ -2004,10 +2005,15 @@ M.default={
     -- and by what the group has seen it do in clouds; 'best' only by the cheaper choice; 'once'
     -- counts one explosion.
     clouds='learned',
+    -- Wit around danger zones (M.wit): 'clever', 'normal' or 'dull'; and how seriously the creature
+    -- takes harm from them (1 for a WIS of 10).
+    wit='clever',
+    danger=1,
 }
 
 local function share(v) return type(v)=='number' and v==v and v>=0 and v<=1 end
 local function amount(v) return type(v)=='number' and v==v and v>=0 and v<=1000 end
+local function positive(v) return amount(v) and v>0 end
 local function resrefs(v)
     if type(v)~='table' then return false end
     for k,x in pairs(v) do
@@ -2023,7 +2029,9 @@ local CHECKS={coordination=share,best=share,band=share,economy=amount,minValue=a
     weapons=function(v) return type(v)=='boolean' end,
     memory=function(v) return type(v)=='boolean' end,
     knowledge=function(v) return v=='scs' end,
-    clouds=function(v) return v=='learned' or v=='best' or v=='once' end}
+    clouds=function(v) return v=='learned' or v=='best' or v=='once' end,
+    wit=function(v) return v=='clever' or v=='normal' or v=='dull' end,
+    danger=positive}
 
 local function copy(t)
     local c={}
@@ -2042,6 +2050,94 @@ function M.new(changes)
         mind[k]=v
     end
     return mind
+end
+
+-- Wit (docs/research/MIND-01-wit-and-difficulty.md; Christopher, 2026-10-23 and 2026-10-24):
+-- how clever a creature fights around danger zones, from an override for it, its kind, the INT
+-- and WIS its file means and the game's difficulty, in this order. A dull creature sees no zone
+-- until it hurts and works nothing out ahead; a normal one sees the zone it stands in and leaves
+-- once staying costs more than it gains; a clever one also times the explosions and learns how
+-- enemies behave in its own clouds (combat-intent/zones.lua, choice.lua). WIS sets how seriously
+-- it takes harm from zones.
+M.STEPS={dull=true,normal=true,clever=true}
+-- The INT a step stands for when the creature's file says nothing (a kind or an override's step):
+-- animal intelligence, average, exceptional.
+M.STEP_INT={dull=1,normal=10,clever=15}
+-- Steps by INT: dull up to DULL_INT, clever from CLEVER_INT, normal between.
+M.DULL_INT=5
+M.CLEVER_INT=14
+-- INT and WIS pairs creature files carry as templates (MIND-01's census): they say nothing.
+M.TEMPLATES={[9]={[9]=true},[16]={[9]=true}}
+-- Difficulty (1 to 5, Normal 3): this many points of INT and WIS for each step above Normal, as
+-- many fewer below.
+M.DIFFICULTY_STEP=2
+M.NORMAL_DIFFICULTY=3
+-- Danger weight: 1 at a WIS of 10, this much more or less for each point, within its bounds.
+M.DANGER_PER_WIS=0.05
+M.DANGER_MIN=0.5
+M.DANGER_MAX=1.5
+-- The kinds (Christopher, 2026-10-24: a few categories after SCS first, split finer later). Casters
+-- (mage and priest scripts) are clever. Dull, after SCS's test for unintelligent creatures
+-- (sfo/filetype/lib_cre.tpa, CRE_check_if_moron; credit DavidW) but only the really dull ("nur für
+-- wirklich sehr dumme Kreaturen"): animals and animated weapons (GENERAL.IDS 2, 101); zombies,
+-- gibberlings, golems, slimes, carrion crawlers, ankhegs and basilisks (RACE.IDS 148, 109, 144,
+-- 119, 104, 101, 102); skeletons and golems (CLASS.IDS 134, 182 to 185, 215). Everyone else is
+-- normal: SCS counts most monsters unintelligent, but trolls, umber hulks, yuan-ti and the like
+-- are no animals.
+M.CASTERS={mage=true,priest=true}
+M.DULL_GENERAL={[2]=true,[101]=true}
+M.DULL_RACE={[148]=true,[109]=true,[144]=true,[119]=true,[104]=true,[101]=true,[102]=true}
+M.DULL_CLASS={[134]=true,[182]=true,[183]=true,[184]=true,[185]=true,[215]=true}
+
+local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
+local function clamp(v,a,b) if v<a then return a elseif v>b then return b end return v end
+
+-- The step of c's kind (c.family, c.general, c.race, c.class).
+function M.kind(c)
+    if M.CASTERS[c.family] then return 'clever' end
+    if M.DULL_GENERAL[c.general] or M.DULL_RACE[c.race] or M.DULL_CLASS[c.class] then return 'dull' end
+    return 'normal'
+end
+-- Whether a file's INT and WIS mean something: an INT above 0 that is not part of a template pair.
+function M.meant(int,wis)
+    if not number(int) or int<=0 then return false end
+    return not (M.TEMPLATES[int] and M.TEMPLATES[int][wis])
+end
+-- The step an INT makes.
+function M.step(int)
+    if int<=M.DULL_INT then return 'dull' end
+    if int>=M.CLEVER_INT then return 'clever' end
+    return 'normal'
+end
+-- A creature's wit from plain values: c.int and c.wis (its stats), c.general, c.race and c.class
+-- (IDS values), c.family ('mage', 'priest', 'fighter' or 'monster'), c.difficulty (1 to 5) and
+-- c.resref. overrides (optional) holds, by resref, a step and a WIS that stand for the creature's
+-- own; the difficulty shifts them as well. Returns {step, danger, int, wis, from}: from tells
+-- whether an override, the file's values or the kind set the step.
+function M.wit(c,overrides)
+    c=type(c)=='table' and c or {}
+    local o=type(overrides)=='table' and type(c.resref)=='string' and overrides[c.resref:upper()] or nil
+    if type(o)~='table' then o=nil end
+    local meant=M.meant(c.int,c.wis)
+    local int,wis,from
+    if o and M.STEPS[o.step] then int,from=M.STEP_INT[o.step],'override'
+    elseif meant then int,from=c.int,'stats'
+    else int,from=M.STEP_INT[M.kind(c)],'kind' end
+    if o and number(o.wis) then wis=o.wis elseif meant and number(c.wis) then wis=c.wis else wis=10 end
+    local shift=0
+    if number(c.difficulty) then shift=M.DIFFICULTY_STEP*(clamp(c.difficulty,1,5)-M.NORMAL_DIFFICULTY) end
+    int,wis=int+shift,wis+shift
+    return {step=M.step(int),danger=clamp(1+(wis-10)*M.DANGER_PER_WIS,M.DANGER_MIN,M.DANGER_MAX),int=int,wis=wis,
+        from=from}
+end
+-- The profile base with wit w: its step and danger weight, and its own clouds weighed as its step
+-- works them out: a clever creature as base says, a normal one by the cheaper of staying and
+-- walking out at most, a dull one by one explosion.
+function M.withWit(base,w)
+    local m=copy(base)
+    m.wit,m.danger=w.step,w.danger
+    if w.step=='dull' then m.clouds='once' elseif w.step=='normal' and m.clouds=='learned' then m.clouds='best' end
+    return m
 end
 return M
 end
@@ -4182,10 +4278,18 @@ factories["combat-intent.zones"]=function(require)
 -- target and standing there does, so a creature fights its way out of a cloud towards an enemy
 -- outside and thinks twice before walking into one.
 --
+-- Wit (combat-intent/mind.lua, MIND-01; Christopher, 2026-10-23: "so machen wir es"): all of this
+-- is how a clever creature weighs zones. A normal one sees the zones it stands in and walks into,
+-- but does not time their explosions: it counts them spread evenly. A dull one sees no zone until
+-- it hurts: no option counts zones, and it leaves only when the pain drives it out (input.pained:
+-- after an explosion that hurt it the adapter drew M.painChance), the way out it then takes worth
+-- what it may. WIS weighs what leaving and walking in are worth (mind.danger). A berserk or raging
+-- creature stays and fights on while it has more than half its hit points.
+--
 -- Inputs are plain values: the caster's frame (its own saves, resistances, level, IDS values,
--- protections and SPLPROT marks; rooted when it cannot walk; aura, the seconds until the casting
--- aura of its last cast frees) and input.zones (side: who cast the zone, 'friend', 'enemy' or
--- 'unknown'; filter: 'all', 'enemies' or 'allies' of its caster).
+-- protections and SPLPROT marks; rooted when it cannot walk; raging under a rage the game marks;
+-- aura, the seconds until the casting aura of its last cast frees) and input.zones (side: who cast
+-- the zone, 'friend', 'enemy' or 'unknown'; filter: 'all', 'enemies' or 'allies' of its caster).
 -- Nothing here touches the engine or raises on odd data; a zone that cannot be read is left out.
 local targeting=require('combat-intent.targeting')
 local harm=require('combat-intent.harm')
@@ -4208,11 +4312,35 @@ M.speedSeconds=0.6
 -- spell failure counts as a silence. Those for casters count a fifth on others.
 M.DEBUFF={miscast=0.7,blind=0.3,deaf=0.2,disease=0.1}
 M.CASTERS_ONLY={miscast=true,deaf=true}
+-- Wit: a dull creature's chance to leave after an explosion hurt it is painScale times the share
+-- of hit points it has lost, times its danger weight. STATE_BERSERK; a berserk or raging creature
+-- stays while its share of hit points is above rageHealth.
+M.painScale=2
+M.BERSERK=0x2
+M.rageHealth=0.5
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
 local function clamp(v,a,b) if v<a then return a elseif v>b then return b end return v end
 local function reaches(role) return type(role)=='table' and type(role.who)=='table' and (role.who.target or role.who.area) end
 local function list(t) return type(t)=='table' and t or {} end
+-- The creature's wit and danger weight (combat-intent/mind.lua): clever and 1 without a profile.
+local function wit(input)
+    local m=type(input)=='table' and input.mind
+    return type(m)=='table' and (m.wit=='normal' or m.wit=='dull') and m.wit or 'clever'
+end
+local function danger(input)
+    local m=type(input)=='table' and input.mind
+    return type(m)=='table' and number(m.danger) and m.danger>0 and m.danger or 1
+end
+M.wit=wit
+-- A dull creature's chance to leave after an explosion hurt it (see the top).
+function M.painChance(f,weight)
+    return clamp(M.painScale*(1-targeting.health(f))*(number(weight) and weight or 1),0,1)
+end
+-- Whether f is berserk or raging and still has more than rageHealth of its hit points.
+function M.raging(f)
+    return (targeting.has(f.state,M.BERSERK) or f.raging==true) and targeting.health(f)>M.rageHealth
+end
 
 -- Whether z can be weighed: a centre, a radius and explosions to come.
 function M.valid(z)
@@ -4309,12 +4437,13 @@ function M.period(z)
     return every
 end
 -- The explosions of z that hit a creature inside it during (a,b] seconds from now: counted from
--- the next one when it is known, else spread evenly; none after z ends.
-function M.count(z,a,b)
+-- the next one when it is known and the creature times them (not even), else spread evenly; none
+-- after z ends.
+function M.count(z,a,b,even)
     b=math.min(b,z.left)
     if b<=a then return 0 end
     local period=M.period(z)
-    if number(z.next) and z.next>=0 and period==(number(z.every) and z.every or period) then
+    if not even and number(z.next) and z.next>=0 and period==(number(z.every) and z.every or period) then
         local first=math.max(0,math.floor((a-z.next)/period)+1)
         local last=math.floor((b-z.next)/period)
         return math.max(0,last-first+1)
@@ -4356,13 +4485,14 @@ end
 
 -- What f would lose to the zones that hurt it: hurts lists {zone, hit, stopped} (one explosion's
 -- harm, and how many explosions its protections stop first, in the order they reach it). staying
--- puts f at p until time t; walking takes it from p to q and leaves it there.
-local function loss(hurts,f,p,q,speed,t)
+-- puts f at p until time t; walking takes it from p to q and leaves it there. even: explosions
+-- spread evenly (M.count).
+local function loss(hurts,f,p,q,speed,t,even)
     local total=0
     for _,h in ipairs(hurts) do
         local free=h.stopped or 0
         for _,s in ipairs(spans(h.zone,p,q,speed,t)) do
-            local n=M.count(h.zone,s[1],s[2])
+            local n=M.count(h.zone,s[1],s[2],even)
             local kept=math.min(n,free)
             free=free-kept
             total=total+h.hit*(n-kept)
@@ -4399,20 +4529,24 @@ local function cap(input,f,hurts)
 end
 
 -- What walking to q is worth to the caster against standing where it is, in the zones: what it
--- would lose standing for a round and the walk, less what it loses on the way and at q. Above
--- zero when q leads out of harm, below when it leads in. 0 without zones.
+-- would lose standing for a round and the walk, less what it loses on the way and at q, times its
+-- danger weight. Above zero when q leads out of harm, below when it leads in. 0 without zones,
+-- and for a dull creature, which sees none.
 function M.delta(input,q)
     if not M.active(input) or type(q)~='table' or not number(q.x) or not number(q.y) then return 0 end
     local f=input.frame.self
     if not number(f.x) or not number(f.y) then return 0 end
+    local w=wit(input)
+    if w=='dull' then return 0 end
     local hurts=hurting(input,f)
     if #hurts==0 then return 0 end
     local speed=speedOf(f)
     local t=M.ROUND+targeting.distance(f,q)/speed
     local most=cap(input,f,hurts)
-    local stay=math.min(loss(hurts,f,f,f,speed,t),most)
-    local go=math.min(loss(hurts,f,f,q,speed,t),most)
-    return stay-go
+    local even=w~='clever'
+    local stay=math.min(loss(hurts,f,f,f,speed,t,even),most)
+    local go=math.min(loss(hurts,f,f,q,speed,t,even),most)
+    return (stay-go)*danger(input)
 end
 
 -- The chance the caster finishes a cast of the given seconds where it stands: each explosion of
@@ -4422,13 +4556,16 @@ end
 -- part of one breaks it with that part of the chance (lab batch H5: an Ice Storm's next explosion
 -- fell inside a summons' casting time three times, and each time its damage broke the cast).
 -- Explosions the creature's protections stop break nothing; those before the casting starts use
--- them up first.
-local function sits(z,f,from,cast,first)
-    local free=math.max(0,(first or 0)-M.count(z,0,from))
-    return math.max(0,M.count(z,from,from+cast)-free)
+-- them up first. A creature that does not time explosions counts them spread evenly; a dull one
+-- reckons with none.
+local function sits(z,f,from,cast,first,even)
+    local free=math.max(0,(first or 0)-M.count(z,0,from,even))
+    return math.max(0,M.count(z,from,from+cast,even)-free)
 end
 function M.through(input,cast)
     if not M.active(input) or not number(cast) or cast<=0 then return 1 end
+    local w=wit(input)
+    if w=='dull' then return 1 end
     local f=input.frame.self
     local from=number(f.aura) and f.aura>0 and f.aura or 0
     local chance=1
@@ -4437,7 +4574,7 @@ function M.through(input,cast)
             local p,first=breaks(z,f)
             p=clamp(p,0,1)
             if p>0 then
-                local n=sits(z,f,from,cast,first)
+                local n=sits(z,f,from,cast,first,w~='clever')
                 local k=math.floor(n)
                 chance=chance*(1-p)^k*(1-p*(n-k))
             end
@@ -4458,7 +4595,7 @@ function M.explain(input,cast)
     for _,z in ipairs(input.zones) do
         if M.valid(z) and M.inside(z,f) then
             local p,first=breaks(z,f)
-            out[#out+1]={id=z.id,next=z.next,left=z.left,from=from,count=sits(z,f,from,cast,first),
+            out[#out+1]={id=z.id,next=z.next,left=z.left,from=from,count=sits(z,f,from,cast,first,wit(input)~='clever'),
                 breaks=clamp(p,0,1),stopped=first>0 and first<math.huge and first or nil}
         end
     end
@@ -4482,8 +4619,9 @@ end
 
 -- The caster's way out of the zones that hurt it, as an option {kind='escape', mode='point',
 -- point, worth (what leaving is worth, M.delta), walk (seconds), exits (other points, best first),
--- zones (the zones it leaves, {x, y, radius})}, or nil and why: no zone hurts it where it stands,
--- it cannot walk, or no way out is worth anything.
+-- zones (the zones it leaves, {x, y, radius}), forced (a dull creature in pain: it leaves whatever
+-- else it could do)}, or nil and why: no zone hurts it where it stands, it cannot walk, it rages,
+-- it is dull and the pain has not driven it out, or no way out is worth anything.
 function M.escape(input)
     if not M.active(input) then return nil,'no-zone' end
     local f=input.frame.self
@@ -4491,6 +4629,11 @@ function M.escape(input)
     if not M.harmed(input) then return nil,'unharmed' end
     local hurts=hurting(input,f)
     if rooted(f) then return nil,'rooted' end
+    if M.raging(f) then return nil,'raging' end
+    local w=wit(input)
+    local forced=w=='dull'
+    if forced and not input.pained then return nil,'dull' end
+    local even,weight=w~='clever',danger(input)
     local speed=speedOf(f)
     local most=cap(input,f,hurts)
     local px,py=flat(f)
@@ -4518,7 +4661,7 @@ function M.escape(input)
         -- Areas start at 0: a point before their edge is no way out.
         if not moved and s<=M.maxWalk and q.x>=0 and q.y>=0 then
             local t=M.ROUND+s/speed
-            local worth=math.min(loss(hurts,f,f,f,speed,t),most)-math.min(loss(hurts,f,f,q,speed,t),most)
+            local worth=(math.min(loss(hurts,f,f,f,speed,t,even),most)-math.min(loss(hurts,f,f,q,speed,t,even),most))*weight
             found[#found+1]={point=q,worth=worth,walk=s/speed}
         end
     end
@@ -4530,21 +4673,21 @@ function M.escape(input)
         return a.point.y<b.point.y
     end)
     local best=found[1]
-    if best.worth<=0 then return nil,'no-worth' end
+    if best.worth<=0 and not forced then return nil,'no-worth' end
     local exits,left={},{}
-    for i=2,math.min(#found,5) do if found[i].worth>0 then exits[#exits+1]=found[i].point end end
+    for i=2,math.min(#found,5) do if found[i].worth>0 or forced then exits[#exits+1]=found[i].point end end
     for _,h in ipairs(hurts) do left[#left+1]={x=h.zone.x,y=h.zone.y,radius=h.zone.radius} end
     return {resref='ESCAPE',kind='escape',mode='point',point=best.point,worth=best.worth,cost=0,score=best.worth,
-        hits={},slack=0,speed=0,walk=best.walk,exits=exits,zones=left}
+        hits={},slack=0,speed=0,walk=best.walk,exits=exits,zones=left,forced=forced or nil}
 end
 
 -- An option with the zones counted: a melee attack or a strike gains what walking to its target
 -- is worth (M.delta: out of harm, or into it); a cast where the caster stands loses what the zones
 -- around it may break (the chance it finishes kept as finish, for the log). Changes the option's
--- worth and score in place.
+-- worth and score in place. A dull creature counts no zone (M.delta and M.through).
 function M.adjust(input,o,enemyAt)
     if not M.active(input) or type(o)~='table' or not number(o.worth) then return o end
-    if o.kind=='escape' then return o end
+    if o.kind=='escape' or wit(input)=='dull' then return o end
     if o.kind=='strike' or (o.kind=='weapon' and o.melee) then
         local e=enemyAt and enemyAt[o.target]
         if e then o.worth=o.worth+M.delta(input,e) end
@@ -4612,7 +4755,9 @@ factories["combat-intent.choice"]=function(require)
 -- option. Harm from them can break a cast where it stands; a melee attack or a strike counts what
 -- walking to its target and standing there does in them. A way out of a zone that hurts the
 -- caster comes first when what leaving is worth beats the share of a round the walk takes from
--- the best other choice.
+-- the best other choice. How much of this a creature sees is its wit (combat-intent/mind.lua): a
+-- dull one counts no zone and leaves only when the pain drives it out, then whatever else it
+-- could do.
 --
 -- Lasting areas (D3e; Christopher, 2026-10-23: "Ich würde eine Mischung aus A und C machen"): a
 -- cloud or storm of the caster's own counts the explosions each enemy inside is expected to sit
@@ -5427,8 +5572,9 @@ end
 -- The attack, defence, heal or cure, summons, removal, opener, strike, weapon attack or way out of
 -- a zone to do now, or nil and why; the options come along for the log, and without a choice the
 -- count of reasons the ready spells gave none. Leaving costs no spell, only the seconds of the
--- walk: it comes first when it is worth more than that share of a round of the choice. Spell
--- slots cost input.slots of their price, M.slotShare's when it is not given.
+-- walk: it comes first when it is worth more than that share of a round of the choice, or when the
+-- pain drives a dull creature out (forced). Spell slots cost input.slots of their price,
+-- M.slotShare's when it is not given.
 function M.decide(input)
     if type(input)~='table' or type(input.frame)~='table' or type(input.frame.self)~='table' or
         type(input.frame.enemies)~='table' or type(input.mind)~='table' then return nil,'bad-input',{} end
@@ -5442,7 +5588,7 @@ function M.decide(input)
     local escape=zones.active(input) and zones.escape(input) or nil
     if escape then
         local score=d and number(d.score) and d.score or 0
-        if escape.worth>math.max(0,score)*escape.walk/zones.ROUND then
+        if escape.forced or escape.worth>math.max(0,score)*escape.walk/zones.ROUND then
             local list={escape}
             for _,o in ipairs(type(options)=='table' and options or {}) do list[#list+1]=o end
             return escape,'escape',list
@@ -6978,6 +7124,15 @@ factories["adapters.eeex.choice"]=function(require)
 -- that hurts it, unless it is casting. BGSE_Zones (api:zones) tells SCS's own cloud blocks above
 -- the hook (escapes, runs from a marker and stand-still; bgse/lib/hook.tpa) to stand aside while
 -- the engine weighs zones for the creature.
+--
+-- Wit (combat-intent/mind.lua, MIND-01): each creature's profile is the default one with its wit,
+-- from its INT and WIS, its IDS values, its family, its creature file (overrides) and the game's
+-- difficulty, worked out again only when one of them changes; a 'wit' row logs it. A dull creature
+-- sees no zone until it hurts: each time its hit points have dropped since it was last looked at
+-- while a zone hurts it where it stands, it draws once whether the pain drives it out
+-- (zones.painChance); then it leaves until it is out. SCS's cloud blocks stand aside for a dull
+-- creature meanwhile, so it stays and fights. A creature in one of the game's rage states counts
+-- as raging.
 local sense=require('adapters.eeex.sense')
 local creature=require('adapters.eeex.creature')
 local resources=require('adapters.eeex.resources')
@@ -7039,6 +7194,13 @@ M.required={'EEex_GameObject_Get','EEex_GameObject_IsSprite','EEex_Sprite_GetCas
 M.alacrityStat=165
 -- The game's Time Stop count falls by two a tick (learned.md, section 1): seconds = count/30.
 M.stopCount=30
+-- Wit: STATS.IDS INT and WIS; the game's own rage states in SPLSTATE.IDS, the same in every
+-- install read: BLOOD_RAGE, ANIMAL_RAGE, BARBARIAN_RAGE, BERSERKER_RAGE, MINSC_BERSERK and
+-- STATE_ENRAGED, which Barbarian Rage, the Berserker's Enrage and Minsc's Berserk all set as
+-- well (SPCL152, SPCL321, SPIN117: opcode 328).
+M.intStat=38
+M.wisStat=39
+M.rageStates={34,39,76,77,78,104}
 -- Casts remembered per caster in its own Time Stop.
 M.stopCastLimit=32
 -- MoveToPoint (ACTION.IDS); a way out is held while the creature walks it, or for moveGrace ticks
@@ -7115,7 +7277,15 @@ function M.new(g,options)
     local reader=options.reader or resources.new(g)
     local director=options.director
     local defaultMind=mind.new()
-    local mindFor=options.mindFor or function() return defaultMind end
+    -- mindFor(sprite, family): the creature's profile (wit, below), or options.mindFor's.
+    local mindFor
+    -- Wit: on unless options.wit is false; overrides by creature file (mind.wit); each creature's
+    -- profile with the values it was made from (minds), rebuilt when the default changes (version).
+    local witOn,witOverrides=options.wit~=false,options.witOverrides
+    local minds,mindCount,mindVersion={},0,0
+    -- hurts: each creature's hit points when last looked at for pain; pained: the tick the pain
+    -- drove a dull creature out, until it is out.
+    local hurts,hurtCount,pained={},0,{}
     local seed=options.seed
     if type(seed)~='number' then
         local clock=rawget(g,'os') and g.os.time or (os and os.time)
@@ -7146,14 +7316,14 @@ function M.new(g,options)
     -- stays and insideOf: what the group has seen its enemies do in zones (look); lookedAt: the
     -- tick each area was last looked at.
     local stays,stayCount,insideOf,insideCount,lookedAt={},0,{},0,{}
-    local counts={escapes=0,escaped=0,unescaped=0,zoneFailures=0,stayed=0,left=0,decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
+    local counts={escapes=0,escaped=0,unescaped=0,zoneFailures=0,stayed=0,left=0,pains=0,witFailures=0,decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
         hits=0,misses=0,errors=0,holds=0,frozen=0,marks=0,markFailures=0,defences=0,guarded=0,unguarded=0,
         guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0,arms=0,attacks=0,attackHits=0,
         weaponFailures=0,releases=0,heals=0,cures=0,potions=0,cared=0,uncared=0,summons=0,conjured=0,
         unconjured=0,removals=0,stripped=0,unstripped=0,wardFailures=0}
     local reasons={}
     local log,nextRow,size={},1,0
-    local root,sink,lastError,markError,guardError,weaponError,wardError,zoneError
+    local root,sink,lastError,markError,guardError,weaponError,wardError,zoneError,witError
     -- trace: labs see every decline as a 'declined' row in the sink (never in the log).
     local trace,lastReason,lastDetail,lastCharge=false,nil,nil,nil
     local api={}
@@ -7167,6 +7337,43 @@ function M.new(g,options)
         counts.errors=counts.errors+1
         lastError=where..': '..tostring(err):sub(1,200)
         record({kind='error',where=where,error=tostring(err):sub(1,200)})
+    end
+    -- Wit (combat-intent/mind.lua): the game's difficulty (1 to 5), nil when it cannot be read.
+    local function difficulty()
+        local ok,value=pcall(function() return g.EngineGlobals.g_pBaldurChitin.m_pObjectGame.m_options.m_nDifficultyLevel end)
+        return ok and type(value)=='number' and value or nil
+    end
+    -- The creature's profile: the default with its wit, made again when what it comes from changes.
+    local function witted(sprite,family)
+        if not witOn then return defaultMind end
+        local t=sprite.m_typeAI
+        local c={int=g.EEex_Sprite_GetStat(sprite,M.intStat),wis=g.EEex_Sprite_GetStat(sprite,M.wisStat),
+            general=t.m_General,race=t.m_Race,class=t.m_Class,family=family,resref=text(sprite.m_resref:get()),
+            difficulty=difficulty()}
+        local key=table.concat({tostring(c.int),tostring(c.wis),tostring(c.general),tostring(c.race),tostring(c.class),
+            tostring(family),c.resref,tostring(c.difficulty),mindVersion},':')
+        local had=minds[sprite.m_id]
+        if had and had.key==key then return had.mind end
+        local w=mind.wit(c,witOverrides)
+        local made=mind.withWit(defaultMind,w)
+        if not had then
+            if mindCount>=M.cacheLimit then minds,mindCount={},0 end
+            mindCount=mindCount+1
+        end
+        minds[sprite.m_id]={key=key,mind=made}
+        record({kind='wit',tick=now(),member=sprite.m_id,resref=c.resref,family=family,step=w.step,danger=w.danger,
+            int=w.int,wis=w.wis,from=w.from,difficulty=c.difficulty})
+        return made
+    end
+    mindFor=options.mindFor or function(sprite,family)
+        local ok,m=pcall(witted,sprite,family)
+        if ok and type(m)=='table' then return m end
+        counts.witFailures=counts.witFailures+1
+        if not ok and not witError then
+            witError=tostring(m):sub(1,200)
+            record({kind='error',where='wit',error=witError})
+        end
+        return defaultMind
     end
     local function decline(why)
         counts.declines=counts.declines+1
@@ -7790,19 +7997,54 @@ function M.new(g,options)
         if out then counts.escaped=counts.escaped+1 else counts.unescaped=counts.unescaped+1 end
         record({kind='escaped',tick=tick,member=sprite.m_id,to=m.point,at=at,out=out,took=tick-m.tick})
     end
+    -- Wit: whether a rage runs on the creature (frame entry self: raging).
+    local function rage(sprite,self)
+        local state=rawget(g,'EEex_Sprite_GetSpellState')
+        if type(state)~='function' then return end
+        for _,n in ipairs(M.rageStates) do
+            local ok,on=pcall(state,sprite,n)
+            if ok and on then self.raging=true;return end
+        end
+    end
+    -- Whether the pain drives a dull creature out of the zones (list) that hurt it where it stands
+    -- (see the top): one draw each time its hit points have dropped since it was last looked at
+    -- while a zone hurts it; once driven out it leaves until no zone hurts it there. A 'pain' row
+    -- logs each draw.
+    local function pain(sprite,frame,list,m,tick)
+        if type(m)~='table' or m.wit~='dull' then return false end
+        local id=sprite.m_id
+        local hp=frame.self.hp
+        local last=hurts[id]
+        if last==nil then
+            if hurtCount>=M.cacheLimit then hurts,hurtCount={},0 end
+            hurtCount=hurtCount+1
+        end
+        hurts[id]=hp
+        if not zones.harmed({tick=tick,frame=frame,zones=list,mind=m}) then pained[id]=nil;return false end
+        if pained[id] then return true end
+        if type(last)=='number' and type(hp)=='number' and hp<last then
+            local chance=zones.painChance(frame.self,m.danger)
+            local leaves=rng:nextInt(1,1000)<=math.floor(chance*1000+0.5)
+            counts.pains=counts.pains+1
+            record({kind='pain',tick=tick,member=id,hp=hp,lost=last-hp,chance=chance,leaves=leaves})
+            if leaves then pained[id]=tick;return true end
+        end
+        return false
+    end
     -- The decision for a way out (combat-intent/zones.lua's option).
-    local function escaping(d,frame,id,tick,family,how)
+    local function escaping(d,frame,id,tick,family,how,m)
         local response=M.response(d)
         if not response then return decline('bad-response') end
         counts.claims=counts.claims+1;counts.escapes=counts.escapes+1
         record({kind='choice',tick=tick,member=id,family=family,spell=d.resref,castKind=d.kind,mode=d.mode,point=d.point,
-            score=d.score,worth=d.worth,walk=d.walk,how=how,zones=#d.zones})
+            score=d.score,worth=d.worth,walk=d.walk,how=how,zones=#d.zones,forced=d.forced,
+            wit=type(m)=='table' and m.wit or nil})
         if director then director:release(id,tick) end
         return {own=true,response=response,spell=d.resref,kind='escape',mode=d.mode,point=d.point,exits=d.exits,
             zones=d.zones,walk=d.walk,hits={}}
     end
     -- A way out of a zone that hurts the creature where it stands (combat-intent/zones.lua's
-    -- option) and the frame it was found on, or nil.
+    -- option), the frame it was found on and the creature's profile, or nil.
     local function exit(sprite,tick,family)
         local raw=zoneList(sprite,tick)
         if #raw==0 or not inZone(raw,sprite.m_pos.x,sprite.m_pos.y) then return nil end
@@ -7811,13 +8053,17 @@ function M.new(g,options)
         local list=zonesFor(frame,raw)
         if #list==0 then return nil end
         ready(sprite,frame,list)
-        return zones.escape({tick=tick,family=family,frame=frame,zones=list,mind=mindFor(sprite,family)}),frame
+        rage(sprite,frame.self)
+        local m=mindFor(sprite,family)
+        local input={tick=tick,family=family,frame=frame,zones=list,mind=m}
+        input.pained=pain(sprite,frame,list,m,tick)
+        return zones.escape(input),frame,m
     end
     -- While SCS's round timer runs, or with no enemy in sight: that way out as the decision.
     local function flee(sprite,id,tick,family)
-        local d,frame=exit(sprite,tick,family)
+        local d,frame,m=exit(sprite,tick,family)
         if not d then return nil end
-        return escaping(d,frame,id,tick,family,'flee')
+        return escaping(d,frame,id,tick,family,'flee',m)
     end
     -- For api:zones: whether the engine weighs zones for creature id now (see there).
     local function weighs(id,family)
@@ -7828,16 +8074,21 @@ function M.new(g,options)
         local held=pending[id] or (s and M.ATTACKS[action] and s)
         local cast=running[id]
         local tick=now()
+        -- A dull creature sees no zone: SCS's cloud blocks stand aside, and it stays until the pain
+        -- drives it out (flee, or SCS's escape breaking its own action).
+        local dull=mindFor(sprite,family).wit=='dull'
         if not held and not targeting.CASTS[action] then
             -- With no enemy in sight the engine takes the round only to lead the creature out of
             -- a zone that hurts it (its claim then does, through flee); else SCS's own escapes,
             -- runs from a marker and stand-still run (lab batches H7 and H8: SCS's run from a
             -- Cloudkill's marker left mages that saw no enemy standing in an Incendiary Cloud for
             -- 34 to 38 seconds).
+            if dull then return true end
             local frame=sense.frame(g,sprite,tick,false)
             if frame and #frame.enemies>0 then return true end
             return exit(sprite,tick,family)~=nil
         end
+        if dull then return not pained[id] end
         local known=(held and held.known) or (cast and targeting.CASTS[action] and cast.known) or {}
         local fresh={}
         for _,z in ipairs(zoneList(sprite,tick)) do
@@ -8029,6 +8280,8 @@ function M.new(g,options)
             input.zones=zonesFor(frame,raw)
             if #input.zones>0 then ready(sprite,frame,input.zones) end
         end
+        rage(sprite,frame.self)
+        input.pained=pain(sprite,frame,input.zones or {},input.mind,tick)
         if holder~=nil then
             input.timeStop={caster=holder,left=left}
             if holder==id then input.stopCasts=stopCasts[id] or {} end
@@ -8049,7 +8302,7 @@ function M.new(g,options)
             end
             return decline(why)
         end
-        if d.kind=='escape' then return escaping(d,frame,id,tick,family,why) end
+        if d.kind=='escape' then return escaping(d,frame,id,tick,family,why,input.mind) end
         local response=M.response(d)
         if not response then return decline('bad-response') end
         counts.claims=counts.claims+1
@@ -8068,7 +8321,7 @@ function M.new(g,options)
             focus=input.plan.focus,rule=d.rule,stop=input.timeStop and input.timeStop.left or nil,
             alacrity=frame.self.alacrity or nil,release=d.release,use=d.use,creatures=d.creatures,count=d.count,
             rest=d.rest,slots=input.slots,finish=d.finish,aura=frame.self.aura~=0 and frame.self.aura or nil,
-            inZones=zoneView(input,d),lasting=d.lasting})
+            inZones=zoneView(input,d),lasting=d.lasting,wit=input.mind.wit})
         -- A disable claims its targets in the group at once, so that another member deciding
         -- before this cast starts leaves them alone; any other decision gives earlier claims back.
         if director then
@@ -8271,7 +8524,18 @@ function M.new(g,options)
     function api:setMind(changes)
         local m,bad=mind.new(changes)
         if not m then return false,bad end
-        defaultMind=m
+        defaultMind=m;mindVersion=mindVersion+1
+        return true
+    end
+    -- Labs: wit on or off (off: every creature thinks with the default profile, clever), and wit
+    -- overrides by creature file (combat-intent/mind.lua, M.wit). Returns false and why for a bad
+    -- table.
+    function api:setWit(value)
+        assert(type(value)=='boolean');witOn=value;minds,mindCount={},0
+    end
+    function api:setWitOverrides(t)
+        if t~=nil and type(t)~='table' then return false,'overrides' end
+        witOverrides=t;minds,mindCount={},0
         return true
     end
     function api:invalidate()
@@ -8279,6 +8543,7 @@ function M.new(g,options)
         lastDefence,known,stopCasts,strikes={},{},{},{}
         moves,zoneRead,zoneSpells,zoneSpellCount,zoneBroken={},nil,{},0,false
         stays,stayCount,insideOf,insideCount,lookedAt={},0,{},0,{}
+        minds,mindCount,hurts,hurtCount,pained={},0,{},0,{}
     end
     function api:inspect()
         local copy=function(t) local c={};for k,v in pairs(t) do c[k]=v end;return c end
@@ -8291,7 +8556,7 @@ function M.new(g,options)
         return {enabled=enabled,missing=missing or false,trace=trace,counts=copy(counts),reasons=copy(reasons),
             pending=open,running=busy,judging=#judging,remembered=remembered,log=rows,lastError=lastError or false,
             markError=markError or false,guardError=guardError or false,weaponError=weaponError or false,
-            wardError=wardError or false,zoneError=zoneError or false,moving=(function()
+            wardError=wardError or false,zoneError=zoneError or false,witError=witError or false,wit=witOn,moving=(function()
                 local n=0;for _ in pairs(moves) do n=n+1 end;return n end)(),stays=(function()
                 local c={};for id,s in pairs(stays) do c[id]={stay=s.stay,left=s.left} end;return c end)()}
     end

@@ -2,9 +2,9 @@
 
 How clever each creature fights: what it foresees, how it takes danger and pain, and how the
 difficulty shifts that. Direction agreed with Christopher on 2026-10-23 ("Ansich ist die Richtung
-aber mega … so machen wir es"); the details below marked *proposed* wait for his OK. Profiles
-live in `combat-intent/mind.lua` ("Gruppen und einzelne Kreaturen müssen verschiedene
-Intelligenzen haben", 2026-10-18).
+aber mega … so machen wir es"), where the wit comes from on 2026-10-24; the zone part is built
+(below). Profiles live in `combat-intent/mind.lua` ("Gruppen und einzelne Kreaturen müssen
+verschiedene Intelligenzen haben", 2026-10-18).
 
 ## Agreed (2026-10-23)
 
@@ -72,6 +72,61 @@ That needs a source we may use; only the classes would be taken, no text.
 Examples: a wolf (animal) is dull: it foresees nothing but bolts once the fire bites; an ettin
 (7/7) is normal but unwise, so it often stays in an Ice Storm to fight and leaves when it hurts;
 a mind flayer (18) is clever.
+
+## Built (2026-10-24)
+
+The zone part: `combat-intent/mind.lua` (`M.wit`, `M.withWit`), `combat-intent/zones.lua`,
+`combat-intent/choice.lua` and `adapters/eeex/choice.lua`.
+
+- **The step.** An override for the creature file (labs: `api:setWitOverrides`, by resref with a
+  `step` and optionally a `wis`) stands for INT 1, 10 or 15 (dull, normal, clever). Otherwise the
+  file's own INT and WIS (STATS.IDS 38 and 39) count when they mean something: an INT above 0 and
+  not one of the pairs 9/9 and 16/9. Otherwise the kind stands for its INT, with WIS 10:
+  - casters (mage and priest scripts) are clever;
+  - animals and animated weapons (GENERAL.IDS 2, 101), zombies, gibberlings, golems, slimes,
+    carrion crawlers, ankhegs and basilisks (RACE.IDS 148, 109, 144, 119, 104, 101, 102),
+    skeletons and golems (CLASS.IDS 134, 182 to 185, 215) are dull;
+  - everyone else is normal.
+
+  The difficulty (`m_nDifficultyLevel`, 1 to 5) then adds two to INT and WIS for each step above
+  Normal and takes two for each step below. An INT of 5 or less makes the creature dull, 14 or
+  more clever, anything between normal. Its danger weight is 1 + (WIS − 10) × 0.05, between 0.5
+  and 1.5, and multiplies what leaving a zone and walking into one are worth.
+- **Clever:** as the engine did before.
+- **Normal:** counts a zone's explosions spread evenly over time instead of timing the next one.
+  It weighs its own clouds by the cheaper of staying and walking out for each enemy, without what
+  the group has seen enemies do.
+- **Dull:** no option counts a zone. It casts and walks as if there were none and weighs its own
+  clouds by one explosion; SCS's cloud blocks stand aside for it. Each time its hit points have
+  dropped since it was last looked at while a zone hurts it where it stands, it draws once whether
+  the pain drives it out: 2 × the share of hit points it has lost × its danger weight, at most 1
+  (at half its hit points and WIS 10, for sure). Driven out, it walks out whatever else it could
+  do and keeps leaving until no zone hurts it there; meanwhile SCS's escape may break a cast of
+  its own.
+- **Rage:** a creature that is berserk (STATE_BERSERK) or in one of the game's rage states
+  (SPLSTATE.IDS BLOOD_RAGE, ANIMAL_RAGE, BARBARIAN_RAGE, BERSERKER_RAGE, MINSC_BERSERK and
+  STATE_ENRAGED, which Barbarian Rage, the Berserker's Enrage and Minsc's Berserk all set as well)
+  takes no way out while it has more than half its hit points.
+- **Log and labs:** a `wit` row each time a creature's profile is made (step, danger weight, INT,
+  WIS, where the step came from, difficulty), a `pain` row for each draw, and the step and a forced
+  way out in choice rows. `api:setWit(false)` makes every creature clever, as before.
+- **Only casters so far.** The engine decides only for mage and priest scripts, so the steps
+  change casters only. Ettins, wolves and the like get them once the engine takes fighters' and
+  monsters' rounds, at first around zones (to design with Christopher).
+
+What it changes, counted over the SR lab's 8,909 hostile creature files with the CRE class
+standing in for the script (read only, 2026-10-24):
+
+| | Normal | Insane |
+|---|---|---|
+| Arcane casters (1,100) normal | 99 | 8 |
+| Divine casters (546) normal / dull | 261 / 4 | 53 / 0 |
+| Everyone else (7,263) dull / normal / clever | 1,046 / 5,277 / 940 | 998 / 414 / 5,851 |
+
+Casters that are not clever mostly mean an INT of 9 to 13 (Anomen's files: 10/12); the four dull
+ones mean 3 (`KIEL`, `KIEL2`, `D2KIE`, `DOPCLE01`). On Insane the normal kind's INT of 10 reaches
+14, so every creature without meant values that is not dull turns clever there, ogres and trolls
+(16/9) included. That wants a look with Christopher before fighters and monsters get wit.
 
 ## Guard rails (Christopher, 2026-10-23)
 

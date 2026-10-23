@@ -718,3 +718,14 @@ was clean; one SCS fight ended at the lab's time limit after 79 seconds.
   and cold spells end troll regeneration through a 177 for the troll race (`DWTROLFI`,
   `DWTROLAC`, `DWTROLCO`, opcode 321 on each regeneration spell), so a troll in a party fire
   cloud still counts as able to die there. (CHOICE-01, DIRECTOR-01)
+
+## Open (2026-10-24)
+
+- **A kill counts by the average hit.** `harm.damage` counts a kill as soon as a hit's average
+  damage reaches the hit points left, as a step. In a zone whose next explosion comes before any
+  way out, a creature with about one explosion's average left therefore sees no worth in leaving:
+  staying and going both end at all it is worth (`cap` in `combat-intent/zones.lua`). Found while
+  testing wit (MIND-01): a clever mage at 20 of 40 hit points in a 4d9 cloud, an explosion a tick
+  away, took no way out; at 30 of 60 it did. The roles carry only average damage, so a kill
+  chance by the dice needs the dice from `combat-intent/spells.lua`, and it changes every attack's
+  kill bonus too. Its own step.

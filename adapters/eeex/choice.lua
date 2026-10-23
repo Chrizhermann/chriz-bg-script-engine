@@ -72,6 +72,15 @@
 -- that hurts it, unless it is casting. BGSE_Zones (api:zones) tells SCS's own cloud blocks above
 -- the hook (escapes, runs from a marker and stand-still; bgse/lib/hook.tpa) to stand aside while
 -- the engine weighs zones for the creature.
+--
+-- Wit (combat-intent/mind.lua, MIND-01): each creature's profile is the default one with its wit,
+-- from its INT and WIS, its IDS values, its family, its creature file (overrides) and the game's
+-- difficulty, worked out again only when one of them changes; a 'wit' row logs it. A dull creature
+-- sees no zone until it hurts: each time its hit points have dropped since it was last looked at
+-- while a zone hurts it where it stands, it draws once whether the pain drives it out
+-- (zones.painChance); then it leaves until it is out. SCS's cloud blocks stand aside for a dull
+-- creature meanwhile, so it stays and fights. A creature in one of the game's rage states counts
+-- as raging.
 local sense=require('adapters.eeex.sense')
 local creature=require('adapters.eeex.creature')
 local resources=require('adapters.eeex.resources')
@@ -133,6 +142,13 @@ M.required={'EEex_GameObject_Get','EEex_GameObject_IsSprite','EEex_Sprite_GetCas
 M.alacrityStat=165
 -- The game's Time Stop count falls by two a tick (learned.md, section 1): seconds = count/30.
 M.stopCount=30
+-- Wit: STATS.IDS INT and WIS; the game's own rage states in SPLSTATE.IDS, the same in every
+-- install read: BLOOD_RAGE, ANIMAL_RAGE, BARBARIAN_RAGE, BERSERKER_RAGE, MINSC_BERSERK and
+-- STATE_ENRAGED, which Barbarian Rage, the Berserker's Enrage and Minsc's Berserk all set as
+-- well (SPCL152, SPCL321, SPIN117: opcode 328).
+M.intStat=38
+M.wisStat=39
+M.rageStates={34,39,76,77,78,104}
 -- Casts remembered per caster in its own Time Stop.
 M.stopCastLimit=32
 -- MoveToPoint (ACTION.IDS); a way out is held while the creature walks it, or for moveGrace ticks
@@ -209,7 +225,15 @@ function M.new(g,options)
     local reader=options.reader or resources.new(g)
     local director=options.director
     local defaultMind=mind.new()
-    local mindFor=options.mindFor or function() return defaultMind end
+    -- mindFor(sprite, family): the creature's profile (wit, below), or options.mindFor's.
+    local mindFor
+    -- Wit: on unless options.wit is false; overrides by creature file (mind.wit); each creature's
+    -- profile with the values it was made from (minds), rebuilt when the default changes (version).
+    local witOn,witOverrides=options.wit~=false,options.witOverrides
+    local minds,mindCount,mindVersion={},0,0
+    -- hurts: each creature's hit points when last looked at for pain; pained: the tick the pain
+    -- drove a dull creature out, until it is out.
+    local hurts,hurtCount,pained={},0,{}
     local seed=options.seed
     if type(seed)~='number' then
         local clock=rawget(g,'os') and g.os.time or (os and os.time)
@@ -240,14 +264,14 @@ function M.new(g,options)
     -- stays and insideOf: what the group has seen its enemies do in zones (look); lookedAt: the
     -- tick each area was last looked at.
     local stays,stayCount,insideOf,insideCount,lookedAt={},0,{},0,{}
-    local counts={escapes=0,escaped=0,unescaped=0,zoneFailures=0,stayed=0,left=0,decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
+    local counts={escapes=0,escaped=0,unescaped=0,zoneFailures=0,stayed=0,left=0,pains=0,witFailures=0,decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
         hits=0,misses=0,errors=0,holds=0,frozen=0,marks=0,markFailures=0,defences=0,guarded=0,unguarded=0,
         guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0,arms=0,attacks=0,attackHits=0,
         weaponFailures=0,releases=0,heals=0,cures=0,potions=0,cared=0,uncared=0,summons=0,conjured=0,
         unconjured=0,removals=0,stripped=0,unstripped=0,wardFailures=0}
     local reasons={}
     local log,nextRow,size={},1,0
-    local root,sink,lastError,markError,guardError,weaponError,wardError,zoneError
+    local root,sink,lastError,markError,guardError,weaponError,wardError,zoneError,witError
     -- trace: labs see every decline as a 'declined' row in the sink (never in the log).
     local trace,lastReason,lastDetail,lastCharge=false,nil,nil,nil
     local api={}
@@ -261,6 +285,43 @@ function M.new(g,options)
         counts.errors=counts.errors+1
         lastError=where..': '..tostring(err):sub(1,200)
         record({kind='error',where=where,error=tostring(err):sub(1,200)})
+    end
+    -- Wit (combat-intent/mind.lua): the game's difficulty (1 to 5), nil when it cannot be read.
+    local function difficulty()
+        local ok,value=pcall(function() return g.EngineGlobals.g_pBaldurChitin.m_pObjectGame.m_options.m_nDifficultyLevel end)
+        return ok and type(value)=='number' and value or nil
+    end
+    -- The creature's profile: the default with its wit, made again when what it comes from changes.
+    local function witted(sprite,family)
+        if not witOn then return defaultMind end
+        local t=sprite.m_typeAI
+        local c={int=g.EEex_Sprite_GetStat(sprite,M.intStat),wis=g.EEex_Sprite_GetStat(sprite,M.wisStat),
+            general=t.m_General,race=t.m_Race,class=t.m_Class,family=family,resref=text(sprite.m_resref:get()),
+            difficulty=difficulty()}
+        local key=table.concat({tostring(c.int),tostring(c.wis),tostring(c.general),tostring(c.race),tostring(c.class),
+            tostring(family),c.resref,tostring(c.difficulty),mindVersion},':')
+        local had=minds[sprite.m_id]
+        if had and had.key==key then return had.mind end
+        local w=mind.wit(c,witOverrides)
+        local made=mind.withWit(defaultMind,w)
+        if not had then
+            if mindCount>=M.cacheLimit then minds,mindCount={},0 end
+            mindCount=mindCount+1
+        end
+        minds[sprite.m_id]={key=key,mind=made}
+        record({kind='wit',tick=now(),member=sprite.m_id,resref=c.resref,family=family,step=w.step,danger=w.danger,
+            int=w.int,wis=w.wis,from=w.from,difficulty=c.difficulty})
+        return made
+    end
+    mindFor=options.mindFor or function(sprite,family)
+        local ok,m=pcall(witted,sprite,family)
+        if ok and type(m)=='table' then return m end
+        counts.witFailures=counts.witFailures+1
+        if not ok and not witError then
+            witError=tostring(m):sub(1,200)
+            record({kind='error',where='wit',error=witError})
+        end
+        return defaultMind
     end
     local function decline(why)
         counts.declines=counts.declines+1
@@ -884,19 +945,54 @@ function M.new(g,options)
         if out then counts.escaped=counts.escaped+1 else counts.unescaped=counts.unescaped+1 end
         record({kind='escaped',tick=tick,member=sprite.m_id,to=m.point,at=at,out=out,took=tick-m.tick})
     end
+    -- Wit: whether a rage runs on the creature (frame entry self: raging).
+    local function rage(sprite,self)
+        local state=rawget(g,'EEex_Sprite_GetSpellState')
+        if type(state)~='function' then return end
+        for _,n in ipairs(M.rageStates) do
+            local ok,on=pcall(state,sprite,n)
+            if ok and on then self.raging=true;return end
+        end
+    end
+    -- Whether the pain drives a dull creature out of the zones (list) that hurt it where it stands
+    -- (see the top): one draw each time its hit points have dropped since it was last looked at
+    -- while a zone hurts it; once driven out it leaves until no zone hurts it there. A 'pain' row
+    -- logs each draw.
+    local function pain(sprite,frame,list,m,tick)
+        if type(m)~='table' or m.wit~='dull' then return false end
+        local id=sprite.m_id
+        local hp=frame.self.hp
+        local last=hurts[id]
+        if last==nil then
+            if hurtCount>=M.cacheLimit then hurts,hurtCount={},0 end
+            hurtCount=hurtCount+1
+        end
+        hurts[id]=hp
+        if not zones.harmed({tick=tick,frame=frame,zones=list,mind=m}) then pained[id]=nil;return false end
+        if pained[id] then return true end
+        if type(last)=='number' and type(hp)=='number' and hp<last then
+            local chance=zones.painChance(frame.self,m.danger)
+            local leaves=rng:nextInt(1,1000)<=math.floor(chance*1000+0.5)
+            counts.pains=counts.pains+1
+            record({kind='pain',tick=tick,member=id,hp=hp,lost=last-hp,chance=chance,leaves=leaves})
+            if leaves then pained[id]=tick;return true end
+        end
+        return false
+    end
     -- The decision for a way out (combat-intent/zones.lua's option).
-    local function escaping(d,frame,id,tick,family,how)
+    local function escaping(d,frame,id,tick,family,how,m)
         local response=M.response(d)
         if not response then return decline('bad-response') end
         counts.claims=counts.claims+1;counts.escapes=counts.escapes+1
         record({kind='choice',tick=tick,member=id,family=family,spell=d.resref,castKind=d.kind,mode=d.mode,point=d.point,
-            score=d.score,worth=d.worth,walk=d.walk,how=how,zones=#d.zones})
+            score=d.score,worth=d.worth,walk=d.walk,how=how,zones=#d.zones,forced=d.forced,
+            wit=type(m)=='table' and m.wit or nil})
         if director then director:release(id,tick) end
         return {own=true,response=response,spell=d.resref,kind='escape',mode=d.mode,point=d.point,exits=d.exits,
             zones=d.zones,walk=d.walk,hits={}}
     end
     -- A way out of a zone that hurts the creature where it stands (combat-intent/zones.lua's
-    -- option) and the frame it was found on, or nil.
+    -- option), the frame it was found on and the creature's profile, or nil.
     local function exit(sprite,tick,family)
         local raw=zoneList(sprite,tick)
         if #raw==0 or not inZone(raw,sprite.m_pos.x,sprite.m_pos.y) then return nil end
@@ -905,13 +1001,17 @@ function M.new(g,options)
         local list=zonesFor(frame,raw)
         if #list==0 then return nil end
         ready(sprite,frame,list)
-        return zones.escape({tick=tick,family=family,frame=frame,zones=list,mind=mindFor(sprite,family)}),frame
+        rage(sprite,frame.self)
+        local m=mindFor(sprite,family)
+        local input={tick=tick,family=family,frame=frame,zones=list,mind=m}
+        input.pained=pain(sprite,frame,list,m,tick)
+        return zones.escape(input),frame,m
     end
     -- While SCS's round timer runs, or with no enemy in sight: that way out as the decision.
     local function flee(sprite,id,tick,family)
-        local d,frame=exit(sprite,tick,family)
+        local d,frame,m=exit(sprite,tick,family)
         if not d then return nil end
-        return escaping(d,frame,id,tick,family,'flee')
+        return escaping(d,frame,id,tick,family,'flee',m)
     end
     -- For api:zones: whether the engine weighs zones for creature id now (see there).
     local function weighs(id,family)
@@ -922,16 +1022,21 @@ function M.new(g,options)
         local held=pending[id] or (s and M.ATTACKS[action] and s)
         local cast=running[id]
         local tick=now()
+        -- A dull creature sees no zone: SCS's cloud blocks stand aside, and it stays until the pain
+        -- drives it out (flee, or SCS's escape breaking its own action).
+        local dull=mindFor(sprite,family).wit=='dull'
         if not held and not targeting.CASTS[action] then
             -- With no enemy in sight the engine takes the round only to lead the creature out of
             -- a zone that hurts it (its claim then does, through flee); else SCS's own escapes,
             -- runs from a marker and stand-still run (lab batches H7 and H8: SCS's run from a
             -- Cloudkill's marker left mages that saw no enemy standing in an Incendiary Cloud for
             -- 34 to 38 seconds).
+            if dull then return true end
             local frame=sense.frame(g,sprite,tick,false)
             if frame and #frame.enemies>0 then return true end
             return exit(sprite,tick,family)~=nil
         end
+        if dull then return not pained[id] end
         local known=(held and held.known) or (cast and targeting.CASTS[action] and cast.known) or {}
         local fresh={}
         for _,z in ipairs(zoneList(sprite,tick)) do
@@ -1123,6 +1228,8 @@ function M.new(g,options)
             input.zones=zonesFor(frame,raw)
             if #input.zones>0 then ready(sprite,frame,input.zones) end
         end
+        rage(sprite,frame.self)
+        input.pained=pain(sprite,frame,input.zones or {},input.mind,tick)
         if holder~=nil then
             input.timeStop={caster=holder,left=left}
             if holder==id then input.stopCasts=stopCasts[id] or {} end
@@ -1143,7 +1250,7 @@ function M.new(g,options)
             end
             return decline(why)
         end
-        if d.kind=='escape' then return escaping(d,frame,id,tick,family,why) end
+        if d.kind=='escape' then return escaping(d,frame,id,tick,family,why,input.mind) end
         local response=M.response(d)
         if not response then return decline('bad-response') end
         counts.claims=counts.claims+1
@@ -1162,7 +1269,7 @@ function M.new(g,options)
             focus=input.plan.focus,rule=d.rule,stop=input.timeStop and input.timeStop.left or nil,
             alacrity=frame.self.alacrity or nil,release=d.release,use=d.use,creatures=d.creatures,count=d.count,
             rest=d.rest,slots=input.slots,finish=d.finish,aura=frame.self.aura~=0 and frame.self.aura or nil,
-            inZones=zoneView(input,d),lasting=d.lasting})
+            inZones=zoneView(input,d),lasting=d.lasting,wit=input.mind.wit})
         -- A disable claims its targets in the group at once, so that another member deciding
         -- before this cast starts leaves them alone; any other decision gives earlier claims back.
         if director then
@@ -1365,7 +1472,18 @@ function M.new(g,options)
     function api:setMind(changes)
         local m,bad=mind.new(changes)
         if not m then return false,bad end
-        defaultMind=m
+        defaultMind=m;mindVersion=mindVersion+1
+        return true
+    end
+    -- Labs: wit on or off (off: every creature thinks with the default profile, clever), and wit
+    -- overrides by creature file (combat-intent/mind.lua, M.wit). Returns false and why for a bad
+    -- table.
+    function api:setWit(value)
+        assert(type(value)=='boolean');witOn=value;minds,mindCount={},0
+    end
+    function api:setWitOverrides(t)
+        if t~=nil and type(t)~='table' then return false,'overrides' end
+        witOverrides=t;minds,mindCount={},0
         return true
     end
     function api:invalidate()
@@ -1373,6 +1491,7 @@ function M.new(g,options)
         lastDefence,known,stopCasts,strikes={},{},{},{}
         moves,zoneRead,zoneSpells,zoneSpellCount,zoneBroken={},nil,{},0,false
         stays,stayCount,insideOf,insideCount,lookedAt={},0,{},0,{}
+        minds,mindCount,hurts,hurtCount,pained={},0,{},0,{}
     end
     function api:inspect()
         local copy=function(t) local c={};for k,v in pairs(t) do c[k]=v end;return c end
@@ -1385,7 +1504,7 @@ function M.new(g,options)
         return {enabled=enabled,missing=missing or false,trace=trace,counts=copy(counts),reasons=copy(reasons),
             pending=open,running=busy,judging=#judging,remembered=remembered,log=rows,lastError=lastError or false,
             markError=markError or false,guardError=guardError or false,weaponError=weaponError or false,
-            wardError=wardError or false,zoneError=zoneError or false,moving=(function()
+            wardError=wardError or false,zoneError=zoneError or false,witError=witError or false,wit=witOn,moving=(function()
                 local n=0;for _ in pairs(moves) do n=n+1 end;return n end)(),stays=(function()
                 local c={};for id,s in pairs(stays) do c[id]={stay=s.stay,left=s.left} end;return c end)()}
     end

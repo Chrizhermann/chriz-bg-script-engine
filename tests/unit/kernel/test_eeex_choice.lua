@@ -1499,4 +1499,191 @@ assert(ok,err)
 end)()
 groups=groups+1
 
+-- 29. Wit (MIND-01; Christopher, 2026-10-24: "Reihenfolge Override, Art des Monsters, gewollte
+-- Int- und Wisdom-Werte und Schwierigkeit"). Each creature thinks with the default profile and its
+-- own wit, made from its INT and WIS (STATS.IDS 38 and 39), its IDS values, its file, its script
+-- family and the game's difficulty, and made again only when one of them changes; a 'wit' row logs
+-- it. In an enemy's cloud a dull mage (a meant INT of 4) sees no zone: SCS's cloud blocks stand
+-- aside and it casts as if there were none. Each time its hit points have dropped while the cloud
+-- hurts it, it draws once whether the pain drives it out ('pain' rows); once driven out it leaves
+-- until it is out of the cloud, and SCS's escape may break a cast of its own meanwhile. A rage
+-- (the Berserker's, SPLSTATE.IDS 77) keeps a clever mage in the cloud while it has more than half
+-- its hit points; the fatigue after it (75) does not. On Insane the dull mage is normal and walks
+-- out by itself. Overrides by creature file,
+-- wit switched off, a load, and a stat that cannot be read (the default profile).
+;(function()
+local AREA29={m_resref=str('AR0029'),m_lVertSortBack={},m_lVertSortFlight={960}}
+local g29=world()
+local isSprite29=g29.EEex_GameObject_IsSprite
+g29.EEex_GameObject_IsSprite=function(o,allowDead) return o~=nil and o.projectile==nil and isSprite29(o,allowDead) end
+g29.EEex_Projectile_Type={CProjectileArea=8}
+g29.EEex_Projectile_GetType=function(o) return o.projectile or 1 end
+g29.EEex_CastUD=function(o) return o end
+g29.EEex_Sprite_GetPersonalSpace=function() return 3 end
+g29.EEex_Area_GetNearestOpenPosition=function(area,x,y) return x,y end
+-- The spell state each creature is in.
+local states={}
+g29.EEex_Sprite_GetSpellState=function(s,n) return states[s.m_id]==n end
+local hot={m_effectId=12,m_durationType=1,m_duration=0,m_effectAmount=0,m_dWFlags=8*65536,m_flags=1,m_probabilityUpper=100,
+    m_probabilityLower=0,m_res=str(''),m_numDice=4,m_diceSize=9,m_savingThrow=0,m_saveMod=0,m_special=0,m_spellLevel=4,
+    m_casterLevel=10,m_sourceRes=str('TESTCLDS')}
+g29.objects[960]={m_id=960,projectile=8,state=0,m_nRepetitionCount=20,m_bReachedDestination=1,m_pos={x=500,y=500},
+    m_posDest={x=500,y=500},m_explosionRange=150,m_nDelay=75,m_nDelayCount=0,m_sourceId=11,m_projectileType=3,
+    m_resref=str('CLOUD'),m_effectList={hot}}
+local reader29={problems={},get=reader.get,lookup=function(kind,key)
+        if kind=='PRO' and key==4 then
+            return {kind='PRO',resref='CLOUD',type=3,speed=20,flags=0,extFlags=0,areaFlags=64,trigger=150,radius=150,coneWidth=0}
+        end
+        return reader.lookup(kind,key)
+    end}
+-- 1 is dull (INT 4, WIS 8: danger 0.9); 2 is clever by its kind (a mage's file without meant
+-- values) and has 60 hit points; 3 is dull and of average wisdom (INT 3, WIS 10).
+local dull=g29.add(sprite(1,500,500,255,{m_pArea=AREA29}))
+dull.stats[38],dull.stats[39]=4,8
+learn(dull,2,'TESTBOLT',2)
+local clever=g29.add(sprite(2,520,500,255,{m_pArea=AREA29,m_baseStats={m_hitPoints=60,m_generalState=0}}))
+clever.stats[1]=60
+learn(clever,2,'TESTBOLT',2)
+local calm=g29.add(sprite(3,480,500,255,{m_pArea=AREA29}))
+calm.stats[38],calm.stats[39]=3,10
+learn(calm,2,'TESTBOLT',2)
+g29.add(sprite(11,500,800,2,{m_pArea=AREA29})).stats[2]=5
+local dir29=directors.new(g29,{reader=reader29})
+local ch29=choices.new(g29,{reader=reader29,director=dir29,seed=29})
+local rows29={}
+ch29:setSink(function(row) rows29[#rows29+1]=row end)
+runtime.install(g29,{director=dir29,choice=ch29,version='test'})
+local function all(kind,member)
+    local list={}
+    for _,row in ipairs(rows29) do if row.kind==kind and (member==nil or row.member==member) then list[#list+1]=row end end
+    return list
+end
+local function last29(kind,member) local list=all(kind,member);return list[#list] end
+local function claim29(s,tick) g29.ticks=tick;return g29.BGSE_Claim(s,'mage','s1') end
+local function counts() return ch29:inspect().counts end
+-- The dull mage casts as if there were no cloud; SCS's cloud blocks stand aside for it, also
+-- while it casts. Asked again with nothing changed, it keeps its profile.
+assert(claim29(dull,100)==true)
+local w=last29('wit',1)
+assert(w and w.tick==100 and w.step=='dull' and w.from=='stats' and w.int==4 and w.wis==8 and
+    math.abs(w.danger-0.9)<1e-9 and w.difficulty==nil and w.family=='mage' and w.resref=='TEST1')
+local c=last29('choice',1)
+assert(c.tick==100 and c.spell=='TESTBOLT' and c.wit=='dull' and counts().pains==0)
+assert(g29.BGSE_Zones(dull,'mage','s1')==true)
+dull.m_curAction=action(31,'TESTBOLT',11)
+assert(g29.BGSE_Zones(dull,'mage','s1')==true)
+dull.m_curAction={m_actionID=0}
+assert(claim29(dull,101)==true and #all('wit',1)==1 and counts().pains==0)
+-- An explosion takes 24 of its 40 hit points: the pain drives it out for sure (2 x 0.6 x 0.9 is
+-- more than 1), whatever it could cast.
+dull.m_baseStats.m_hitPoints=16
+assert(claim29(dull,110)==true)
+local p=last29('pain',1)
+assert(p and p.tick==110 and p.hp==16 and p.lost==24 and p.chance==1 and p.leaves==true and counts().pains==1)
+c=last29('choice',1)
+assert(c.tick==110 and c.castKind=='escape' and c.forced==true and c.wit=='dull')
+g29.BGSE_Act(dull)
+assert(g29.queued[#g29.queued].text:find('^MoveToPoint') and ch29:inspect().moving==1)
+-- Still in the cloud after the walk: it leaves again, without a new draw. SCS's escape may break a
+-- cast of its own meanwhile.
+assert(claim29(dull,125)==true and counts().unescaped==1 and counts().pains==1)
+c=last29('choice',1)
+assert(c.tick==125 and c.castKind=='escape' and c.forced==true)
+dull.m_curAction=action(31,'TESTBOLT',11)
+assert(g29.BGSE_Zones(dull,'mage','s1')==false)
+dull.m_curAction={m_actionID=0}
+assert(g29.BGSE_Zones(dull,'mage','s1')==true)
+-- Out of the cloud the pain is over, and hit points lost outside it draw nothing; back in, it
+-- stays until they drop again.
+dull.m_pos={x=700,y=600}
+assert(claim29(dull,140)==true and last29('choice',1).spell=='TESTBOLT')
+dull.m_baseStats.m_hitPoints=14
+claim29(dull,150)
+assert(counts().pains==1)
+dull.m_pos={x=500,y=500}
+assert(claim29(dull,160)==true and last29('choice',1).tick==160 and last29('choice',1).spell=='TESTBOLT' and
+    counts().pains==1)
+-- A scratch on the other dull mage: a small chance to leave (2 x 1/40 x 1), and the decision
+-- follows the draw.
+assert(claim29(calm,170)==true)
+w=last29('wit',3)
+assert(w.step=='dull' and w.from=='stats' and w.int==3 and w.wis==10 and w.danger==1)
+calm.m_baseStats.m_hitPoints=39
+claim29(calm,180)
+p=last29('pain',3)
+assert(p and p.tick==180 and p.hp==39 and p.lost==1 and math.abs(p.chance-0.05)<1e-9 and type(p.leaves)=='boolean')
+c=last29('choice',3)
+assert(c.tick==180 and (c.castKind=='escape')==p.leaves)
+local pains=counts().pains
+-- The clever mage walks out of the cloud, also tired after a rage. Raging, it stays while it has
+-- more than half its hit points: no way out, and SCS's cloud blocks stand aside (its bolt would
+-- break in the cloud, so SCS has the round); at half it walks out.
+states[2]=75
+assert(claim29(clever,200)==true)
+w=last29('wit',2)
+assert(w and w.step=='clever' and w.from=='kind' and w.int==15 and w.wis==10 and w.danger==1)
+c=last29('choice',2)
+assert(c.castKind=='escape' and c.forced==nil and c.wit=='clever')
+states[2]=77
+local escapes=counts().escapes
+claim29(clever,210)
+assert(counts().escapes==escapes and last29('choice',2).tick==200 and g29.BGSE_Zones(clever,'mage','s1')==true)
+clever.m_baseStats.m_hitPoints=30
+assert(claim29(clever,220)==true and last29('choice',2).tick==220 and last29('choice',2).castKind=='escape')
+states[2]=nil
+-- On Insane the dull mage's INT and WIS are four points higher: normal, it sees the cloud and
+-- walks out by itself. At Normal it is dull again.
+local game=g29.EngineGlobals.g_pBaldurChitin.m_pObjectGame
+game.m_options={m_nDifficultyLevel=5}
+dull.m_baseStats.m_hitPoints=40
+assert(claim29(dull,300)==true)
+w=last29('wit',1)
+assert(w.tick==300 and w.step=='normal' and w.from=='stats' and w.int==8 and w.wis==12 and
+    math.abs(w.danger-1.1)<1e-9 and w.difficulty==5)
+c=last29('choice',1)
+assert(c.tick==300 and c.castKind=='escape' and c.forced==nil and c.wit=='normal' and counts().pains==pains)
+game.m_options.m_nDifficultyLevel=3
+assert(claim29(dull,310)==true and last29('wit',1).step=='dull' and last29('wit',1).difficulty==3 and
+    last29('choice',1).spell=='TESTBOLT')
+-- An override by creature file sets the step: the dull mage thinks cleverly and keeps the WIS its
+-- file means. A bad table is refused; nil ends the overrides.
+assert(ch29:setWitOverrides({TEST1={step='clever'}})==true)
+assert(claim29(dull,320)==true)
+w=last29('wit',1)
+assert(w.tick==320 and w.step=='clever' and w.from=='override' and w.int==15 and w.wis==8 and
+    last29('choice',1).castKind=='escape')
+local ok,why=ch29:setWitOverrides('TEST1')
+assert(ok==false and why=='overrides')
+assert(ch29:setWitOverrides(nil)==true and claim29(dull,330)==true and last29('wit',1).step=='dull')
+-- Wit off: every creature thinks with the default profile (clever), without 'wit' rows; on again,
+-- each profile is made anew.
+ch29:setWit(false)
+local made=#all('wit')
+assert(claim29(dull,340)==true and last29('choice',1).wit=='clever' and last29('choice',1).castKind=='escape')
+assert(#all('wit')==made and ch29:inspect().wit==false)
+ch29:setWit(true)
+assert(claim29(dull,350)==true and #all('wit')==made+1 and last29('wit',1).step=='dull' and ch29:inspect().wit==true)
+-- A load forgets the profiles and the hit points last seen: the first look after it draws
+-- nothing, the next drop does.
+ch29:invalidate()
+dull.m_baseStats.m_hitPoints=20
+assert(claim29(dull,360)==true and #all('wit')==made+2 and counts().pains==pains and last29('choice',1).spell=='TESTBOLT')
+dull.m_baseStats.m_hitPoints=10
+assert(claim29(dull,370)==true and counts().pains==pains+1 and last29('pain',1).chance==1 and
+    last29('choice',1).forced==true)
+-- A stat that cannot be read leaves the creature the default profile, counted, and logged once.
+local getStat=g29.EEex_Sprite_GetStat
+g29.EEex_Sprite_GetStat=function(s,n) if n==choices.intStat then error('stat gone') end return getStat(s,n) end
+ch29:invalidate()
+dull.m_baseStats.m_hitPoints=40
+assert(claim29(dull,380)==true)
+local state=ch29:inspect()
+local errors=0
+for _,row in ipairs(all('error')) do if row.where=='wit' then errors=errors+1 end end
+assert(state.counts.witFailures>=1 and state.witError:find('stat gone',1,true) and errors==1)
+assert(last29('choice',1).tick==380 and last29('choice',1).wit=='clever')
+g29.EEex_Sprite_GetStat=getStat
+end)()
+groups=groups+1
+
 return groups
