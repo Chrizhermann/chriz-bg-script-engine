@@ -617,6 +617,16 @@ attack's scale deciding:
 
 SCS keeps no rounds any more. Lab batch H tests D3 in game.
 
+## Step 3, fifth slice: fighters and monsters (F1, 2026-10-25)
+
+([FIGHT-01](../research/FIGHT-01-fighter-and-monster-rounds.md))
+
+Christopher (2026-10-25): the engine takes fighters' and monsters' rounds too ("Ich mein das ist
+ja 1000% der Plan sowieso"). Built so far, not yet switched on: own buffs valued by the own
+weapon (kit abilities, Potion of Power), protection and buff potions as defences, and walking to
+the enemy a creature attacks, the walk lowering the worth. Switching fighters and monsters on
+(F1e) waits for his answers on target choice, staging, wit for monsters and the cost of melee.
+
 ## To design with Christopher
 
 Short decisions for the first release, answered by Christopher on 2026-10-14:
