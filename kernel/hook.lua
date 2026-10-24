@@ -25,8 +25,9 @@ function M.new(config)
     for family in pairs(known) do
         families[family]=not(type(config.families)=='table' and config.families[family]==false)
     end
-    local decide,perform,observe=config.decide,config.perform,config.observe
+    local decide,perform,observe,held=config.decide,config.perform,config.observe,config.held
     assert(observe==nil or type(observe)=='function')
+    assert(held==nil or type(held)=='function')
     -- hooked: script resref (lower case) -> family, from the install. below(id, script): the
     -- creature's non-empty script resrefs in the slots after script, or nil when script is not
     -- in its stack.
@@ -43,7 +44,7 @@ function M.new(config)
     below=config.below
     assert(below==nil or type(below)=='function')
     local pending,blocked,answers={},{},{}
-    local counts={reached=0,repeats=0,claimed=0,acted=0,held=0,skipped=0,stale=0,errors=0,observeErrors=0}
+    local counts={reached=0,repeats=0,claimed=0,acted=0,held=0,skipped=0,stale=0,errors=0,observeErrors=0,heldErrors=0}
     local declines={}
     local log=trace.new(config.traceCapacity or 64)
     local api={}
@@ -115,7 +116,8 @@ function M.new(config)
         return result
     end
     -- A decision is performed once, by the hook's response. {hold=true} claims the round
-    -- without queueing anything, so the creature's running action is left alone.
+    -- without queueing anything, so the creature's running action is left alone; config.held
+    -- (optional) hears of it, and its errors change nothing.
     function api:act(actor)
         local id=type(actor)=='table' and rawget(actor,'id')
         if not scalarId(id) then return false,'bad-actor' end
@@ -126,6 +128,9 @@ function M.new(config)
         if not enabled or not families[p.family] then return false,'disabled' end
         if p.decision.hold then
             bump(counts,'held')
+            if held and not pcall(function() held(values.copy(actor),values.copy(p.decision)) end) then
+                bump(counts,'heldErrors')
+            end
             log:record({kind='act',actorKey=tostring(id),family=p.family,reason='held',tick=tick})
             return true,'held'
         end

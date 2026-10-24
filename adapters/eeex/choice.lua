@@ -1,16 +1,27 @@
 -- EEex side of the engine's own choice (step 3, second and third slices). When a hooked mage's or
--- priest's script asks the gate and SCS's round timer has run out, this reads what the
--- creature perceives (sense.lua, with the details SCS's scripts read), what it has ready
--- (creature.lua, classified by combat-intent/spells.lua), the engine's answers to those spells'
--- own SPLPROT checks for each enemy (sense.splprot) and the director's plan, and asks
--- combat-intent/choice.lua for an attack. A chosen attack becomes the gate's decision: a
--- normal SpellRES or SpellPointRES that first sets SCS's round timer as SCS's own cast blocks
--- do, so SCS's filler runs between casts. Right before the response is queued the target is
--- checked again and named through EEex's EEex_Target object, which reads the caster's own
--- table, so no other creature's choice can change it. A cast that never starts is given up;
--- one that ends with no effect on its target is remembered as a miss, judged only once the
--- target could react (not while another creature's Time Stop freezes it). No answer, an error
--- or a switch leaves the round to SCS. Session-local; a load forgets it all.
+-- priest's script asks the gate, this reads what the creature perceives (sense.lua, with the
+-- details SCS's scripts read), what it has ready (creature.lua, classified by
+-- combat-intent/spells.lua), the engine's answers to those spells' own SPLPROT checks for each
+-- enemy (sense.splprot) and the director's plan, and asks combat-intent/choice.lua what to do. A
+-- chosen attack becomes the gate's decision: a normal SpellRES or SpellPointRES. Right before the
+-- response is queued the target is checked again and named through EEex's EEex_Target object,
+-- which reads the caster's own table, so no other creature's choice can change it. A cast that
+-- never starts is given up; one that ends with no effect on its target is remembered as a miss,
+-- judged only once the target could react (not while another creature's Time Stop freezes it).
+-- An error or a switch leaves the round to the creature's script. Session-local; a load forgets
+-- it all.
+--
+-- The round (Christopher, 2026-10-25: "wir müssen SCS nichts überlassen"; what is quick does not
+-- take the round): the engine takes every round of a creature it drives, also between two of its
+-- own actions, and decides again as soon as one is over. While the casting aura runs it attacks
+-- with its weapon or waits (combat-intent/choice.lua); a wait is held and decided again when it
+-- is over, or waitTicks after it began. Its holds of a swing count the engine's own round
+-- (roundTicks). SCS's round timer stays the round's marker for SCS's own blocks above the hook
+-- (its specials and other copies wait for it): when the hook's response runs, a decision's or a
+-- hold's, and the timer has run out, the engine sets it for a round, so those blocks get one pass
+-- a round as in SCS's own order; a cast or drink of the engine's stretches it to cover its casting.
+-- It declines while the creature casts what the engine did not queue (a copy's special), which only
+-- that cast's own block may keep going, and when it sees no enemy.
 --
 -- Since the third slice the choice weighs the caster's protections and buffs against its attacks
 -- (combat-intent/defence.lua): the frame then also carries what protects each friend now and the
@@ -31,17 +42,17 @@
 -- Touch charges (D2c): a touch spell is cast like a defence, on the caster. The charge it puts in
 -- the magic weapon slot is found by the item there, read as the touch weapon of a spell the
 -- caster has memorized (at its level) or else as the item itself, and goes to the choice with
--- the caster's THAC0. A strike is AttackOneRound at EEex_Target after SCS's round timer; the
--- creature is held while it swings or the timer runs, so SCS's own touch block does not take the
--- charge elsewhere. Once the charge is gone the strike is judged: did its target lose hit points,
+-- the caster's THAC0. A strike is AttackOneRound at EEex_Target; the creature is held while it
+-- swings, or for a round from the strike, so SCS's own touch block does not take the charge
+-- elsewhere. Once the charge is gone the strike is judged: did its target lose hit points,
 -- become disabled or carry an effect of the strike. A charge spent without effect is a miss of its
 -- touch spell on that enemy, as a cast that left its target untouched is.
 --
 -- Weapon attacks (D2c): the choice also gets the weapon in the caster's hand (sense.attack, with
 -- what its hit casts or applies, classified), its attacks a round and whether the magic weapon
--- slot is taken. A weapon attack is AttackOneRound at EEex_Target after SCS's round timer, like
--- a strike; the creature is held while it attacks, or while the timer runs and its target lives,
--- and then whether its target lost hit points is recorded. AttackOneRound walks to a target out of
+-- slot is taken. A weapon attack is AttackOneRound at EEex_Target, like a strike; the creature is
+-- held while it attacks, or for a round from the attack while its target lives, and then whether
+-- its target lost hit points is recorded. AttackOneRound walks to a target out of
 -- reach first, as the game's attack actions do, so a creature that chases (F1d) needs no move of
 -- its own (a long walk is still to be seen in a lab); the choice row logs the seconds of the walk.
 -- A spell that conjures a weapon is cast on the caster.
@@ -68,10 +79,10 @@
 -- tick for each area), each classified once by what one explosion delivers, with who cast it and
 -- its own saves, resistances, protections and SPLPROT marks for those spells, and whether it is
 -- webbed or entangled. A way out is MoveToPoint to the nearest open spot (EEex's search map) that
--- still lies outside the zones it leaves, without SCS's round timer, so the engine decides again
--- once the creature is out; it is held while it walks, and judged by whether it got out. While SCS's
--- round timer runs, and when the creature sees no enemy, the engine still leads it out of a zone
--- that hurts it, unless it is casting. BGSE_Zones (api:zones) tells SCS's own cloud blocks above
+-- still lies outside the zones it leaves; the engine decides again once the creature is out; it is
+-- held while it walks, and judged by whether it got out. While it waits, and when the creature sees
+-- no enemy, the engine still leads it out of a zone that hurts it, unless it is casting. BGSE_Zones
+-- (api:zones) tells SCS's own cloud blocks above
 -- the hook (escapes, runs from a marker and stand-still; bgse/lib/hook.tpa) to stand aside while
 -- the engine weighs zones for the creature.
 --
@@ -109,9 +120,14 @@ M.outcomeTicks=30
 M.interruptSlack=3
 -- The name under which the caster's EEex_Target table holds the engine's target.
 M.targetName='BGSE'
--- SCS's round timer, set the way SCS's own cast blocks set it.
+-- SCS's round timer, the round's marker for SCS's own blocks (see the top), and a round in ticks
+-- (ONE_ROUND as SetGlobalTimer sets it: 90 ticks in lab batch E). A wait is decided again this many
+-- ticks after it began at most. A cast or drink of the engine's is covered by the marker for its
+-- casting time and this many ticks more (the last of the aura and the start).
 M.timer='castspell'
-M.setTimer='SetGlobalTimer("castspell","LOCALS",ONE_ROUND)'
+M.roundTicks=90
+M.waitTicks=15
+M.coverSlack=15
 M.cacheLimit=1024
 M.logCapacity=128
 M.judgeLimit=64
@@ -139,7 +155,7 @@ M.strikeTicks=180
 M.creWeapon=9
 M.creQuiver={13,14,15}
 M.required={'EEex_GameObject_Get','EEex_GameObject_IsSprite','EEex_Sprite_GetCastTimer',
-    'EEex_Sprite_GetLocalInt','EEex_GetUDAux','EEex_Sprite_GetState','EEex_Sprite_GetStat'}
+    'EEex_Sprite_GetLocalInt','EEex_Sprite_SetLocalInt','EEex_GetUDAux','EEex_Sprite_GetState','EEex_Sprite_GetStat'}
 -- STATS.IDS: WIZARD_IMPROVED_ALACRITY, what SCS tests. Improved Alacrity (SPWI921, with and
 -- without Spell Revisions, and SCS's DW#QALAC) sets it with opcode 282 p2=9. AURACLEANSING is
 -- not used: an item could hold it for good.
@@ -182,30 +198,20 @@ local function idSet(list)
     return out
 end
 
--- Whether SCS's round timer is still running for sprite at tick. Game timers hold the game
--- time they run out at; without the accessor the timer counts as running, so the engine never
--- takes a round it cannot place.
-function M.timerRunning(g,sprite,tick)
-    local get=rawget(g,'EEex_Sprite_GetLocalInt')
-    if type(get)~='function' then return true end
-    local ok,value=pcall(get,sprite,M.timer)
-    return ok and type(value)=='number' and value>tick
-end
-
 -- The response that casts decision's spell (a release with ForceSpellRES), or strikes with the
--- charge or attacks with the weapon in hand, or drinks the item, or nil.
+-- charge or attacks with the weapon in hand, or drinks the item, or walks out of a zone, or nil.
+-- SCS's round timer is no part of it (see the top).
 function M.response(decision)
     if type(decision)~='table' or not valid(decision.resref) then return nil end
     if decision.use then
         if not decision.self then return nil end
-        return M.setTimer..'\nUseItem("'..decision.resref..'",Myself)'
+        return 'UseItem("'..decision.resref..'",Myself)'
     end
     if decision.kind=='strike' or decision.kind=='weapon' then
         local t=decision.target
         if type(t)~='number' or t<0 or t%1~=0 then return nil end
-        return M.setTimer..'\nAttackOneRound(EEex_Target("'..M.targetName..'"))'
+        return 'AttackOneRound(EEex_Target("'..M.targetName..'"))'
     end
-    -- A way out of a zone leaves SCS's round timer alone: the creature decides again once it is out.
     if decision.kind=='escape' then
         local p=decision.point
         if type(p)~='table' or not whole(p.x) or not whole(p.y) then return nil end
@@ -215,12 +221,12 @@ function M.response(decision)
     if decision.point then
         local p=decision.point
         if not whole(p.x) or not whole(p.y) then return nil end
-        return M.setTimer..'\n'..cast..'PointRES("'..decision.resref..'",['..p.x..'.'..p.y..'])'
+        return cast..'PointRES("'..decision.resref..'",['..p.x..'.'..p.y..'])'
     end
-    if decision.self then return M.setTimer..'\n'..cast..'RES("'..decision.resref..'",Myself)' end
+    if decision.self then return cast..'RES("'..decision.resref..'",Myself)' end
     local t=decision.target
     if type(t)=='number' and t>=0 and t%1==0 then
-        return M.setTimer..'\n'..cast..'RES("'..decision.resref..'",EEex_Target("'..M.targetName..'"))'
+        return cast..'RES("'..decision.resref..'",EEex_Target("'..M.targetName..'"))'
     end
 end
 
@@ -265,10 +271,13 @@ function M.new(g,options)
     -- read at a tick; zoneSpells: each zone's classification by object id (false when it cannot be
     -- classified); zoneBroken: zones could not be read at all this session.
     local moves,zoneRead,zoneSpells,zoneSpellCount,zoneBroken={},nil,{},0,false
+    -- waits: each creature's wait while it is held, and its last one until the creature's next
+    -- decision, so that a wait renewed for the same reason logs no new row.
+    local waits={}
     -- stays and insideOf: what the group has seen its enemies do in zones (look); lookedAt: the
     -- tick each area was last looked at.
     local stays,stayCount,insideOf,insideCount,lookedAt={},0,{},0,{}
-    local counts={escapes=0,escaped=0,unescaped=0,zoneFailures=0,stayed=0,left=0,pains=0,witFailures=0,decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
+    local counts={waits=0,marked=0,escapes=0,escaped=0,unescaped=0,zoneFailures=0,stayed=0,left=0,pains=0,witFailures=0,decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
         hits=0,misses=0,errors=0,holds=0,frozen=0,marks=0,markFailures=0,defences=0,guarded=0,unguarded=0,
         guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0,arms=0,attacks=0,attackHits=0,
         weaponFailures=0,releases=0,heals=0,cures=0,potions=0,cared=0,uncared=0,summons=0,conjured=0,
@@ -334,6 +343,25 @@ function M.new(g,options)
         reasons[why]=(reasons[why] or 0)+1
         lastReason=why
         return nil
+    end
+    -- The engine keeps the round without queueing anything.
+    local function hold()
+        counts.holds=counts.holds+1
+        return {hold=true,own=true}
+    end
+    -- SCS's round timer as the round's marker (see the top), when the hook's response runs at tick:
+    -- set for a round once it has run out, and to cover ticks from now at least for a cast or drink
+    -- of the engine's; never shortened.
+    local function round(object,tick,cover)
+        local ends=g.EEex_Sprite_GetLocalInt(object,M.timer)
+        if type(ends)~='number' then return end
+        local want
+        if ends<=tick then want=tick+M.roundTicks end
+        if type(cover)=='number' and (want or ends)<tick+cover then want=tick+cover end
+        if want then
+            g.EEex_Sprite_SetLocalInt(object,M.timer,want)
+            counts.marked=counts.marked+1
+        end
     end
     local function get(id)
         local object=g.EEex_GameObject_Get(id)
@@ -1013,7 +1041,7 @@ function M.new(g,options)
         input.pained=pain(sprite,frame,list,m,tick)
         return zones.escape(input),frame,m
     end
-    -- While SCS's round timer runs, or with no enemy in sight: that way out as the decision.
+    -- While the creature waits, or with no enemy in sight: that way out as the decision.
     local function flee(sprite,id,tick,family)
         local d,frame,m=exit(sprite,tick,family)
         if not d then return nil end
@@ -1102,9 +1130,7 @@ function M.new(g,options)
             -- A cast queued while the casting aura (the round of the creature's last cast) runs
             -- waits for it, as SCS's casts do.
             if g.EEex_Sprite_GetCastTimer(sprite)~=-1 then p.waiting=tick end
-            if tick>=p.tick and tick-(p.waiting or p.tick)<=M.pendingTicks then
-                counts.holds=counts.holds+1;return {hold=true}
-            end
+            if tick>=p.tick and tick-(p.waiting or p.tick)<=M.pendingTicks then return hold() end
             pending[id]=nil;counts.lost=counts.lost+1
             record({kind='lost',tick=tick,member=id,spell=p.resref,target=p.target,queued=p.tick})
             if director then director:release(id,tick) end
@@ -1115,53 +1141,51 @@ function M.new(g,options)
         -- meanwhile (lab batch H: SCS's attack block took the place of the engine's potions). It is
         -- held while the aura runs or a Time Stop freezes the creature, and for its casting time
         -- and pendingTicks from the latest of its start, the aura last seen busy and time resuming;
-        -- then SCS has the round.
+        -- then the engine decides again.
         local r=running[id]
         if r then
             if g.EEex_Sprite_GetCastTimer(sprite)~=-1 then r.waiting=tick end
             local from=math.max(r.started or tick,r.waiting or 0,resumed or 0)
-            if frozen(id) or tick-from<=(r.castTicks or 0)+M.pendingTicks then
-                counts.holds=counts.holds+1;return {hold=true}
-            end
+            if frozen(id) or tick-from<=(r.castTicks or 0)+M.pendingTicks then return hold() end
         end
-        -- A strike runs while the creature swings or SCS's round timer runs (two rounds at most);
-        -- once its charge is gone it is judged. A weapon attack runs while the creature attacks,
-        -- or while the timer runs and its target lives (two rounds at most).
+        -- A strike runs while the creature swings, or for a round from it (two rounds at most);
+        -- once its charge is gone it is judged. A weapon attack runs while the creature attacks, or
+        -- for a round from it while its target lives (two rounds at most).
         local s=strikes[id]
         if s and s.weapon then
             local target=get(s.target)
             local alive=target~=nil and targeting.alive(sense.actor(g,target))
             if tick-s.tick<M.strikeTicks and (M.ATTACKS[sprite.m_curAction.m_actionID] or
-                (alive and M.timerRunning(g,sprite,tick))) then
-                counts.holds=counts.holds+1;return {hold=true}
-            end
+                (alive and tick-s.tick<M.roundTicks)) then return hold() end
             attacked(s,tick)
         elseif s then
             if held(sprite)~=s.item then struck(s,tick)
-            elseif tick-s.tick<M.strikeTicks and (M.ATTACKS[sprite.m_curAction.m_actionID] or M.timerRunning(g,sprite,tick)) then
-                counts.holds=counts.holds+1;return {hold=true}
+            elseif tick-s.tick<M.strikeTicks and (M.ATTACKS[sprite.m_curAction.m_actionID] or tick-s.tick<M.roundTicks) then
+                return hold()
             else strikes[id]=nil end
         end
         -- A way out of a zone runs while the creature walks it; then it is judged.
         local m=moves[id]
         if m then
             if tick-m.tick<m.limit and (sprite.m_curAction.m_actionID==M.MOVE or tick-m.tick<M.moveGrace) then
-                counts.holds=counts.holds+1;return {hold=true}
+                return hold()
             end
             moved(m,sprite,tick)
         end
-        -- The round is free once SCS's timer has run out, even while the casting aura of the
-        -- last cast still runs: SCS's timer counts a round from the cast's queueing, the aura
-        -- from its start, so the aura nearly always outlasts the timer. A queued cast waits for
-        -- the aura, SCS's and the engine's alike. While the timer runs, a creature that is not
-        -- casting may still walk out of a zone that hurts it.
-        if M.timerRunning(g,sprite,tick) then
-            if not targeting.CASTS[sprite.m_curAction.m_actionID] then
+        -- A wait runs while the creature does nothing, until it is over or waitTicks after the
+        -- decision that made it; meanwhile the creature may still walk out of a zone that hurts it.
+        -- An action it took up meanwhile (a block of SCS's above the hook) ends the wait.
+        local w=waits[id]
+        if w and not w.over then
+            if sprite.m_curAction.m_actionID==0 and tick>=w.tick and tick<w.ends and tick-w.tick<M.waitTicks then
                 local d=flee(sprite,id,tick,family)
-                if d then return d end
+                if d then waits[id]=nil;return d end
+                return hold()
             end
-            return decline('timer')
+            w.over=true
         end
+        -- What follows decides anew: the last wait only tells whether a new one goes on with it.
+        waits[id]=nil
         if targeting.CASTS[sprite.m_curAction.m_actionID] then return decline('casting') end
         local frame=sense.frame(g,sprite,tick,true)
         if not frame then return decline('no-frame') end
@@ -1206,9 +1230,11 @@ function M.new(g,options)
         frame.self.charge=chargeIn(sprite,rows)
         lastCharge=frame.self.charge and frame.self.charge.item or nil
         frame.self.magicItem=held(sprite)~=nil
-        -- Seconds until the casting aura frees: a cast chosen now starts casting then.
+        -- Seconds until the casting aura frees: casts wait for it (combat-intent/choice.lua). Under
+        -- Improved Alacrity (aura cleansing) it holds no cast back.
         local aura=g.EEex_Sprite_GetCastTimer(sprite)
-        frame.self.aura=type(aura)=='number' and aura>=0 and math.max(0,M.auraTicks-aura)/M.ticksPerSecond or 0
+        frame.self.aura=not frame.self.alacrity and type(aura)=='number' and aura>=0 and
+            math.max(0,M.auraTicks-aura)/M.ticksPerSecond or 0
         -- A weapon that cannot be read leaves the caster without a weapon attack, nothing more.
         local read,err=pcall(function()
             local own=sense.attack(g,sprite,reader)
@@ -1250,11 +1276,23 @@ function M.new(g,options)
             top[i]={spell=o.resref,kind=o.kind,target=o.target,point=o.point,score=o.score,hits=#o.hits,finish=o.finish}
         end
         if not d then
-            if why~='no-option' then
-                record({kind='decline',tick=tick,member=id,family=family,reason=why,top=top,charge=lastCharge,
-                    rejected=lastCharge and rejected or nil,slots=input.slots})
-            end
+            record({kind='decline',tick=tick,member=id,family=family,reason=why,top=top,charge=lastCharge,
+                rejected=lastCharge and rejected or nil,slots=input.slots})
             return decline(why)
+        end
+        -- A wait is held until it is over (above). A 'wait' row logs a new one: why, its seconds and
+        -- the best of what it waits for; one that goes on with the last for the same reason logs none.
+        if d.kind=='wait' then
+            local again=w~=nil and w.why==why
+            waits[id]={tick=tick,ends=tick+math.max(1,math.ceil(d.seconds*M.ticksPerSecond)),why=why}
+            if not again then
+                counts.waits=counts.waits+1
+                record({kind='wait',tick=tick,member=id,family=family,reason=why,seconds=d.seconds,top=top,
+                    aura=frame.self.aura~=0 and frame.self.aura or nil,slots=input.slots,wit=input.mind.wit,
+                    charge=lastCharge,rejected=why=='no-option' and rejected or nil})
+            end
+            if director then director:release(id,tick) end
+            return hold()
         end
         if d.kind=='escape' then return escaping(d,frame,id,tick,family,why,input.mind) end
         local response=M.response(d)
@@ -1313,14 +1351,20 @@ function M.new(g,options)
             sources=strike.sources
             disable=type(strike.roles)=='table' and type(strike.roles.disable)=='table' or nil
         end
+        -- A cast or drink is covered by the round's marker for its casting time (a speed point is
+        -- 9 ticks) and coverSlack.
+        local cover
+        if d.kind~='strike' and d.kind~='weapon' then
+            cover=(type(d.speed)=='number' and d.speed>0 and d.speed or 0)*9+M.coverSlack
+        end
         return {own=true,response=response,spell=d.resref,kind=d.kind,mode=d.mode,target=d.target,point=d.point,
             self=d.self,hits=d.hits,castTicks=spell and type(spell.speed)=='number' and spell.speed*9 or nil,
             sources=sources,expected=d.expected,disable=disable,charge=d.kind=='strike' and d.spell or nil,
-            use=d.use,before=before,count=d.count,creatures=d.creatures,monsters=d.monsters,known=seen}
+            use=d.use,before=before,count=d.count,creatures=d.creatures,monsters=d.monsters,known=seen,cover=cover}
     end
-    -- From the gate, each time a hooked script asks: nil (SCS's round), {hold=true} while the
-    -- engine's queued cast has not started or its own cast or drink is the creature's action, or
-    -- the decision.
+    -- From the gate, each time a hooked script asks: nil (the creature's script has the round),
+    -- {hold=true,own=true} while the engine's queued cast has not started, its own action runs or
+    -- it waits, or the decision.
     function api:decide(view,family)
         lastReason,lastDetail,lastCharge=nil,nil,nil
         local ok,result=pcall(decide,view,family)
@@ -1332,15 +1376,14 @@ function M.new(g,options)
         failed('decide',result)
     end
 
-    -- Right before the gate queues the response: the caster can still cast and the target is
-    -- still a living, visible creature without sanctuary; then the caster's EEex_Target table
-    -- names it. Decisions of other deciders (lab experiments) pass unchanged.
+    -- Right before the gate queues the response: the target is still a living, visible creature
+    -- without sanctuary; then the caster's EEex_Target table names it, and SCS's round timer marks
+    -- the round (round). Decisions of other deciders (lab experiments) pass unchanged.
     local function prepare(object,decision)
         if not decision.own then return true end
         if not enabled or missing then return 'skipped' end
         local tick=now()
         if type(tick)~='number' then return 'skipped' end
-        if decision.kind~='escape' and M.timerRunning(g,object,tick) then return 'skipped' end
         local hp
         if decision.target and not decision.point and not decision.self then
             local target=get(decision.target)
@@ -1365,34 +1408,30 @@ function M.new(g,options)
         if decision.kind=='strike' then
             strikes[object.m_id]={caster=object.m_id,item=decision.spell,spell=decision.charge,target=decision.target,
                 hp=hp,tick=tick,sources=decision.sources,disable=decision.disable,known=known}
-            counts.performed=counts.performed+1;counts.strikes=counts.strikes+1
+            counts.strikes=counts.strikes+1
             record({kind='swing',tick=tick,member=object.m_id,item=decision.spell,target=decision.target})
-            return true
-        end
-        if decision.kind=='weapon' then
+        elseif decision.kind=='weapon' then
             strikes[object.m_id]={caster=object.m_id,item=decision.spell,weapon=true,target=decision.target,hp=hp,tick=tick,
                 known=known}
-            counts.performed=counts.performed+1;counts.attacks=counts.attacks+1
+            counts.attacks=counts.attacks+1
             record({kind='swing',tick=tick,member=object.m_id,item=decision.spell,target=decision.target,weapon=true})
-            return true
-        end
-        -- A way out: to the nearest open spot that still lies outside the zones it leaves.
-        if decision.kind=='escape' then
+        elseif decision.kind=='escape' then
+            -- A way out: to the nearest open spot that still lies outside the zones it leaves.
             local point=walkable(object,decision)
             if not point then return 'skipped' end
             decision.response='MoveToPoint(['..point.x..'.'..point.y..'])'
             local walk=type(decision.walk)=='number' and decision.walk or 0
             moves[object.m_id]={tick=tick,point=point,zones=type(decision.zones)=='table' and decision.zones or {},
                 limit=math.ceil(walk*M.ticksPerSecond*2)+M.moveMargin}
-            counts.performed=counts.performed+1
             record({kind='move',tick=tick,member=object.m_id,from={x=object.m_pos.x,y=object.m_pos.y},to=point})
-            return true
+        else
+            pending[object.m_id]={caster=object.m_id,resref=decision.spell,kind=decision.kind,mode=decision.mode,
+                target=decision.target,point=decision.point,hits=decision.hits,tick=tick,hp=hp,
+                castTicks=decision.castTicks,sources=decision.sources,expected=decision.expected,before=decision.before,
+                count=decision.count,creatures=decision.creatures,monsters=decision.monsters,known=known}
         end
-        pending[object.m_id]={caster=object.m_id,resref=decision.spell,kind=decision.kind,mode=decision.mode,
-            target=decision.target,point=decision.point,hits=decision.hits,tick=tick,hp=hp,
-            castTicks=decision.castTicks,sources=decision.sources,expected=decision.expected,before=decision.before,
-            count=decision.count,creatures=decision.creatures,monsters=decision.monsters,known=known}
         counts.performed=counts.performed+1
+        round(object,tick,decision.cover)
         return true
     end
     -- A decision that is not queued gives its claims in the group back.
@@ -1461,10 +1500,20 @@ function M.new(g,options)
         if ok then return result end
         failed('started',result)
     end
+    -- From the gate when the hook's response holds one of the engine's holds (the hook block
+    -- fired, so no block of SCS's above it did): SCS's round timer marks the round (round).
+    function api:held(object,decision)
+        if not enabled or missing or type(decision)~='table' or not decision.own then return end
+        local ok,err=pcall(function()
+            local tick=now()
+            if type(tick)=='number' then round(object,tick) end
+        end)
+        if not ok then failed('held',err) end
+    end
 
     function api:setEnabled(value)
         assert(type(value)=='boolean');enabled=value
-        if not value then pending,moves={},{} end
+        if not value then pending,moves,waits={},{},{} end
     end
     -- Whether the engine weighs danger zones for creature id of family now (BGSE_Zones: SCS's own
     -- cloud blocks stand aside meanwhile): not for a creature off the engine's
@@ -1508,6 +1557,7 @@ function M.new(g,options)
         moves,zoneRead,zoneSpells,zoneSpellCount,zoneBroken={},nil,{},0,false
         stays,stayCount,insideOf,insideCount,lookedAt={},0,{},0,{}
         minds,mindCount,hurts,hurtCount,pained={},0,{},0,{}
+        waits={}
     end
     function api:inspect()
         local copy=function(t) local c={};for k,v in pairs(t) do c[k]=v end;return c end
@@ -1521,7 +1571,8 @@ function M.new(g,options)
             pending=open,running=busy,judging=#judging,remembered=remembered,log=rows,lastError=lastError or false,
             markError=markError or false,guardError=guardError or false,weaponError=weaponError or false,
             wardError=wardError or false,zoneError=zoneError or false,witError=witError or false,wit=witOn,moving=(function()
-                local n=0;for _ in pairs(moves) do n=n+1 end;return n end)(),stays=(function()
+                local n=0;for _ in pairs(moves) do n=n+1 end;return n end)(),waiting=(function()
+                local n=0;for _,w in pairs(waits) do if not w.over then n=n+1 end end;return n end)(),stays=(function()
                 local c={};for id,s in pairs(stays) do c[id]={stay=s.stay,left=s.left} end;return c end)()}
     end
     return api

@@ -225,10 +225,18 @@ assert(select(2,choice.decide(i))=='no-option')
 assert(select(2,choice.decide({}))=='bad-input')
 groups=groups+1
 
--- 12. Worth below the profile's minimum leaves the round to SCS; otherwise the best option,
--- or with the profile's odds a random near-best one.
+-- 12. Worth below the profile's minimum: with no attack worth anything, the best spell that is
+-- worth something, else a wait of a moment (no round goes to SCS); otherwise the best option, or
+-- with the profile's odds a random near-best one.
+i=enemies(input({spells={row('TESTMM',missile,1)}}),{enemy(11,{hp=20,maxHp=20})})
+d,reason=choice.decide(i);assert(d.resref=='TESTMM' and reason=='weak' and math.abs(d.score-(3.5/20-0.03))<1e-9)
+i.mind=mind.new({economy=10})
+d,reason=choice.decide(i);assert(d.kind=='wait' and reason=='nothing-good' and d.seconds==choice.idle and d.score==0)
 i=enemies(input({spells={row('TESTMM',missile,1)}}),{enemy(11,{hp=200,maxHp=200})})
-d,reason=choice.decide(i);assert(d==nil and reason=='nothing-good')
+assert(choice.decide(i).kind=='wait')
+-- Waiting with nothing to do at all.
+i=enemies(input({spells={}}),{enemy(11)})
+d,reason=choice.decide(i);assert(d.kind=='wait' and reason=='no-option' and d.seconds==choice.idle)
 local four={enemy(11,{x=200}),enemy(12,{x=220}),enemy(13,{x=240}),enemy(14,{x=260})}
 local seen={}
 for seed=1,40 do
@@ -352,15 +360,15 @@ i=enemies(input({spells=bolts(8)}),{brute(11),brute(12)})
 i.frame.self.guard={stoneskins=8}
 assert(near(choice.slotShare(i),(8/3.8+40/38)/8))
 -- In decide the share comes along unless given (input.slots). A bolt worth 0.26 against fighters
--- of 80 hit points stays below the minimum worth at full price; with about a round to live and
--- eight bolts ready the caster casts it.
+-- of 80 hit points stays below the minimum worth at full price (cast only as the best of nothing
+-- else); with about a round to live and eight bolts ready the caster casts it as its best.
 local function brutes(hp) return {brute(11,{hp=hp,maxHp=hp}),brute(12,{hp=hp,maxHp=hp})} end
 i=enemies(input({spells=bolts(1)}),brutes(80))
-d,reason=choice.decide(i);assert(d==nil and reason=='nothing-good')
+d,reason=choice.decide(i);assert(d.resref=='TESTBOLT' and reason=='weak')
 i.spells=bolts(8)
 d,reason=choice.decide(i)
 assert(d.resref=='TESTBOLT' and reason=='best' and near(d.cost,0.09*(40/38)/8) and i.slots==nil)
-i.slots=1;assert(select(2,choice.decide(i))=='nothing-good')
+i.slots=1;assert(select(2,choice.decide(i))=='weak')
 i.slots=0.5;assert(near(choice.decide(i).cost,0.045))
 i=enemies(input({spells=bolts(8),items={{resref='TESTPOTN',abilities={{effect=potion,uses=1}}}}}),brutes(80))
 i.frame.self.hp=10

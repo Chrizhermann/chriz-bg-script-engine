@@ -138,22 +138,23 @@ assert(d.mode=='self')
 -- An enemy at one hit point gains nothing from Harm; behind Mirror Images it is no target.
 i.frame.enemies={enemy(11,{x=200,hp=1})}
 d,why=choice.decide(i)
-assert(d==nil and why=='no-option')
+assert(d.kind=='wait' and why=='no-option')
 i.frame.enemies={enemy(11,{x=200,mirror=2})}
 d,why,_,rejected=choice.decide(i)
-assert(d==nil and rejected.mirror==1)
--- Out of reach, switched off, in the caster's own Time Stop or under Improved Alacrity: none.
+assert(d.kind=='wait' and rejected.mirror==1)
+-- Out of reach, switched off, in the caster's own Time Stop or under Improved Alacrity: none, so
+-- the caster waits.
 i.frame.enemies={enemy(11,{x=400})}
-assert(choice.decide(i)==nil)
+assert(choice.decide(i).kind=='wait')
 i.frame.enemies={enemy(11,{x=200})}
 i.mind=mind.new({touch=false})
-assert(choice.decide(i)==nil)
+assert(choice.decide(i).kind=='wait')
 i.mind=mind.new()
 i.timeStop={caster=1,left=10}
-assert(choice.decide(i)==nil)
+assert(choice.decide(i).kind=='wait')
 i.timeStop=nil
 i.frame.self.alacrity=true
-assert(choice.decide(i)==nil)
+assert(choice.decide(i).kind=='wait')
 i.frame.self.alacrity=nil
 assert(choice.decide(i).kind=='touch')
 -- Standing next to a swordsman costs: the option is worth less after the cost.

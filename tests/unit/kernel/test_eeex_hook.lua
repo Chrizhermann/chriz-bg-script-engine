@@ -106,6 +106,14 @@ plain.BGSE.setDecider(function() return {hold=true} end)
 assert(plain.BGSE_Claim(plain.objects[1],'mage','s1')==true)
 plain.BGSE_Act(plain.objects[1])
 assert(#plain.queued==0 and plain.BGSE.inspect().counts.held==1)
+-- options.held hears of a held round with the live sprite.
+local heldBy={}
+local holding=world();holding.objects[1]=creature(1)
+adapter.install(holding,{decide=function() return {hold=true,own=true} end,
+    held=function(object,d) heldBy[#heldBy+1]={object=object,own=d.own} end})
+assert(holding.BGSE_Claim(holding.objects[1],'mage','s1')==true)
+holding.BGSE_Act(holding.objects[1])
+assert(#holding.queued==0 and #heldBy==1 and heldBy[1].object==holding.objects[1] and heldBy[1].own==true)
 
 -- 8. Script slots: read with EEex's accessor in the engine's order, case-insensitive; the
 -- hooked list arrives with M_BGSEHK.lua, possibly after the runtime; a script below that

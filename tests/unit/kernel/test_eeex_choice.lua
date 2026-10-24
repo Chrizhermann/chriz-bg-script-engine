@@ -1,12 +1,14 @@
 -- EEex side of the engine's own choice against fake engine globals: taking the round through
--- the gate, the response that casts and sets SCS's round timer, the target named through
--- EEex_Target, holding while the cast is queued and while it runs, the director's picture of the
--- engine's own casts, outcomes and memory, re-checks, switches, errors and loads.
+-- the gate, the response that casts, SCS's round timer as the round's marker, the target named
+-- through EEex_Target, holding while the cast is queued, while it runs and while the creature
+-- waits, the director's picture of the engine's own casts, outcomes and memory, re-checks,
+-- switches, errors and loads.
 local runtime=require('adapters.eeex.runtime')
 local directors=require('adapters.eeex.director')
 local choices=require('adapters.eeex.choice')
 local sense=require('adapters.eeex.sense')
 local spells=require('combat-intent.spells')
+local intent=require('combat-intent.choice')
 local groups=0
 
 local function band(a,b)
@@ -67,6 +69,7 @@ local function world()
     g.EEex_Sprite_GetStat=function(s,n) return s.stats[n] or 0 end
     g.EEex_Sprite_GetCasterLevelForSpell=function() return 10 end
     g.EEex_Sprite_GetLocalInt=function(s,name) return s.locals[name] or 0 end
+    g.EEex_Sprite_SetLocalInt=function(s,name,value) s.locals[name]=value end
     g.EEex_Sprite_GetCastTimer=function(s) return s.castTimer or -1 end
     g.EEex_GetUDAux=function(o) o.aux=o.aux or {};return o.aux end
     g.EEex_Utility_GetOrCreateTable=function(t,key) t[key]=t[key] or {};return t[key] end
@@ -156,36 +159,34 @@ local function claim(s,family,script,tick)
 end
 local function start(s,a) g.listeners.started[1](s,a);return a end
 local function last(kind) for i=#rows,1,-1 do if rows[i].kind==kind then return rows[i] end end end
+local function near(a,b) return math.abs(a-b)<1e-9 end
 
--- 1. Formats and the timer: SCS's round timer is set before the cast; the target is named by
--- EEex_Target; a game timer runs while it holds a later game time.
-assert(choices.response({resref='SPWI304',target=12})==
-    'SetGlobalTimer("castspell","LOCALS",ONE_ROUND)\nSpellRES("SPWI304",EEex_Target("BGSE"))')
-assert(choices.response({resref='SPWI304',point={x=430,y=107}})==
-    'SetGlobalTimer("castspell","LOCALS",ONE_ROUND)\nSpellPointRES("SPWI304",[430.107])')
-assert(choices.response({resref='SPPR502',self=true}):find('SpellRES%("SPPR502",Myself%)')~=nil)
+-- 1. Formats: the target is named by EEex_Target; SCS's round timer is no part of a response.
+assert(choices.response({resref='SPWI304',target=12})=='SpellRES("SPWI304",EEex_Target("BGSE"))')
+assert(choices.response({resref='SPWI304',point={x=430,y=107}})=='SpellPointRES("SPWI304",[430.107])')
+assert(choices.response({resref='SPPR502',self=true})=='SpellRES("SPPR502",Myself)')
 assert(choices.response({resref='BAD"X',target=1})==nil and choices.response({resref='SPWI304',point={x=-1,y=2}})==nil)
 assert(choices.response({resref='SPWI304'})==nil)
-m1.locals.castspell=150
-assert(choices.timerRunning(g,m1,100) and not choices.timerRunning(g,m1,150))
-m1.locals.castspell=nil
-assert(choices.timerRunning({},m1,100))
 groups=groups+1
 
 -- 2. The round is the engine's: the Fire Bolt goes to the director's focus, the wounded 12,
--- which it kills; the response sets SCS's timer and casts at EEex_Target, which names 12.
+-- which it kills; the response casts at EEex_Target, which names 12. SCS's round timer, run out,
+-- marks the round: set for a round (90 ticks), which also covers the bolt's casting.
 assert(claim(m1,'mage','s1',100)==true)
 local c=last('choice')
 assert(c.spell=='TESTBOLT' and c.target==12 and c.focus==12 and #c.top==3 and c.top[1].target==12)
 g.BGSE_Act(m1)
-assert(#g.queued==1 and g.queued[1].id==1 and g.queued[1].text:find('SpellRES%("TESTBOLT",EEex_Target%("BGSE"%)%)')~=nil)
-assert(m1.aux.EEex_Target.BGSE==12)
+assert(#g.queued==1 and g.queued[1].id==1 and g.queued[1].text=='SpellRES("TESTBOLT",EEex_Target("BGSE"))')
+assert(m1.aux.EEex_Target.BGSE==12 and m1.locals.castspell==190)
 local state=root.inspect()
 assert(state.counts.acted==1 and state.choice.counts.claims==1 and state.choice.counts.performed==1 and state.choice.pending==1)
--- Queued, not started: the next pass holds, so SCS's blocks cannot replace the cast.
+assert(state.choice.counts.marked==1)
+-- Queued, not started: the next pass holds, so SCS's blocks cannot replace the cast; the round's
+-- marker still runs.
 assert(claim(m1,'mage','s1',101)==true)
 g.BGSE_Act(m1)
 assert(#g.queued==1 and root.inspect().counts.held==1 and root.inspect().choice.counts.holds==1)
+assert(m1.locals.castspell==190 and root.inspect().choice.counts.marked==1)
 groups=groups+1
 
 -- 3. The cast starts: the director records it as the engine's own and never advises on it.
@@ -200,41 +201,65 @@ assert(state.choice.counts.started==1 and state.choice.running==1 and state.dire
 -- While it is the mage's action the engine holds it, so that SCS's blocks below the hook do not
 -- replace it.
 m1.m_curAction=action(31,'TESTBOLT',12)
-m1.locals.castspell=190
 assert(claim(m1,'mage','s1',120)==true and root.inspect().choice.counts.holds==2)
--- It ends, and SCS's round timer (set by the response) leaves the rest of the round to SCS's
--- filler; 30 ticks later the bolt's effect is judged: 12 lost its hit points.
+-- It ends while its casting aura runs (counted from the start at 101): the engine keeps the round
+-- and, without a weapon, waits until half a second before the aura frees, deciding again at least
+-- every 15 ticks; 30 ticks after the bolt's end its effect is judged: 12 lost its hit points.
 m1.m_curAction={m_actionID=0}
 e12.m_baseStats.m_hitPoints=0
-assert(claim(m1,'mage','s1',130)==false and root.inspect().choice.judging==1 and root.inspect().choice.reasons.timer==1)
-m1.locals.castspell=0
+m1.castTimer=29
+assert(claim(m1,'mage','s1',130)==true and root.inspect().choice.judging==1 and root.inspect().choice.waiting==1)
+local w3=last('wait')
+assert(w3.reason=='aura' and w3.member==1 and near(w3.aura,71/15) and near(w3.seconds,71/15-0.5) and w3.top[1].spell=='TESTBOLT')
+g.BGSE_Act(m1)
+assert(m1.locals.castspell==190 and root.inspect().choice.reasons.timer==nil)
+m1.castTimer=64
 assert(claim(m1,'mage','s1',165)==true)
 state=root.inspect().choice
-assert(state.counts.hits==1 and state.judging==0 and last('outcome').hit==true)
--- With 12 dead the focus moves on to the nearer 11, and so does the next bolt.
-c=last('choice');assert(c.target==11 and c.focus==11)
+assert(state.counts.hits==1 and state.judging==0 and last('outcome').hit==true and state.counts.waits==1)
+g.BGSE_Act(m1)
+-- SCS's round timer runs out while the mage waits: the hold marks the next round once, so SCS's
+-- own blocks above the hook get one pass a round.
+m1.castTimer=90
+assert(claim(m1,'mage','s1',191)==true)
+g.BGSE_Act(m1)
+state=root.inspect().choice
+assert(m1.locals.castspell==281 and state.counts.marked==2 and state.counts.waits==1)
+-- Half a second before the aura frees the next bolt is chosen: with 12 dead the focus moves on to
+-- the nearer 11.
+m1.castTimer=95
+assert(claim(m1,'mage','s1',196)==true)
+c=last('choice');assert(c.target==11 and c.focus==11 and near(c.aura,5/15))
 groups=groups+1
 
 -- 4. A bolt that leaves its target untouched, with no save or magic resistance to blame, met
 -- an immunity: the mage remembers it and turns to 13. An interrupted cast says nothing.
 g.BGSE_Act(m1)
-assert(m1.aux.EEex_Target.BGSE==11)
+assert(m1.aux.EEex_Target.BGSE==11 and m1.locals.castspell==281)
+-- The queued bolt starts when the aura frees, and its casting aura with it.
+g.ticks=201
 start(m1,action(31,'TESTBOLT',-1))
-m1.m_curAction=action(31,'TESTBOLT',11);m1.locals.castspell=300
-assert(claim(m1,'mage','s1',200)==true)
-m1.m_curAction={m_actionID=0}
-assert(claim(m1,'mage','s1',201)==false)
-m1.locals.castspell=0
-assert(claim(m1,'mage','s1',235)==true)
+m1.m_curAction=action(31,'TESTBOLT',11);m1.castTimer=9
+assert(claim(m1,'mage','s1',210)==true)
+m1.m_curAction={m_actionID=0};m1.castTimer=29
+assert(claim(m1,'mage','s1',230)==true and last('wait').tick==230 and root.inspect().choice.counts.waits==2)
+-- Decided again 15 ticks later, the wait goes on for the same reason, without a new row.
+m1.castTimer=44
+assert(claim(m1,'mage','s1',245)==true and root.inspect().choice.counts.waits==2 and root.inspect().choice.waiting==1)
+m1.castTimer=93
+assert(claim(m1,'mage','s1',294)==true)
 state=root.inspect().choice
 assert(state.counts.misses==1 and state.remembered==1 and last('outcome').hit==false and last('outcome').misses==1)
-c=last('choice');assert(c.target==13)
+c=last('choice');assert(c.target==13 and c.tick==294)
 g.BGSE_Act(m1)
+assert(m1.locals.castspell==384)
+g.ticks=301
 start(m1,action(31,'TESTBOLT',-1))
 -- Damage ends the cast four ticks in, long before its casting time.
+g.ticks=305
 start(m1,action(3,'',13))
-m1.locals.castspell=0
-assert(claim(m1,'mage','s1',275)==true)
+m1.castTimer=34
+assert(claim(m1,'mage','s1',335)==true and last('wait').tick==335)
 state=root.inspect().choice
 assert(state.counts.interrupted==1 and state.counts.misses==1 and state.counts.hits==1)
 groups=groups+1
@@ -242,46 +267,54 @@ groups=groups+1
 -- 5. Right before acting the target is checked again: one that died meanwhile skips the act
 -- without an error or a backoff; a cast queued that never starts is given up.
 local errors=root.inspect().counts.errors
-c=last('choice');assert(c.target==13)
+m1.castTimer=93
+assert(claim(m1,'mage','s1',394)==true)
+c=last('choice');assert(c.target==13 and c.tick==394)
 e13.state=0x800
 g.BGSE_Act(m1)
 state=root.inspect()
 assert(state.counts.skipped==1 and state.counts.errors==errors and state.choice.counts.skipped==1 and state.choice.pending==0)
+assert(m1.locals.castspell==384)
 e13.state=0
 local queued=#g.queued
-assert(claim(m1,'mage','s1',280)==true)
+m1.castTimer=94
+assert(claim(m1,'mage','s1',395)==true)
 g.BGSE_Act(m1)
-assert(#g.queued==queued+1 and root.inspect().choice.pending==1)
-assert(claim(m1,'mage','s1',300)==true and root.inspect().choice.counts.holds==4)
+assert(#g.queued==queued+1 and root.inspect().choice.pending==1 and m1.locals.castspell==485)
+local holds=root.inspect().choice.counts.holds
+m1.castTimer=nil
+assert(claim(m1,'mage','s1',415)==true and root.inspect().choice.counts.holds==holds+1)
 g.BGSE_Act(m1)
-assert(claim(m1,'mage','s1',330)==true and root.inspect().choice.counts.lost==1)
-assert(last('lost').spell=='TESTBOLT' and last('lost').queued==280)
+assert(claim(m1,'mage','s1',445)==true and root.inspect().choice.counts.lost==1)
+assert(last('lost').spell=='TESTBOLT' and last('lost').queued==395)
 groups=groups+1
 
--- 6. SCS keeps the round: the switch off, a silenced mage with nothing it can cast, a cast already
--- running, families the choice does not drive, a creature on the good side. A busy casting aura
--- does not: the cast waits for it.
+-- 6. The creature's script keeps the round only with the switch off, while the creature casts what
+-- the engine did not queue, for families the choice does not drive and on the good side. A silenced
+-- mage with nothing it can cast waits, as one does while its casting aura runs.
 g.BGSE_Act(m1)
 start(m1,action(31,'TESTBOLT',-1))
 start(m1,action(0,'',0))
 root.setChoice(false)
-assert(claim(m1,'mage','s1',400)==false and root.inspect().choice.reasons.off==1)
+assert(claim(m1,'mage','s1',450)==false and root.inspect().choice.reasons.off==1)
 root.setChoice(true)
 m1.state=0x1000
-assert(claim(m1,'mage','s1',401)==false and root.inspect().choice.reasons['no-option']==1)
+assert(claim(m1,'mage','s1',451)==true and root.inspect().choice.reasons['no-option']==nil)
+local w6=last('wait')
+assert(w6.tick==451 and w6.reason=='no-option' and w6.seconds==intent.idle and w6.rejected~=nil)
 m1.state=0
 m1.castTimer=40
-assert(claim(m1,'mage','s1',402)==true and root.inspect().choice.reasons.aura==nil)
+assert(claim(m1,'mage','s1',467)==true and last('wait').tick==467 and last('wait').reason=='aura')
 m1.castTimer=nil
 m1.m_curAction=action(31,'SPWI112',11)
-assert(claim(m1,'mage','s1',403)==false and root.inspect().choice.reasons.casting==1)
+assert(claim(m1,'mage','s1',468)==false and root.inspect().choice.reasons.casting==1)
 m1.m_curAction={m_actionID=0}
 local fighter=g.add(sprite(4,0,40,255,{levels={[7]='S3'}}))
 learn(fighter,2,'TESTBOLT')
-assert(claim(fighter,'fighter','s3',404)==false and root.inspect().choice.reasons.family==1)
+assert(claim(fighter,'fighter','s3',469)==false and root.inspect().choice.reasons.family==1)
 local friend=g.add(sprite(5,0,-40,2))
 learn(friend,2,'TESTBOLT')
-assert(claim(friend,'mage','s1',405)==false and root.inspect().choice.reasons.side==1)
+assert(claim(friend,'mage','s1',470)==false and root.inspect().choice.reasons.side==1)
 groups=groups+1
 
 -- 7. An area spell at a point: the Fireball goes where it catches the whole cluster (the
@@ -291,7 +324,7 @@ local m6=g.add(sprite(6,0,100,255))
 learn(m6,2,'TESTBALL')
 local f21=g.add(sprite(21,300,100,2));local f22=g.add(sprite(22,330,100,2));g.add(sprite(23,360,100,2))
 for _,e in ipairs({e11,e12,e13}) do e.state=0x800 end
-assert(claim(m6,'mage','s1',410)==true)
+assert(claim(m6,'mage','s1',510)==true)
 c=last('choice')
 assert(c.spell=='TESTBALL' and c.mode=='point-area' and #c.hits==3 and c.point.y==100 and c.target==nil)
 assert(c.top[1].point.x==330 and c.top[1].hits==3)
@@ -309,7 +342,7 @@ learn(p7,3,'TESTBOLT');learn(p7,3,'TESTHEAL')
 -- One enemy of the cluster is left to threaten the ally.
 f21.state=0;f22.state=0x800;g.objects[23].state=0x800
 local hurt=g.add(sprite(8,20,140,255,{m_baseStats={m_hitPoints=4,m_generalState=0},stats={[1]=40,[34]=10}}))
-assert(claim(p7,'priest','s2',420)==true)
+assert(claim(p7,'priest','s2',520)==true)
 c=last('choice')
 assert(c.spell=='TESTHEAL' and c.castKind=='heal' and c.target==8 and c.mode=='ally')
 g.BGSE_Act(p7)
@@ -318,11 +351,11 @@ assert(root.inspect().choice.counts.heals==1)
 start(p7,action(31,'TESTHEAL',-1))
 p7.m_curAction={m_actionID=0}
 hurt.m_baseStats.m_hitPoints=24
-assert(claim(p7,'priest','s2',450)==true and root.inspect().choice.judging==1)
-assert(claim(p7,'priest','s2',485)==true)
+assert(claim(p7,'priest','s2',550)==true and root.inspect().choice.judging==1)
+assert(claim(p7,'priest','s2',585)==true)
 assert(last('care') and last('care').helped==1 and root.inspect().choice.counts.cared==1)
 hurt.m_baseStats.m_hitPoints=40
-assert(claim(p7,'priest','s2',486)==true and last('choice').spell=='TESTBOLT')
+assert(claim(p7,'priest','s2',586)==true and last('choice').spell=='TESTBOLT')
 groups=groups+1
 
 -- 9. Errors stay inside: a creature whose spellbook cannot be read, and a broken decision,
@@ -330,11 +363,11 @@ groups=groups+1
 local before=root.inspect().counts.errors
 local broken=g.add(sprite(9,0,180,255))
 broken.m_memorizedSpellsMage={getReference=function() error('unreadable') end}
-assert(claim(broken,'mage','s1',430)==false)
+assert(claim(broken,'mage','s1',530)==false)
 state=root.inspect()
 assert(state.counts.errors==before and state.choice.counts.errors==1 and state.choice.lastError:find('^book: ')~=nil)
 assert(ch:decide({id=1},nil)==nil)
-assert(claim(m1,'mage','s1',440)==true)
+assert(claim(m1,'mage','s1',540)==true)
 g.BGSE_Act(m1)
 assert(root.inspect().choice.pending>=1)
 g.listeners.destroyed[1]()
@@ -358,12 +391,11 @@ assert(g2.BGSE_Claim(caster,'mage','s1')==true)
 g2.BGSE_Act(caster)
 assert(caster.aux.EEex_Target.BGSE==11)
 g2.listeners.started[1](caster,action(31,'TESTACID',-1))
-caster.m_curAction=action(31,'TESTACID',11);caster.locals.castspell=190
+caster.m_curAction=action(31,'TESTACID',11)
 g2.ticks=120;assert(g2.BGSE_Claim(caster,'mage','s1')==true)
 caster.m_curAction={m_actionID=0}
 victim.m_timedEffectList={{m_effectId=142,m_sourceRes=str('TESTACDB')}}
-g2.ticks=130;assert(g2.BGSE_Claim(caster,'mage','s1')==false)
-caster.locals.castspell=0
+g2.ticks=130;assert(g2.BGSE_Claim(caster,'mage','s1')==true)
 g2.ticks=165;assert(g2.BGSE_Claim(caster,'mage','s1')==true)
 state=root2.inspect().choice
 assert(state.counts.hits==1 and state.counts.misses==0 and state.remembered==0)
@@ -404,32 +436,32 @@ assert(#held==1 and held[1].owner==1 and root3.inspect().choice.counts.skipped==
 groups=groups+1
 
 -- 12. Labs can trace every decline: each reaches the sink as a 'declined' row with its reason,
--- never the log.
+-- never the log. Here the priest casts what its script started (a block of SCS's above the hook).
 local traced={}
 ch3:setSink(function(row) traced[#traced+1]=row end)
 ch3:setTrace(true)
-q1.locals.castspell=500
+q1.m_curAction=action(31,'SPPR113',31)
 g3.ticks=200
 assert(g3.BGSE_Claim(q1,'priest','s2')==false)
 local t=traced[#traced]
-assert(t.kind=='declined' and t.reason=='timer' and t.member==1 and t.family=='priest' and t.tick==200)
+assert(t.kind=='declined' and t.reason=='casting' and t.member==1 and t.family=='priest' and t.tick==200)
 local logged=false
 for _,row in ipairs(root3.inspect().choice.log) do if row.kind=='declined' then logged=true end end
 assert(not logged and root3.inspect().choice.trace==true)
--- With no option at all, the row counts why: the second priest's only enemy left is held
--- by the first one's reservation.
+-- With no option at all the priest waits, and the wait's row counts why: the second priest's only
+-- enemy left is held by the first one's reservation.
 g3.ticks=202
-assert(g3.BGSE_Claim(q2,'priest','s2')==false)
+assert(g3.BGSE_Claim(q2,'priest','s2')==true)
 t=traced[#traced]
-assert(t.reason=='no-option' and t.member==2 and t.rejected['no-worth']==1)
+assert(t.kind=='wait' and t.reason=='no-option' and t.member==2 and t.rejected['no-worth']==1)
 ch3:setTrace(false)
 local n=#traced
 g3.ticks=201
 assert(g3.BGSE_Claim(q1,'priest','s2')==false and #traced==n)
 groups=groups+1
 
--- 13. A cast queued while the casting aura runs waits for it: the creature holds while the aura
--- runs and pendingTicks after it was last seen busy, then the cast is given up.
+-- 13. A cast queued in the last half second of the casting aura waits for it: the creature holds
+-- while the aura runs and pendingTicks after it was last seen busy, then the cast is given up.
 local g4=world()
 local w=g4.add(sprite(1,0,0,255))
 learn(w,2,'TESTBOLT',3)
@@ -437,7 +469,7 @@ g4.add(sprite(11,100,0,2))
 local dir4=directors.new(g4,{reader=reader})
 local ch4=choices.new(g4,{reader=reader,director=dir4,seed=9})
 local root4=runtime.install(g4,{director=dir4,choice=ch4,version='test'})
-w.castTimer=60
+w.castTimer=95
 g4.ticks=100
 assert(g4.BGSE_Claim(w,'mage','s1')==true)
 g4.BGSE_Act(w)
@@ -463,15 +495,15 @@ local dir5=directors.new(g5,{reader=reader})
 local ch5=choices.new(g5,{reader=reader,director=dir5,seed=5})
 local root5=runtime.install(g5,{director=dir5,choice=ch5,version='test'})
 local function cast5(tick)
-    g5.ticks=tick;z.locals.castspell=0
+    g5.ticks=tick
     assert(g5.BGSE_Claim(z,'mage','s1')==true)
     g5.BGSE_Act(z)
     assert(z.aux.EEex_Target.BGSE==11)
     g5.listeners.started[1](z,action(31,'TESTBOLT',-1))
-    -- From here SCS's round timer runs, so each pass only judges.
-    z.m_curAction=action(31,'TESTBOLT',11);z.locals.castspell=100000
+    z.m_curAction=action(31,'TESTBOLT',11)
 end
-local function pass5(tick) g5.ticks=tick;assert(g5.BGSE_Claim(z,'mage','s1')==false);return root5.inspect().choice end
+-- Each pass judges and decides; what it decides is never queued here.
+local function pass5(tick) g5.ticks=tick;assert(g5.BGSE_Claim(z,'mage','s1')==true);return root5.inspect().choice end
 cast5(100)
 -- The mage stops time; its bolt ends with its next action while 11 is frozen.
 game5.m_nTimeStop,game5.m_nTimeStopCaster=539,1
@@ -530,7 +562,7 @@ local s6=root6.inspect().choice
 assert(s6.counts.marks==2 and s6.counts.markFailures==0 and s6.markError==false)
 g6.splprotError='no binding'
 for _,tick in ipairs({300,500}) do
-    g6.ticks=tick;c6.locals.castspell=0;c6.m_curAction={m_actionID=0}
+    g6.ticks=tick;c6.m_curAction={m_actionID=0}
     assert(g6.BGSE_Claim(c6,'mage','s1')==true)
 end
 s6=root6.inspect().choice
@@ -581,20 +613,22 @@ g7.BGSE_Act(mage)
 assert(g7.queued[#g7.queued].text:find('SpellRES%("TESTSTON",Myself%)')~=nil)
 assert(root7.inspect().choice.counts.defences==1 and root7.inspect().choice.guardError==false)
 g7.listeners.started[1](mage,action(31,'TESTSTON',1))
-mage.m_curAction=action(31,'TESTSTON',1);mage.locals.castspell=190
--- The cast ends; the mage carries its skins.
+mage.m_curAction=action(31,'TESTSTON',1)
+assert(mage.locals.castspell==190)
+-- The cast ends; the mage carries its skins. It has no weapon, so it waits while its casting aura
+-- runs.
 g7.ticks=110
-mage.m_curAction={m_actionID=0}
+mage.m_curAction={m_actionID=0};mage.castTimer=10
 mage.m_timedEffectList={{m_effectId=218,m_durationType=4096,m_duration=110+9000,m_effectAmount=8,m_dWFlags=0,
     m_res=str(''),m_sourceRes=str('TESTSTON')}}
 mage.stats[88]=8
-assert(g7.BGSE_Claim(mage,'mage','s1')==false)
-g7.ticks=141
-assert(g7.BGSE_Claim(mage,'mage','s1')==false)
+assert(g7.BGSE_Claim(mage,'mage','s1')==true and last7('wait',1).reason=='aura')
+g7.ticks=141;mage.castTimer=41
+assert(g7.BGSE_Claim(mage,'mage','s1')==true)
 local s7=root7.inspect().choice
 assert(s7.counts.guarded==1 and s7.counts.unguarded==0 and last7('guard').landed==1 and last7('guard').friends==1)
--- Within the pause, and with the skins up, the mage attacks.
-g7.ticks=200;mage.locals.castspell=0
+-- Within the pause, and with the skins up, the mage attacks once the aura is over.
+g7.ticks=200;mage.castTimer=nil
 assert(g7.BGSE_Claim(mage,'mage','s1')==true)
 d7=last7('choice')
 assert(d7.spell=='TESTBOLT' and d7.castKind=='damage')
@@ -621,17 +655,21 @@ assert(guard.conditions.hold==12 and guard.conditions.hold2==20 and guard.condit
 assert(guard.conditions.feeblemind==math.huge and guard.conditions.sleep==nil)
 mage.m_timedEffectList,mage.m_equipedEffectList=timed,{}
 -- A defence the creature's own script starts begins the pause too: a second mage under one
--- fighter would cast Stoneskin, but its script has just cast it.
+-- fighter would cast Stoneskin, but its script casts it first (a block of SCS's above the hook, in
+-- a pass whose first ask the engine answered). While that cast runs the round is the script's;
+-- once its aura is over the mage attacks.
 local other=g7.add(sprite(2,0,600,255))
 other.stats[2]=8
 learn(other,2,'TESTBOLT',2);learn(other,3,'TESTSTON')
 g7.add(sturdy(armed(sprite(14,40,600,2,{m_curAction=action(3,'',2)}),35,'TESTSWRD')))
-other.locals.castspell=400
 g7.ticks=300
-assert(g7.BGSE_Claim(other,'mage','s1')==false)
+assert(g7.BGSE_Claim(other,'mage','s1')==true and last7('choice',2).spell=='TESTSTON')
 g7.listeners.started[1](other,action(31,'TESTSTON',2))
-other.locals.castspell=0
-g7.ticks=316
+other.m_curAction=action(31,'TESTSTON',2)
+g7.ticks=301
+assert(g7.BGSE_Claim(other,'mage','s1')==false and root7.inspect().choice.reasons.casting==1)
+other.m_curAction={m_actionID=0};other.castTimer=93
+g7.ticks=393
 assert(g7.BGSE_Claim(other,'mage','s1')==true and last7('choice',2).spell=='TESTBOLT')
 -- Labs can weigh no defences (caution 0): the first mage, its skins gone and the pause over,
 -- attacks the swordsmen, now near death; a bad profile change is refused and changes nothing.
@@ -639,7 +677,7 @@ mage.m_timedEffectList={};mage.stats[88]=0
 for _,id in ipairs({11,12}) do g7.objects[id].m_baseStats.m_hitPoints=20 end
 assert(ch7:setMind({caution=-1})==false)
 assert(ch7:setMind({caution=0})==true)
-g7.ticks=400;mage.locals.castspell=0;mage.m_curAction={m_actionID=0}
+g7.ticks=400;mage.m_curAction={m_actionID=0}
 assert(g7.BGSE_Claim(mage,'mage','s1')==true and last7('choice',1).spell=='TESTBOLT')
 local weighed=false
 for _,o in ipairs(last7('choice',1).top) do if o.kind=='defence' then weighed=true;assert(o.score<0) end end
@@ -654,11 +692,9 @@ local third=g7.add(sprite(3,0,1200,255))
 third.stats[2]=8
 learn(third,2,'TESTBOLT',2);learn(third,3,'TESTSTON')
 g7.add(sturdy(armed(sprite(15,40,1200,2,{m_curAction=action(3,'',3)}),35,'TESTSWRD')))
-third.locals.castspell=600
 g7.ticks=500
-assert(g7.BGSE_Claim(third,'mage','s1')==false)
+assert(g7.BGSE_Claim(third,'mage','s1')==true)
 g7.listeners.started[1](third,action(34,'TESTSKIN',3))
-third.locals.castspell=0
 g7.ticks=516
 assert(g7.BGSE_Claim(third,'mage','s1')==true and last7('choice',3).spell=='TESTBOLT')
 -- A mage with no spell for it drinks such a potion itself, and the engine judges the drink by the
@@ -674,15 +710,16 @@ assert(d4.spell=='TESTSKIN' and d4.use==true and d4.castKind=='defence' and d4.m
 g7.BGSE_Act(fourth)
 assert(g7.queued[#g7.queued].text:find('UseItem%("TESTSKIN",Myself%)')~=nil)
 g7.listeners.started[1](fourth,action(34,'TESTSKIN',4))
-fourth.locals.castspell=790
+assert(fourth.locals.castspell==790)
+-- With the skins up and nothing else to do, the mage waits.
 g7.ticks=710
 fourth.m_curAction={m_actionID=0}
 fourth.m_timedEffectList={{m_effectId=218,m_durationType=4096,m_duration=710+4500,m_effectAmount=4,m_dWFlags=0,
     m_res=str(''),m_sourceRes=str('TESTSKIN')}}
 fourth.stats[88]=4
-assert(g7.BGSE_Claim(fourth,'mage','s1')==false)
+assert(g7.BGSE_Claim(fourth,'mage','s1')==true and last7('wait',4).reason=='no-option')
 g7.ticks=741
-assert(g7.BGSE_Claim(fourth,'mage','s1')==false)
+assert(g7.BGSE_Claim(fourth,'mage','s1')==true)
 assert(last7('guard',4).spell=='TESTSKIN' and last7('guard',4).landed==1)
 groups=groups+1
 
@@ -704,7 +741,7 @@ ch8:setSink(function(row) rows8[#rows8+1]=row end)
 runtime.install(g8,{director=dir8,choice=ch8,version='test'})
 local function last8(kind) for n=#rows8,1,-1 do if rows8[n].kind==kind then return rows8[n] end end end
 local function turn8(tick,resref)
-    g8.ticks=tick;caster.locals.castspell=0;caster.m_curAction={m_actionID=0}
+    g8.ticks=tick;caster.m_curAction={m_actionID=0}
     assert(g8.BGSE_Claim(caster,'mage','s1')==true)
     local c8=last8('choice')
     assert(c8.spell==resref,tostring(c8.spell))
@@ -736,11 +773,11 @@ assert(ch8:inspect().counts.openers==2)
 groups=groups+1
 
 -- 18. Touch charges (D2c). A priest with Harm casts it on itself, aimed at the enemy it will
--- strike; with the hand in its magic weapon slot it strikes that enemy at once (SCS's round timer,
--- then AttackOneRound at EEex_Target) and is held while it swings; once the hand is gone the
--- strike is judged by the hit points the enemy lost. A swing that missed is followed by another;
--- a charge spent on an enemy left untouched is a miss of the touch spell there. A hand from a
--- spell the priest has not memorized is read from the item.
+-- strike; with the hand in its magic weapon slot it strikes that enemy at once (AttackOneRound at
+-- EEex_Target) and is held while it swings; once the hand is gone the strike is judged by the hit
+-- points the enemy lost. A swing that missed is followed by another; a charge spent on an enemy
+-- left untouched is a miss of the touch spell there. A hand from a spell the priest has not
+-- memorized is read from the item.
 records.TESTHRMD=spl('TESTHRMD',6,{fx(208,{p1=1,duration=1}),fx(12,{p1=90,p2=64*65536,timing=1})},1,1)
 records.TESTHARM=spl('TESTHARM',6,{fx(111,{target=1,p1=1,res='TESTHRM',duration=60})},5,1)
 ITEMS.TESTHRM=weapon('TESTHRM',{itemType=28},{dice=0,sides=0,thac0=4,
@@ -767,27 +804,27 @@ assert(c9.spell=='TESTHARM' and c9.castKind=='touch' and c9.mode=='self' and c9.
 g9.BGSE_Act(healer)
 assert(g9.queued[#g9.queued].text:find('SpellRES%("TESTHARM",Myself%)')~=nil and ch9:inspect().counts.touches==1)
 g9.listeners.started[1](healer,action(31,'TESTHARM',1))
-healer.m_curAction=action(31,'TESTHARM',1);healer.locals.castspell=190;healer.book[5][1].m_flags=0
+healer.m_curAction=action(31,'TESTHARM',1);healer.book[5][1].m_flags=0
 -- The hand is in the magic weapon slot: the priest strikes.
-g9.ticks=200;healer.locals.castspell=0;healer.m_curAction={m_actionID=0}
+g9.ticks=200;healer.m_curAction={m_actionID=0}
 healer.items[34]={cResRef=str('TESTHRM')}
 assert(g9.BGSE_Claim(healer,'priest','s2')==true)
 c9=last9('choice')
 assert(c9.spell=='TESTHRM' and c9.castKind=='strike' and c9.how=='strike' and c9.target==11)
 g9.BGSE_Act(healer)
-assert(g9.queued[#g9.queued].text=='SetGlobalTimer("castspell","LOCALS",ONE_ROUND)\nAttackOneRound(EEex_Target("BGSE"))')
+assert(g9.queued[#g9.queued].text=='AttackOneRound(EEex_Target("BGSE"))' and healer.locals.castspell==290)
 assert(healer.aux.EEex_Target.BGSE==11 and last9('swing').target==11 and ch9:inspect().counts.strikes==1)
--- Held while it swings and SCS's timer runs: SCS's own touch block does not take the charge
--- elsewhere.
+-- Held while it swings: SCS's own touch block does not take the charge elsewhere.
 g9.listeners.started[1](healer,action(105,'',11))
-healer.m_curAction=action(105,'',11);healer.locals.castspell=290
+healer.m_curAction=action(105,'',11)
 g9.ticks=230
 assert(g9.BGSE_Claim(healer,'priest','s2')==true and ch9:inspect().counts.holds==1)
--- The hand is gone and the enemy down to one hit point: the strike landed. Nothing else is ready.
-healer.items[34]=nil;healer.m_curAction={m_actionID=0};healer.locals.castspell=0
+-- The hand is gone and the enemy down to one hit point: the strike landed. Nothing else is ready,
+-- so the priest waits.
+healer.items[34]=nil;healer.m_curAction={m_actionID=0}
 g9.objects[11].m_baseStats.m_hitPoints=1
 g9.ticks=300
-assert(g9.BGSE_Claim(healer,'priest','s2')==false)
+assert(g9.BGSE_Claim(healer,'priest','s2')==true and last9('wait',1).reason=='no-option')
 assert(last9('strike').hit==true and last9('strike').item=='TESTHRM' and last9('strike').spell=='TESTHARM')
 assert(ch9:inspect().counts.strikeHits==1 and ch9:inspect().remembered==0)
 -- A second priest whose script cast its Harm.
@@ -800,7 +837,7 @@ g9.ticks=400
 assert(g9.BGSE_Claim(other9,'priest','s2')==true and last9('choice',2).castKind=='strike' and last9('choice',2).target==12)
 g9.BGSE_Act(other9)
 other9.m_curAction=action(105,'',12)
--- The swing is over, SCS's timer too, and the hand is still there: it swings again.
+-- The swing and its round are over, and the hand is still there: it swings again.
 g9.ticks=500;other9.m_curAction={m_actionID=0}
 assert(g9.BGSE_Claim(other9,'priest','s2')==true and last9('choice',2).castKind=='strike')
 g9.BGSE_Act(other9)
@@ -808,7 +845,7 @@ assert(ch9:inspect().counts.strikes==3)
 -- The hand is gone and the enemy untouched: a miss of Harm on it.
 other9.items[34]=nil
 g9.ticks=520
-assert(g9.BGSE_Claim(other9,'priest','s2')==false)
+assert(g9.BGSE_Claim(other9,'priest','s2')==true and last9('wait',2).reason=='no-option')
 assert(last9('strike',2).hit==false and last9('strike',2).spell=='TESTHARM' and ch9:inspect().counts.strikeMisses==1)
 assert(ch9:inspect().remembered==1)
 -- A third priest holds a hand from a spell it has not memorized (a scroll, a forced cast).
@@ -823,9 +860,8 @@ assert(last9('swing',3).item=='TESTHRM' and ch9:inspect().counts.strikes==4)
 groups=groups+1
 
 -- 19. Weapon attacks (D2c). A mage with nothing ready attacks with the staff in its hand (THAC0
--- 14 less the staff's 1), AttackOneRound at EEex_Target after SCS's round timer, and is held while
--- it attacks; once that is over, the hit points its target lost are recorded. A target that died
--- releases it. A mage with Melf's Minute Meteors casts them on itself, then throws them: five
+-- 14 less the staff's 1), AttackOneRound at EEex_Target, and is held while it attacks; once that is
+-- over, the hit points its target lost are recorded. A target that died releases it. A mage with Melf's Minute Meteors casts them on itself, then throws them: five
 -- attacks a round, each with its fire; no second casting while the meteors are in its hand. A
 -- sling without bullets is no weapon. A summoned enemy is sent away by the engine's own removal
 -- (D3d).
@@ -856,25 +892,26 @@ assert(c10.castKind=='weapon' and c10.how=='weapon' and c10.spell=='TESTSTAF' an
 -- The director's focus is that enemy: its worth counts half again.
 assert(c10.focus==11 and math.abs(c10.worth-1.5*0.65*3.5/40)<1e-9)
 g10.BGSE_Act(fighter)
-assert(g10.queued[#g10.queued].text=='SetGlobalTimer("castspell","LOCALS",ONE_ROUND)\nAttackOneRound(EEex_Target("BGSE"))')
+assert(g10.queued[#g10.queued].text=='AttackOneRound(EEex_Target("BGSE"))')
 assert(fighter.aux.EEex_Target.BGSE==11 and last10('swing').weapon==true and ch10:inspect().counts.attacks==1)
 -- Held while it attacks.
-fighter.m_curAction=action(105,'',11);fighter.locals.castspell=190
+fighter.m_curAction=action(105,'',11)
 g10.ticks=130
 assert(g10.BGSE_Claim(fighter,'mage','s1')==true and ch10:inspect().counts.holds==1)
--- The attack and SCS's timer are over; the enemy lost 4 hit points. It attacks again.
-fighter.m_curAction={m_actionID=0};fighter.locals.castspell=0
+-- The attack and its round are over; the enemy lost 4 hit points. It attacks again.
+fighter.m_curAction={m_actionID=0}
 foe.m_baseStats.m_hitPoints=36
 g10.ticks=200
 assert(g10.BGSE_Claim(fighter,'mage','s1')==true)
 assert(last10('attack').hit==true and last10('attack').lost==4 and ch10:inspect().counts.attackHits==1)
 assert(last10('choice').castKind=='weapon')
 g10.BGSE_Act(fighter)
--- The enemy dies while SCS's timer still runs: the mage is released and the attack recorded.
-fighter.m_curAction={m_actionID=0};fighter.locals.castspell=400
+-- The enemy dies within the round: the mage is released and the attack recorded. With no enemy
+-- left in sight, the mage's script has the round.
+fighter.m_curAction={m_actionID=0}
 foe.m_baseStats.m_hitPoints=0;foe.state=0x800
 g10.ticks=260
-assert(g10.BGSE_Claim(fighter,'mage','s1')==false)
+assert(g10.BGSE_Claim(fighter,'mage','s1')==false and ch10:inspect().reasons['no-enemy']==1)
 assert(last10('attack').hit==true and last10('attack').lost==36 and ch10:inspect().counts.attackHits==2)
 -- A mage with the meteors ready, a staff in hand, and an enemy 300 away.
 local thrower=g10.add(armed(sprite(2,0,600,255),35,'TESTSTAF'))
@@ -888,9 +925,9 @@ assert(c10.castKind=='arm' and c10.spell=='TESTMMM' and c10.mode=='self' and c10
 g10.BGSE_Act(thrower)
 assert(g10.queued[#g10.queued].text:find('SpellRES%("TESTMMM",Myself%)')~=nil and ch10:inspect().counts.arms==1)
 g10.listeners.started[1](thrower,action(31,'TESTMMM',2))
-thrower.m_curAction=action(31,'TESTMMM',2);thrower.locals.castspell=390;thrower.book[2][1].m_flags=0
+thrower.m_curAction=action(31,'TESTMMM',2);thrower.book[2][1].m_flags=0
 -- The meteors are in its hand: it throws them, five a round, at the enemy.
-g10.ticks=400;thrower.locals.castspell=0;thrower.m_curAction={m_actionID=0}
+g10.ticks=400;thrower.m_curAction={m_actionID=0}
 thrower.items[34]={cResRef=str('TESTMET')};thrower.m_equipment.m_selectedWeapon=34;thrower.stats[8]=5
 assert(g10.BGSE_Claim(thrower,'mage','s1')==true)
 c10=last10('choice',2)
@@ -898,11 +935,11 @@ assert(c10.castKind=='weapon' and c10.spell=='TESTMET' and c10.target==12)
 -- Five throws at THAC0 12 (14 less the meteors' 2) against armour class 5 hit 3.5 times; each
 -- deals 2.5 and 2.5 fire, 17.5 of 40 hit points.
 assert(math.abs(c10.worth-(c10.focus==12 and 1.5 or 1)*17.5/40)<1e-9)
--- A sling without bullets is no weapon: with nothing else, the round goes to SCS.
+-- A sling without bullets is no weapon: with nothing else, the mage waits.
 local slinger=g10.add(armed(sprite(3,0,1200,255),35,'TESTSLNG'))
 g10.add(sprite(13,60,1200,2))
 g10.ticks=500
-assert(g10.BGSE_Claim(slinger,'mage','s1')==false and last10('choice',3)==nil)
+assert(g10.BGSE_Claim(slinger,'mage','s1')==true and last10('choice',3)==nil and last10('wait',3).reason=='no-option')
 -- A mage with a spell that sends summoned creatures away, a staff in hand and a summoned enemy:
 -- the engine casts it at that enemy, worth a kill.
 records.TESTUNSU=spl('TESTUNSU',5,{fx(68)},1,2)
@@ -939,7 +976,7 @@ local c
 for n=#rows,1,-1 do if rows[n].kind=='choice' then c=rows[n];break end end
 assert(c.castKind=='weapon' and c.target==11 and math.abs(c.walk-3.36)<1e-9)
 g.BGSE_Act(chaser)
-assert(g.queued[#g.queued].text=='SetGlobalTimer("castspell","LOCALS",ONE_ROUND)\nAttackOneRound(EEex_Target("BGSE"))')
+assert(g.queued[#g.queued].text=='AttackOneRound(EEex_Target("BGSE"))')
 end)()
 groups=groups+1
 
@@ -969,20 +1006,19 @@ assert(g11.BGSE_Claim(sequencer,'mage','s1')==true)
 local c11=last11('choice')
 assert(c11.spell=='TESTSEQ' and c11.release==true and c11.target==11 and ch11:inspect().counts.releases==1)
 g11.BGSE_Act(sequencer)
-assert(g11.queued[#g11.queued].text=='SetGlobalTimer("castspell","LOCALS",ONE_ROUND)\nForceSpellRES("TESTSEQ",EEex_Target("BGSE"))')
+assert(g11.queued[#g11.queued].text=='ForceSpellRES("TESTSEQ",EEex_Target("BGSE"))')
 g11.listeners.started[1](sequencer,action(113,'TESTSEQ',11))
 assert(ch11:inspect().counts.started==1 and last11('start').spell=='TESTSEQ')
-assert(choices.response({resref='TESTSEQ',kind='defence',self=true,release=true})==
-    'SetGlobalTimer("castspell","LOCALS",ONE_ROUND)\nForceSpellRES("TESTSEQ",Myself)')
+assert(choices.response({resref='TESTSEQ',kind='defence',self=true,release=true})=='ForceSpellRES("TESTSEQ",Myself)')
 assert(choices.response({resref='TESTSEQ',kind='damage',point={x=5,y=6},release=true})==
-    'SetGlobalTimer("castspell","LOCALS",ONE_ROUND)\nForceSpellPointRES("TESTSEQ",[5.6])')
--- Under Improved Alacrity: no release.
+    'ForceSpellPointRES("TESTSEQ",[5.6])')
+-- Under Improved Alacrity: no release; with nothing else, the mage waits.
 local second=g11.add(sprite(2,0,600,255))
 second.stats[2],second.stats[165]=8,1
 gift(second,'TESTSEQ')
 g11.add(sprite(12,200,600,2)).stats[2]=5
 g11.ticks=200
-assert(g11.BGSE_Claim(second,'mage','s1')==false and ch11:inspect().counts.releases==1)
+assert(g11.BGSE_Claim(second,'mage','s1')==true and ch11:inspect().counts.releases==1 and last11('wait').reason=='no-option')
 groups=groups+1
 
 -- 21. Summons (D3c). A mage with a spell that brings two of TESTMON (a creature file with a claw
@@ -1029,7 +1065,7 @@ assert(c12.count==2 and c12.creatures[1]=='TESTMON' and ch12:inspect().counts.su
 -- The log shows the seconds of the fight it reckoned with.
 assert(type(c12.rest)=='number' and c12.rest>0)
 g12.BGSE_Act(conjurer)
-assert(g12.queued[#g12.queued].text=='SetGlobalTimer("castspell","LOCALS",ONE_ROUND)\nSpellPointRES("TESTHORD",[200.0])')
+assert(g12.queued[#g12.queued].text=='SpellPointRES("TESTHORD",[200.0])')
 g12.listeners.started[1](conjurer,action(95,'TESTHORD',-1))
 -- The cast is over: two TESTMON stand at the enemy, a female one and one of neither gender, and a
 -- summoned ally of another file beside them.
@@ -1040,17 +1076,17 @@ for n=1,2 do
 end
 g12.add(sprite(23,180,40,255)).m_typeAI.m_Gender=6
 g12.ticks=130
-assert(g12.BGSE_Claim(conjurer,'mage','s1')==false and ch12:inspect().judging==1)
+assert(g12.BGSE_Claim(conjurer,'mage','s1')==true and ch12:inspect().judging==1)
 g12.ticks=165
 g12.BGSE_Claim(conjurer,'mage','s1')
 local j12=last12('conjure')
 assert(j12 and j12.joined==2 and j12.expected==2 and ch12:inspect().counts.conjured==1)
--- No creature file: no summons.
+-- No creature file: no summons; the mage waits.
 local voidCaster=g12.add(sprite(2,0,1200,255))
 learn(voidCaster,2,'TESTVOID')
 g12.add(sprite(12,200,1200,2))
 g12.ticks=200
-assert(g12.BGSE_Claim(voidCaster,'mage','s1')==false and ch12:inspect().counts.summons==1)
+assert(g12.BGSE_Claim(voidCaster,'mage','s1')==true and ch12:inspect().counts.summons==1 and last12('wait').member==2)
 -- From a monster table: a new summoned ally counts, a new ally of another gender does not.
 records.TESTTABL=spl('TESTTABL',3,{fx(127,{target=1,p1=2,res='TESTMONS',duration=180})},4,1)
 local tabler=g12.add(sprite(3,0,2400,255))
@@ -1105,7 +1141,7 @@ local c13=last13('choice')
 assert(c13.castKind=='removal' and c13.spell=='TESTBRCH' and c13.mode=='creature' and c13.target==11)
 assert(ch13:inspect().counts.removals==1 and ch13:inspect().counts.wardFailures==0)
 g13.BGSE_Act(breacher)
-assert(g13.queued[#g13.queued].text=='SetGlobalTimer("castspell","LOCALS",ONE_ROUND)\nSpellRES("TESTBRCH",EEex_Target("BGSE"))')
+assert(g13.queued[#g13.queued].text=='SpellRES("TESTBRCH",EEex_Target("BGSE"))')
 g13.listeners.started[1](breacher,action(31,'TESTBRCH',11))
 -- The cast is over and the protection is gone.
 breacher.m_curAction={m_actionID=0};breacher.book[4][1].m_flags=0
@@ -1128,7 +1164,7 @@ groups=groups+1
 -- mage with a Fire Bolt: the engine reads the zone (sense.zones) and its PRO file through the
 -- ability's projectile field (one more than the engine's number), leads the mage out with
 -- MoveToPoint to the nearest open spot where it fits (its personal space), holds it while it
--- walks, judges that it got out and casts from there. While SCS's round timer runs it
+-- walks, judges that it got out and casts from there. While it waits for its casting aura it
 -- still leads a mage out of the cloud. BGSE_Zones is true while the engine weighs zones for the
 -- mage: not while it casts in a zone the engine did not know when it chose the cast, nor for a
 -- creature off the engine's side, nor with the choice off; a read that fails as a whole hands the
@@ -1226,7 +1262,7 @@ assert(e14 and e14.out==true and ch14:inspect().counts.escaped==1 and ch14:inspe
 -- Out of the cloud the bolt finishes for sure; the record names no zone around the mage.
 assert(last14('choice').spell=='TESTBOLT' and last14('choice').finish==1 and last14('choice').inZones==nil)
 g14.BGSE_Act(caster14)
-assert(g14.queued[#g14.queued].text=='SetGlobalTimer("castspell","LOCALS",ONE_ROUND)\nSpellRES("TESTBOLT",EEex_Target("BGSE"))')
+assert(g14.queued[#g14.queued].text=='SpellRES("TESTBOLT",EEex_Target("BGSE"))')
 -- The engine's cast waits to start: the cloud it knew when it chose the cast keeps SCS's escape
 -- aside even with the mage back in it; a new cloud that hurts it lets SCS's escape run.
 local outside14=caster14.m_pos
@@ -1244,17 +1280,23 @@ g14.objects[901]=nil;AREA14.m_lVertSortFlight={900}
 caster14.m_pos=outside14
 g14.ticks=143
 g14.listeners.started[1](caster14,action(31,'TESTBOLT',11))
-caster14.m_curAction={m_actionID=0}
--- SCS's round timer runs and the mage stands in the cloud again: it walks out all the same.
-caster14.locals.castspell=400;caster14.m_pos={x=510,y=500}
-g14.ticks=200
+caster14.m_curAction=action(31,'TESTBOLT',11)
+-- The bolt is over; the mage has no weapon and waits for its casting aura.
+g14.ticks=175
+caster14.m_curAction={m_actionID=0};caster14.castTimer=32
+assert(g14.BGSE_Claim(caster14,'mage','s1')==true and last14('wait').tick==175 and ch14:inspect().waiting==1)
+-- Waiting, the mage stands in the cloud again: it walks out all the same.
+caster14.m_pos={x=510,y=500};caster14.castTimer=42
+g14.ticks=185
 assert(g14.BGSE_Claim(caster14,'mage','s1')==true)
 local f14=last14('choice')
-assert(f14.castKind=='escape' and f14.how=='flee' and ch14:inspect().counts.escapes==2)
+assert(f14.tick==185 and f14.castKind=='escape' and f14.how=='flee' and ch14:inspect().counts.escapes==2)
+assert(ch14:inspect().waiting==0)
 g14.BGSE_Act(caster14)
 assert(g14.queued[#g14.queued].text:find('^MoveToPoint') and ch14:inspect().moving==1)
--- Casting while the timer runs: the engine has no way out now, and SCS's escape keeps its say
--- (a cast the engine did not choose, in a cloud that hurts).
+caster14.castTimer=nil
+-- Casting what the engine did not choose (a block of SCS's above the hook): the engine has no way
+-- out now, and SCS's escape keeps its say (in a cloud that hurts).
 caster14.m_curAction=action(31,'TESTBOLT',11)
 g14.ticks=280
 assert(g14.BGSE_Claim(caster14,'mage','s1')==false and ch14:inspect().counts.escapes==2)
@@ -1270,11 +1312,10 @@ ch14:setEnabled(false)
 assert(g14.BGSE_Zones(caster14,'mage','s1')==false)
 ch14:setEnabled(true)
 assert(g14.BGSE_Zones(caster14,'mage','s1')==true)
--- No enemy in sight (the cloud's caster has walked out of sight), SCS's round timer run out: the
--- mage still walks out of the cloud. SCS's escape and stand-still stand aside for that way out
--- (lab batch H7); outside the cloud, with no enemy in sight, they run as before.
+-- No enemy in sight (the cloud's caster has walked out of sight): the mage still walks out of the
+-- cloud. SCS's escape and stand-still stand aside for that way out (lab batch H7); outside the
+-- cloud, with no enemy in sight, they run as before.
 g14.objects[11].m_pos={x=500,y=1500}
-caster14.locals.castspell=0
 g14.ticks=290
 assert(g14.BGSE_Zones(caster14,'mage','s1')==true)
 local inside14=caster14.m_pos
@@ -1359,7 +1400,8 @@ groups=groups+1
 -- waited for the aura; the engine left the round to SCS for SCS's timer, and SCS's attack block
 -- replaced the drink). It is held while the aura runs, and for the casting time and pendingTicks
 -- after; a creature frozen in a Time Stop is held until time resumes, and from then on as long
--- again. Past that, or once its action is another, SCS has the round.
+-- again. Past that, or once its action is another, the engine decides again; a cast still running
+-- then is the creature's to finish.
 ;(function()
 local g16=world()
 local m16=g16.add(sprite(1,0,0,255,{m_baseStats={m_hitPoints=15,m_generalState=0}}))
@@ -1379,9 +1421,10 @@ local function claim16(s,tick) g16.ticks=tick;return g16.BGSE_Claim(s,'mage','s1
 assert(claim16(m16,100)==true and last16('choice',1).use==true and last16('choice',1).spell=='TESTPOTN')
 g16.BGSE_Act(m16)
 assert(g16.queued[#g16.queued].text:find('UseItem%("TESTPOTN",Myself%)')~=nil)
--- The drink is the mage's action at once and waits for the casting aura of its last cast; SCS's
--- round timer runs.
-m16.castTimer=60;m16.locals.castspell=190
+-- The drink is the mage's action at once and waits for the casting aura of its last cast. The
+-- round's marker covers it.
+assert(m16.locals.castspell==190)
+m16.castTimer=60
 local drink=action(34,'TESTPOTN',1)
 m16.m_curAction=drink
 g16.listeners.started[1](m16,drink)
@@ -1390,34 +1433,36 @@ assert(claim16(m16,110)==true and claim16(m16,140)==true and ch16:inspect().coun
 -- The aura was last seen busy at 140 and a drink has no casting time: held pendingTicks more.
 m16.castTimer=nil
 assert(claim16(m16,185)==true and ch16:inspect().counts.holds==3)
-assert(claim16(m16,186)==false and ch16:inspect().reasons.timer==1 and ch16:inspect().running==1)
+assert(claim16(m16,186)==true and ch16:inspect().counts.holds==3 and ch16:inspect().running==1 and
+    last16('choice',1).tick==186)
 -- Its action is another: no hold, and the drink is judged.
 m16.m_curAction=action(3,'',11)
-assert(claim16(m16,187)==false and ch16:inspect().running==0 and ch16:inspect().judging==1 and ch16:inspect().reasons.timer==2)
+assert(claim16(m16,187)==true and ch16:inspect().running==0 and ch16:inspect().judging==1)
 -- The second mage drinks; the enemy stops time, and the drink becomes the frozen mage's action.
 assert(claim16(m17,300)==true and last16('choice',2).use==true)
 g16.BGSE_Act(m17)
 local game16=g16.EngineGlobals.g_pBaldurChitin.m_pObjectGame
 game16.m_nTimeStop,game16.m_nTimeStopCaster=300,11
 local drink17=action(34,'TESTPOTN',2)
-m17.m_curAction=drink17;m17.locals.castspell=700
+m17.m_curAction=drink17
 g16.listeners.started[1](m17,drink17)
-assert(claim16(m17,320)==true and claim16(m17,600)==true and ch16:inspect().counts.holds==5)
+local holds=ch16:inspect().counts.holds
+assert(claim16(m17,320)==true and claim16(m17,600)==true and ch16:inspect().counts.holds==holds+2)
 -- Time resumes at 610: held pendingTicks from there.
 game16.m_nTimeStop,game16.m_nTimeStopCaster=0,0
-assert(claim16(m17,610)==true and claim16(m17,655)==true and ch16:inspect().counts.holds==7)
-assert(claim16(m17,656)==false and ch16:inspect().reasons.timer==3)
+assert(claim16(m17,610)==true and claim16(m17,655)==true and ch16:inspect().counts.holds==holds+4)
+assert(claim16(m17,656)==true and ch16:inspect().counts.holds==holds+4 and last16('choice',2).tick==656)
 -- A cast is held for its casting time as well: the bolt's three tenths of a round, then
--- pendingTicks.
+-- pendingTicks. A cast still running past that is the mage's to finish.
 local m18=g16.add(sprite(3,0,-200,255))
 learn(m18,2,'TESTBOLT')
 assert(claim16(m18,700)==true and last16('choice',3).spell=='TESTBOLT')
 g16.BGSE_Act(m18)
 local bolt18=action(31,'TESTBOLT',11)
-m18.m_curAction=bolt18;m18.locals.castspell=900
+m18.m_curAction=bolt18
 g16.listeners.started[1](m18,bolt18)
-assert(claim16(m18,772)==true and ch16:inspect().counts.holds==8)
-assert(claim16(m18,773)==false and ch16:inspect().reasons.timer==4)
+assert(claim16(m18,772)==true and ch16:inspect().counts.holds==holds+5)
+assert(claim16(m18,773)==false and ch16:inspect().reasons.casting==1)
 end)()
 groups=groups+1
 
@@ -1685,7 +1730,7 @@ assert(c.tick==180 and (c.castKind=='escape')==p.leaves)
 local pains=counts().pains
 -- The clever mage walks out of the cloud, also tired after a rage. Raging, it stays while it has
 -- more than half its hit points: no way out, and SCS's cloud blocks stand aside (its bolt would
--- break in the cloud, so SCS has the round); at half it walks out.
+-- break in the cloud, so it waits); at half it walks out.
 states[2]=75
 assert(claim29(clever,200)==true)
 w=last29('wit',2)
@@ -1694,7 +1739,7 @@ c=last29('choice',2)
 assert(c.castKind=='escape' and c.forced==nil and c.wit=='clever')
 states[2]=77
 local escapes=counts().escapes
-claim29(clever,210)
+assert(claim29(clever,210)==true and last29('wait',2).tick==210)
 assert(counts().escapes==escapes and last29('choice',2).tick==200 and g29.BGSE_Zones(clever,'mage','s1')==true)
 clever.m_baseStats.m_hitPoints=30
 assert(claim29(clever,220)==true and last29('choice',2).tick==220 and last29('choice',2).castKind=='escape')

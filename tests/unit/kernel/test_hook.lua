@@ -114,13 +114,22 @@ assert(g:claim(actor,'mage')==true and g:act(actor)==false and g:inspect().count
 g:setPerformer(nil)
 assert(g:claim(actor,'mage')==true and g:act(actor)==false)
 
--- 8. A held round is claimed but nothing is performed.
-local calls=0
-g=hook.new({now=clock,decide=function() return {hold=true} end,perform=function() calls=calls+1;return true end})
+-- 8. A held round is claimed but nothing is performed. config.held hears of it, with copies; its
+-- errors change nothing.
+local calls,heard=0,{}
+g=hook.new({now=clock,decide=function() return {hold=true,own=true} end,perform=function() calls=calls+1;return true end,
+    held=function(a,d) heard[#heard+1]={id=a.id,own=d.own};a.id=99 end})
 pass()
 assert(g:claim(actor,'priest')==true)
 ok,why=g:act(actor);assert(ok==true and why=='held' and calls==0)
 assert(g:inspect().counts.held==1 and g:inspect().counts.acted==0)
+assert(#heard==1 and heard[1].id==7 and heard[1].own==true and actor.id==7)
+g=hook.new({now=clock,decide=function() return {hold=true} end,held=function() error('boom') end})
+pass()
+assert(g:claim(actor,'priest')==true)
+ok,why=g:act(actor);assert(ok==true and why=='held')
+assert(g:inspect().counts.heldErrors==1 and g:inspect().counts.errors==0)
+rejects(function() hook.new({now=clock,held=1}) end)
 
 -- 9. A stale claim is not performed: too old, or from before the tick count restarted.
 g=hook.new({now=clock,maxDecisionAgeTicks=5,decide=function() return {response='NoAction()'} end,

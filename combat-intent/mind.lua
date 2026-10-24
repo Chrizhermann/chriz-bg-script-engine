@@ -21,8 +21,8 @@ M.default={
     -- resistances, saves, level, spell protections). Knowledge a creature could not have
     -- goes in a later step.
     knowledge='scs',
-    -- An attack must be worth at least this much (about a share of one enemy taken out of
-    -- the fight), or SCS keeps the round.
+    -- A spell must be worth at least this much (about a share of one enemy taken out of the
+    -- fight) to be taken over a weapon attack; below it, only when no attack is worth anything.
     minValue=0.2,
     -- Extra weight of damage on the group's focus, times coordination.
     focusBonus=0.5,
@@ -61,6 +61,10 @@ M.default={
     -- MoveToObject blocks), the walk lowering what the attack is worth (combat-intent/weapons.lua):
     -- fighters and monsters (M.FAMILIES). A caster goes no further than touchReach.
     chase=false,
+    -- It attacks whenever nothing else is worth more, whatever standing next to the enemy costs;
+    -- that cost only chooses between targets (Christopher, 2026-10-25): fighters and monsters
+    -- (M.FAMILIES). Casters weigh it.
+    alwaysAttack=false,
     -- Summons (D3c): no more summoning once this many summoned allies are in view (the game's own
     -- limit for summoned creatures is five).
     summonCap=5,
@@ -96,6 +100,7 @@ local CHECKS={coordination=share,best=share,band=share,economy=amount,minValue=a
     weapons=function(v) return type(v)=='boolean' end,
     ownWeapon=function(v) return type(v)=='boolean' end,
     chase=function(v) return type(v)=='boolean' end,
+    alwaysAttack=function(v) return type(v)=='boolean' end,
     memory=function(v) return type(v)=='boolean' end,
     knowledge=function(v) return v=='scs' end,
     clouds=function(v) return v=='learned' or v=='best' or v=='once' end,
@@ -121,9 +126,10 @@ function M.new(changes)
     return mind
 end
 
--- What a family's script changes in the profile: fighters and monsters fight with their weapons
--- and walk to the enemies they attack.
-M.FAMILIES={fighter={ownWeapon=true,chase=true},monster={ownWeapon=true,chase=true}}
+-- What a family's script changes in the profile: fighters and monsters fight with their weapons,
+-- walk to the enemies they attack and always attack when nothing else is worth more.
+M.FAMILIES={fighter={ownWeapon=true,chase=true,alwaysAttack=true},
+    monster={ownWeapon=true,chase=true,alwaysAttack=true}}
 -- The profile base as a creature of the family ('mage', 'priest', 'fighter' or 'monster') thinks.
 function M.forFamily(base,family)
     local changes=M.FAMILIES[family]

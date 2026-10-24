@@ -12,7 +12,7 @@
 -- started-action events; it acts only while the gate is on for the creature's family.
 -- options.choice (adapters/eeex/choice.lua) is the engine's own choice; options.prepare runs
 -- right before a decision's response is queued and may skip it ('skipped'): a target gone by
--- then is no error.
+-- then is no error. options.held(object, decision) runs when the hook's response holds instead.
 local hook=require('kernel.hook')
 local M={}
 M.keys={mage='Mages',priest='Priests',fighter='Fighters',monster='Monsters'}
@@ -79,7 +79,7 @@ function M.install(g,options)
     options=options or {}
     local settings=M.settings(g)
     local clock=options.now or function() return M.gameTime(g) end
-    local director,choice,prepare=options.director,options.choice,options.prepare
+    local director,choice,prepare,held=options.director,options.choice,options.prepare,options.held
     local gate=hook.new({
         now=clock,
         observe=director and function(view,family) director:observe(view,family) end,
@@ -101,6 +101,10 @@ function M.install(g,options)
             end
             g.EEex_Action_QueueResponseStringOnAIBase(decision.response,object)
             return true
+        end,
+        held=held and function(a,decision)
+            local object=sprite(g,a.id)
+            if object then held(object,decision) end
         end,
     })
     local previous=rawget(g,'BGSE')

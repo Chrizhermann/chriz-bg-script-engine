@@ -157,9 +157,9 @@ i.frame.self.alacrity=nil
 groups=groups+1
 
 -- 4. Against spells: a weapon attack needs no minimum worth. With nothing ready, or nothing worth
--- minValue, the caster attacks instead of leaving the round to SCS; a spell worth more is cast;
--- a weapon attack worth more than the best spell is taken (magic resistance halves the bolt,
--- not the mace). Switched off, the round goes back to SCS.
+-- minValue, the caster attacks; a spell worth more is cast; a weapon attack worth more than the
+-- best spell is taken (magic resistance halves the bolt, not the mace). Switched off, the caster
+-- casts the dart that is worth something below the minimum, and with nothing ready it waits.
 local d,why=choice.decide(i)
 assert(why=='weapon' and d.kind=='weapon' and d.target==11)
 i.spells={row('TESTDART',dart,1)}
@@ -184,9 +184,11 @@ d,why=choice.decide(i)
 assert(why=='weapon' and d.kind=='weapon')
 i.mind=mind.new({weapons=false})
 i.spells={row('TESTDART',dart,1)}
-assert(select(2,choice.decide(i))=='nothing-good')
+d,why=choice.decide(i)
+assert(why=='weak' and d.resref=='TESTDART')
 i.spells={}
-assert(select(2,choice.decide(i))=='no-option')
+d,why=choice.decide(i)
+assert(why=='no-option' and d.kind=='wait')
 groups=groups+1
 
 -- 5. A spell that conjures a weapon: cast on the caster, worth the hits of the rounds it lasts
@@ -277,6 +279,55 @@ i.frame.enemies={enemy(11,{x=164}),enemy(12,{x=200})}
 rejected={}
 list=choice.weaponOptions(i,rejected)
 assert(#list==1 and list[1].target==11 and rejected['out-of-reach']==1)
+groups=groups+1
+
+-- 9. The round (Christopher, 2026-10-25: the engine owns it all). While the casting aura runs,
+-- casts wait for it. An attack now (a round) holds the best cast back by the part of a round the
+-- aura leaves of it: with four seconds of aura left, the mace, worth less than a third of the bolt,
+-- waits until half a second before the aura frees; with a whole round of aura left it holds nothing
+-- back and is made. Half a second or less before the aura frees, the cast is chosen (it starts when
+-- the aura frees). With nothing to cast the attack is made whatever the aura.
+i=input({spells={row('TESTBOLT',bolt,3)}})
+i.frame.self.weapon=MACE
+i.frame.enemies={enemy(11,{x=200})}
+local cast=choice.decide(i)
+local swing=choice.weaponOptions(i)[1]
+assert(cast.resref=='TESTBOLT' and swing.score>0 and swing.score<cast.score*2/6)
+i.frame.self.aura=4
+d,why=choice.decide(i)
+assert(why=='aura' and d.kind=='wait' and near(d.seconds,3.5) and d.score==0)
+i.frame.self.aura=6
+d,why=choice.decide(i)
+assert(why=='weapon' and d.kind=='weapon' and d.target==11)
+i.frame.self.aura=0.5
+assert(choice.decide(i).resref=='TESTBOLT')
+i.spells={}
+i.frame.self.aura=4
+assert(choice.decide(i).kind=='weapon')
+i.frame.self.weapon=nil
+d,why=choice.decide(i)
+assert(why=='aura' and d.kind=='wait' and near(d.seconds,3.5))
+i.frame.self.aura=nil
+d,why=choice.decide(i)
+assert(why=='no-option' and d.kind=='wait' and d.seconds==choice.idle)
+-- Standing next to a strong enemy costs a caster more than its mace is worth, so it waits; a
+-- fighter attacks all the same (mind.alwaysAttack), and the cost only chooses its target: the weak
+-- enemy further off.
+local brute=enemy(11,{x=200,attack={apr=3,thac0=1,damage=20}})
+i=input()
+i.frame.self.weapon=MACE
+i.frame.enemies={brute}
+swing=choice.weaponOptions(i)[1]
+assert(swing.worth>0 and swing.score<0)
+d,why=choice.decide(i)
+assert(why=='no-option' and d.kind=='wait')
+i.mind=mind.forFamily(mind.new(),'fighter')
+assert(i.mind.alwaysAttack and not mind.new().alwaysAttack and select(2,mind.new({alwaysAttack=1}))=='alwaysAttack')
+d,why=choice.decide(i)
+assert(why=='weapon' and d.target==11 and d.score<0)
+i.frame.enemies={brute,enemy(12,{x=400})}
+d,why=choice.decide(i)
+assert(why=='weapon' and d.target==12 and d.walk>0)
 groups=groups+1
 
 return groups

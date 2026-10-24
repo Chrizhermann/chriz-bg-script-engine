@@ -121,11 +121,18 @@ o,why=openers.choose(i)
 assert(o==nil and why=='no-enemy')
 groups=groups+1
 
--- 3. The choice takes an opener before the ranking; the profile can turn openers off.
+-- 3. The choice takes an opener before the ranking; the profile can turn openers off. While the
+-- casting aura runs the opener waits for it, half a second before it frees.
 i=input({spells=kit()})
 i.frame.enemies={enemy(11)}
 local d,how,options=choice.decide(i)
 assert(d.kind=='opener' and d.rule=='time-stop' and how=='opener' and #options==1)
+i.frame.self.aura=3
+d,how,options=choice.decide(i)
+assert(d.kind=='wait' and how=='aura' and near(d.seconds,2.5) and options[1].rule=='time-stop')
+i.frame.self.aura=0.5
+assert(choice.decide(i).kind=='opener')
+i.frame.self.aura=nil
 i.mind=mind.new({openers=false})
 d=choice.decide(i)
 assert(d.kind=='disable' and d.resref=='TESTHOLD')
@@ -157,7 +164,7 @@ groups=groups+1
 i=input({spells={row('TESTPWK',pwk,9)}})
 i.frame.enemies={enemy(11,{hp=80,maxHp=80})}
 d,how=choice.decide(i)
-assert(d==nil and how=='no-option')
+assert(d.kind=='wait' and how=='no-option')
 i.frame.enemies={enemy(11,{hp=50,maxHp=80})}
 d=choice.decide(i)
 assert(d and d.resref=='TESTPWK' and d.target==11 and near(d.worth,0.625+0.5))
@@ -165,7 +172,7 @@ i=input({spells={row('TESTPWK',pwk,9)},timeStop={caster=1,left=12},
     stopCasts={{kind='damage',hits={11},expected={[11]=40}}}})
 i.frame.enemies={enemy(11,{hp=80,maxHp=80})}
 d,how=choice.decide(i)
-assert(d==nil and how=='no-option')
+assert(d.kind=='wait' and how=='no-option')
 groups=groups+1
 
 -- 6. Under Improved Alacrity a slow spell waits while a quick one is good enough, as SCS's slow

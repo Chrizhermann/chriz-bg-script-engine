@@ -3,8 +3,15 @@
 -- values: the caster's perception frame with enemy details (adapters/eeex/sense.lua), its
 -- ready and usable spells classified by combat-intent/spells.lua, the fight director's plan,
 -- what it remembers about casts that had no effect, and its profile (combat-intent/mind.lua).
--- Nothing here touches the engine. Odd data drops one option, never the whole choice, and no
--- choice means SCS keeps the round.
+-- Nothing here touches the engine. Odd data drops one option, never the whole choice.
+--
+-- The round (Christopher, 2026-10-25: "wir müssen SCS nichts überlassen", and what is quick does
+-- not take the round): the engine leaves no round to SCS. While the casting aura of the last cast
+-- runs, casts and drinks wait for it; an attack is made meanwhile when it is worth more than the
+-- part of the best cast it holds back, else the creature waits until the aura frees. With nothing
+-- worth doing it waits a moment and decides again. A fighter or monster attacks whenever nothing
+-- else is worth more (mind.alwaysAttack); a caster that has no attack worth anything takes the best
+-- spell that is worth something.
 --
 -- Worth is counted in shares of an enemy taken out of the fight: the hit points a cast takes
 -- (as a share of the enemy's maximum, no more than it has left), the worth of a kill, or the
@@ -29,7 +36,7 @@
 -- standing next to that enemy costs for melee. The walk to a melee enemy comes first and lowers
 -- the worth; fighters and monsters walk to any enemy they see (mind.chase, F1d), casters only
 -- within touchReach. It spends nothing, so it needs no minimum worth:
--- when no spell reaches minValue, the engine attacks instead of leaving the round to SCS. A spell
+-- when no spell reaches minValue, the engine attacks. A spell
 -- that conjures a weapon is worth the hits the weapon deals in the rounds after, as many as it
 -- lasts within the horizon. Neither in the caster's own Time Stop nor under Improved Alacrity.
 -- Releases (D2b): SCS's sequencers and triggers are innates that cast their spells at once. The
@@ -112,6 +119,14 @@ M.SUMMONED=removal.SUMMONED
 M.react=1
 M.stayPrior=0.25
 M.stayWeight=4
+-- The round (Christopher, 2026-10-25: the engine owns it all, and what is quick does not take it):
+-- casts, drinks and openers wait for the casting aura (frame.self.aura, seconds until it frees),
+-- and one chosen this many seconds or less before it frees is queued and starts when it frees. A
+-- weapon attack lasts a round. A creature with nothing worth doing waits this many seconds before
+-- it decides again.
+M.ROUND=threat.ROUND
+M.auraLead=0.5
+M.idle=1
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
 local function clamp(v,a,b) if v<a then return a elseif v>b then return b end return v end
@@ -806,6 +821,12 @@ local function placed(input)
     return at
 end
 
+-- Doing nothing for the given seconds, then deciding again.
+function M.wait(seconds)
+    return {resref='WAIT',kind='wait',mode='none',worth=0,cost=0,score=0,hits={},slack=0,speed=0,
+        seconds=number(seconds) and math.max(0,seconds) or 0}
+end
+
 -- The choice without a way out of the zones (M.decide).
 local function pick(input)
     local mind=input.mind
@@ -818,9 +839,15 @@ local function pick(input)
             return strike,'strike',{strike}
         end
     end
+    local aura=input.frame.self.aura
+    aura=number(aura) and aura>0 and aura or 0
+    local busy=aura>M.auraLead
     if mind.openers then
         local opener=openers.choose(input)
-        if opener then return opener,'opener',{opener} end
+        if opener then
+            if busy then return M.wait(aura-M.auraLead),'aura',{opener} end
+            return opener,'opener',{opener}
+        end
     end
     input=M.frozen(input)
     if input.frame.self.alacrity==true then input=M.unreleased(input) end
@@ -847,10 +874,22 @@ local function pick(input)
         table.sort(list,better)
         return list
     end
-    local swinging=swing~=nil and swing.score>0
+    -- Whether an attack is worth making at all: one that hurts the enemy for a creature that always
+    -- attacks (what standing next to the enemy costs only chose the target), else one worth more
+    -- than that cost.
+    local value=swing and (mind.alwaysAttack and swing.worth or swing.score) or 0
+    local swinging=swing~=nil and value>0
+    -- While the aura runs, casts and drinks wait for it. An attack now holds the best of them back
+    -- by the part of a round the aura leaves of the attack's round, and is made when it is worth
+    -- more than that part of the best.
+    if busy then
+        local best=options[1] and number(options[1].score) and math.max(0,options[1].score) or 0
+        if swinging and value-best*math.max(0,M.ROUND-aura)/M.ROUND>0 then return swing,'weapon',all() end
+        return M.wait(aura-M.auraLead),'aura',all(),rejected
+    end
     if #options==0 then
         if swinging then return swing,'weapon',all() end
-        return nil,'no-option',options,rejected
+        return M.wait(M.idle),'no-option',options,rejected
     end
     -- Under Improved Alacrity a slow spell waits while a quick one reaches the minimum worth
     -- (SCS's slow spells and its compromise).
@@ -862,7 +901,9 @@ local function pick(input)
     local best=options[1]
     if best.score<mind.minValue then
         if swinging then return swing,'weapon',all() end
-        return nil,'nothing-good',options,rejected
+        -- No attack is worth anything: the best that is worth something, rather than nothing.
+        if best.score>0 then return best,'weak',options end
+        return M.wait(M.idle),'nothing-good',options,rejected
     end
     if swing and swing.score>best.score then return swing,'weapon',all() end
     local rng=input.rng
@@ -873,8 +914,9 @@ local function pick(input)
     return pool[rng:nextInt(1,#pool)],'near-best',options
 end
 
--- The attack, defence, heal or cure, summons, removal, opener, strike, weapon attack or way out of
--- a zone to do now, or nil and why; the options come along for the log, and without a choice the
+-- The attack, defence, heal or cure, summons, removal, opener, strike, weapon attack, way out of a
+-- zone or wait to do now, and why ('aura', 'no-option' or 'nothing-good' for a wait), or nil and
+-- why for bad input; the options come along for the log, and with a wait for want of options the
 -- count of reasons the ready spells gave none. Leaving costs no spell, only the seconds of the
 -- walk: it comes first when it is worth more than that share of a round of the choice, or when the
 -- pain drives a dull creature out (forced). Spell slots cost input.slots of their price,

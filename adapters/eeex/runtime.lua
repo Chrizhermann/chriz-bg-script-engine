@@ -20,6 +20,7 @@ function M.install(g,options)
     if own then
         if options.decide==nil then options.decide=function(view,family) return own:decide(view,family) end end
         if options.prepare==nil then options.prepare=function(object,decision) return own:prepare(object,decision) end end
+        if options.held==nil then options.held=function(object,decision) return own:held(object,decision) end end
         if options.director then options.director:setChoice(own) end
     end
     return hook.install(g,options)
