@@ -441,7 +441,8 @@ Christopher's answers, 2026-10-18:
   remembered misses, then a random pick near the best.
 - It queues a normal SpellRES or SpellPointRES that first sets SCS's round timer, so SCS's
   filler runs between casts. It leaves the round to SCS when the caster is silenced, when a
-  priest with healing ready sees urgent need, and when no attack is good enough.
+  priest with healing ready sees urgent need, and when no attack is good enough. (Since
+  2026-10-25 the engine owns the whole round; see the fifth slice.)
 - The agreed rules (no disable on a disabled target, no allies in an area, damage on the
   focus, economical casting, remembered immunities) are knobs of one default profile.
 
@@ -634,9 +635,16 @@ worth more. And for the whole engine: **no more SCS takeovers** (only for testin
 thresholds below which SCS acts; the engine owns the whole round, and instant actions such as
 many potions and abilities do not take the round.
 
-Next: the engine owns the whole round (no decline to SCS between two of its actions), target
-overrides and the interrupt bonus, then F1e (switching fighters and monsters on) with a lab, then
-F2.
+Built the same day ([FIGHT-01](../research/FIGHT-01-fighter-and-monster-rounds.md), "The engine
+owns the round" and "Casts walk into range"): no decline to SCS between two of the engine's own
+actions; while the casting aura runs a creature attacks with its weapon or waits, and decides
+again when the wait is over; SCS's round timer only marks the round for SCS's blocks above the
+hook; and casts at enemies beyond their range walk into range first, the walk lowering the worth.
+Still left to the creature's script: casts the engine did not queue, no enemy in sight, and the
+engine switched off or failing.
+
+Next: target overrides and the interrupt bonus, then F1e (switching fighters and monsters on) with
+a lab, then F2.
 
 ## To design with Christopher
 

@@ -16,6 +16,13 @@ ordinary engine actions, and leave every other round to SCS?
 
 ### When the engine takes the round
 
+**Since 2026-10-25** the engine owns the whole round
+([FIGHT-01](FIGHT-01-fighter-and-monster-rounds.md), "The engine owns the round"): no timer,
+aura, silence or worth decline hands a round to SCS any more; while the casting aura runs the
+creature attacks with its weapon or waits; the response no longer sets SCS's timer, which only
+marks the round for SCS's blocks above the hook; and casts at enemies beyond their range walk
+into range first. What follows describes the second slice as built and tested in batch E.
+
 Christopher chose B: the engine takes the whole round once SCS's `castspell` round timer has
 run out and it has a good attack. The gate asks `adapters/eeex/choice.lua` each time a hooked
 script reaches its hook. The engine declines, and SCS's own blocks run in the same script pass,

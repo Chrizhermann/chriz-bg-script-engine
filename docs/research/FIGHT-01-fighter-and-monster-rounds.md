@@ -95,6 +95,54 @@ engine's or the script's, starts the pause before the next defence (SCS's redefe
   game's attack actions do; the engine decides again after the round. The choice row logs the walk
   (`walk`, seconds). A long walk is still to be seen in a lab.
 
+### The engine owns the round (2026-10-25)
+
+Built after the two engine-wide rules below (commit 11704bc; `combat-intent/choice.lua`,
+`adapters/eeex/choice.lua`, `kernel/hook.lua`):
+
+- **No round goes to SCS's blocks below the hook,** also not between two of the engine's own
+  actions. The engine takes every round of a creature it drives and decides again as soon as an
+  action is over, so a drink or another quick action does not take the round.
+- **While the casting aura runs** (about 100 ticks from a cast's start), casts, drinks and openers
+  wait for it; one chosen half a second or less before the aura frees is queued and starts when it
+  frees. Meanwhile the creature attacks with its weapon when that is worth more than the part of
+  the best cast it holds back, else it waits. Under Improved Alacrity the aura holds nothing back.
+- **Waits:** with nothing worth doing, or while the aura runs, the creature waits: held, and decided
+  again when the wait is over or 15 ticks after it began, whichever comes first; a new action ends
+  it. While it waits the engine still leads it out of a cloud that hurts it. The log gets one `wait`
+  row per new reason (`aura`, `no-option`, `nothing-good`). Fighters and monsters always attack when
+  nothing else is worth more (`mind.alwaysAttack`; Agreed, point 4).
+- **SCS's round timer** (`castspell`) is no part of the engine's responses any more. It stays the
+  round's marker for SCS's own blocks above the hook (specials and other copies): when the hook's
+  response runs, a decision's or a hold's, and the timer has run out, the engine sets it for a round
+  (90 ticks), so those blocks get one pass a round, as in SCS's own order. A cast or drink of the
+  engine's stretches it to cover its casting (a speed point is 9 ticks, plus 15) and any walk into
+  range.
+- **Left to the creature's script:** a cast the engine did not queue (a copy's special), which only
+  that block may keep going, and the engine's own cast once it is held past its time (decline
+  `casting`); no enemy in sight (`no-enemy`); the engine switched off, missing an EEex function or
+  failing (fail-soft).
+
+### Casts walk into range (R3, 2026-10-25)
+
+With no round left to SCS, an enemy beyond a spell's range is no reason to wait (commit 1e33acc):
+
+- `SpellRES` and `SpellPointRES` walk into range before they cast (batch G3 saw `SpellRES` do it),
+  so the choice and the protection removal aim beyond the range too. The walk at the creature's
+  pace (`weapons.approach`, 100 a second by default) comes first and lowers the worth as a walk to a
+  melee enemy does (6 / (6 + seconds)); an area must keep the caster out where the walk ends, and a
+  lasting cloud counts the walk into its casting delay.
+- No walk for a cone (it starts where the caster stands), a release (`ForceSpellRES` casts where the
+  caster stands, batch G3) or a caster that cannot walk (webbed or entangled): an enemy beyond their
+  reach is out of reach, as before.
+- The adapter holds a queued or started cast for the walk as well, twice the straight walk as paths
+  bend, and the round's marker covers it. A cast's casting is counted from when its casting aura
+  starts again, not from the action's start, so a cast broken off after a walk, or one that ended on
+  the way, counts as interrupted and is never remembered as a miss on its target.
+- Creatures see 448 around them (`sense.sightRange`), so a spell of range 28 or more (448 at 16 a
+  range unit) reaches every enemy a creature sees, apart from some above or below it, as heights
+  count 4/3 in range. Walks come mostly with shorter-range spells.
+
 ## Agreed (Christopher, 2026-10-25)
 
 1. **Target choice by worth, with overrides.** Not SCS's fixed list ("Ich würde es nicht eins zu
@@ -115,9 +163,10 @@ Two rules for the whole engine came with it:
   keinen Release-Druck, wir müssen SCS nichts überlassen. Das machen wir wirklich, wenn dann nur
   zum Testen … diese SCS-Übernahmen und diese Schwellen und all so ein Kram, das brauchen wir alles
   nicht … lieber direkt bei uns in der eigenen Engine nachbauen … Mit geilerer KI." So the engine
-  owns the whole round: no decline that hands a round to SCS's blocks below the hook (between two
-  engine actions SCS's round timer runs and SCS's melee filler takes over today), no worth
-  thresholds below which SCS acts. SCS's logic stays the blueprint, rebuilt in the engine.
+  owns the whole round: no decline that hands a round to SCS's blocks below the hook (until then,
+  SCS's round timer ran between two engine actions and SCS's melee filler took over), no worth
+  thresholds below which SCS acts. SCS's logic stays the blueprint, rebuilt in the engine. Built:
+  "The engine owns the round" above.
 - **Instant actions do not take the round.** "Tränke nehmen, Fähigkeiten benutzen … können auch
   teilweise nicht eine ganze Runde dauern, sondern instant sein. Und müssen dann nicht die ganze
   Runde übernehmen. Das gilt auch für viele Dinge … Bei Magiern … Auch bei Bogenschützen." The
@@ -134,3 +183,9 @@ Known gaps, for later:
 - Barbarian Rage's armour class penalty does not count against what it protects; per-cent maximum
   hit points (opcode 18, mode 2) give no hit points; helmets are not read.
 - Movement speed is not read (haste, slow, boots of speed), only the default.
+- Heals and cures at allies weigh a walk to the ally by its seconds (`castCost`), attacks by
+  `weapons.paced`; one rule for both is open. Defences, heals and cures at allies do not walk into
+  range yet.
+- To see in a lab: whether `SpellPointRES` walks as `SpellRES` does, whether EEex's started-action
+  listener fires when the walk begins or when the casting does (the engine holds a queued cast for
+  the walk too, in case it is the latter), and long walks with `AttackOneRound`.
