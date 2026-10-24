@@ -2098,7 +2098,7 @@ function M.forFamily(base,family)
     return m
 end
 
--- Wit (docs/research/MIND-01-wit-and-difficulty.md; Christopher, 2026-10-23 and 2026-10-24):
+-- Wit (docs/research/MIND-01-wit-and-difficulty.md; Christopher, 2026-10-23 to 2026-10-25):
 -- how clever a creature fights around danger zones, from an override for it, its kind, the INT
 -- and WIS its file means and the game's difficulty, in this order. A dull creature sees no zone
 -- until it hurts and works nothing out ahead; a normal one sees the zone it stands in and leaves
@@ -2106,8 +2106,8 @@ end
 -- enemies behave in its own clouds (combat-intent/zones.lua, choice.lua). WIS sets how seriously
 -- it takes harm from zones.
 M.STEPS={dull=true,normal=true,clever=true}
--- The INT a step stands for when the creature's file says nothing (a kind or an override's step):
--- animal intelligence, average, exceptional.
+M.RANK={dull=1,normal=2,clever=3}
+-- The INT an override's step stands for: animal intelligence, average, exceptional.
 M.STEP_INT={dull=1,normal=10,clever=15}
 -- Steps by INT: dull up to DULL_INT, clever from CLEVER_INT, normal between.
 M.DULL_INT=5
@@ -2122,27 +2122,55 @@ M.NORMAL_DIFFICULTY=3
 M.DANGER_PER_WIS=0.05
 M.DANGER_MIN=0.5
 M.DANGER_MAX=1.5
--- The kinds (Christopher, 2026-10-24: a few categories after SCS first, split finer later). Casters
--- (mage and priest scripts) are clever. Dull, after SCS's test for unintelligent creatures
--- (sfo/filetype/lib_cre.tpa, CRE_check_if_moron; credit DavidW) but only the really dull ("nur für
--- wirklich sehr dumme Kreaturen"): animals and animated weapons (GENERAL.IDS 2, 101); zombies,
--- gibberlings, golems, slimes, carrion crawlers, ankhegs and basilisks (RACE.IDS 148, 109, 144,
--- 119, 104, 101, 102); skeletons and golems (CLASS.IDS 134, 182 to 185, 215). Everyone else is
--- normal: SCS counts most monsters unintelligent, but trolls, umber hulks, yuan-ti and the like
--- are no animals.
+-- The kinds: race groups (Christopher, 2026-10-24: a few categories first, split finer later;
+-- 2026-10-25: "Wir können gerne Rassengruppen erstmal machen"), after the intelligence classes of
+-- the old AD&D monster books, coarsened to four. Each stands for an INT where the creature's file
+-- means nothing; the dull and low groups also for the highest step the difficulty lifts a creature
+-- to, so that animals stay dull and ogres and trolls never turn clever on Insane ("Sowas darf nicht
+-- klug sein"). A step the creature's own INT or an override gives stays.
+M.GROUPS={
+    -- Animals and the mindless: dull on every setting.
+    dull={int=1,top='dull'},
+    -- Brutes: normal, dull below Normal, never clever by the difficulty.
+    low={int=7,top='normal'},
+    -- The peoples and everyone not listed: normal, clever on Insane.
+    average={int=10},
+    -- Clever, normal below Normal.
+    high={int=15},
+}
+-- Casters (mage and priest scripts) think as the high group, whatever their race.
 M.CASTERS={mage=true,priest=true}
-M.DULL_GENERAL={[2]=true,[101]=true}
-M.DULL_RACE={[148]=true,[109]=true,[144]=true,[119]=true,[104]=true,[101]=true,[102]=true}
-M.DULL_CLASS={[134]=true,[182]=true,[183]=true,[184]=true,[185]=true,[215]=true}
+M.CASTER_GROUP='high'
+-- Groups by IDS name, as the installed game's CLASS.IDS, RACE.IDS and GENERAL.IDS name a creature's
+-- values, so that a race a mod adds counts by its name; the class before the race, the race before
+-- the general. Dull after SCS's test for unintelligent creatures (sfo/filetype/lib_cre.tpa,
+-- CRE_check_if_moron; credit DavidW), but only the really dull ("nur für wirklich sehr dumme
+-- Kreaturen"): animals and animated weapons, the mindless dead and constructs, slimes and a few
+-- beasts. Skeleton warriors are no mindless skeletons.
+M.BY_CLASS={SKELETON='dull',GOLEM_IRON='dull',GOLEM_FLESH='dull',GOLEM_STONE='dull',GOLEM_CLAY='dull',
+    GOLEM_ICE='dull',SKELETON_WARRIOR='average'}
+M.BY_RACE={
+    ANKHEG='dull',BASILISK='dull',BEAR='dull',BEETLE='dull',BIRD='dull',CARRIONCRAWLER='dull',CAT='dull',
+    CHIMERA='dull',DOG='dull',GIBBERLING='dull',GOLEM='dull',KEG='dull',MAMMAL='dull',MIMIC='dull',RABBIT='dull',
+    REPTILE='dull',SHRIEKER='dull',SKELETON='dull',SLIME='dull',WOLF='dull',ZOMBIE='dull',
+    BUGBEAR='low',ELEMENTAL='low',ETTERCAP='low',ETTIN='low',GHOUL='low',GIANT='low',GNOLL='low',HARPY='low',
+    HOOK_HORROR='low',LIZARDMAN='low',MINOTAUR='low',OGRE='low',OTYUGH='low',SHAMBLING_MOUND='low',
+    SPIDER='low',TROLL='low',UMBERHULK='low',WYVERN='low',YETI='low',
+    ANTISOLAR='high',BEHOLDER='high',DARKPLANATAR='high',DEMILICH='high',DEMONIC='high',DRAGON='high',
+    GENIE='high',GITHYANKI='high',HALF_DRAGON='high',LICH='high',MIND_FLAYER='high',PLANATAR='high',
+    RAKSHASA='high',SALAMANDER='high',SOLAR='high',SUCCUBUS='high',VAMPIRE='high',VAMPYRE='high',
+    ['WILL-O-WISP']='high',YUANTI='high',
+}
+M.BY_GENERAL={ANIMAL='dull',WEAPON='dull'}
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
 local function clamp(v,a,b) if v<a then return a elseif v>b then return b end return v end
 
--- The step of c's kind (c.family, c.general, c.race, c.class).
-function M.kind(c)
-    if M.CASTERS[c.family] then return 'clever' end
-    if M.DULL_GENERAL[c.general] or M.DULL_RACE[c.race] or M.DULL_CLASS[c.class] then return 'dull' end
-    return 'normal'
+-- The group of c's kind: c.family ('mage', 'priest', 'fighter' or 'monster') and the IDS names
+-- c.class, c.race and c.general.
+function M.group(c)
+    if M.CASTERS[c.family] then return M.CASTER_GROUP end
+    return M.BY_CLASS[c.class] or M.BY_RACE[c.race] or M.BY_GENERAL[c.general] or 'average'
 end
 -- Whether a file's INT and WIS mean something: an INT above 0 that is not part of a template pair.
 function M.meant(int,wis)
@@ -2156,25 +2184,31 @@ function M.step(int)
     return 'normal'
 end
 -- A creature's wit from plain values: c.int and c.wis (its stats), c.general, c.race and c.class
--- (IDS values), c.family ('mage', 'priest', 'fighter' or 'monster'), c.difficulty (1 to 5) and
+-- (IDS names), c.family ('mage', 'priest', 'fighter' or 'monster'), c.difficulty (1 to 5) and
 -- c.resref. overrides (optional) holds, by resref, a step and a WIS that stand for the creature's
--- own; the difficulty shifts them as well. Returns {step, danger, int, wis, from}: from tells
--- whether an override, the file's values or the kind set the step.
+-- own; the difficulty shifts them as well. Returns {step, danger, int, wis, from, group}: from
+-- tells whether an override, the file's values or the kind set the INT, group the kind's group.
 function M.wit(c,overrides)
     c=type(c)=='table' and c or {}
     local o=type(overrides)=='table' and type(c.resref)=='string' and overrides[c.resref:upper()] or nil
     if type(o)~='table' then o=nil end
     local meant=M.meant(c.int,c.wis)
+    local group=M.group(c)
+    local top=M.GROUPS[group].top
     local int,wis,from
     if o and M.STEPS[o.step] then int,from=M.STEP_INT[o.step],'override'
     elseif meant then int,from=c.int,'stats'
-    else int,from=M.STEP_INT[M.kind(c)],'kind' end
+    else int,from=M.GROUPS[group].int,'kind' end
     if o and number(o.wis) then wis=o.wis elseif meant and number(c.wis) then wis=c.wis else wis=10 end
     local shift=0
     if number(c.difficulty) then shift=M.DIFFICULTY_STEP*(clamp(c.difficulty,1,5)-M.NORMAL_DIFFICULTY) end
+    -- The difficulty lifts the step no higher than the group's top, unless the creature's own INT
+    -- stands above it already.
+    local own,step=M.step(int),M.step(int+shift)
+    if top and M.RANK[step]>M.RANK[top] then step=M.RANK[own]>M.RANK[top] and own or top end
     int,wis=int+shift,wis+shift
-    return {step=M.step(int),danger=clamp(1+(wis-10)*M.DANGER_PER_WIS,M.DANGER_MIN,M.DANGER_MAX),int=int,wis=wis,
-        from=from}
+    return {step=step,danger=clamp(1+(wis-10)*M.DANGER_PER_WIS,M.DANGER_MIN,M.DANGER_MAX),int=int,wis=wis,
+        from=from,group=group}
 end
 -- The profile base with wit w: its step and danger weight, and its own clouds weighed as its step
 -- works them out: a clever creature as base says, a normal one by the cheaper of staying and
@@ -6219,11 +6253,12 @@ end
 local PARSERS={SPL=spl,ITM=itm,EFF=eff,PRO=pro,CRE=cre}
 
 -- reader.get(kind, resref), reader.projectile(field value) and reader.lookup(kind, key), the
--- callable spells.classify takes (PRO by projectile field value, the rest by resref).
+-- callable spells.classify takes (PRO by projectile field value, the rest by resref);
+-- reader.idsName(file, number), the name an IDS file gives a number (upper case).
 function M.new(g)
     local read=natives(g)
     local reader={problems={}}
-    local cache,projectiles,seen={},nil,{}
+    local cache,idsFiles,seen={},{},{}
     local function problem(text)
         if seen[text] or #reader.problems>=M.maxProblems then return end
         seen[text]=true;reader.problems[#reader.problems+1]=text
@@ -6256,30 +6291,39 @@ function M.new(g)
         cache[key]=value or false
         return value
     end
+    -- An IDS file read once: each number with the first name for it that accept takes.
+    local function ids(file,accept)
+        if idsFiles[file] then return idsFiles[file] end
+        local names={}
+        idsFiles[file]=names
+        local ok,err=pcall(function()
+            local loaded=g.EEex_Resource_LoadIDS(file)
+            g.EEex_Resource_IterateUnpackedIDSEntries(loaded,function(id,line,start)
+                local name=type(start)=='string' and start:match('^%s*(%S+)') or
+                    type(line)=='string' and line:match('^%s*(%S+)')
+                if type(id)=='number' and name and not name:find('^//') and (not accept or accept(name))
+                    and names[id]==nil then names[id]=upper(name) end
+            end)
+        end)
+        if not ok then problem(file..'.IDS unreadable: '..tostring(err)) end
+        return names
+    end
+    local function resrefName(name) return #name<=8 end
     -- Field value N is PROJECTL.IDS entry N-1; the first entry for a number wins.
     function reader.projectile(number)
         if type(number)~='number' then return nil end
-        if projectiles==nil then
-            projectiles={}
-            local ok,err=pcall(function()
-                local ids=g.EEex_Resource_LoadIDS('PROJECTL')
-                g.EEex_Resource_IterateUnpackedIDSEntries(ids,function(id,line,start)
-                    local name=type(start)=='string' and start:match('^%s*(%S+)') or
-                        type(line)=='string' and line:match('^%s*(%S+)')
-                    if type(id)=='number' and name and #name<=8 and not name:find('^//')
-                        and projectiles[id+1]==nil then projectiles[id+1]=upper(name) end
-                end)
-            end)
-            if not ok then problem('PROJECTL.IDS unreadable: '..tostring(err)) end
-        end
-        local resref=projectiles[number]
+        local resref=ids('PROJECTL',resrefName)[number-1]
         return resref and reader.get('PRO',resref) or nil
+    end
+    function reader.idsName(file,number)
+        if type(file)~='string' or type(number)~='number' then return nil end
+        return ids(upper(file))[number]
     end
     function reader.lookup(kind,key)
         if kind=='PRO' and type(key)=='number' then return reader.projectile(key) end
         return reader.get(kind,key)
     end
-    function reader.reset() cache,projectiles,seen={},nil,{};reader.problems={} end
+    function reader.reset() cache,idsFiles,seen={},{},{};reader.problems={} end
     return reader
 end
 return M
@@ -7276,8 +7320,9 @@ factories["adapters.eeex.choice"]=function(require)
 -- the engine weighs zones for the creature.
 --
 -- Wit (combat-intent/mind.lua, MIND-01): each creature's profile is the default one with its wit,
--- from its INT and WIS, its IDS values, its family, its creature file (overrides) and the game's
--- difficulty, worked out again only when one of them changes; a 'wit' row logs it. A dull creature
+-- from its INT and WIS, its IDS values (by the names the game's IDS files give them, for the race
+-- groups), its family, its creature file (overrides) and the game's difficulty, worked out again
+-- only when one of them changes; a 'wit' row logs it. A dull creature
 -- sees no zone until it hurts: each time its hit points have dropped since it was last looked at
 -- while a zone hurts it where it stands, it draws once whether the pain drives it out
 -- (zones.painChance); then it leaves until it is out. SCS's cloud blocks stand aside for a dull
@@ -7500,10 +7545,11 @@ function M.new(g,options)
         if not witOn then return mind.forFamily(defaultMind,family) end
         local t=sprite.m_typeAI
         local c={int=g.EEex_Sprite_GetStat(sprite,M.intStat),wis=g.EEex_Sprite_GetStat(sprite,M.wisStat),
-            general=t.m_General,race=t.m_Race,class=t.m_Class,family=family,resref=text(sprite.m_resref:get()),
+            general=reader.idsName('GENERAL',t.m_General),race=reader.idsName('RACE',t.m_Race),
+            class=reader.idsName('CLASS',t.m_Class),family=family,resref=text(sprite.m_resref:get()),
             difficulty=difficulty()}
-        local key=table.concat({tostring(c.int),tostring(c.wis),tostring(c.general),tostring(c.race),tostring(c.class),
-            tostring(family),c.resref,tostring(c.difficulty),mindVersion},':')
+        local key=table.concat({tostring(c.int),tostring(c.wis),tostring(t.m_General),tostring(t.m_Race),
+            tostring(t.m_Class),tostring(family),c.resref,tostring(c.difficulty),mindVersion},':')
         local had=minds[sprite.m_id]
         if had and had.key==key then return had.mind end
         local w=mind.wit(c,witOverrides)
@@ -7514,7 +7560,7 @@ function M.new(g,options)
         end
         minds[sprite.m_id]={key=key,mind=made}
         record({kind='wit',tick=now(),member=sprite.m_id,resref=c.resref,family=family,step=w.step,danger=w.danger,
-            int=w.int,wis=w.wis,from=w.from,difficulty=c.difficulty})
+            int=w.int,wis=w.wis,from=w.from,group=w.group,race=c.race,difficulty=c.difficulty})
         return made
     end
     mindFor=options.mindFor or function(sprite,family)

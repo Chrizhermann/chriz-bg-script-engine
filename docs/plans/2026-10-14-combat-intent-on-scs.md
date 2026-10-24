@@ -623,9 +623,20 @@ SCS keeps no rounds any more. Lab batch H tests D3 in game.
 
 Christopher (2026-10-25): the engine takes fighters' and monsters' rounds too ("Ich mein das ist
 ja 1000% der Plan sowieso"). Built so far, not yet switched on: own buffs valued by the own
-weapon (kit abilities, Potion of Power), protection and buff potions as defences, and walking to
-the enemy a creature attacks, the walk lowering the worth. Switching fighters and monsters on
-(F1e) waits for his answers on target choice, staging, wit for monsters and the cost of melee.
+weapon (kit abilities, Potion of Power), protection and buff potions as defences, walking to
+the enemy a creature attacks (the walk lowering the worth), and wit by race group, so that ogres
+and trolls never turn clever on Insane ([MIND-01](../research/MIND-01-wit-and-difficulty.md)).
+
+His answers the same day ([FIGHT-01](../research/FIGHT-01-fighter-and-monster-rounds.md),
+"Agreed"): targets by worth with a bonus for interrupting a cast, plus overrides for target
+choice and similar decisions; F1 then F2 straight after; fighters always attack when nothing is
+worth more. And for the whole engine: **no more SCS takeovers** (only for testing) and no
+thresholds below which SCS acts; the engine owns the whole round, and instant actions such as
+many potions and abilities do not take the round.
+
+Next: the engine owns the whole round (no decline to SCS between two of its actions), target
+overrides and the interrupt bonus, then F1e (switching fighters and monsters on) with a lab, then
+F2.
 
 ## To design with Christopher
 

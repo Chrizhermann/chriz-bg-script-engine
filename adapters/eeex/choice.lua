@@ -76,8 +76,9 @@
 -- the engine weighs zones for the creature.
 --
 -- Wit (combat-intent/mind.lua, MIND-01): each creature's profile is the default one with its wit,
--- from its INT and WIS, its IDS values, its family, its creature file (overrides) and the game's
--- difficulty, worked out again only when one of them changes; a 'wit' row logs it. A dull creature
+-- from its INT and WIS, its IDS values (by the names the game's IDS files give them, for the race
+-- groups), its family, its creature file (overrides) and the game's difficulty, worked out again
+-- only when one of them changes; a 'wit' row logs it. A dull creature
 -- sees no zone until it hurts: each time its hit points have dropped since it was last looked at
 -- while a zone hurts it where it stands, it draws once whether the pain drives it out
 -- (zones.painChance); then it leaves until it is out. SCS's cloud blocks stand aside for a dull
@@ -300,10 +301,11 @@ function M.new(g,options)
         if not witOn then return mind.forFamily(defaultMind,family) end
         local t=sprite.m_typeAI
         local c={int=g.EEex_Sprite_GetStat(sprite,M.intStat),wis=g.EEex_Sprite_GetStat(sprite,M.wisStat),
-            general=t.m_General,race=t.m_Race,class=t.m_Class,family=family,resref=text(sprite.m_resref:get()),
+            general=reader.idsName('GENERAL',t.m_General),race=reader.idsName('RACE',t.m_Race),
+            class=reader.idsName('CLASS',t.m_Class),family=family,resref=text(sprite.m_resref:get()),
             difficulty=difficulty()}
-        local key=table.concat({tostring(c.int),tostring(c.wis),tostring(c.general),tostring(c.race),tostring(c.class),
-            tostring(family),c.resref,tostring(c.difficulty),mindVersion},':')
+        local key=table.concat({tostring(c.int),tostring(c.wis),tostring(t.m_General),tostring(t.m_Race),
+            tostring(t.m_Class),tostring(family),c.resref,tostring(c.difficulty),mindVersion},':')
         local had=minds[sprite.m_id]
         if had and had.key==key then return had.mind end
         local w=mind.wit(c,witOverrides)
@@ -314,7 +316,7 @@ function M.new(g,options)
         end
         minds[sprite.m_id]={key=key,mind=made}
         record({kind='wit',tick=now(),member=sprite.m_id,resref=c.resref,family=family,step=w.step,danger=w.danger,
-            int=w.int,wis=w.wis,from=w.from,difficulty=c.difficulty})
+            int=w.int,wis=w.wis,from=w.from,group=w.group,race=c.race,difficulty=c.difficulty})
         return made
     end
     mindFor=options.mindFor or function(sprite,family)

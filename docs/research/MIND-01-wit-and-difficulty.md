@@ -2,8 +2,8 @@
 
 How clever each creature fights: what it foresees, how it takes danger and pain, and how the
 difficulty shifts that. Direction agreed with Christopher on 2026-10-23 ("Ansich ist die Richtung
-aber mega … so machen wir es"), where the wit comes from on 2026-10-24; the zone part is built
-(below). Profiles live in `combat-intent/mind.lua` ("Gruppen und einzelne Kreaturen müssen
+aber mega … so machen wir es"), where the wit comes from on 2026-10-24, race groups on
+2026-10-25; the zone part is built (below). Profiles live in `combat-intent/mind.lua` ("Gruppen und einzelne Kreaturen müssen
 verschiedene Intelligenzen haben", 2026-10-18).
 
 ## Agreed (2026-10-23)
@@ -81,12 +81,9 @@ The zone part: `combat-intent/mind.lua` (`M.wit`, `M.withWit`), `combat-intent/z
 - **The step.** An override for the creature file (labs: `api:setWitOverrides`, by resref with a
   `step` and optionally a `wis`) stands for INT 1, 10 or 15 (dull, normal, clever). Otherwise the
   file's own INT and WIS (STATS.IDS 38 and 39) count when they mean something: an INT above 0 and
-  not one of the pairs 9/9 and 16/9. Otherwise the kind stands for its INT, with WIS 10:
-  - casters (mage and priest scripts) are clever;
-  - animals and animated weapons (GENERAL.IDS 2, 101), zombies, gibberlings, golems, slimes,
-    carrion crawlers, ankhegs and basilisks (RACE.IDS 148, 109, 144, 119, 104, 101, 102),
-    skeletons and golems (CLASS.IDS 134, 182 to 185, 215) are dull;
-  - everyone else is normal.
+  not one of the pairs 9/9 and 16/9. Otherwise the kind stands for its INT, with WIS 10: since
+  2026-10-25 by race group (below); before, casters were clever, a few kinds of animals and
+  constructs dull and everyone else normal.
 
   The difficulty (`m_nDifficultyLevel`, 1 to 5) then adds two to INT and WIS for each step above
   Normal and takes two for each step below. An INT of 5 or less makes the creature dull, 14 or
@@ -125,8 +122,51 @@ standing in for the script (read only, 2026-10-24):
 
 Casters that are not clever mostly mean an INT of 9 to 13 (Anomen's files: 10/12); the four dull
 ones mean 3 (`KIEL`, `KIEL2`, `D2KIE`, `DOPCLE01`). On Insane the normal kind's INT of 10 reaches
-14, so every creature without meant values that is not dull turns clever there, ogres and trolls
-(16/9) included. That wants a look with Christopher before fighters and monsters get wit.
+14, so every creature without meant values that is not dull turned clever there, ogres and trolls
+(16/9) included. Christopher: "Sowas darf nicht klug sein. Da brauchen wir bessere Rechnungen."
+The race groups below settle it.
+
+## Race groups (agreed and built 2026-10-25)
+
+Christopher: "Wir können gerne Rassengruppen erstmal machen. Wenn wir es hinterher komplizierter
+brauchen, das können wir uns ja aufschreiben." So the kind is one of four groups, after the
+intelligence classes of the old AD&D monster books, coarsened (only the idea of the classes, no
+text). Each group stands for an INT where the creature's file means nothing; the dull and the low
+group also cap what the difficulty adds (`combat-intent/mind.lua`, `M.GROUPS`):
+
+| Group | INT | Easy / Normal / Insane | Who |
+|---|---|---|---|
+| dull | 1 | dull / dull / dull | animals, animated weapons, zombies, skeletons, golems, slimes, gibberlings, carrion crawlers, ankhegs, basilisks, mimics, chimeras, shriekers |
+| low | 7 | dull / normal / normal | ogres, trolls, giants, ettins, minotaurs, gnolls, bugbears, lizardmen, ghouls, spiders, ettercaps, wyverns, umber hulks, otyughs, elementals, hook horrors, harpies, shambling mounds, yetis |
+| average | 10 | normal / normal / clever | humans and the other peoples, orcs, goblins, kobolds, lycanthropes, dopplegangers, shadows, wraiths, spectres, imps, mephits and everyone not listed |
+| high | 15 | normal / clever / clever | beholders, mind flayers, vampires, liches, dragons, demons, rakshasas, genies, githyanki, yuan-ti, salamanders, solars and planetars, will-o'-wisps |
+
+- **Casters** (mage and priest scripts) think as the high group, whatever their race.
+- **By name:** the class first, then the race, then the general, by the names the installed
+  game's IDS files give them, so a race a mod adds counts by its name (the SR lab's `SUCCUBUS`).
+  Skeleton warriors (class) are average, not mindless skeletons. Skeletons now count by race too:
+  25 skeletons of other classes were normal before.
+- **The top bounds only the difficulty.** A step the creature's own file (a meant INT) or an
+  override gives stays: Olhydra (an elemental, INT 17) is clever, an ogre whose file means INT 10
+  stays normal on Insane, beetles of INT 3 stay dull there. Lower settings lower everyone.
+- **Log:** the `wit` row carries the group and the race name.
+
+Counted over the SR lab's hostile creature files, non-casters by CRE class (read only):
+
+| Non-casters | Easy d/n/c | Normal d/n/c | Insane d/n/c |
+|---|---|---|---|
+| dull (1,126) | 1,056 / 30 / 40 | 1,050 / 36 / 40 | 1,050 / 36 / 40 |
+| low (585) | 502 / 70 / 13 | 3 / 565 / 17 | 1 / 567 / 17 |
+| average (5,058) | 70 / 4,794 / 194 | 11 / 4,506 / 541 | 3 / 267 / 4,788 |
+| high (494) | 8 / 275 / 211 | 8 / 73 / 413 | 0 / 25 / 469 |
+
+The clever ones among the dull and low groups are clever by their files (golems whose files mean
+INT 18, an ogre of INT 18, Olhydra). Of the casters (1,646), 1,282 are clever on Normal and
+1,585 on Insane.
+
+Written down for later (Christopher: "eventuell hinterher komplizierter/komplexer"): finer groups,
+a range of INT per group instead of one value (the AD&D classes are ranges), or each monster's own
+intelligence from the books.
 
 ## Guard rails (Christopher, 2026-10-23)
 

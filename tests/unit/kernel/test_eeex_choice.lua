@@ -117,10 +117,14 @@ end
 local ITEMS={TESTPOTN=POTION,TESTSWRD=weapon('TESTSWRD'),
     TESTBOW=weapon('TESTBOW',{flags=0},{attackType=4,dice=0,sides=0,range=100}),
     TESTARRW=weapon('TESTARRW',{flags=0,enchantment=1},{attackType=2,dice=1,sides=6,damageBonus=1})}
+-- The names the game's IDS files give the creature values the tests use (wit's race groups).
+local IDSNAMES={GENERAL={[1]='HUMANOID',[2]='ANIMAL',[4]='UNDEAD'},RACE={[1]='HUMAN',[113]='OGRE'},
+    CLASS={[1]='MAGE',[2]='FIGHTER'}}
 local reader={problems={},get=function(kind,resref)
         if kind=='SPL' then return records[resref] end
         if kind=='ITM' then return ITEMS[resref] end
     end,
+    idsName=function(file,number) return IDSNAMES[file] and IDSNAMES[file][number] end,
     lookup=function(kind,key)
         if kind=='PRO' and key==2 then return {kind='PRO',resref='SINGLE',type=2,speed=20,flags=0,extFlags=0} end
         if kind=='PRO' and key==3 then
@@ -741,7 +745,7 @@ records.TESTHRMD=spl('TESTHRMD',6,{fx(208,{p1=1,duration=1}),fx(12,{p1=90,p2=64*
 records.TESTHARM=spl('TESTHARM',6,{fx(111,{target=1,p1=1,res='TESTHRM',duration=60})},5,1)
 ITEMS.TESTHRM=weapon('TESTHRM',{itemType=28},{dice=0,sides=0,thac0=4,
     effects={fx(146,{res='TESTHRMD',timing=1}),fx(112,{target=1,res='TESTHRM',timing=1})}})
-local reader9={problems={},get=reader.get,
+local reader9={problems={},idsName=reader.idsName,get=reader.get,
     lookup=function(kind,key) if kind=='ITM' then return ITEMS[key] end return reader.lookup(kind,key) end}
 local g9=world()
 local healer=g9.add(sprite(1,0,0,255,{levels={[7]='S2'}}))
@@ -999,7 +1003,7 @@ records.TESTHORD=spl('TESTHORD',3,{fx(67,{target=1,res='TESTMON',duration=180}),
     fx(67,{target=1,res='TESTMON',duration=180})},4,1)
 records.TESTVOID=spl('TESTVOID',3,{fx(67,{target=1,res='TESTNONE',duration=180})},4,1)
 local reads12=0
-local reader12={problems={},lookup=reader.lookup,get=function(kind,resref)
+local reader12={problems={},idsName=reader.idsName,lookup=reader.lookup,get=function(kind,resref)
         if kind=='CRE' then reads12=reads12+1;return CRES[resref] end
         return reader.get(kind,resref)
     end}
@@ -1153,7 +1157,7 @@ local cloud={m_id=900,projectile=8,state=0,m_nRepetitionCount=6,m_bReachedDestin
     m_explosionRange=150,m_nDelay=75,m_nDelayCount=0,m_sourceId=11,m_projectileType=3,m_resref=str('CLOUD'),
     m_effectList={hot}}
 g14.objects[900]=cloud
-local reader14={problems={},get=reader.get,lookup=function(kind,key)
+local reader14={problems={},idsName=reader.idsName,get=reader.get,lookup=function(kind,key)
         if kind=='PRO' and key==4 then
             return {kind='PRO',resref='CLOUD',type=3,speed=20,flags=0,extFlags=0,areaFlags=64,trigger=150,radius=150,coneWidth=0}
         end
@@ -1313,7 +1317,7 @@ local function cloud15(id,x,counter)
 end
 cloud15(950,500,0)
 cloud15(951,900,75)
-local reader15={problems={},get=reader.get,lookup=function(kind,key)
+local reader15={problems={},idsName=reader.idsName,get=reader.get,lookup=function(kind,key)
         if kind=='PRO' and key==4 then
             return {kind='PRO',resref='CLOUD',type=3,speed=20,flags=0,extFlags=0,areaFlags=0,trigger=150,radius=150,coneWidth=0}
         end
@@ -1493,7 +1497,7 @@ local cloud={m_id=950,projectile=8,state=0,m_nRepetitionCount=4,m_bReachedDestin
     m_posDest={x=500,y=500},m_explosionRange=150,m_nDelay=75,m_nDelayCount=0,m_sourceId=1,m_projectileType=3,
     m_resref=str('CLOUD'),m_effectList={hot}}
 g28.objects[950]=cloud
-local reader28={problems={},get=reader.get,lookup=function(kind,key)
+local reader28={problems={},idsName=reader.idsName,get=reader.get,lookup=function(kind,key)
         if kind=='PRO' and key==4 then
             return {kind='PRO',resref='CLOUD',type=3,speed=20,flags=0,extFlags=0,areaFlags=64,trigger=150,radius=150,
                 coneWidth=0,repeats=10,delay=75}
@@ -1593,7 +1597,7 @@ local hot={m_effectId=12,m_durationType=1,m_duration=0,m_effectAmount=0,m_dWFlag
 g29.objects[960]={m_id=960,projectile=8,state=0,m_nRepetitionCount=20,m_bReachedDestination=1,m_pos={x=500,y=500},
     m_posDest={x=500,y=500},m_explosionRange=150,m_nDelay=75,m_nDelayCount=0,m_sourceId=11,m_projectileType=3,
     m_resref=str('CLOUD'),m_effectList={hot}}
-local reader29={problems={},get=reader.get,lookup=function(kind,key)
+local reader29={problems={},idsName=reader.idsName,get=reader.get,lookup=function(kind,key)
         if kind=='PRO' and key==4 then
             return {kind='PRO',resref='CLOUD',type=3,speed=20,flags=0,extFlags=0,areaFlags=64,trigger=150,radius=150,coneWidth=0}
         end
@@ -1629,7 +1633,8 @@ local function counts() return ch29:inspect().counts end
 assert(claim29(dull,100)==true)
 local w=last29('wit',1)
 assert(w and w.tick==100 and w.step=='dull' and w.from=='stats' and w.int==4 and w.wis==8 and
-    math.abs(w.danger-0.9)<1e-9 and w.difficulty==nil and w.family=='mage' and w.resref=='TEST1')
+    math.abs(w.danger-0.9)<1e-9 and w.difficulty==nil and w.family=='mage' and w.resref=='TEST1' and
+    w.group=='high' and w.race=='HUMAN')
 local c=last29('choice',1)
 assert(c.tick==100 and c.spell=='TESTBOLT' and c.wit=='dull' and counts().pains==0)
 assert(g29.BGSE_Zones(dull,'mage','s1')==true)

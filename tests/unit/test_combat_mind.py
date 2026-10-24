@@ -1,5 +1,5 @@
-"""Profiles and wit (combat-intent/mind.lua): kinds, meant stats, the difficulty shift and
-overrides, on both declared Lua backends."""
+"""Profiles and wit (combat-intent/mind.lua): race groups, meant stats, the difficulty shift and
+its tops, and overrides, on both declared Lua backends."""
 import importlib
 from pathlib import Path
 
@@ -12,4 +12,4 @@ ROOT = Path(__file__).resolve().parents[2]
 def test_mind(backend):
     runtime = importlib.import_module('lupa.' + backend).LuaRuntime()
     runtime.execute("package.path=... .. '/?.lua;' .. package.path", ROOT.as_posix())
-    assert runtime.execute((ROOT / 'tests/unit/combat_intent/test_mind.lua').read_text(encoding='utf-8')) == 5
+    assert runtime.execute((ROOT / 'tests/unit/combat_intent/test_mind.lua').read_text(encoding='utf-8')) == 6

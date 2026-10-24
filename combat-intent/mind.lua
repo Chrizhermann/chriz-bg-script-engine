@@ -133,7 +133,7 @@ function M.forFamily(base,family)
     return m
 end
 
--- Wit (docs/research/MIND-01-wit-and-difficulty.md; Christopher, 2026-10-23 and 2026-10-24):
+-- Wit (docs/research/MIND-01-wit-and-difficulty.md; Christopher, 2026-10-23 to 2026-10-25):
 -- how clever a creature fights around danger zones, from an override for it, its kind, the INT
 -- and WIS its file means and the game's difficulty, in this order. A dull creature sees no zone
 -- until it hurts and works nothing out ahead; a normal one sees the zone it stands in and leaves
@@ -141,8 +141,8 @@ end
 -- enemies behave in its own clouds (combat-intent/zones.lua, choice.lua). WIS sets how seriously
 -- it takes harm from zones.
 M.STEPS={dull=true,normal=true,clever=true}
--- The INT a step stands for when the creature's file says nothing (a kind or an override's step):
--- animal intelligence, average, exceptional.
+M.RANK={dull=1,normal=2,clever=3}
+-- The INT an override's step stands for: animal intelligence, average, exceptional.
 M.STEP_INT={dull=1,normal=10,clever=15}
 -- Steps by INT: dull up to DULL_INT, clever from CLEVER_INT, normal between.
 M.DULL_INT=5
@@ -157,27 +157,55 @@ M.NORMAL_DIFFICULTY=3
 M.DANGER_PER_WIS=0.05
 M.DANGER_MIN=0.5
 M.DANGER_MAX=1.5
--- The kinds (Christopher, 2026-10-24: a few categories after SCS first, split finer later). Casters
--- (mage and priest scripts) are clever. Dull, after SCS's test for unintelligent creatures
--- (sfo/filetype/lib_cre.tpa, CRE_check_if_moron; credit DavidW) but only the really dull ("nur für
--- wirklich sehr dumme Kreaturen"): animals and animated weapons (GENERAL.IDS 2, 101); zombies,
--- gibberlings, golems, slimes, carrion crawlers, ankhegs and basilisks (RACE.IDS 148, 109, 144,
--- 119, 104, 101, 102); skeletons and golems (CLASS.IDS 134, 182 to 185, 215). Everyone else is
--- normal: SCS counts most monsters unintelligent, but trolls, umber hulks, yuan-ti and the like
--- are no animals.
+-- The kinds: race groups (Christopher, 2026-10-24: a few categories first, split finer later;
+-- 2026-10-25: "Wir können gerne Rassengruppen erstmal machen"), after the intelligence classes of
+-- the old AD&D monster books, coarsened to four. Each stands for an INT where the creature's file
+-- means nothing; the dull and low groups also for the highest step the difficulty lifts a creature
+-- to, so that animals stay dull and ogres and trolls never turn clever on Insane ("Sowas darf nicht
+-- klug sein"). A step the creature's own INT or an override gives stays.
+M.GROUPS={
+    -- Animals and the mindless: dull on every setting.
+    dull={int=1,top='dull'},
+    -- Brutes: normal, dull below Normal, never clever by the difficulty.
+    low={int=7,top='normal'},
+    -- The peoples and everyone not listed: normal, clever on Insane.
+    average={int=10},
+    -- Clever, normal below Normal.
+    high={int=15},
+}
+-- Casters (mage and priest scripts) think as the high group, whatever their race.
 M.CASTERS={mage=true,priest=true}
-M.DULL_GENERAL={[2]=true,[101]=true}
-M.DULL_RACE={[148]=true,[109]=true,[144]=true,[119]=true,[104]=true,[101]=true,[102]=true}
-M.DULL_CLASS={[134]=true,[182]=true,[183]=true,[184]=true,[185]=true,[215]=true}
+M.CASTER_GROUP='high'
+-- Groups by IDS name, as the installed game's CLASS.IDS, RACE.IDS and GENERAL.IDS name a creature's
+-- values, so that a race a mod adds counts by its name; the class before the race, the race before
+-- the general. Dull after SCS's test for unintelligent creatures (sfo/filetype/lib_cre.tpa,
+-- CRE_check_if_moron; credit DavidW), but only the really dull ("nur für wirklich sehr dumme
+-- Kreaturen"): animals and animated weapons, the mindless dead and constructs, slimes and a few
+-- beasts. Skeleton warriors are no mindless skeletons.
+M.BY_CLASS={SKELETON='dull',GOLEM_IRON='dull',GOLEM_FLESH='dull',GOLEM_STONE='dull',GOLEM_CLAY='dull',
+    GOLEM_ICE='dull',SKELETON_WARRIOR='average'}
+M.BY_RACE={
+    ANKHEG='dull',BASILISK='dull',BEAR='dull',BEETLE='dull',BIRD='dull',CARRIONCRAWLER='dull',CAT='dull',
+    CHIMERA='dull',DOG='dull',GIBBERLING='dull',GOLEM='dull',KEG='dull',MAMMAL='dull',MIMIC='dull',RABBIT='dull',
+    REPTILE='dull',SHRIEKER='dull',SKELETON='dull',SLIME='dull',WOLF='dull',ZOMBIE='dull',
+    BUGBEAR='low',ELEMENTAL='low',ETTERCAP='low',ETTIN='low',GHOUL='low',GIANT='low',GNOLL='low',HARPY='low',
+    HOOK_HORROR='low',LIZARDMAN='low',MINOTAUR='low',OGRE='low',OTYUGH='low',SHAMBLING_MOUND='low',
+    SPIDER='low',TROLL='low',UMBERHULK='low',WYVERN='low',YETI='low',
+    ANTISOLAR='high',BEHOLDER='high',DARKPLANATAR='high',DEMILICH='high',DEMONIC='high',DRAGON='high',
+    GENIE='high',GITHYANKI='high',HALF_DRAGON='high',LICH='high',MIND_FLAYER='high',PLANATAR='high',
+    RAKSHASA='high',SALAMANDER='high',SOLAR='high',SUCCUBUS='high',VAMPIRE='high',VAMPYRE='high',
+    ['WILL-O-WISP']='high',YUANTI='high',
+}
+M.BY_GENERAL={ANIMAL='dull',WEAPON='dull'}
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
 local function clamp(v,a,b) if v<a then return a elseif v>b then return b end return v end
 
--- The step of c's kind (c.family, c.general, c.race, c.class).
-function M.kind(c)
-    if M.CASTERS[c.family] then return 'clever' end
-    if M.DULL_GENERAL[c.general] or M.DULL_RACE[c.race] or M.DULL_CLASS[c.class] then return 'dull' end
-    return 'normal'
+-- The group of c's kind: c.family ('mage', 'priest', 'fighter' or 'monster') and the IDS names
+-- c.class, c.race and c.general.
+function M.group(c)
+    if M.CASTERS[c.family] then return M.CASTER_GROUP end
+    return M.BY_CLASS[c.class] or M.BY_RACE[c.race] or M.BY_GENERAL[c.general] or 'average'
 end
 -- Whether a file's INT and WIS mean something: an INT above 0 that is not part of a template pair.
 function M.meant(int,wis)
@@ -191,25 +219,31 @@ function M.step(int)
     return 'normal'
 end
 -- A creature's wit from plain values: c.int and c.wis (its stats), c.general, c.race and c.class
--- (IDS values), c.family ('mage', 'priest', 'fighter' or 'monster'), c.difficulty (1 to 5) and
+-- (IDS names), c.family ('mage', 'priest', 'fighter' or 'monster'), c.difficulty (1 to 5) and
 -- c.resref. overrides (optional) holds, by resref, a step and a WIS that stand for the creature's
--- own; the difficulty shifts them as well. Returns {step, danger, int, wis, from}: from tells
--- whether an override, the file's values or the kind set the step.
+-- own; the difficulty shifts them as well. Returns {step, danger, int, wis, from, group}: from
+-- tells whether an override, the file's values or the kind set the INT, group the kind's group.
 function M.wit(c,overrides)
     c=type(c)=='table' and c or {}
     local o=type(overrides)=='table' and type(c.resref)=='string' and overrides[c.resref:upper()] or nil
     if type(o)~='table' then o=nil end
     local meant=M.meant(c.int,c.wis)
+    local group=M.group(c)
+    local top=M.GROUPS[group].top
     local int,wis,from
     if o and M.STEPS[o.step] then int,from=M.STEP_INT[o.step],'override'
     elseif meant then int,from=c.int,'stats'
-    else int,from=M.STEP_INT[M.kind(c)],'kind' end
+    else int,from=M.GROUPS[group].int,'kind' end
     if o and number(o.wis) then wis=o.wis elseif meant and number(c.wis) then wis=c.wis else wis=10 end
     local shift=0
     if number(c.difficulty) then shift=M.DIFFICULTY_STEP*(clamp(c.difficulty,1,5)-M.NORMAL_DIFFICULTY) end
+    -- The difficulty lifts the step no higher than the group's top, unless the creature's own INT
+    -- stands above it already.
+    local own,step=M.step(int),M.step(int+shift)
+    if top and M.RANK[step]>M.RANK[top] then step=M.RANK[own]>M.RANK[top] and own or top end
     int,wis=int+shift,wis+shift
-    return {step=M.step(int),danger=clamp(1+(wis-10)*M.DANGER_PER_WIS,M.DANGER_MIN,M.DANGER_MAX),int=int,wis=wis,
-        from=from}
+    return {step=step,danger=clamp(1+(wis-10)*M.DANGER_PER_WIS,M.DANGER_MIN,M.DANGER_MAX),int=int,wis=wis,
+        from=from,group=group}
 end
 -- The profile base with wit w: its step and danger weight, and its own clouds weighed as its step
 -- works them out: a clever creature as base says, a normal one by the cheaper of staying and

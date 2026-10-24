@@ -47,9 +47,13 @@ G.EEex_Resource_Fetch = function(resref, ext)
     return {nSize = #data, Demand = function() return {ptr = base} end}
 end
 G.EEex_UDToPtr = function(ud) return ud.ptr end
-G.EEex_Resource_LoadIDS = function(name) assert(name == 'PROJECTL') return 'ids' end
+local IDS = {PROJECTL = {{0, 'NONE'}, {1, 'Arrow'}, {2, 'fireball'}, {2, 'LATER'}, {5, 'TOOLONGNAME'}},
+             RACE = {{1, 'HUMAN'}, {113, 'ogre'}, {113, 'LATER'}, {114, 'SUCCUBUS'}, {181, 'WILL-O-WISP extra'},
+                     {200, '// comment'}}}
+idsLoads = 0
+G.EEex_Resource_LoadIDS = function(name) assert(IDS[name], 'no ' .. name) idsLoads = idsLoads + 1 return name end
 G.EEex_Resource_IterateUnpackedIDSEntries = function(ids, fn)
-    for _, row in ipairs({{0, 'NONE'}, {1, 'Arrow'}, {2, 'fireball'}, {2, 'LATER'}}) do fn(row[1], row[2], row[2]) end
+    for _, row in ipairs(IDS[ids]) do fn(row[1], row[2], row[2]) end
 end
 reader = require('adapters.eeex.resources').new(G)
 '''
@@ -134,6 +138,23 @@ def test_lookup_maps_projectiles_caches_and_ignores_bad_keys(backend):
     lua.execute('reader.reset()')
     lookup('SPL', 'SPWI304')
     assert lua.eval('fetches') == fetches + 1
+
+
+@pytest.mark.parametrize('backend', ['lua51', 'luajit21'])
+def test_ids_names_are_read_once_upper_case_first_wins(backend):
+    lua = runtime(backend)
+    name = lua.eval('reader.idsName')
+    assert name('RACE', 113) == 'OGRE' and name('race', 1) == 'HUMAN' and name('RACE', 114) == 'SUCCUBUS'
+    assert name('RACE', 181) == 'WILL-O-WISP' and name('RACE', 200) is None and name('RACE', 2) is None
+    assert name('RACE', 'x') is None and name(None, 1) is None
+    assert lua.eval('idsLoads') == 1 and list(lua.eval('reader.problems').values()) == []
+    # A file the game cannot give is one problem and no names; the projectile names keep their own
+    # rule (resrefs of eight letters at most).
+    assert name('CLASS', 2) is None and name('CLASS', 3) is None
+    assert len(lua.eval('reader.problems')) == 1 and 'CLASS.IDS unreadable' in lua.eval('reader.problems')[1]
+    assert lua.eval('reader.projectile')(6) is None
+    lua.execute('reader.reset()')
+    assert name('RACE', 113) == 'OGRE' and lua.eval('idsLoads') == 3
 
 
 @pytest.mark.parametrize('backend', ['lua51', 'luajit21'])

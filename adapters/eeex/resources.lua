@@ -163,11 +163,12 @@ end
 local PARSERS={SPL=spl,ITM=itm,EFF=eff,PRO=pro,CRE=cre}
 
 -- reader.get(kind, resref), reader.projectile(field value) and reader.lookup(kind, key), the
--- callable spells.classify takes (PRO by projectile field value, the rest by resref).
+-- callable spells.classify takes (PRO by projectile field value, the rest by resref);
+-- reader.idsName(file, number), the name an IDS file gives a number (upper case).
 function M.new(g)
     local read=natives(g)
     local reader={problems={}}
-    local cache,projectiles,seen={},nil,{}
+    local cache,idsFiles,seen={},{},{}
     local function problem(text)
         if seen[text] or #reader.problems>=M.maxProblems then return end
         seen[text]=true;reader.problems[#reader.problems+1]=text
@@ -200,30 +201,39 @@ function M.new(g)
         cache[key]=value or false
         return value
     end
+    -- An IDS file read once: each number with the first name for it that accept takes.
+    local function ids(file,accept)
+        if idsFiles[file] then return idsFiles[file] end
+        local names={}
+        idsFiles[file]=names
+        local ok,err=pcall(function()
+            local loaded=g.EEex_Resource_LoadIDS(file)
+            g.EEex_Resource_IterateUnpackedIDSEntries(loaded,function(id,line,start)
+                local name=type(start)=='string' and start:match('^%s*(%S+)') or
+                    type(line)=='string' and line:match('^%s*(%S+)')
+                if type(id)=='number' and name and not name:find('^//') and (not accept or accept(name))
+                    and names[id]==nil then names[id]=upper(name) end
+            end)
+        end)
+        if not ok then problem(file..'.IDS unreadable: '..tostring(err)) end
+        return names
+    end
+    local function resrefName(name) return #name<=8 end
     -- Field value N is PROJECTL.IDS entry N-1; the first entry for a number wins.
     function reader.projectile(number)
         if type(number)~='number' then return nil end
-        if projectiles==nil then
-            projectiles={}
-            local ok,err=pcall(function()
-                local ids=g.EEex_Resource_LoadIDS('PROJECTL')
-                g.EEex_Resource_IterateUnpackedIDSEntries(ids,function(id,line,start)
-                    local name=type(start)=='string' and start:match('^%s*(%S+)') or
-                        type(line)=='string' and line:match('^%s*(%S+)')
-                    if type(id)=='number' and name and #name<=8 and not name:find('^//')
-                        and projectiles[id+1]==nil then projectiles[id+1]=upper(name) end
-                end)
-            end)
-            if not ok then problem('PROJECTL.IDS unreadable: '..tostring(err)) end
-        end
-        local resref=projectiles[number]
+        local resref=ids('PROJECTL',resrefName)[number-1]
         return resref and reader.get('PRO',resref) or nil
+    end
+    function reader.idsName(file,number)
+        if type(file)~='string' or type(number)~='number' then return nil end
+        return ids(upper(file))[number]
     end
     function reader.lookup(kind,key)
         if kind=='PRO' and type(key)=='number' then return reader.projectile(key) end
         return reader.get(kind,key)
     end
-    function reader.reset() cache,projectiles,seen={},nil,{};reader.problems={} end
+    function reader.reset() cache,idsFiles,seen={},{},{};reader.problems={} end
     return reader
 end
 return M

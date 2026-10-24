@@ -34,13 +34,16 @@ then kiting (`RunAwayFromNoLeaveArea` with `SetInterrupt(FALSE)`) and 34 blocks 
 with `AttackReevaluate(target,30)`. SCS's monster scripts carry about 100 melee and movement blocks
 each plus innate powers ([HOOK-02](HOOK-02-monster-scripts-and-script-slots.md)).
 
-## Staging (proposed 2026-10-25, Christopher's answer open)
+## Staging (agreed 2026-10-25)
 
 - **F1:** melee fighters and monsters. Targets by worth, walking to them, potions and kit abilities
-  through the buff valuation, monsters' innate spells. SCS keeps monster specials such as beholder
-  rays (as for casters).
-- **F2:** archers (weapon switching and kiting), thieves (SCS's invisibility and backstab plan),
-  debuffs such as Aura of Despair, and on-hit enhancers (below).
+  through the buff valuation, monsters' innate spells.
+- **F2, straight after:** archers (weapon switching and kiting), thieves (the invisibility and
+  backstab plan), debuffs such as Aura of Despair, and on-hit enhancers (below).
+
+Christopher: "Hauptsache, wir stoppen nicht wieder random davor und sagen, ah, lohnt sich jetzt
+nicht … Also ich würde es schon ordentlich trennen." No release pressure; testing F1 and F2 in the
+same lab is fine too.
 
 ## Built
 
@@ -92,20 +95,37 @@ engine's or the script's, starts the pause before the next defence (SCS's redefe
   game's attack actions do; the engine decides again after the round. The choice row logs the walk
   (`walk`, seconds). A long walk is still to be seen in a lab.
 
-## Open
+## Agreed (Christopher, 2026-10-25)
 
-To decide with Christopher before fighters and monsters are switched on (F1e):
+1. **Target choice by worth, with overrides.** Not SCS's fixed list ("Ich würde es nicht eins zu
+   eins so eine statische Liste machen … Das ist ein bisschen zu simpel"): worth decides, with a
+   bonus for interrupting an enemy that is casting. And for target choice "und bei solchen
+   ähnlichen Entscheidungen, die KI treffen muss, immer auch einen Override", for example "wenn ein
+   bestimmter Gegner immer auf den Main-Charakter gehen soll".
+2. **Staging** as above.
+3. **Wit by race group** ([MIND-01](MIND-01-wit-and-difficulty.md), built): ogres and trolls stay
+   normal on Insane. More detail later if needed.
+4. **Fighters and monsters always attack** when nothing else is worth more; what standing next to
+   an enemy costs (`weapons.exposure`) only chooses between targets ("dein Vorschlag an sich passt
+   mir"). Casters keep the weighing.
 
-1. **Target choice:** by worth with a bonus for interrupting an enemy that is casting, or SCS's fixed
-   preference for casters?
-2. **Staging** as above: archers and thieves stay SCS's until F2?
-3. **Wit for monsters:** on Insane the normal kind's INT reaches 14, so ogres and trolls turn clever
-   ([MIND-01](MIND-01-wit-and-difficulty.md)); Christopher: "Sowas darf nicht klug sein. Da brauchen
-   wir bessere Rechnungen". Proposed: steps by race group, AD&D-like.
-4. **Fighters and the cost of standing next to an enemy:** a weak fighter refuses an enemy that hits
-   harder than it does, because what it would lose next to it (`weapons.exposure`) outweighs its
-   hits; then SCS attacks anyway. Proposed: fighters and monsters always attack when nothing else is
-   worth more, the cost only choosing between targets; casters keep the weighing.
+Two rules for the whole engine came with it:
+
+- **No more SCS takeovers.** "Ich will, wie gesagt, nichts mehr mit SCS übernimmt … Wir haben
+  keinen Release-Druck, wir müssen SCS nichts überlassen. Das machen wir wirklich, wenn dann nur
+  zum Testen … diese SCS-Übernahmen und diese Schwellen und all so ein Kram, das brauchen wir alles
+  nicht … lieber direkt bei uns in der eigenen Engine nachbauen … Mit geilerer KI." So the engine
+  owns the whole round: no decline that hands a round to SCS's blocks below the hook (between two
+  engine actions SCS's round timer runs and SCS's melee filler takes over today), no worth
+  thresholds below which SCS acts. SCS's logic stays the blueprint, rebuilt in the engine.
+- **Instant actions do not take the round.** "Tränke nehmen, Fähigkeiten benutzen … können auch
+  teilweise nicht eine ganze Runde dauern, sondern instant sein. Und müssen dann nicht die ganze
+  Runde übernehmen. Das gilt auch für viele Dinge … Bei Magiern … Auch bei Bogenschützen." The
+  engine decides again right after such an action.
+
+And the tone: not too clever, but immersive and sensible; "ein paar Gegner, die einfach ein paar
+blöde Entscheidungen machen … vollkommen in Ordnung", and in the end a challenge on high
+difficulty.
 
 Known gaps, for later:
 
