@@ -913,6 +913,30 @@ assert(g10.BGSE_Claim(unsummoner,'mage','s1')==true)
 local unsummon=last10('choice',4)
 assert(unsummon and unsummon.castKind=='removal' and unsummon.spell=='TESTUNSU' and unsummon.target==14 and
     unsummon.mode=='creature' and ch10:inspect().counts.removals==1)
+-- A creature that chases (F1d: the profile of fighters and monsters) goes for an enemy 400 away
+-- with its staff: AttackOneRound walks there first, and the choice row logs the 3.36 seconds. (Its
+-- 400 hit points make what the enemy deals next to it a small price.)
+;(function()
+local profiles=require('combat-intent.mind')
+local g=world()
+local chaser=g.add(armed(sprite(1,0,0,255),35,'TESTSTAF'))
+chaser.stats[8],chaser.stats[7],chaser.stats[2]=1,14,8
+chaser.m_baseStats.m_hitPoints=400;chaser.stats[1]=400
+g.add(sprite(11,400,0,2)).stats[2]=5
+local dir=directors.new(g,{reader=reader9})
+local ch=choices.new(g,{reader=reader9,director=dir,seed=19,
+    mindFor=function() return profiles.forFamily(profiles.new(),'fighter') end})
+local rows={}
+ch:setSink(function(row) rows[#rows+1]=row end)
+runtime.install(g,{director=dir,choice=ch,version='test'})
+g.ticks=100
+assert(g.BGSE_Claim(chaser,'mage','s1')==true)
+local c
+for n=#rows,1,-1 do if rows[n].kind=='choice' then c=rows[n];break end end
+assert(c.castKind=='weapon' and c.target==11 and math.abs(c.walk-3.36)<1e-9)
+g.BGSE_Act(chaser)
+assert(g.queued[#g.queued].text=='SetGlobalTimer("castspell","LOCALS",ONE_ROUND)\nAttackOneRound(EEex_Target("BGSE"))')
+end)()
 groups=groups+1
 
 -- 20. Releases (D2b). A mage with SCS's kind of sequencer (an innate that casts two bolts at its

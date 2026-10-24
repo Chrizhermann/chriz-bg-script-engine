@@ -109,25 +109,29 @@ groups=groups+1
 
 -- 3. Attacks with the weapon in hand: a round of its hits on each enemy it reaches. A mace (4.5,
 -- crushing) hits 0.8 times a round; an enemy at four hit points dies as likely as the hit lands;
--- crushing resistance halves it. Standing next to the enemy costs what its weapon deals there.
+-- crushing resistance halves it. Standing next to the enemy costs what its weapon deals there. The
+-- enemy stands 100 away, 36 beyond a weapon's reach: the walk of 0.36 seconds comes first, and the
+-- round of hits counts as the round and the walk take it.
 local i=input()
 i.frame.self.weapon=MACE
 i.frame.enemies={enemy(11,{x=200})}
 local list=choice.weaponOptions(i)
 local o=list[1]
+local pace=6/(6+0.36)
 assert(#list==1 and o.kind=='weapon' and o.target==11 and o.resref=='TESTMACE' and o.mode=='creature')
-assert(near(o.worth,0.8*4.5/60) and o.cost>0 and near(o.score,o.worth-o.cost) and near(o.expected[11],3.6))
+assert(near(o.worth,0.8*4.5/60*pace) and o.cost>0 and near(o.score,o.worth-o.cost) and near(o.expected[11],3.6))
+assert(near(o.walk,0.36))
 i.frame.enemies={enemy(11,{x=200,hp=4})}
-assert(near(choice.weaponOptions(i)[1].worth,3.6/60+0.5*0.8))
+assert(near(choice.weaponOptions(i)[1].worth,(3.6/60+0.5*0.8)*pace))
 -- A minimum keeps that enemy alive: the hits take what it has above it and kill no one; at its
 -- minimum there is nothing to take.
 i.frame.enemies={enemy(11,{x=200,hp=4,minHp=1})}
 o=choice.weaponOptions(i)[1]
-assert(near(o.worth,3/60) and near(o.expected[11],3))
+assert(near(o.worth,3/60*pace) and near(o.expected[11],3))
 i.frame.enemies={enemy(11,{x=200,hp=1,minHp=1})}
 assert(#choice.weaponOptions(i)==0)
 i.frame.enemies={enemy(11,{x=200,resist={crushing=50}})}
-assert(near(choice.weaponOptions(i)[1].worth,0.8*2.25/60))
+assert(near(choice.weaponOptions(i)[1].worth,0.8*2.25/60*pace))
 -- Out of reach, immune, behind a Mirror Image: no attack, and why.
 local rejected={}
 i.frame.enemies={enemy(11,{x=300}),enemy(12,{x=200,protections={{opcode=120,p1=0,p2=2}}}),enemy(13,{x=210,mirror=1})}
@@ -232,6 +236,47 @@ i.frame.enemies={enemy(11,{x=200})}
 i.frame.fallen={{id=3,x=130,y=100,state=0x800,gender=1}}
 d,why=choice.decide(i)
 assert(why=='weapon' and d.kind=='weapon')
+groups=groups+1
+
+-- 8. Chasing (F1d). A creature that chases (fighters and monsters) walks to any enemy it sees, a
+-- caster no further than touchReach, one that cannot walk (webbed or entangled) no further than a
+-- weapon reaches. The walk lowers the worth: an enemy 664 away takes six seconds at a fighter's
+-- hundred a second, so a round of hits there counts half; twice as fast, two thirds. A wounded one
+-- far off is still worth the walk.
+assert(near(weapons.walk({x=100,y=100},{x=364,y=100}),2) and weapons.walk({x=100,y=100},{x=150,y=100})==0)
+assert(near(weapons.walk({x=100,y=100,speed=200},{x=364,y=100}),1))
+assert(weapons.paced(0)==1 and near(weapons.paced(3),2/3) and weapons.paced(nil)==1)
+assert(mind.forFamily(mind.new(),'fighter').chase and mind.forFamily(mind.new(),'monster').chase)
+assert(not mind.new().chase and not mind.forFamily(mind.new(),'mage').chase)
+assert(select(2,mind.new({chase=1}))=='chase')
+assert(weapons.reach(mind.new({chase=true}))==math.huge and weapons.reach(mind.new())==160)
+assert(weapons.reach(mind.new({chase=true}),{rooted=true})==64)
+i=input({mind=mind.forFamily(mind.new(),'fighter')})
+i.frame.self.weapon=MACE
+i.frame.enemies={enemy(11,{x=164}),enemy(12,{x=764})}
+list=choice.weaponOptions(i)
+assert(#list==2 and list[1].target==11 and list[1].walk==nil and near(list[1].worth,0.8*4.5/60))
+assert(list[2].target==12 and near(list[2].walk,6) and near(list[2].worth,0.8*4.5/60/2))
+i.frame.self.speed=200
+o=choice.weaponOptions(i)[2]
+assert(o.target==12 and near(o.walk,3) and near(o.worth,0.8*4.5/60*2/3))
+i.frame.self.speed=nil
+i.frame.enemies={enemy(11,{x=164}),enemy(12,{x=764,hp=4})}
+o=choice.weaponOptions(i)[1]
+assert(o.target==12 and near(o.worth,(3.6/60+0.5*0.8)/2))
+local d8,why8=choice.decide(i)
+assert(why8=='weapon' and d8.target==12 and near(d8.walk,6))
+-- A caster does not go that far; webbed, a fighter strikes only what its weapon reaches.
+i.mind=mind.new()
+rejected={}
+list=choice.weaponOptions(i,rejected)
+assert(#list==1 and list[1].target==11 and rejected['out-of-reach']==1)
+i.mind=mind.forFamily(mind.new(),'fighter')
+i.frame.self.rooted=true
+i.frame.enemies={enemy(11,{x=164}),enemy(12,{x=200})}
+rejected={}
+list=choice.weaponOptions(i,rejected)
+assert(#list==1 and list[1].target==11 and rejected['out-of-reach']==1)
 groups=groups+1
 
 return groups

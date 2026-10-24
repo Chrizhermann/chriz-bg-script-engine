@@ -2022,6 +2022,10 @@ M.default={
     -- Its own weapon counts for its own buffs (Kai, Whirlwind Attack, rages, potions): fighters and
     -- monsters swing (M.FAMILIES), casters cast.
     ownWeapon=false,
+    -- It walks to any enemy it sees for a melee attack, as SCS's fighters and monsters do (their
+    -- MoveToObject blocks), the walk lowering what the attack is worth (combat-intent/weapons.lua):
+    -- fighters and monsters (M.FAMILIES). A caster goes no further than touchReach.
+    chase=false,
     -- Summons (D3c): no more summoning once this many summoned allies are in view (the game's own
     -- limit for summoned creatures is five).
     summonCap=5,
@@ -2056,6 +2060,7 @@ local CHECKS={coordination=share,best=share,band=share,economy=amount,minValue=a
     touch=function(v) return type(v)=='boolean' end,
     weapons=function(v) return type(v)=='boolean' end,
     ownWeapon=function(v) return type(v)=='boolean' end,
+    chase=function(v) return type(v)=='boolean' end,
     memory=function(v) return type(v)=='boolean' end,
     knowledge=function(v) return v=='scs' end,
     clouds=function(v) return v=='learned' or v=='best' or v=='once' end,
@@ -2081,8 +2086,9 @@ function M.new(changes)
     return mind
 end
 
--- What a family's script changes in the profile: fighters and monsters fight with their weapons.
-M.FAMILIES={fighter={ownWeapon=true},monster={ownWeapon=true}}
+-- What a family's script changes in the profile: fighters and monsters fight with their weapons
+-- and walk to the enemies they attack.
+M.FAMILIES={fighter={ownWeapon=true,chase=true},monster={ownWeapon=true,chase=true}}
 -- The profile base as a creature of the family ('mage', 'priest', 'fighter' or 'monster') thinks.
 function M.forFamily(base,family)
     local changes=M.FAMILIES[family]
@@ -2577,8 +2583,12 @@ function M.immuneTo(e,w)
 end
 
 -- How far, in world units, the caster goes for a melee hit: the profile's touchReach in range
--- units (SCS's touch attacks: within 10).
-function M.reach(mind)
+-- units (SCS's touch attacks: within 10); any distance for a creature that chases (mind.chase:
+-- fighters and monsters); no further than a weapon reaches (threat.reach) for one that cannot walk
+-- (webbed or entangled: caster.rooted).
+function M.reach(mind,caster)
+    if type(caster)=='table' and caster.rooted==true then return threat.reach end
+    if type(mind)=='table' and mind.chase==true then return math.huge end
     return (type(mind)=='table' and number(mind.touchReach) and mind.touchReach or 0)*targeting.rangeUnit
 end
 -- Whether the caster can attack e with weapon w: alive, no sanctuary, seen, within the weapon's
@@ -2590,9 +2600,23 @@ function M.reachable(caster,e,mind,w)
     if targeting.has(e.state,UNSEEN) and not caster.seeInvisible then return false,'invisible' end
     local d=targeting.distance(caster,e)
     if d==math.huge then return false,'no-position' end
-    local far=type(w)=='table' and w.ranged and (number(w.range) and w.range or 0) or M.reach(mind)
+    local far=type(w)=='table' and w.ranged and (number(w.range) and w.range or 0) or M.reach(mind,caster)
     if d>far then return false,'out-of-reach' end
     return true
+end
+-- Seconds the caster walks before it can strike e in melee: from where it stands to a weapon's
+-- reach of e (threat.reach), at its own speed or a fighter's (threat.stride a round).
+function M.walk(caster,e)
+    local d=targeting.distance(caster,e)
+    if d==math.huge then return 0 end
+    local speed=number(caster.speed) and caster.speed>0 and caster.speed or threat.stride/threat.ROUND
+    return math.max(0,d-threat.reach)/speed
+end
+-- The share of a round of melee hits that counts as this round's when a walk of the given seconds
+-- comes first: the hits take the round and the walk (a walk of half a round leaves two thirds).
+function M.paced(walk)
+    if not number(walk) or walk<=0 then return 1 end
+    return threat.ROUND/(threat.ROUND+walk)
 end
 
 -- Hit points a round the caster takes at spot from melee weapons that reach it already: living
@@ -4846,7 +4870,9 @@ factories["combat-intent.choice"]=function(require)
 --
 -- Weapon attacks (D2c, combat-intent/weapons.lua; Christopher, 2026-10-20): the weapon in the
 -- caster's hand, conjured or not, is worth a round of its hits on the enemy it attacks, less what
--- standing next to that enemy costs for melee. It spends nothing, so it needs no minimum worth:
+-- standing next to that enemy costs for melee. The walk to a melee enemy comes first and lowers
+-- the worth; fighters and monsters walk to any enemy they see (mind.chase, F1d), casters only
+-- within touchReach. It spends nothing, so it needs no minimum worth:
 -- when no spell reaches minValue, the engine attacks instead of leaving the round to SCS. A spell
 -- that conjures a weapon is worth the hits the weapon deals in the rounds after, as many as it
 -- lasts within the horizon. Neither in the caster's own Time Stop nor under Improved Alacrity.
@@ -5531,10 +5557,11 @@ function M.options(input,rejected)
 end
 
 -- Attacks with the weapon in the caster's hand (frame.self.weapon, arms): at each enemy it
--- reaches and can hurt, best first. Worth: a round of its hits; cost: for melee, the hit points
--- the caster loses to the weapons around the target that round, times caution. Not while the
--- caster holds a touch charge (the strike decides where that goes), in its own Time Stop or
--- under Improved Alacrity.
+-- reaches and can hurt, best first. Worth: a round of its hits, for melee as much of it as counts
+-- for a round after the walk to the enemy (weapons.paced; a creature that chases walks to any
+-- enemy it sees, weapons.reach); cost: for melee, the hit points the caster loses to the weapons
+-- around the target that round, times caution. Not while the caster holds a touch charge (the
+-- strike decides where that goes), in its own Time Stop or under Improved Alacrity.
 function M.weaponOptions(input,rejected)
     local out={}
     local function reject(why) if rejected then rejected[why]=(rejected[why] or 0)+1 end end
@@ -5551,11 +5578,15 @@ function M.weaponOptions(input,rejected)
             local hits=weapons.hits(arms.apr,arms.thac0,e)
             local worth,expected=hitsOn(input,arms,hits,e)
             if worth>0 then
-                local cost=0
-                if not arms.ranged and maxHp then cost=mind.caution*weapons.exposure(frame,e)/maxHp end
+                local cost,walk=0,0
+                if not arms.ranged then
+                    walk=weapons.walk(caster,e)
+                    worth=worth*weapons.paced(walk)
+                    if maxHp then cost=mind.caution*weapons.exposure(frame,e)/maxHp end
+                end
                 out[#out+1]={resref=arms.item or 'WEAPON',kind='weapon',mode='creature',target=e.id,worth=worth,
                     cost=cost,score=worth-cost,hits={e.id},slack=0,expected={[e.id]=expected},speed=0,
-                    melee=not arms.ranged or nil}
+                    melee=not arms.ranged or nil,walk=walk>0 and walk or nil}
             else reject(hits<=0 and 'absorbed' or 'no-worth') end
         else reject(why) end
     end
@@ -7210,8 +7241,10 @@ factories["adapters.eeex.choice"]=function(require)
 -- what its hit casts or applies, classified), its attacks a round and whether the magic weapon
 -- slot is taken. A weapon attack is AttackOneRound at EEex_Target after SCS's round timer, like
 -- a strike; the creature is held while it attacks, or while the timer runs and its target lives,
--- and then whether its target lost hit points is recorded. A spell that conjures a weapon is cast
--- on the caster.
+-- and then whether its target lost hit points is recorded. AttackOneRound walks to a target out of
+-- reach first, as the game's attack actions do, so a creature that chases (F1d) needs no move of
+-- its own (a long walk is still to be seen in a lab); the choice row logs the seconds of the walk.
+-- A spell that conjures a weapon is cast on the caster.
 --
 -- Healing and curing (D3a, D3b): a heal or cure is cast on the caster, at an ally (sanctuary does
 -- not keep it out) or at a point; a potion is drunk with UseItem. Like a disable, it claims the
@@ -8440,7 +8473,7 @@ function M.new(g,options)
             focus=input.plan.focus,rule=d.rule,stop=input.timeStop and input.timeStop.left or nil,
             alacrity=frame.self.alacrity or nil,release=d.release,use=d.use,creatures=d.creatures,count=d.count,
             rest=d.rest,slots=input.slots,finish=d.finish,aura=frame.self.aura~=0 and frame.self.aura or nil,
-            inZones=zoneView(input,d),lasting=d.lasting,wit=input.mind.wit})
+            inZones=zoneView(input,d),lasting=d.lasting,wit=input.mind.wit,walk=d.walk})
         -- A disable claims its targets in the group at once, so that another member deciding
         -- before this cast starts leaves them alone; any other decision gives earlier claims back.
         if director then

@@ -26,7 +26,9 @@
 --
 -- Weapon attacks (D2c, combat-intent/weapons.lua; Christopher, 2026-10-20): the weapon in the
 -- caster's hand, conjured or not, is worth a round of its hits on the enemy it attacks, less what
--- standing next to that enemy costs for melee. It spends nothing, so it needs no minimum worth:
+-- standing next to that enemy costs for melee. The walk to a melee enemy comes first and lowers
+-- the worth; fighters and monsters walk to any enemy they see (mind.chase, F1d), casters only
+-- within touchReach. It spends nothing, so it needs no minimum worth:
 -- when no spell reaches minValue, the engine attacks instead of leaving the round to SCS. A spell
 -- that conjures a weapon is worth the hits the weapon deals in the rounds after, as many as it
 -- lasts within the horizon. Neither in the caster's own Time Stop nor under Improved Alacrity.
@@ -711,10 +713,11 @@ function M.options(input,rejected)
 end
 
 -- Attacks with the weapon in the caster's hand (frame.self.weapon, arms): at each enemy it
--- reaches and can hurt, best first. Worth: a round of its hits; cost: for melee, the hit points
--- the caster loses to the weapons around the target that round, times caution. Not while the
--- caster holds a touch charge (the strike decides where that goes), in its own Time Stop or
--- under Improved Alacrity.
+-- reaches and can hurt, best first. Worth: a round of its hits, for melee as much of it as counts
+-- for a round after the walk to the enemy (weapons.paced; a creature that chases walks to any
+-- enemy it sees, weapons.reach); cost: for melee, the hit points the caster loses to the weapons
+-- around the target that round, times caution. Not while the caster holds a touch charge (the
+-- strike decides where that goes), in its own Time Stop or under Improved Alacrity.
 function M.weaponOptions(input,rejected)
     local out={}
     local function reject(why) if rejected then rejected[why]=(rejected[why] or 0)+1 end end
@@ -731,11 +734,15 @@ function M.weaponOptions(input,rejected)
             local hits=weapons.hits(arms.apr,arms.thac0,e)
             local worth,expected=hitsOn(input,arms,hits,e)
             if worth>0 then
-                local cost=0
-                if not arms.ranged and maxHp then cost=mind.caution*weapons.exposure(frame,e)/maxHp end
+                local cost,walk=0,0
+                if not arms.ranged then
+                    walk=weapons.walk(caster,e)
+                    worth=worth*weapons.paced(walk)
+                    if maxHp then cost=mind.caution*weapons.exposure(frame,e)/maxHp end
+                end
                 out[#out+1]={resref=arms.item or 'WEAPON',kind='weapon',mode='creature',target=e.id,worth=worth,
                     cost=cost,score=worth-cost,hits={e.id},slack=0,expected={[e.id]=expected},speed=0,
-                    melee=not arms.ranged or nil}
+                    melee=not arms.ranged or nil,walk=walk>0 and walk or nil}
             else reject(hits<=0 and 'absorbed' or 'no-worth') end
         else reject(why) end
     end

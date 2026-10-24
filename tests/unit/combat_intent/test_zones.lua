@@ -231,6 +231,20 @@ do
     local into={resref='SWORD',kind='weapon',melee=true,worth=0.3,cost=0,score=0.3,speed=0,target=6}
     zones.adjust(outside,into,{[6]={id=6,x=120,y=100}})
     assert(into.worth<0.3)
+    -- A fighter that chases (F1d): a wounded enemy far off is worth the walk, but not through the
+    -- fire, where three seconds cost more than it is worth; a dull one sees no cloud and goes.
+    local mace={item='MACE',damage=8,damageType=2,apr=2,thac0=5,ranged=false,flags=0,enchantment=0}
+    local soft={apr=0.5,thac0=20,damage=1}
+    local function chaser(wit,list)
+        local c=input({zones=list or {zone(fire,{x=400})},mind=mind.forFamily(mind.new(),'fighter')},{x=900,weapon=mace})
+        if wit then c.mind.wit=wit end
+        c.frame.enemies={enemy(5,{x=1000,attack=soft}),enemy(6,{x=200,hp=8,attack=soft})}
+        return c
+    end
+    assert(choice.decide(chaser(nil,{})).target==6)
+    local d,why=choice.decide(chaser())
+    assert(why=='weapon' and d.target==5)
+    assert(choice.decide(chaser('dull')).target==6)
     groups=groups+1
 end
 

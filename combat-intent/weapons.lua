@@ -66,8 +66,12 @@ function M.immuneTo(e,w)
 end
 
 -- How far, in world units, the caster goes for a melee hit: the profile's touchReach in range
--- units (SCS's touch attacks: within 10).
-function M.reach(mind)
+-- units (SCS's touch attacks: within 10); any distance for a creature that chases (mind.chase:
+-- fighters and monsters); no further than a weapon reaches (threat.reach) for one that cannot walk
+-- (webbed or entangled: caster.rooted).
+function M.reach(mind,caster)
+    if type(caster)=='table' and caster.rooted==true then return threat.reach end
+    if type(mind)=='table' and mind.chase==true then return math.huge end
     return (type(mind)=='table' and number(mind.touchReach) and mind.touchReach or 0)*targeting.rangeUnit
 end
 -- Whether the caster can attack e with weapon w: alive, no sanctuary, seen, within the weapon's
@@ -79,9 +83,23 @@ function M.reachable(caster,e,mind,w)
     if targeting.has(e.state,UNSEEN) and not caster.seeInvisible then return false,'invisible' end
     local d=targeting.distance(caster,e)
     if d==math.huge then return false,'no-position' end
-    local far=type(w)=='table' and w.ranged and (number(w.range) and w.range or 0) or M.reach(mind)
+    local far=type(w)=='table' and w.ranged and (number(w.range) and w.range or 0) or M.reach(mind,caster)
     if d>far then return false,'out-of-reach' end
     return true
+end
+-- Seconds the caster walks before it can strike e in melee: from where it stands to a weapon's
+-- reach of e (threat.reach), at its own speed or a fighter's (threat.stride a round).
+function M.walk(caster,e)
+    local d=targeting.distance(caster,e)
+    if d==math.huge then return 0 end
+    local speed=number(caster.speed) and caster.speed>0 and caster.speed or threat.stride/threat.ROUND
+    return math.max(0,d-threat.reach)/speed
+end
+-- The share of a round of melee hits that counts as this round's when a walk of the given seconds
+-- comes first: the hits take the round and the walk (a walk of half a round leaves two thirds).
+function M.paced(walk)
+    if not number(walk) or walk<=0 then return 1 end
+    return threat.ROUND/(threat.ROUND+walk)
 end
 
 -- Hit points a round the caster takes at spot from melee weapons that reach it already: living

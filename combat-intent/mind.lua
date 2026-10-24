@@ -57,6 +57,10 @@ M.default={
     -- Its own weapon counts for its own buffs (Kai, Whirlwind Attack, rages, potions): fighters and
     -- monsters swing (M.FAMILIES), casters cast.
     ownWeapon=false,
+    -- It walks to any enemy it sees for a melee attack, as SCS's fighters and monsters do (their
+    -- MoveToObject blocks), the walk lowering what the attack is worth (combat-intent/weapons.lua):
+    -- fighters and monsters (M.FAMILIES). A caster goes no further than touchReach.
+    chase=false,
     -- Summons (D3c): no more summoning once this many summoned allies are in view (the game's own
     -- limit for summoned creatures is five).
     summonCap=5,
@@ -91,6 +95,7 @@ local CHECKS={coordination=share,best=share,band=share,economy=amount,minValue=a
     touch=function(v) return type(v)=='boolean' end,
     weapons=function(v) return type(v)=='boolean' end,
     ownWeapon=function(v) return type(v)=='boolean' end,
+    chase=function(v) return type(v)=='boolean' end,
     memory=function(v) return type(v)=='boolean' end,
     knowledge=function(v) return v=='scs' end,
     clouds=function(v) return v=='learned' or v=='best' or v=='once' end,
@@ -116,8 +121,9 @@ function M.new(changes)
     return mind
 end
 
--- What a family's script changes in the profile: fighters and monsters fight with their weapons.
-M.FAMILIES={fighter={ownWeapon=true},monster={ownWeapon=true}}
+-- What a family's script changes in the profile: fighters and monsters fight with their weapons
+-- and walk to the enemies they attack.
+M.FAMILIES={fighter={ownWeapon=true,chase=true},monster={ownWeapon=true,chase=true}}
 -- The profile base as a creature of the family ('mage', 'priest', 'fighter' or 'monster') thinks.
 function M.forFamily(base,family)
     local changes=M.FAMILIES[family]

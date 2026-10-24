@@ -41,8 +41,10 @@
 -- what its hit casts or applies, classified), its attacks a round and whether the magic weapon
 -- slot is taken. A weapon attack is AttackOneRound at EEex_Target after SCS's round timer, like
 -- a strike; the creature is held while it attacks, or while the timer runs and its target lives,
--- and then whether its target lost hit points is recorded. A spell that conjures a weapon is cast
--- on the caster.
+-- and then whether its target lost hit points is recorded. AttackOneRound walks to a target out of
+-- reach first, as the game's attack actions do, so a creature that chases (F1d) needs no move of
+-- its own (a long walk is still to be seen in a lab); the choice row logs the seconds of the walk.
+-- A spell that conjures a weapon is cast on the caster.
 --
 -- Healing and curing (D3a, D3b): a heal or cure is cast on the caster, at an ally (sanctuary does
 -- not keep it out) or at a point; a potion is drunk with UseItem. Like a disable, it claims the
@@ -1271,7 +1273,7 @@ function M.new(g,options)
             focus=input.plan.focus,rule=d.rule,stop=input.timeStop and input.timeStop.left or nil,
             alacrity=frame.self.alacrity or nil,release=d.release,use=d.use,creatures=d.creatures,count=d.count,
             rest=d.rest,slots=input.slots,finish=d.finish,aura=frame.self.aura~=0 and frame.self.aura or nil,
-            inZones=zoneView(input,d),lasting=d.lasting,wit=input.mind.wit})
+            inZones=zoneView(input,d),lasting=d.lasting,wit=input.mind.wit,walk=d.walk})
         -- A disable claims its targets in the group at once, so that another member deciding
         -- before this cast starts leaves them alone; any other decision gives earlier claims back.
         if director then
