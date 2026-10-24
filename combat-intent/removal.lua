@@ -44,6 +44,7 @@ local defence=require('combat-intent.defence')
 local care=require('combat-intent.care')
 local ids=require('combat-intent.ids')
 local spells=require('combat-intent.spells')
+local weapons=require('combat-intent.weapons')
 local M={}
 M.ROUND=6
 M.speedSeconds=0.6
@@ -318,17 +319,35 @@ function M.on(input,spell,e,r)
     return worth,worth<0 and 'frees' or nil
 end
 
--- Whether e can be aimed at directly: alive, no sanctuary, seen, in range.
+-- Seconds the caster walks before it can cast spell at p (a creature or a point): none in range,
+-- else the walk into range, as for attacks (combat-intent/choice.lua); nil for a cone, a release
+-- (ForceSpellRES goes off where the caster stands) and a caster that cannot walk.
+local function approach(caster,p,spell)
+    if targeting.distance(caster,p)<=range(spell) then return 0 end
+    if spell.release or (type(spell.area)=='table' and spell.area.cone) then return nil end
+    return weapons.approach(caster,p,range(spell))
+end
+-- Where the caster casts spell at p from: where it stands in range, else where its walk ends, at
+-- the spell's range from p on the way.
+local function castFrom(caster,p,spell)
+    local d,far=targeting.distance(caster,p),range(spell)
+    if d<=far or d==math.huge then return caster end
+    return {x=p.x+(caster.x-p.x)*far/d,y=p.y+(caster.y-p.y)*far/d}
+end
+
+-- The seconds the caster walks before it can aim at e directly (none in range), or nil: e must be
+-- alive, without sanctuary and seen.
 local function aimable(caster,e,spell)
-    if not targeting.alive(e) then return false end
-    if number(e.sanctuary) and e.sanctuary>0 then return false end
-    if targeting.has(e.state,UNSEEN) and not caster.seeInvisible then return false end
-    return targeting.distance(caster,e)<=range(spell)
+    if not targeting.alive(e) then return nil end
+    if number(e.sanctuary) and e.sanctuary>0 then return nil end
+    if targeting.has(e.state,UNSEEN) and not caster.seeInvisible then return nil end
+    return approach(caster,e,spell)
 end
 
 -- Where the spell can go: an enemy it can aim at (with the enemies around it for an area), each
 -- enemy's spot and the middle of the enemies around it for an area at a point, the caster's spot
--- for its own area.
+-- for its own area. An aim beyond the spell's range carries the seconds of the walk into range
+-- (walk).
 local function aims(input,spell)
     local frame=input.frame
     local caster=frame.self
@@ -338,12 +357,18 @@ local function aims(input,spell)
         if a then out[1]={point={x=caster.x,y=caster.y},self=true} end
         return out
     end
+    local function add(aim,walk)
+        if not walk then return end
+        if walk>0 then aim.walk=walk end
+        out[#out+1]=aim
+    end
     for _,e in ipairs(list(frame.enemies)) do
         if spell.target=='creature' then
-            if aimable(caster,e,spell) then out[#out+1]={enemy=e,point={x=e.x,y=e.y}} end
+            add({enemy=e,point={x=e.x,y=e.y}},aimable(caster,e,spell))
         elseif spell.target=='point' and a then
             if targeting.alive(e) and number(e.x) and number(e.y) then
-                if targeting.distance(caster,e)<=range(spell) then out[#out+1]={point={x=e.x,y=e.y}} end
+                local p={x=e.x,y=e.y}
+                add({point=p},approach(caster,p,spell))
                 local sx,sy,n=0,0,0
                 for _,o in ipairs(frame.enemies) do
                     if targeting.alive(o) and number(o.x) and number(o.y) and targeting.distance(e,o)<=a.radius then
@@ -352,7 +377,7 @@ local function aims(input,spell)
                 end
                 if n>1 then
                     local m={x=sx/n,y=sy/n}
-                    if targeting.distance(caster,m)<=range(spell) then out[#out+1]={point=m} end
+                    add({point=m},approach(caster,m,spell))
                 end
             end
         end
@@ -361,7 +386,8 @@ local function aims(input,spell)
 end
 
 -- Every removal the caster can cast now, best aim per spell: {resref, kind='removal', mode, worth,
--- cost, score, hits (the enemies it opens), slack=0, speed, and target, point or self}. An area
+-- cost, score, hits (the enemies it opens), slack=0, speed, and target, point or self; walk, the
+-- seconds of the walk into range, for an aim beyond it}. An area
 -- counts every enemy in it, also those it would free. attack (optional) names the spells
 -- combat-intent/choice.lua weighs as attacks, with their removal (left out here). rejected
 -- (optional) counts why ready removal spells gave none.
@@ -393,7 +419,8 @@ function M.options(input,rejected,attack)
                             for _,ally in ipairs(list(frame.allies)) do
                                 if targeting.alive(ally) and targeting.distance(center,ally)<=a.radius+M.allyMargin then blocked=true end
                             end
-                            if not aim.self and targeting.distance(center,caster)<=a.radius+M.allyMargin then blocked=true end
+                            local at=aim.walk and castFrom(caster,center,spell) or caster
+                            if not aim.self and targeting.distance(center,at)<=a.radius+M.allyMargin then blocked=true end
                             if aim.self and not a.skipsCenter then blocked=true end
                         end
                         if not blocked then
@@ -409,6 +436,8 @@ function M.options(input,rejected,attack)
                         local w,no=M.on(input,spell,aim.enemy,r)
                         if w>0 then worth=w;hits[1]=aim.enemy.id else reason=reason or no end
                     end
+                    -- A walk into range comes first and lowers the worth (combat-intent/choice.lua).
+                    if aim.walk then worth=worth*weapons.paced(aim.walk) end
                     if worth>0 and #hits>0 and (not best or worth>best.worth) then best={aim=aim,worth=worth,hits=hits} end
                 end
                 if not best then reject(reason or 'out-of-reach')
@@ -420,7 +449,7 @@ function M.options(input,rejected,attack)
                         (number(mind.castCost) and mind.castCost or 0)*cast
                     local value=best.worth*through
                     local option={resref=row.resref,kind='removal',worth=value,cost=cost,score=value-cost,hits=best.hits,
-                        slack=0,speed=number(spell.speed) and spell.speed or 0,release=spell.release or nil}
+                        slack=0,speed=number(spell.speed) and spell.speed or 0,release=spell.release or nil,walk=best.aim.walk}
                     local aim=best.aim
                     if aim.self then option.self=true;option.mode='self-area'
                     elseif aim.enemy then option.target=aim.enemy.id;option.mode='creature'

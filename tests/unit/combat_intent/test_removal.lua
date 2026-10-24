@@ -201,14 +201,21 @@ groups=groups+1
 -- protection keeps its fighter out, cast as a creature spell; Dispel Magic at a point near both
 -- protected enemies counts both; Remove Magic, which spares no one, not with a fighter in its area. A removal worth more than the caster's
 -- weapon is cast; an attack that also removes stays an attack (its removal adds to it) and is no
--- removal option.
+-- removal option. Beyond its range (R3) a breach is cast after the walk into range: one of range
+-- 3 (48) at the enemy 100 away walks 0.52 seconds first, which lower the worth as a walk to a
+-- melee enemy does.
 i=input({spells={row('TESTBRCH',breach,5)}})
 i.frame.allies={fighter(2,{x=150}),fighter(3,{x=310})}
 i.frame.enemies={enemy(11,{wards={pfmw}}),enemy(12,{x=260,wards={ward(120,{source='TESTPFMW',power=8,level=15},{p2=1})}})}
 local list=removal.options(i)
 assert(#list==1 and list[1].kind=='removal' and list[1].mode=='creature' and list[1].target==11 and list[1].score>0)
+assert(list[1].walk==nil)
 -- A spell slot costs input.slots of its price (combat-intent/choice.lua); the casting time does not.
 i.slots=0.5;assert(near(list[1].cost-removal.options(i)[1].cost,0.15*0.5));i.slots=nil
+local short=spell('TESTBRC3',5,{fx(221,{p1=9,p2=2,resist=2}),fx(221,{p1=9,p2=7,resist=2})},{range=3})
+i.spells={row('TESTBRC3',short,5)}
+local walked=removal.options(i)
+assert(#walked==1 and walked[1].target==11 and near(walked[1].walk,0.52) and near(walked[1].worth,list[1].worth*6/6.52))
 i.spells={row('TESTDISP',dispel,3)}
 i.frame.enemies[1].wards={ward(120,{source='TESTPFMW',power=8,level=15},{p2=1})}
 list=removal.options(i)

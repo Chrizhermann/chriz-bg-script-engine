@@ -87,14 +87,19 @@ function M.reachable(caster,e,mind,w)
     if d>far then return false,'out-of-reach' end
     return true
 end
--- Seconds the caster walks before it can strike e in melee: from where it stands to a weapon's
--- reach of e (threat.reach), at its own speed or a fighter's (threat.stride a round).
-function M.walk(caster,e)
-    local d=targeting.distance(caster,e)
-    if d==math.huge then return 0 end
+-- Seconds the caster walks to come within far of p (a creature or a point), at its own speed or a
+-- fighter's (threat.stride a round): none within far already; nil when it cannot walk there (webbed
+-- or entangled: caster.rooted) or p has no spot.
+function M.approach(caster,p,far)
+    local d=targeting.distance(caster,p)
+    if d==math.huge then return nil end
+    if d<=far then return 0 end
+    if caster.rooted==true then return nil end
     local speed=number(caster.speed) and caster.speed>0 and caster.speed or threat.stride/threat.ROUND
-    return math.max(0,d-threat.reach)/speed
+    return (d-far)/speed
 end
+-- Seconds the caster walks before it can strike e in melee: to a weapon's reach of e (threat.reach).
+function M.walk(caster,e) return M.approach(caster,e,threat.reach) or 0 end
 -- The share of a round of melee hits that counts as this round's when a walk of the given seconds
 -- comes first: the hits take the round and the walk (a walk of half a round leaves two thirds).
 function M.paced(walk)

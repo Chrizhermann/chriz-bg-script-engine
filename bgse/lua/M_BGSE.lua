@@ -2649,14 +2649,19 @@ function M.reachable(caster,e,mind,w)
     if d>far then return false,'out-of-reach' end
     return true
 end
--- Seconds the caster walks before it can strike e in melee: from where it stands to a weapon's
--- reach of e (threat.reach), at its own speed or a fighter's (threat.stride a round).
-function M.walk(caster,e)
-    local d=targeting.distance(caster,e)
-    if d==math.huge then return 0 end
+-- Seconds the caster walks to come within far of p (a creature or a point), at its own speed or a
+-- fighter's (threat.stride a round): none within far already; nil when it cannot walk there (webbed
+-- or entangled: caster.rooted) or p has no spot.
+function M.approach(caster,p,far)
+    local d=targeting.distance(caster,p)
+    if d==math.huge then return nil end
+    if d<=far then return 0 end
+    if caster.rooted==true then return nil end
     local speed=number(caster.speed) and caster.speed>0 and caster.speed or threat.stride/threat.ROUND
-    return math.max(0,d-threat.reach)/speed
+    return (d-far)/speed
 end
+-- Seconds the caster walks before it can strike e in melee: to a weapon's reach of e (threat.reach).
+function M.walk(caster,e) return M.approach(caster,e,threat.reach) or 0 end
 -- The share of a round of melee hits that counts as this round's when a walk of the given seconds
 -- comes first: the hits take the round and the walk (a walk of half a round leaves two thirds).
 function M.paced(walk)
@@ -4044,6 +4049,7 @@ local defence=require('combat-intent.defence')
 local care=require('combat-intent.care')
 local ids=require('combat-intent.ids')
 local spells=require('combat-intent.spells')
+local weapons=require('combat-intent.weapons')
 local M={}
 M.ROUND=6
 M.speedSeconds=0.6
@@ -4318,17 +4324,35 @@ function M.on(input,spell,e,r)
     return worth,worth<0 and 'frees' or nil
 end
 
--- Whether e can be aimed at directly: alive, no sanctuary, seen, in range.
+-- Seconds the caster walks before it can cast spell at p (a creature or a point): none in range,
+-- else the walk into range, as for attacks (combat-intent/choice.lua); nil for a cone, a release
+-- (ForceSpellRES goes off where the caster stands) and a caster that cannot walk.
+local function approach(caster,p,spell)
+    if targeting.distance(caster,p)<=range(spell) then return 0 end
+    if spell.release or (type(spell.area)=='table' and spell.area.cone) then return nil end
+    return weapons.approach(caster,p,range(spell))
+end
+-- Where the caster casts spell at p from: where it stands in range, else where its walk ends, at
+-- the spell's range from p on the way.
+local function castFrom(caster,p,spell)
+    local d,far=targeting.distance(caster,p),range(spell)
+    if d<=far or d==math.huge then return caster end
+    return {x=p.x+(caster.x-p.x)*far/d,y=p.y+(caster.y-p.y)*far/d}
+end
+
+-- The seconds the caster walks before it can aim at e directly (none in range), or nil: e must be
+-- alive, without sanctuary and seen.
 local function aimable(caster,e,spell)
-    if not targeting.alive(e) then return false end
-    if number(e.sanctuary) and e.sanctuary>0 then return false end
-    if targeting.has(e.state,UNSEEN) and not caster.seeInvisible then return false end
-    return targeting.distance(caster,e)<=range(spell)
+    if not targeting.alive(e) then return nil end
+    if number(e.sanctuary) and e.sanctuary>0 then return nil end
+    if targeting.has(e.state,UNSEEN) and not caster.seeInvisible then return nil end
+    return approach(caster,e,spell)
 end
 
 -- Where the spell can go: an enemy it can aim at (with the enemies around it for an area), each
 -- enemy's spot and the middle of the enemies around it for an area at a point, the caster's spot
--- for its own area.
+-- for its own area. An aim beyond the spell's range carries the seconds of the walk into range
+-- (walk).
 local function aims(input,spell)
     local frame=input.frame
     local caster=frame.self
@@ -4338,12 +4362,18 @@ local function aims(input,spell)
         if a then out[1]={point={x=caster.x,y=caster.y},self=true} end
         return out
     end
+    local function add(aim,walk)
+        if not walk then return end
+        if walk>0 then aim.walk=walk end
+        out[#out+1]=aim
+    end
     for _,e in ipairs(list(frame.enemies)) do
         if spell.target=='creature' then
-            if aimable(caster,e,spell) then out[#out+1]={enemy=e,point={x=e.x,y=e.y}} end
+            add({enemy=e,point={x=e.x,y=e.y}},aimable(caster,e,spell))
         elseif spell.target=='point' and a then
             if targeting.alive(e) and number(e.x) and number(e.y) then
-                if targeting.distance(caster,e)<=range(spell) then out[#out+1]={point={x=e.x,y=e.y}} end
+                local p={x=e.x,y=e.y}
+                add({point=p},approach(caster,p,spell))
                 local sx,sy,n=0,0,0
                 for _,o in ipairs(frame.enemies) do
                     if targeting.alive(o) and number(o.x) and number(o.y) and targeting.distance(e,o)<=a.radius then
@@ -4352,7 +4382,7 @@ local function aims(input,spell)
                 end
                 if n>1 then
                     local m={x=sx/n,y=sy/n}
-                    if targeting.distance(caster,m)<=range(spell) then out[#out+1]={point=m} end
+                    add({point=m},approach(caster,m,spell))
                 end
             end
         end
@@ -4361,7 +4391,8 @@ local function aims(input,spell)
 end
 
 -- Every removal the caster can cast now, best aim per spell: {resref, kind='removal', mode, worth,
--- cost, score, hits (the enemies it opens), slack=0, speed, and target, point or self}. An area
+-- cost, score, hits (the enemies it opens), slack=0, speed, and target, point or self; walk, the
+-- seconds of the walk into range, for an aim beyond it}. An area
 -- counts every enemy in it, also those it would free. attack (optional) names the spells
 -- combat-intent/choice.lua weighs as attacks, with their removal (left out here). rejected
 -- (optional) counts why ready removal spells gave none.
@@ -4393,7 +4424,8 @@ function M.options(input,rejected,attack)
                             for _,ally in ipairs(list(frame.allies)) do
                                 if targeting.alive(ally) and targeting.distance(center,ally)<=a.radius+M.allyMargin then blocked=true end
                             end
-                            if not aim.self and targeting.distance(center,caster)<=a.radius+M.allyMargin then blocked=true end
+                            local at=aim.walk and castFrom(caster,center,spell) or caster
+                            if not aim.self and targeting.distance(center,at)<=a.radius+M.allyMargin then blocked=true end
                             if aim.self and not a.skipsCenter then blocked=true end
                         end
                         if not blocked then
@@ -4409,6 +4441,8 @@ function M.options(input,rejected,attack)
                         local w,no=M.on(input,spell,aim.enemy,r)
                         if w>0 then worth=w;hits[1]=aim.enemy.id else reason=reason or no end
                     end
+                    -- A walk into range comes first and lowers the worth (combat-intent/choice.lua).
+                    if aim.walk then worth=worth*weapons.paced(aim.walk) end
                     if worth>0 and #hits>0 and (not best or worth>best.worth) then best={aim=aim,worth=worth,hits=hits} end
                 end
                 if not best then reject(reason or 'out-of-reach')
@@ -4420,7 +4454,7 @@ function M.options(input,rejected,attack)
                         (number(mind.castCost) and mind.castCost or 0)*cast
                     local value=best.worth*through
                     local option={resref=row.resref,kind='removal',worth=value,cost=cost,score=value-cost,hits=best.hits,
-                        slack=0,speed=number(spell.speed) and spell.speed or 0,release=spell.release or nil}
+                        slack=0,speed=number(spell.speed) and spell.speed or 0,release=spell.release or nil,walk=best.aim.walk}
                     local aim=best.aim
                     if aim.self then option.self=true;option.mode='self-area'
                     elseif aim.enemy then option.target=aim.enemy.id;option.mode='creature'
@@ -4907,6 +4941,12 @@ factories["combat-intent.choice"]=function(require)
 -- chance and length of a disable. A spell's level costs a little, so small spells do small
 -- jobs. An attack must reach the profile's minimum worth.
 --
+-- Walking into range (R3: with no round left to SCS, an enemy out of range is no reason to wait):
+-- a spell aimed beyond its range is cast after a walk into range, as the game's spell actions walk
+-- there first. The walk lowers the worth as a walk to a melee enemy does, and an area must keep
+-- the caster out where the walk ends. Not for a cone, a release or a caster that cannot walk; an
+-- area around the caster goes off where it stands.
+--
 -- Since the third slice (Christopher, 2026-10-19) the caster's protections and buffs compete on
 -- the same scale (combat-intent/defence.lua): the best option of either kind is cast. Openers
 -- (combat-intent/openers.lua: Time Stop, Improved Alacrity) come first, as in SCS's order. In the
@@ -4943,8 +4983,8 @@ factories["combat-intent.choice"]=function(require)
 -- Protection removal (D3d): breaching, dispelling and stripping enemies and unsummoning summoned
 -- ones compete on the same scale (combat-intent/removal.lua). An attack that also removes (Spell
 -- Revisions' Chromatic Orb takes haste, Disintegrate destroys some creatures) stays an attack and
--- adds what its removal is worth on each enemy it hits. The engine takes every round it has a
--- cast or a weapon attack for; SCS keeps none for spells of its own (its scripts never raise).
+-- adds what its removal is worth on each enemy it hits. SCS keeps no round for spells of its own
+-- (its scripts never raise).
 --
 -- Danger zones (D3e, combat-intent/zones.lua): clouds and storms around the caster count in every
 -- option. Harm from them can break a cast where it stands; a melee attack or a strike counts what
@@ -5080,16 +5120,36 @@ function M.attack(spell)
 end
 
 local function range(spell) return number(spell.range) and spell.range*M.rangeUnit or 0 end
+-- Seconds the caster walks before it can cast spell at p (a creature or a point): none in range,
+-- else the walk into range, as the game's spell actions walk there first (lab batch G3); nil for a
+-- cone, which starts where the caster stands, a release (ForceSpellRES goes off where the caster
+-- stands, D2b) and a caster that cannot walk.
+local function approach(caster,p,spell)
+    if targeting.distance(caster,p)<=range(spell) then return 0 end
+    if spell.release or (type(spell.area)=='table' and spell.area.cone) then return nil end
+    return weapons.approach(caster,p,range(spell))
+end
+-- The caster where it casts spell at p from: where it stands in range, else where its walk ends,
+-- at the spell's range from p on the way.
+local function castFrom(caster,p,spell)
+    local d,far=targeting.distance(caster,p),range(spell)
+    if d<=far or d==math.huge then return caster end
+    local at={}
+    for k,v in pairs(caster) do at[k]=v end
+    at.x,at.y=p.x+(caster.x-p.x)*far/d,p.y+(caster.y-p.y)*far/d
+    return at
+end
 
--- Whether e can be aimed at directly: alive, no sanctuary, seen, in range.
+-- Whether e can be aimed at directly: alive, no sanctuary, seen, in range or a walk away from it;
+-- the seconds of the walk come third.
 local function aimable(caster,e,spell)
     if not targeting.alive(e) then return false,'dead' end
     if number(e.sanctuary) and e.sanctuary>0 then return false,'sanctuary' end
     if targeting.has(e.state,UNSEEN) and not caster.seeInvisible then return false,'invisible' end
-    local d=targeting.distance(caster,e)
-    if d==math.huge then return false,'no-position' end
-    if d>range(spell) then return false,'out-of-range' end
-    return true
+    if targeting.distance(caster,e)==math.huge then return false,'no-position' end
+    local walk=approach(caster,e,spell)
+    if not walk then return false,'out-of-range' end
+    return true,nil,walk
 end
 -- What the spell does to e, or nil and why it does not work on e: its roles for e's kind of
 -- creature (spells.view) must hold the attack, and e's spell protections must not stop it. A
@@ -5237,8 +5297,8 @@ end
 -- What a lasting area is worth on e inside it at center: the worth of its kind of attack over the
 -- explosions e is expected to sit through, the hit points it is expected to take, and for the log
 -- how many it would sit through staying and walking out and the chance it stays. ctx keeps the
--- rest of the fight for one choice.
-local function lastingOn(input,row,spell,kind,roles,e,center,ctx)
+-- rest of the fight for one choice; walk: the seconds the caster walks into range first.
+local function lastingOn(input,row,spell,kind,roles,e,center,ctx,walk)
     local a=spell.area
     local caster=input.frame.self
     local every=a.every
@@ -5246,7 +5306,8 @@ local function lastingOn(input,row,spell,kind,roles,e,center,ctx)
     local first=a.skipFirst and every or 0
     local last=first+(a.explosions-1)*every
     ctx.rest=ctx.rest or threat.rest(input.frame,number(input.mind.fightCap) and input.mind.fightCap or 60)
-    local cast=(number(spell.speed) and spell.speed or 0)*zones.speedSeconds+(number(caster.aura) and caster.aura>0 and caster.aura or 0)
+    local cast=(number(spell.speed) and spell.speed or 0)*zones.speedSeconds+(number(caster.aura) and caster.aura>0 and caster.aura or 0)+
+        (number(walk) and walk>0 and walk or 0)
     local upto=math.max(first,ctx.rest-cast)
     local stay=hitsIn(first,step,last,0,upto)
     local leave,walk=stay,0
@@ -5287,13 +5348,16 @@ local function spared(input,spell,f)
 end
 
 -- One option: the spell aimed at a creature or a point, its worth, cost and score, or nil
--- and why it is no option. ctx keeps what one choice works out once (the rest of the fight).
+-- and why it is no option. ctx keeps what one choice works out once (the rest of the fight). An
+-- aim with a walk into range must keep the caster out of its area where the walk ends, and the
+-- walk comes first and lowers the worth as a walk to a melee enemy does (weapons.paced).
 local function evaluate(input,row,spell,kind,mode,aim,ctx)
     local frame=input.frame
     local caster=frame.self
     local a=spell.area
     local worth,hits,slack,expected=0,{},0,{}
     local sat
+    local walk=number(aim.walk) and aim.walk>0 and aim.walk or nil
     if mode=='creature' then
         local e=aim.enemy
         local roles,why=affects(spell,e,kind)
@@ -5318,12 +5382,13 @@ local function evaluate(input,row,spell,kind,mode,aim,ctx)
                 for _,ally in ipairs(type(frame.allies)=='table' and frame.allies or {}) do
                     if targeting.alive(ally) and near(ally) and not spared(input,spell,ally) then return nil,'ally-in-area' end
                 end
-                -- A cone starts at the caster; any other area must keep it out, unless it does
-                -- nothing to the caster.
+                -- A cone starts at the caster; any other area must keep it out where it casts
+                -- from, unless it does nothing to the caster.
                 if not a.cone then
+                    local at=walk and castFrom(caster,center,spell) or caster
                     local within
-                    if mode=='self-area' then within=not a.skipsCenter else within=near(caster) end
-                    if within and not spared(input,spell,caster) then return nil,'caster-in-area' end
+                    if mode=='self-area' then within=not a.skipsCenter else within=near(at) end
+                    if within and not spared(input,spell,at) then return nil,'caster-in-area' end
                 end
             end
             local lasting=lastingArea(input,spell)
@@ -5335,7 +5400,7 @@ local function evaluate(input,row,spell,kind,mode,aim,ctx)
                 local roles=targeting.alive(e) and inside(e) and affects(spell,e,kind,lasting)
                 if roles then
                     local w,hp,seen
-                    if lasting then w,hp,seen=lastingOn(input,row,spell,kind,roles,e,center,ctx)
+                    if lasting then w,hp,seen=lastingOn(input,row,spell,kind,roles,e,center,ctx,walk)
                     else w,hp=worthOn(input,row,kind,roles,e) end
                     w=w+stripped(input,spell,e)
                     if w>0 then
@@ -5349,10 +5414,11 @@ local function evaluate(input,row,spell,kind,mode,aim,ctx)
         end
     end
     if worth<=0 then return nil,'no-worth' end
+    if walk then worth=worth*weapons.paced(walk) end
     local level=number(row.level) and row.level or number(spell.level) and spell.level or 1
     local cost=input.mind.economy*slots(input)*M.costPerLevel*level
     local option={resref=row.resref,kind=kind,mode=mode,worth=worth,cost=cost,score=worth-cost,hits=hits,slack=slack,
-        speed=number(spell.speed) and spell.speed or 0,release=spell.release or nil}
+        speed=number(spell.speed) and spell.speed or 0,release=spell.release or nil,walk=walk}
     if kind=='damage' then option.expected=expected end
     if sat and #sat>0 then option.lasting=sat end
     if aim.enemy and (mode=='creature' or mode=='creature-area') then option.target=aim.enemy.id
@@ -5511,7 +5577,8 @@ function M.strike(input,rejected)
 end
 
 -- Where the spell can be aimed: enemies it can reach for creature spells; for point areas each
--- such enemy's spot and the middle of the enemies around it; the caster for its own area.
+-- such enemy's spot and the middle of the enemies around it; the caster for its own area. An aim
+-- beyond the spell's range carries the seconds of the walk into range (walk).
 local function aims(input,spell,mode)
     local frame=input.frame
     local caster=frame.self
@@ -5521,11 +5588,16 @@ local function aims(input,spell,mode)
         if spell.area.cone then out={} end
         return out
     end
+    local function add(aim,walk)
+        if not walk then return end
+        if walk>0 then aim.walk=walk end
+        out[#out+1]=aim
+    end
     for _,e in ipairs(frame.enemies) do
         if mode=='point-area' then
             if targeting.alive(e) and number(e.x) and number(e.y) then
                 local p={x=e.x,y=e.y}
-                if targeting.distance(caster,p)<=range(spell) then out[#out+1]={point=p,enemy=e} end
+                add({point=p,enemy=e},approach(caster,p,spell))
                 local sx,sy,n=0,0,0
                 for _,o in ipairs(frame.enemies) do
                     if targeting.alive(o) and number(o.x) and number(o.y) and targeting.distance(e,o)<=spell.area.radius then
@@ -5534,11 +5606,12 @@ local function aims(input,spell,mode)
                 end
                 if n>1 then
                     local m={x=sx/n,y=sy/n}
-                    if targeting.distance(caster,m)<=range(spell) then out[#out+1]={point=m} end
+                    add({point=m},approach(caster,m,spell))
                 end
             end
-        elseif aimable(caster,e,spell) then
-            out[#out+1]={enemy=e,point={x=e.x,y=e.y}}
+        else
+            local ok,_,walk=aimable(caster,e,spell)
+            if ok then add({enemy=e,point={x=e.x,y=e.y}},walk) end
         end
     end
     return out
@@ -5572,8 +5645,8 @@ end
 
 -- Every option the caster has, best first. Aims of one spell that hit the same enemies are one
 -- option, so a draw among near-best options weighs each choice once. rejected (a table,
--- optional) counts why the ready attack spells gave none: out-of-reach (no enemy in range), or
--- evaluate's reason per aim.
+-- optional) counts why the ready attack spells gave none: out-of-reach (no enemy in range or a
+-- walk away from it), or evaluate's reason per aim.
 function M.options(input,rejected)
     local out,ctx={},{}
     local function reject(why) if rejected then rejected[why]=(rejected[why] or 0)+1 end end
@@ -7300,11 +7373,14 @@ factories["adapters.eeex.choice"]=function(require)
 -- details SCS's scripts read), what it has ready (creature.lua, classified by
 -- combat-intent/spells.lua), the engine's answers to those spells' own SPLPROT checks for each
 -- enemy (sense.splprot) and the director's plan, and asks combat-intent/choice.lua what to do. A
--- chosen attack becomes the gate's decision: a normal SpellRES or SpellPointRES. Right before the
+-- chosen attack becomes the gate's decision: a normal SpellRES or SpellPointRES, which walks into
+-- range first when it is aimed beyond it (R3) and is held that much longer. Right before the
 -- response is queued the target is checked again and named through EEex's EEex_Target object,
 -- which reads the caster's own table, so no other creature's choice can change it. A cast that
 -- never starts is given up; one that ends with no effect on its target is remembered as a miss,
 -- judged only once the target could react (not while another creature's Time Stop freezes it).
+-- One whose casting broke off before its casting time, counted from when the casting began after
+-- any walk (the casting aura starting again), says nothing.
 -- An error or a switch leaves the round to the creature's script. Session-local; a load forgets
 -- it all.
 --
@@ -7413,7 +7489,8 @@ M.families={mage=true,priest=true}
 -- resumes if a Time Stop froze the target, its effect on the target is judged.
 M.pendingTicks=45
 M.outcomeTicks=30
--- A started cast that ends this much before its casting time was interrupted.
+-- A started cast that ends this much before its casting time, counted from when its casting began
+-- (M.castBegan), was interrupted.
 M.interruptSlack=3
 -- The name under which the caster's EEex_Target table holds the engine's target.
 M.targetName='BGSE'
@@ -7493,6 +7570,19 @@ local function idSet(list)
     local out={}
     for _,id in ipairs(type(list)=='table' and list or {}) do out[id]=true end
     return out
+end
+
+-- Ticks a walk of the given seconds may take: twice the straight walk, as paths bend.
+function M.walkTicks(seconds)
+    return type(seconds)=='number' and seconds>0 and math.ceil(seconds*M.ticksPerSecond*2) or 0
+end
+-- Notes in a (a started cast of the engine's) the tick its casting began, once the creature's
+-- casting aura reads timer at tick: the aura counts from 0 at a cast's start, about one a tick
+-- (docs/learned.md, section 2), so only one that began after the action started is the cast's
+-- own; the one before is the last cast's. A cast walks into range before it begins (R3).
+function M.castBegan(a,timer,tick)
+    if a.cast==nil and type(timer)=='number' and timer>=0 and type(tick)=='number' and type(a.started)=='number' and
+        tick-timer>=a.started then a.cast=tick-timer end
 end
 
 -- The response that casts decision's spell (a release with ForceSpellRES), or strikes with the
@@ -7931,7 +8021,9 @@ function M.new(g,options)
     -- friend it was for carries its effects.
     local function outcome(a)
         local defending=a.kind=='defence'
-        if a.castTicks and a.ended-a.started<a.castTicks-M.interruptSlack then
+        -- Interrupted: its casting ended before its casting time, counted from when it began. One
+        -- that had to walk into range and was never seen to begin casting ended on the way.
+        if a.castTicks and ((a.walk and not a.cast) or a.ended-(a.cast or a.started)<a.castTicks-M.interruptSlack) then
             counts.interrupted=counts.interrupted+1;return
         end
         if a.kind=='removal' then
@@ -8389,6 +8481,7 @@ function M.new(g,options)
             local action=sprite and sprite.m_curAction
             local ours=action and M.CASTS[action.m_actionID] and text(action.m_string1.m_pchData:get())==a.resref
             if not ours then
+                if sprite then M.castBegan(a,g.EEex_Sprite_GetCastTimer(sprite),tick) end
                 a.ended=tick;running[id]=nil;wait(a,tick)
                 if #judging<M.judgeLimit then judging[#judging+1]=a end
             end
@@ -8425,9 +8518,9 @@ function M.new(g,options)
         local p=pending[id]
         if p then
             -- A cast queued while the casting aura (the round of the creature's last cast) runs
-            -- waits for it, as SCS's casts do.
+            -- waits for it, as SCS's casts do; one aimed beyond its range walks into range first.
             if g.EEex_Sprite_GetCastTimer(sprite)~=-1 then p.waiting=tick end
-            if tick>=p.tick and tick-(p.waiting or p.tick)<=M.pendingTicks then return hold() end
+            if tick>=p.tick and tick-(p.waiting or p.tick)<=M.pendingTicks+M.walkTicks(p.walk) then return hold() end
             pending[id]=nil;counts.lost=counts.lost+1
             record({kind='lost',tick=tick,member=id,spell=p.resref,target=p.target,queued=p.tick})
             if director then director:release(id,tick) end
@@ -8436,14 +8529,16 @@ function M.new(g,options)
         -- ended it otherwise). One that became the action while the casting aura of the creature's
         -- last cast ran waits for the aura, and SCS's blocks below the hook would replace it
         -- meanwhile (lab batch H: SCS's attack block took the place of the engine's potions). It is
-        -- held while the aura runs or a Time Stop freezes the creature, and for its casting time
-        -- and pendingTicks from the latest of its start, the aura last seen busy and time resuming;
-        -- then the engine decides again.
+        -- held while the aura runs or a Time Stop freezes the creature, and for its casting time, a
+        -- walk into range and pendingTicks from the latest of its start, the aura last seen busy and
+        -- time resuming; then the engine decides again.
         local r=running[id]
         if r then
-            if g.EEex_Sprite_GetCastTimer(sprite)~=-1 then r.waiting=tick end
+            local timer=g.EEex_Sprite_GetCastTimer(sprite)
+            if timer~=-1 then r.waiting=tick end
+            M.castBegan(r,timer,tick)
             local from=math.max(r.started or tick,r.waiting or 0,resumed or 0)
-            if frozen(id) or tick-from<=(r.castTicks or 0)+M.pendingTicks then return hold() end
+            if frozen(id) or tick-from<=(r.castTicks or 0)+M.walkTicks(r.walk)+M.pendingTicks then return hold() end
         end
         -- A strike runs while the creature swings, or for a round from it (two rounds at most);
         -- once its charge is gone it is judged. A weapon attack runs while the creature attacks, or
@@ -8649,15 +8744,16 @@ function M.new(g,options)
             disable=type(strike.roles)=='table' and type(strike.roles.disable)=='table' or nil
         end
         -- A cast or drink is covered by the round's marker for its casting time (a speed point is
-        -- 9 ticks) and coverSlack.
+        -- 9 ticks), a walk into range first (R3) and coverSlack.
         local cover
         if d.kind~='strike' and d.kind~='weapon' then
-            cover=(type(d.speed)=='number' and d.speed>0 and d.speed or 0)*9+M.coverSlack
+            cover=(type(d.speed)=='number' and d.speed>0 and d.speed or 0)*9+M.walkTicks(d.walk)+M.coverSlack
         end
         return {own=true,response=response,spell=d.resref,kind=d.kind,mode=d.mode,target=d.target,point=d.point,
             self=d.self,hits=d.hits,castTicks=spell and type(spell.speed)=='number' and spell.speed*9 or nil,
             sources=sources,expected=d.expected,disable=disable,charge=d.kind=='strike' and d.spell or nil,
-            use=d.use,before=before,count=d.count,creatures=d.creatures,monsters=d.monsters,known=seen,cover=cover}
+            use=d.use,before=before,count=d.count,creatures=d.creatures,monsters=d.monsters,known=seen,cover=cover,
+            walk=d.walk}
     end
     -- From the gate, each time a hooked script asks: nil (the creature's script has the round),
     -- {hold=true,own=true} while the engine's queued cast has not started, its own action runs or
@@ -8717,15 +8813,14 @@ function M.new(g,options)
             local point=walkable(object,decision)
             if not point then return 'skipped' end
             decision.response='MoveToPoint(['..point.x..'.'..point.y..'])'
-            local walk=type(decision.walk)=='number' and decision.walk or 0
             moves[object.m_id]={tick=tick,point=point,zones=type(decision.zones)=='table' and decision.zones or {},
-                limit=math.ceil(walk*M.ticksPerSecond*2)+M.moveMargin}
+                limit=M.walkTicks(decision.walk)+M.moveMargin}
             record({kind='move',tick=tick,member=object.m_id,from={x=object.m_pos.x,y=object.m_pos.y},to=point})
         else
             pending[object.m_id]={caster=object.m_id,resref=decision.spell,kind=decision.kind,mode=decision.mode,
                 target=decision.target,point=decision.point,hits=decision.hits,tick=tick,hp=hp,
                 castTicks=decision.castTicks,sources=decision.sources,expected=decision.expected,before=decision.before,
-                count=decision.count,creatures=decision.creatures,monsters=decision.monsters,known=known}
+                count=decision.count,creatures=decision.creatures,monsters=decision.monsters,known=known,walk=decision.walk}
         end
         counts.performed=counts.performed+1
         round(object,tick,decision.cover)
@@ -8773,6 +8868,7 @@ function M.new(g,options)
         local p,r=pending[id],running[id]
         if not p and not r then return nil end
         if r then
+            M.castBegan(r,g.EEex_Sprite_GetCastTimer(sprite),tick)
             r.ended=tick;running[id]=nil
             watch(tick);wait(r,tick)
             if #judging<M.judgeLimit then judging[#judging+1]=r end

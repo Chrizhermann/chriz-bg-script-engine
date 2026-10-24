@@ -189,8 +189,9 @@ groups=groups+1
 
 -- 8. Releases (D2b): an innate that casts two Magic Missiles at its target reaches as far as they
 -- do (30, 480 away), not the 5 written on it, and is an attack that goes off with ForceSpellRES
--- (release). A trigger of protections is a defence on the caster. Under Improved Alacrity
--- neither, as SCS keeps them for after it.
+-- (release), which walks nowhere: an enemy beyond that reach is none of its targets (R3). A
+-- trigger of protections is a defence on the caster. Under Improved Alacrity neither, as SCS
+-- keeps them for after it.
 local seq=innate('TESTSEQ',{'TESTMMR','TESTMMR'})
 local trig=innate('TESTTRIG',{'TESTSKIN','TESTGLOB'})
 assert(seq.release and seq.range==30 and seq.ownRange==5 and choice.attack(seq)=='damage')
@@ -203,7 +204,11 @@ assert(#attacks==1 and attacks[1].resref=='TESTSEQ' and attacks[1].release and a
 local guards=defence.options(r8)
 assert(#guards==1 and guards[1].resref=='TESTTRIG' and guards[1].release and guards[1].self)
 local d8=choice.decide(r8)
-assert(d8 and d8.release)
+assert(d8 and d8.release and d8.walk==nil)
+r8.frame.enemies[1].x=700
+local beyond={}
+assert(#choice.options(r8,beyond)==0 and beyond['out-of-reach']==1)
+r8.frame.enemies[1].x=300
 r8.frame.self.alacrity=true
 assert(select(2,choice.decide(r8))=='no-option' and #choice.unreleased(r8).spells==0)
 groups=groups+1

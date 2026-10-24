@@ -3,11 +3,14 @@
 -- details SCS's scripts read), what it has ready (creature.lua, classified by
 -- combat-intent/spells.lua), the engine's answers to those spells' own SPLPROT checks for each
 -- enemy (sense.splprot) and the director's plan, and asks combat-intent/choice.lua what to do. A
--- chosen attack becomes the gate's decision: a normal SpellRES or SpellPointRES. Right before the
+-- chosen attack becomes the gate's decision: a normal SpellRES or SpellPointRES, which walks into
+-- range first when it is aimed beyond it (R3) and is held that much longer. Right before the
 -- response is queued the target is checked again and named through EEex's EEex_Target object,
 -- which reads the caster's own table, so no other creature's choice can change it. A cast that
 -- never starts is given up; one that ends with no effect on its target is remembered as a miss,
 -- judged only once the target could react (not while another creature's Time Stop freezes it).
+-- One whose casting broke off before its casting time, counted from when the casting began after
+-- any walk (the casting aura starting again), says nothing.
 -- An error or a switch leaves the round to the creature's script. Session-local; a load forgets
 -- it all.
 --
@@ -116,7 +119,8 @@ M.families={mage=true,priest=true}
 -- resumes if a Time Stop froze the target, its effect on the target is judged.
 M.pendingTicks=45
 M.outcomeTicks=30
--- A started cast that ends this much before its casting time was interrupted.
+-- A started cast that ends this much before its casting time, counted from when its casting began
+-- (M.castBegan), was interrupted.
 M.interruptSlack=3
 -- The name under which the caster's EEex_Target table holds the engine's target.
 M.targetName='BGSE'
@@ -196,6 +200,19 @@ local function idSet(list)
     local out={}
     for _,id in ipairs(type(list)=='table' and list or {}) do out[id]=true end
     return out
+end
+
+-- Ticks a walk of the given seconds may take: twice the straight walk, as paths bend.
+function M.walkTicks(seconds)
+    return type(seconds)=='number' and seconds>0 and math.ceil(seconds*M.ticksPerSecond*2) or 0
+end
+-- Notes in a (a started cast of the engine's) the tick its casting began, once the creature's
+-- casting aura reads timer at tick: the aura counts from 0 at a cast's start, about one a tick
+-- (docs/learned.md, section 2), so only one that began after the action started is the cast's
+-- own; the one before is the last cast's. A cast walks into range before it begins (R3).
+function M.castBegan(a,timer,tick)
+    if a.cast==nil and type(timer)=='number' and timer>=0 and type(tick)=='number' and type(a.started)=='number' and
+        tick-timer>=a.started then a.cast=tick-timer end
 end
 
 -- The response that casts decision's spell (a release with ForceSpellRES), or strikes with the
@@ -634,7 +651,9 @@ function M.new(g,options)
     -- friend it was for carries its effects.
     local function outcome(a)
         local defending=a.kind=='defence'
-        if a.castTicks and a.ended-a.started<a.castTicks-M.interruptSlack then
+        -- Interrupted: its casting ended before its casting time, counted from when it began. One
+        -- that had to walk into range and was never seen to begin casting ended on the way.
+        if a.castTicks and ((a.walk and not a.cast) or a.ended-(a.cast or a.started)<a.castTicks-M.interruptSlack) then
             counts.interrupted=counts.interrupted+1;return
         end
         if a.kind=='removal' then
@@ -1092,6 +1111,7 @@ function M.new(g,options)
             local action=sprite and sprite.m_curAction
             local ours=action and M.CASTS[action.m_actionID] and text(action.m_string1.m_pchData:get())==a.resref
             if not ours then
+                if sprite then M.castBegan(a,g.EEex_Sprite_GetCastTimer(sprite),tick) end
                 a.ended=tick;running[id]=nil;wait(a,tick)
                 if #judging<M.judgeLimit then judging[#judging+1]=a end
             end
@@ -1128,9 +1148,9 @@ function M.new(g,options)
         local p=pending[id]
         if p then
             -- A cast queued while the casting aura (the round of the creature's last cast) runs
-            -- waits for it, as SCS's casts do.
+            -- waits for it, as SCS's casts do; one aimed beyond its range walks into range first.
             if g.EEex_Sprite_GetCastTimer(sprite)~=-1 then p.waiting=tick end
-            if tick>=p.tick and tick-(p.waiting or p.tick)<=M.pendingTicks then return hold() end
+            if tick>=p.tick and tick-(p.waiting or p.tick)<=M.pendingTicks+M.walkTicks(p.walk) then return hold() end
             pending[id]=nil;counts.lost=counts.lost+1
             record({kind='lost',tick=tick,member=id,spell=p.resref,target=p.target,queued=p.tick})
             if director then director:release(id,tick) end
@@ -1139,14 +1159,16 @@ function M.new(g,options)
         -- ended it otherwise). One that became the action while the casting aura of the creature's
         -- last cast ran waits for the aura, and SCS's blocks below the hook would replace it
         -- meanwhile (lab batch H: SCS's attack block took the place of the engine's potions). It is
-        -- held while the aura runs or a Time Stop freezes the creature, and for its casting time
-        -- and pendingTicks from the latest of its start, the aura last seen busy and time resuming;
-        -- then the engine decides again.
+        -- held while the aura runs or a Time Stop freezes the creature, and for its casting time, a
+        -- walk into range and pendingTicks from the latest of its start, the aura last seen busy and
+        -- time resuming; then the engine decides again.
         local r=running[id]
         if r then
-            if g.EEex_Sprite_GetCastTimer(sprite)~=-1 then r.waiting=tick end
+            local timer=g.EEex_Sprite_GetCastTimer(sprite)
+            if timer~=-1 then r.waiting=tick end
+            M.castBegan(r,timer,tick)
             local from=math.max(r.started or tick,r.waiting or 0,resumed or 0)
-            if frozen(id) or tick-from<=(r.castTicks or 0)+M.pendingTicks then return hold() end
+            if frozen(id) or tick-from<=(r.castTicks or 0)+M.walkTicks(r.walk)+M.pendingTicks then return hold() end
         end
         -- A strike runs while the creature swings, or for a round from it (two rounds at most);
         -- once its charge is gone it is judged. A weapon attack runs while the creature attacks, or
@@ -1352,15 +1374,16 @@ function M.new(g,options)
             disable=type(strike.roles)=='table' and type(strike.roles.disable)=='table' or nil
         end
         -- A cast or drink is covered by the round's marker for its casting time (a speed point is
-        -- 9 ticks) and coverSlack.
+        -- 9 ticks), a walk into range first (R3) and coverSlack.
         local cover
         if d.kind~='strike' and d.kind~='weapon' then
-            cover=(type(d.speed)=='number' and d.speed>0 and d.speed or 0)*9+M.coverSlack
+            cover=(type(d.speed)=='number' and d.speed>0 and d.speed or 0)*9+M.walkTicks(d.walk)+M.coverSlack
         end
         return {own=true,response=response,spell=d.resref,kind=d.kind,mode=d.mode,target=d.target,point=d.point,
             self=d.self,hits=d.hits,castTicks=spell and type(spell.speed)=='number' and spell.speed*9 or nil,
             sources=sources,expected=d.expected,disable=disable,charge=d.kind=='strike' and d.spell or nil,
-            use=d.use,before=before,count=d.count,creatures=d.creatures,monsters=d.monsters,known=seen,cover=cover}
+            use=d.use,before=before,count=d.count,creatures=d.creatures,monsters=d.monsters,known=seen,cover=cover,
+            walk=d.walk}
     end
     -- From the gate, each time a hooked script asks: nil (the creature's script has the round),
     -- {hold=true,own=true} while the engine's queued cast has not started, its own action runs or
@@ -1420,15 +1443,14 @@ function M.new(g,options)
             local point=walkable(object,decision)
             if not point then return 'skipped' end
             decision.response='MoveToPoint(['..point.x..'.'..point.y..'])'
-            local walk=type(decision.walk)=='number' and decision.walk or 0
             moves[object.m_id]={tick=tick,point=point,zones=type(decision.zones)=='table' and decision.zones or {},
-                limit=math.ceil(walk*M.ticksPerSecond*2)+M.moveMargin}
+                limit=M.walkTicks(decision.walk)+M.moveMargin}
             record({kind='move',tick=tick,member=object.m_id,from={x=object.m_pos.x,y=object.m_pos.y},to=point})
         else
             pending[object.m_id]={caster=object.m_id,resref=decision.spell,kind=decision.kind,mode=decision.mode,
                 target=decision.target,point=decision.point,hits=decision.hits,tick=tick,hp=hp,
                 castTicks=decision.castTicks,sources=decision.sources,expected=decision.expected,before=decision.before,
-                count=decision.count,creatures=decision.creatures,monsters=decision.monsters,known=known}
+                count=decision.count,creatures=decision.creatures,monsters=decision.monsters,known=known,walk=decision.walk}
         end
         counts.performed=counts.performed+1
         round(object,tick,decision.cover)
@@ -1476,6 +1498,7 @@ function M.new(g,options)
         local p,r=pending[id],running[id]
         if not p and not r then return nil end
         if r then
+            M.castBegan(r,g.EEex_Sprite_GetCastTimer(sprite),tick)
             r.ended=tick;running[id]=nil
             watch(tick);wait(r,tick)
             if #judging<M.judgeLimit then judging[#judging+1]=r end

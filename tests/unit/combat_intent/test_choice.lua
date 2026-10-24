@@ -293,10 +293,18 @@ opts=choice.options(i,rejected)
 assert(#opts==2 and opts[1].target==12 and opts[2].target==13 and rejected.filter==1)
 groups=groups+1
 
--- 13. Who can be aimed at: in range, no sanctuary, seen, alive.
+-- 13. Who can be aimed at: no sanctuary, seen, alive; in range, or beyond it after a walk into
+-- range (R3), which comes first and lowers the worth (weapons.paced). 11 stands 120 beyond the
+-- bolt's range: 1.2 seconds at a fighter's pace. A caster that cannot walk casts only in range.
 i=enemies(input({spells={row('TESTBOLT',bolt,3)}}),{enemy(11,{x=700}),enemy(12,{x=300})})
-assert(choice.decide(i).target==12)
-i.frame.enemies[2].sanctuary=1;assert(select(2,choice.decide(i))=='no-option')
+d=choice.decide(i)
+assert(d.target==12 and d.walk==nil)
+local inRange=d.worth
+i.frame.enemies[2].sanctuary=1
+d=choice.decide(i)
+assert(d.target==11 and math.abs(d.walk-1.2)<1e-9 and math.abs(d.worth-inRange*6/7.2)<1e-9)
+i.frame.self.rooted=true
+assert(select(2,choice.decide(i))=='no-option')
 i.frame.enemies[2].sanctuary=0;i.frame.enemies[2].state=0x10;assert(select(2,choice.decide(i))=='no-option')
 i.frame.self.seeInvisible=true;assert(choice.decide(i).target==12)
 i.frame.enemies[2].state=0x800;assert(select(2,choice.decide(i))=='no-option')
@@ -507,6 +515,32 @@ d=choice.decide(i)
 assert(d.resref=='TESTFIBL' and d.target==11 and near(d.worth,1/50+0.5))
 i=enemies(input({spells={row('TESTBOLT',bolt,3)}}),{troll(11)})
 assert(select(2,choice.decide(i))=='no-option')
+groups=groups+1
+
+-- 20. Areas beyond their range (R3): a ball aimed at a spot 120 beyond its range is cast after
+-- the walk there, which lowers the worth as for a bolt. The caster must stay out of the area
+-- where the walk ends: a ball of range 2 at an enemy 200 away would burn it there, one of range 8
+-- would not. A cone starts where the caster stands and walks nowhere: an enemy beyond its range
+-- is out of reach.
+i=enemies(input({spells={row('TESTBALL',ball,3)}}),{enemy(11,{x=500})})
+d=choice.decide(i)
+assert(d.mode=='point-area' and d.walk==nil)
+local inReach=d.worth
+i.frame.enemies[1].x=700
+d=choice.decide(i)
+assert(d.point.x==700 and d.point.y==100 and near(d.walk,1.2) and near(d.worth,inReach*6/7.2))
+local function ballOf(resref,range)
+    return spell(resref,3,{fx(12,{p2=FIRE,dice=6,sides=6,save=1,special=256})},{target=4,range=range},area(64))
+end
+i=enemies(input({spells={row('TESTBAL2',ballOf('TESTBAL2',2),3)}}),{enemy(11,{x=300})})
+rejected={}
+assert(#choice.options(i,rejected)==0 and rejected['caster-in-area']==1)
+i=enemies(input({spells={row('TESTBAL8',ballOf('TESTBAL8',8),3)}}),{enemy(11,{x=300})})
+d=choice.decide(i)
+assert(d.point.x==300 and near(d.walk,0.72))
+i=enemies(input({spells={row('TESTSHOU',paused,4)}}),{enemy(11,{x=700})})
+rejected={}
+assert(#choice.options(i,rejected)==0 and rejected['out-of-reach']==1)
 groups=groups+1
 
 return groups

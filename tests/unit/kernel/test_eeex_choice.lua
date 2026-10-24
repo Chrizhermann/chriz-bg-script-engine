@@ -1799,4 +1799,76 @@ g29.EEex_Sprite_GetStat=getStat
 end)()
 groups=groups+1
 
+-- 30. Walking into range (R3). A mage's short bolt (range 10: 160) at its only enemy, 410 away:
+-- SpellRES walks into range first, 2.5 seconds, which the choice row logs. The round's marker
+-- covers the walk as well, for as long as the engine holds the cast: 75 ticks, twice the straight
+-- walk, as paths bend. A queued cast is held that much longer, and a started one for its casting
+-- time, the walk and pendingTicks. Its casting begins once the walk is over, when the casting aura
+-- starts again: broken off right after, it says nothing of the target, nor does one that never
+-- began to cast and ended on the way. A cast that runs its casting time after the walk is judged.
+;(function()
+local nearRec=spl('TESTNEAR',3,{fx(12,{p2=8*65536,dice=6,sides=6})})
+nearRec.abilities[1].range=10
+records.TESTNEAR=nearRec
+local g30=world()
+local m30=g30.add(sprite(1,0,0,255))
+learn(m30,2,'TESTNEAR',3)
+local e30=g30.add(sprite(11,410,0,2))
+local dir30=directors.new(g30,{reader=reader})
+local ch30=choices.new(g30,{reader=reader,director=dir30,seed=30})
+local rows30={}
+ch30:setSink(function(row) rows30[#rows30+1]=row end)
+runtime.install(g30,{director=dir30,choice=ch30,version='test'})
+local function last30(kind) for n=#rows30,1,-1 do if rows30[n].kind==kind then return rows30[n] end end end
+local function claim30(tick) g30.ticks=tick;return g30.BGSE_Claim(m30,'mage','s1') end
+local function counts30() return ch30:inspect().counts end
+local function begin30(tick)
+    g30.ticks=tick
+    local cast=action(31,'TESTNEAR',11)
+    m30.m_curAction=cast
+    g30.listeners.started[1](m30,cast)
+end
+assert(claim30(100)==true)
+local c30=last30('choice')
+assert(c30.spell=='TESTNEAR' and c30.target==11 and c30.walk==2.5)
+g30.BGSE_Act(m30)
+assert(g30.queued[#g30.queued].text=='SpellRES("TESTNEAR",EEex_Target("BGSE"))' and m30.locals.castspell==100+27+75+15)
+-- Queued, never started: held pendingTicks and the walk's 75 ticks, then given up.
+assert(claim30(220)==true and counts30().holds==1)
+assert(claim30(221)==true and counts30().lost==1 and last30('choice').tick==221)
+g30.BGSE_Act(m30)
+assert(m30.locals.castspell==221+117)
+-- Started: held through the walk (78 ticks on, past casting time and pendingTicks alone).
+begin30(222)
+assert(claim30(300)==true and counts30().holds==2)
+-- The casting begins at 310 and breaks off at 325, well short of its casting time.
+m30.castTimer=5
+assert(claim30(315)==true and counts30().holds==3)
+m30.m_curAction={m_actionID=0};m30.castTimer=15
+assert(claim30(325)==true and last30('wait').reason=='aura')
+m30.castTimer=45
+assert(claim30(355)==true and counts30().interrupted==1 and counts30().misses==0 and ch30:inspect().remembered==0)
+-- The aura frees; the next cast starts at 411 and ends on the way, never casting.
+m30.castTimer=nil
+assert(claim30(410)==true and last30('choice').walk==2.5)
+g30.BGSE_Act(m30)
+begin30(411)
+local holds30=counts30().holds
+assert(claim30(430)==true and counts30().holds==holds30+1)
+m30.m_curAction={m_actionID=0}
+assert(claim30(440)==true and last30('choice').tick==440)
+assert(claim30(470)==true and counts30().interrupted==2 and counts30().misses==0)
+-- The last walks 25 ticks, casts from 496 to 530 and burns the enemy: a hit.
+g30.BGSE_Act(m30)
+begin30(471)
+m30.castTimer=4
+assert(claim30(500)==true)
+m30.m_curAction={m_actionID=0};m30.castTimer=34
+e30.m_baseStats.m_hitPoints=20
+assert(claim30(530)==true)
+m30.castTimer=64
+assert(claim30(560)==true and counts30().hits==1 and counts30().interrupted==2 and last30('outcome').hit==true)
+end)()
+groups=groups+1
+
 return groups

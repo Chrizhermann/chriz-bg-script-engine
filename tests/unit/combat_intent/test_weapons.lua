@@ -248,6 +248,10 @@ groups=groups+1
 assert(near(weapons.walk({x=100,y=100},{x=364,y=100}),2) and weapons.walk({x=100,y=100},{x=150,y=100})==0)
 assert(near(weapons.walk({x=100,y=100,speed=200},{x=364,y=100}),1))
 assert(weapons.paced(0)==1 and near(weapons.paced(3),2/3) and weapons.paced(nil)==1)
+-- The same walk to any reach (R3: a spell's range); within it none, rooted or nowhere to go nil.
+assert(near(weapons.approach({x=100,y=100},{x=700,y=100},480),1.2) and weapons.approach({x=100,y=100},{x=500,y=100},480)==0)
+assert(weapons.approach({x=100,y=100,rooted=true},{x=500,y=100},480)==0)
+assert(weapons.approach({x=100,y=100,rooted=true},{x=700,y=100},480)==nil and weapons.approach({x=100,y=100},{},480)==nil)
 assert(mind.forFamily(mind.new(),'fighter').chase and mind.forFamily(mind.new(),'monster').chase)
 assert(not mind.new().chase and not mind.forFamily(mind.new(),'mage').chase)
 assert(select(2,mind.new({chase=1}))=='chase')
