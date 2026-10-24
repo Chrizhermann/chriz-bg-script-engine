@@ -394,4 +394,31 @@ assert(mind.forFamily(mind.new(),'fighter').ownWeapon and mind.forFamily(mind.ne
 assert(not mind.forFamily(mind.new(),'mage').ownWeapon and not mind.new().ownWeapon)
 groups=groups+1
 
+-- 11. Potions that protect or buff (F1c): drunk on the caster itself while uses are left, as cheap
+-- as a first-level spell and never interrupted; the first ability of an item that defends counts.
+-- A healing potion is care's (care.lua), and a drink waits out the redefend pause like a cast.
+-- The drink's own time costs as a cast's does (care.lua's potions).
+i=input(light,{},{mind=mind.new({ownWeapon=true})})
+i.frame.self.weapon={damage=10,damageType=3,apr=2,thac0=10}
+i.items={{resref='TESTPOWR',abilities={{effect=power,uses=1}}},
+    {resref='TESTHEAL',abilities={{effect=spell('TESTHEAL',1,{fx(17,{p1=20})},{speed=0}),uses=2}}},
+    {resref='TESTSKIN',abilities={{effect=bolt,uses=1},{effect=stoneskin,uses=1}}},
+    {resref='TESTEMPT',abilities={{effect=armour,uses=0}}}}
+rejected={}
+opts=defence.options(i,rejected)
+assert(#opts==2 and next(rejected)==nil)
+o=find(opts,'TESTPOWR')
+assert(o.use and o.self and o.mode=='self' and near(o.worth,0.1) and near(o.cost,defence.costPerLevel))
+o=find(opts,'TESTSKIN')
+assert(o.use and o.self and o.worth>0)
+-- Stoneskin cast takes a round; drunk, the same skins are not interrupted.
+local cast=find(defence.options(input({fighter(11,130),fighter(12,135)},{row('TESTSTON',stoneskin,4)}),{}),'TESTSTON')
+local drunk=find(defence.options(input({fighter(11,130),fighter(12,135)},{},{items={{resref='TESTSKIN',
+    abilities={{effect=stoneskin,uses=1}}}}}),{}),'TESTSKIN')
+assert(drunk.worth>cast.worth and near(drunk.cost,defence.costPerLevel+mind.new().castCost*defence.speedSeconds))
+i.lastDefence=1000-30
+rejected={}
+assert(#defence.options(i,rejected)==0 and rejected.redefend==2)
+groups=groups+1
+
 return groups

@@ -118,6 +118,7 @@ M.itemFirst,M.itemLast=15,33
 -- ForceSpellPoint (ForceSpellRES, ForceSpellPointRES) for releases; UseItem for a potion. Each
 -- holds the spell's or item's resref as its first string.
 M.CASTS={[31]=true,[95]=true,[113]=true,[114]=true,[34]=true}
+M.USE=34
 -- Decisions for friends: sanctuary keeps out enemies' casts, not these; heals and cures claim the
 -- allies they help.
 M.FRIENDLY={defence=true,heal=true,cure=true}
@@ -1402,10 +1403,20 @@ function M.new(g,options)
     end
 
     -- A defence a creature that asks the engine starts, the engine's or its script's, starts
-    -- its pause before the next one (mind.redefend), as SCS's redefend timer does.
+    -- its pause before the next one (mind.redefend), as SCS's redefend timer does: a cast, or a
+    -- drink of an item one of whose abilities defends.
     local function defended(sprite,action,tick)
         local id=sprite.m_id
-        if not known[id] or not targeting.CASTS[action.m_actionID] then return end
+        if not known[id] then return end
+        if action.m_actionID==M.USE then
+            local resref=text(action.m_string1.m_pchData:get())
+            if not valid(resref) then return end
+            for _,effect in ipairs(item(resref)) do
+                if defence.defence(effect) then lastDefence[id]=tick;return end
+            end
+            return
+        end
+        if not targeting.CASTS[action.m_actionID] then return end
         local resref=directors.resref(action)
         if not resref then return end
         local ok,level=pcall(g.EEex_Sprite_GetCasterLevelForSpell,sprite,resref,false)

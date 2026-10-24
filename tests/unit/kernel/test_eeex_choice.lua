@@ -641,6 +641,45 @@ local weighed=false
 for _,o in ipairs(last7('choice',1).top) do if o.kind=='defence' then weighed=true;assert(o.score<0) end end
 assert(weighed)
 assert(ch7:setMind(nil)==true)
+-- So does a drink of a potion that defends: a third mage under one fighter would cast Stoneskin,
+-- but its script has just drunk a potion of stoneskin. (Later than the rest, when the enemies the
+-- others saw are no longer current, so the fighter at the third mage is the group's focus.)
+ITEMS.TESTSKIN={kind='ITM',resref='TESTSKIN',flags=0,abilities={{form=3,flags=0,location=3,target=5,range=1,speed=0,
+    projectile=1,effects={fx(218,{p1=4,duration=300,target=1})}}}}
+local third=g7.add(sprite(3,0,1200,255))
+third.stats[2]=8
+learn(third,2,'TESTBOLT',2);learn(third,3,'TESTSTON')
+g7.add(sturdy(armed(sprite(15,40,1200,2,{m_curAction=action(3,'',3)}),35,'TESTSWRD')))
+third.locals.castspell=600
+g7.ticks=500
+assert(g7.BGSE_Claim(third,'mage','s1')==false)
+g7.listeners.started[1](third,action(34,'TESTSKIN',3))
+third.locals.castspell=0
+g7.ticks=516
+assert(g7.BGSE_Claim(third,'mage','s1')==true and last7('choice',3).spell=='TESTBOLT')
+-- A mage with no spell for it drinks such a potion itself, and the engine judges the drink by the
+-- effects the potion leaves (their source is the potion).
+local fourth=g7.add(sprite(4,0,1800,255))
+fourth.stats[2]=8
+fourth.items[18]={cResRef=str('TESTSKIN'),m_useCount1=1}
+g7.add(sturdy(armed(sprite(16,40,1800,2,{m_curAction=action(3,'',4)}),35,'TESTSWRD')))
+g7.ticks=700
+assert(g7.BGSE_Claim(fourth,'mage','s1')==true)
+local d4=last7('choice',4)
+assert(d4.spell=='TESTSKIN' and d4.use==true and d4.castKind=='defence' and d4.mode=='self')
+g7.BGSE_Act(fourth)
+assert(g7.queued[#g7.queued].text:find('UseItem%("TESTSKIN",Myself%)')~=nil)
+g7.listeners.started[1](fourth,action(34,'TESTSKIN',4))
+fourth.locals.castspell=790
+g7.ticks=710
+fourth.m_curAction={m_actionID=0}
+fourth.m_timedEffectList={{m_effectId=218,m_durationType=4096,m_duration=710+4500,m_effectAmount=4,m_dWFlags=0,
+    m_res=str(''),m_sourceRes=str('TESTSKIN')}}
+fourth.stats[88]=4
+assert(g7.BGSE_Claim(fourth,'mage','s1')==false)
+g7.ticks=741
+assert(g7.BGSE_Claim(fourth,'mage','s1')==false)
+assert(last7('guard',4).spell=='TESTSKIN' and last7('guard',4).landed==1)
 groups=groups+1
 
 -- 17. Openers (D2a). A mage with Time Stop, Improved Alacrity and two holds stops time first

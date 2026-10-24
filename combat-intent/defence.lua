@@ -52,8 +52,10 @@ M.schoolShare=1/8
 M.unseeing=0.9
 -- A speed point of casting time is a tenth of a round.
 M.speedSeconds=0.6
--- Worth of one spell level, times the profile's economy (as for attacks).
+-- Worth of one spell level, times the profile's economy (as for attacks); a potion costs as a
+-- first-level spell.
 M.costPerLevel=0.03
+M.itemLevel=1
 -- Enemy armour class and hit points when no enemy shows them.
 M.enemyAc=5
 M.enemyHp=60
@@ -456,10 +458,12 @@ function M.through(input,t,cast)
 end
 
 -- Every defence option the caster has: {resref, kind='defence', mode, worth, cost, score, hits
--- (the friends it reaches), slack=0, and self, point or target as the cast is aimed}. rejected
--- (optional) counts why ready defensive spells gave none. A friend's guard false means it could
--- not be read. A defence that follows the last one within mind.redefend seconds waits, as
--- SCS's does, unless the caster is in acute danger.
+-- (the friends it reaches), slack=0, and self, point or target as the cast is aimed; use=true for
+-- an item it drinks}. rejected (optional) counts why ready defensive spells and carried items gave
+-- none. A friend's guard false means it could not be read. A defence that follows the last one
+-- within mind.redefend seconds waits, as SCS's does, unless the caster is in acute danger. An item
+-- (the protection and buff potions SCS's fighters drink) works on the caster itself while it has
+-- uses left, costs as a first-level spell and is not interrupted (as care.lua's potions).
 function M.options(input,rejected)
     local out={}
     local function reject(why) if rejected then rejected[why]=(rejected[why] or 0)+1 end end
@@ -479,54 +483,74 @@ function M.options(input,rejected)
     local ct=pictures[caster.id]
     -- The weapon the caster swings when its profile fights with it.
     local wielded=mind.ownWeapon==true and threat.wielded(caster) or nil
+    -- The option of one ready spell (row) or carried item (row.item), or false and why it gives
+    -- none: no defence at all is false and nil.
+    local function consider(row,spell)
+        local gives,why=M.defence(spell)
+        if not gives then
+            if why~='no-defence' and why~='attack' and why~='unclassified' then return false,why end
+            return false
+        end
+        if waiting then return false,'redefend' end
+        local shield=M.shield(gives)
+        local length=math.max(seconds(gives.protection),seconds(gives.buff))
+        local rounds=math.max(0,math.min(horizon,length-stop))/M.ROUND
+        local best,unknown
+        local list=row.item and {{self=true,friend=caster,point=spell.area and {x=caster.x,y=caster.y} or nil}}
+            or aims(input,row,spell)
+        for _,aim in ipairs(list) do
+            local worth,hits=0,{}
+            for _,f in ipairs(receivers(input,row,spell,aim)) do
+                -- What protects a friend whose effects could not be read is unknown: it gets
+                -- nothing rather than a second copy.
+                if f.guard==false then unknown=true
+                elseif not guarded(f,row.resref) then
+                    local t=pictures[f.id]
+                    local gain=0
+                    if t and rounds>0 then
+                        local now=heldOf(f)
+                        gain=M.loss(now,f,t,rounds,killBonus)-M.loss(M.union(now,shield),f,t,rounds,killBonus)
+                    end
+                    if f~=caster then gain=gain+M.offense(gives.buff,f,frame,rounds)
+                    elseif wielded then gain=gain+M.offense(gives.buff,f,frame,rounds,wielded,gives.own) end
+                    if gain>0 then worth=worth+gain;hits[#hits+1]=f.id end
+                end
+            end
+            if worth>0 and (not best or worth>best.worth) then best={aim=aim,worth=worth,hits=hits} end
+        end
+        if not best then return false,unknown and 'unknown-guard' or 'no-worth' end
+        -- Casting time: harm while casting can interrupt a cast (not a drink); long casts also cost.
+        local cast=(number(spell.speed) and spell.speed or 0)*M.speedSeconds
+        local through=row.item and 1 or M.through(input,ct,cast)
+        local level=row.item and M.itemLevel or slots(input)*(number(row.level) and row.level or
+            number(spell.level) and spell.level or 1)
+        local cost=(number(mind.economy) and mind.economy or 1)*M.costPerLevel*level+
+            (number(mind.castCost) and mind.castCost or 0)*cast
+        local worth=best.worth*through*(number(mind.caution) and mind.caution or 1)
+        local option={resref=row.resref,kind='defence',worth=worth,cost=cost,score=worth-cost,
+            hits=best.hits,slack=0,speed=number(spell.speed) and spell.speed or 0,release=spell.release or nil,
+            use=row.item or nil}
+        local aim=best.aim
+        if aim.self then option.self=true;option.mode='self'
+        elseif aim.friend then option.target=aim.friend.id;option.mode='ally'
+        else option.point={x=math.floor(aim.point.x+0.5),y=math.floor(aim.point.y+0.5)};option.mode='point' end
+        return option
+    end
     for _,row in ipairs(type(input.spells)=='table' and input.spells or {}) do
         if type(row)=='table' and number(row.ready) and row.ready>0 and row.usable then
-            local spell=row.spell
-            local gives,why=M.defence(spell)
-            if not gives then
-                if why~='no-defence' and why~='attack' and why~='unclassified' then reject(why) end
-            elseif waiting then reject('redefend')
-            else
-                local shield=M.shield(gives)
-                local length=math.max(seconds(gives.protection),seconds(gives.buff))
-                local rounds=math.max(0,math.min(horizon,length-stop))/M.ROUND
-                local best,unknown
-                for _,aim in ipairs(aims(input,row,spell)) do
-                    local worth,hits=0,{}
-                    for _,f in ipairs(receivers(input,row,spell,aim)) do
-                        -- What protects a friend whose effects could not be read is unknown:
-                        -- it gets nothing rather than a second copy.
-                        if f.guard==false then unknown=true
-                        elseif not guarded(f,row.resref) then
-                            local t=pictures[f.id]
-                            local gain=0
-                            if t and rounds>0 then
-                                local now=heldOf(f)
-                                gain=M.loss(now,f,t,rounds,killBonus)-M.loss(M.union(now,shield),f,t,rounds,killBonus)
-                            end
-                            if f~=caster then gain=gain+M.offense(gives.buff,f,frame,rounds)
-                            elseif wielded then gain=gain+M.offense(gives.buff,f,frame,rounds,wielded,gives.own) end
-                            if gain>0 then worth=worth+gain;hits[#hits+1]=f.id end
-                        end
-                    end
-                    if worth>0 and (not best or worth>best.worth) then best={aim=aim,worth=worth,hits=hits} end
-                end
-                if not best then reject(unknown and 'unknown-guard' or 'no-worth')
-                else
-                    -- Casting time: harm while casting can interrupt the cast; long casts also cost.
-                    local cast=(number(spell.speed) and spell.speed or 0)*M.speedSeconds
-                    local through=M.through(input,ct,cast)
-                    local level=number(row.level) and row.level or number(spell.level) and spell.level or 1
-                    local cost=(number(mind.economy) and mind.economy or 1)*slots(input)*M.costPerLevel*level+
-                        (number(mind.castCost) and mind.castCost or 0)*cast
-                    local worth=best.worth*through*(number(mind.caution) and mind.caution or 1)
-                    local option={resref=row.resref,kind='defence',worth=worth,cost=cost,score=worth-cost,
-                        hits=best.hits,slack=0,speed=number(spell.speed) and spell.speed or 0,release=spell.release or nil}
-                    local aim=best.aim
-                    if aim.self then option.self=true;option.mode='self'
-                    elseif aim.friend then option.target=aim.friend.id;option.mode='ally'
-                    else option.point={x=math.floor(aim.point.x+0.5),y=math.floor(aim.point.y+0.5)};option.mode='point' end
-                    out[#out+1]=option
+            local option,why=consider(row,row.spell)
+            if option then out[#out+1]=option elseif why then reject(why) end
+        end
+    end
+    -- Items the caster carries: the first ability of each that defends, while uses are left.
+    for _,it in ipairs(type(input.items)=='table' and input.items or {}) do
+        if type(it)=='table' and type(it.resref)=='string' then
+            for _,a in ipairs(type(it.abilities)=='table' and it.abilities or {}) do
+                local effect=type(a)=='table' and a.effect
+                if type(effect)=='table' and effect.target~='point' and (not number(a.uses) or a.uses>0) and M.defence(effect) then
+                    local option,why=consider({resref=it.resref,item=true},effect)
+                    if option then out[#out+1]=option elseif why then reject(why) end
+                    break
                 end
             end
         end
