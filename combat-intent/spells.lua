@@ -277,6 +277,24 @@ for op,label in pairs(STATS) do
     end
 end
 for op in pairs(TOHIT) do H[op]=function(c,e,who,p) modifier(c,e,who,p,'thac0','buff','debuff') end end
+-- Opcode 54 changes the base THAC0 by a bonus (type 0: more is better), or the value itself, set
+-- (type 1) or scaled (type 2), where less is better (IESDP; the game's Potion of Power scales it
+-- to 80 per cent). A value set below the worst THAC0 is a buff and keeps the best one set
+-- (thac0Set), one set to the worst or above a debuff; thac0Percent tallies the per cent taken off
+-- (buff) or put on (debuff).
+M.worstThac0=20
+H[54]=function(c,e,who,p)
+    local mode=e.p2%65536
+    if mode==1 then
+        local good=e.p1<M.worstThac0
+        local r=kind(c,good and 'buff' or 'debuff','thac0',who,e,p)
+        r.thac0Set=good and math.min(r.thac0Set or e.p1,e.p1) or math.max(r.thac0Set or e.p1,e.p1)
+    elseif mode==2 then
+        if e.p1==100 then return end
+        local r=kind(c,e.p1<100 and 'buff' or 'debuff','thac0',who,e,p)
+        tally(set(r,'amounts'),'thac0Percent',math.abs(100-e.p1)*p)
+    else modifier(c,e,who,p,'thac0','buff','debuff') end
+end
 for op in pairs(WEAPON_DAMAGE) do H[op]=function(c,e,who,p) modifier(c,e,who,p,'damage','buff','debuff') end end
 H[250]=function(c,e,who,p) modifier(c,e,who,p,'damage','buff','debuff') end
 H[1]=function(c,e,who,p) modifier(c,e,who,p,'attacks','buff','debuff') end
@@ -293,7 +311,8 @@ H[189]=function(c,e,who,p)
 end
 -- Aura cleansing (Improved Alacrity): the next cast need not wait for the round to end.
 H[188]=function(c,e,who,p) kind(c,'buff','castingSpeed',who,e,p);kind(c,'buff','alacrity',who,e,p) end
-H[301]=function(c,e,who,p) modifier(c,e,who,p,'critical','buff','debuff') end
+-- Critical hits on a roll of 20 less parameter 1 (parameter 2 says which hand, not a type).
+H[301]=function(c,e,who,p) signed(c,e,who,p,e.p1,'critical','buff','debuff') end
 H[344]=function(c,e,who,p) kind(c,'buff','enchantment',who,e,p) end
 H[345]=H[344]
 -- An empty item reference creates no weapon (IESDP warns that the game can crash on it): a kit
@@ -342,8 +361,14 @@ end
 H[178]=function(c,e,who,p) signed(c,e,who,p,s32(e.special),'thac0VsType','buff','debuff') end
 H[179]=function(c,e,who,p) signed(c,e,who,p,s32(e.special),'damageVsType','buff','debuff') end
 H[219]=function(c,e,who,p) kind(c,'protection','armorVsType',who,e,p) end
--- Percent more (or less) damage dealt; parameter 2 is the damage type.
-H[332]=function(c,e,who,p) signed(c,e,who,p,e.p1,'damagePercent','buff','debuff') end
+-- Percent more (or less) damage dealt of the damage type in parameter 2 (0 all, 1 to 6 fire,
+-- cold, electricity, acid, magic and poison, 7 to 10 slashing, piercing, crushing and missile;
+-- IESDP): damagePercentBy tallies the per cent by type, as Kai raises three of them.
+H[332]=function(c,e,who,p)
+    if e.p1==0 then return end
+    local r=kind(c,e.p1>0 and 'buff' or 'debuff','damagePercent',who,e,p)
+    tally(set(r,'damagePercentBy'),e.p2,math.abs(e.p1)*p)
+end
 H[222]=function(c,e,who,p) kind(c,'debuff','teleportField',who,e,p) end
 -- Wild magic makes the receiver's own spells surge.
 H[280]=function(c,e,who,p) if who~='self' then kind(c,'debuff','wildSurge',who,e,p) end end

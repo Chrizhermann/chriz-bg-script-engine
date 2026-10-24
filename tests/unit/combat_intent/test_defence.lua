@@ -344,4 +344,54 @@ pick=choice.decide(i)
 assert(pick.resref=='TESTBOLT' and pick.kind=='damage')
 groups=groups+1
 
+-- 9. A heal or removal that reaches the caster alone rides along on a defence (Barbarian Rage,
+-- Potion of Haste and Potion of Free Action take earlier copies or slowing effects off the user,
+-- Enrage heals it a little); one that reaches others keeps the spell out.
+local rage=spell('TESTRAGE',1,{fx(221,{p1=10,p2=26,duration=30}),fx(0,{p1=4,duration=30}),fx(44,{p1=4,duration=30})},
+    {speed=0})
+local enrage=spell('TESTENRA',1,{fx(0,{p1=4}),fx(17,{p1=15})},{speed=0})
+given=defence.defence(rage)
+assert(given and given.protection and given.buff and rage.roles.removal.who.self)
+given=defence.defence(enrage)
+assert(given and given.protection and enrage.roles.heal.who.self)
+opts=defence.options(input({fighter(11,130),fighter(12,135)},{row('TESTRAGE',rage,1),row('TESTENRA',enrage,1)}),{})
+assert(find(opts,'TESTRAGE').self and find(opts,'TESTENRA').self)
+local purge=spell('TESTPURG',3,{fx(221,{p1=10,p2=26,target=2,duration=0}),fx(0,{p1=4,target=2})},
+    {target=4,projectile=99},{[99]=area(256,0)})
+assert(select(2,defence.defence(purge))=='role-removal')
+local mend=spell('TESTMEND',1,{fx(17,{p1=15,target=2}),fx(0,{p1=4,target=2})},{target=1,projectile=2})
+assert(select(2,defence.defence(mend))=='role-heal')
+groups=groups+1
+
+-- 10. A creature that fights with its weapon (fighters and monsters, mind.ownWeapon) counts its own
+-- weapon for its own buffs: Kai's sure hits and more damage of the weapon's kind, Whirlwind
+-- Attack's doubled attacks less its own penalties, Critical Strike's sure critical hits, a THAC0
+-- scaled down (Potion of Power). A caster that casts does not.
+local kai=spell('TESTKAI',1,{fx(278,{p1=50,p2=1,duration=12}),fx(332,{p1=20,p2=7,duration=12}),
+    fx(332,{p1=20,p2=8,duration=12}),fx(332,{p1=20,p2=9,duration=12})},{speed=0})
+local whirl=spell('TESTWHRL',1,{fx(317,{p2=1,duration=12}),fx(73,{p1=-4,duration=12}),fx(54,{p1=-4,duration=12})},
+    {speed=0})
+local critical=spell('TESTCRIT',1,{fx(301,{p1=20,duration=6})},{speed=0})
+local power=spell('TESTPOWR',1,{fx(54,{p1=80,p2=2,duration=240})},{speed=0})
+i=input({fighter(11,130)},{row('TESTKAI',kai,1),row('TESTWHRL',whirl,1),row('TESTCRIT',critical,1),
+    row('TESTPOWR',power,1)})
+i.frame.self.weapon={damage=10,damageType=3,apr=2,thac0=10}
+rejected={}
+assert(#defence.options(i,rejected)==0 and rejected['no-worth']==4)
+i.mind=mind.new({ownWeapon=true})
+opts=defence.options(i,{})
+o=find(opts,'TESTKAI')
+assert(o.self and near(o.worth,(2*0.95*12-2*0.75*10)*2/60))
+assert(near(find(opts,'TESTCRIT').worth,(2*10*(1+0.95*defence.critOpen)-2*0.75*10)/60))
+assert(near(find(opts,'TESTPOWR').worth,(2*0.85*10-2*0.75*10)*3/60))
+-- Whirlwind Attack's penalties outweigh its doubled attacks for a weapon that hits three times in
+-- four, not for one that nearly always hits.
+assert(find(opts,'TESTWHRL')==nil)
+i.frame.self.weapon.thac0=0
+assert(near(find(defence.options(i,{}),'TESTWHRL').worth,(4*0.95*6-2*0.95*10)*2/60))
+-- A family's script sets it: fighters and monsters swing.
+assert(mind.forFamily(mind.new(),'fighter').ownWeapon and mind.forFamily(mind.new(),'monster').ownWeapon)
+assert(not mind.forFamily(mind.new(),'mage').ownWeapon and not mind.new().ownWeapon)
+groups=groups+1
+
 return groups

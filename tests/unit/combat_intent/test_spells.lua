@@ -308,8 +308,25 @@ assert(c.roles.debuff.kinds.thac0VsType and c.roles.debuff.amounts.thac0VsType==
 assert(one(fx(179,{special=3,target=1}),{target=5}).roles.buff.kinds.damageVsType)
 assert(one(fx(219,{p1=4,p2=4,target=1}),{target=5}).roles.protection.kinds.armorVsType)
 c=one(fx(332,{p1=20,p2=2,target=1}),{target=5})
-assert(c.roles.buff.kinds.damagePercent and c.roles.buff.amounts.damagePercent==20)
-assert(one(fx(332,{p1=-25})).roles.debuff.kinds.damagePercent)
+assert(c.roles.buff.kinds.damagePercent and c.roles.buff.damagePercentBy[2]==20)
+c=classify(spl('TESTKAI',{ability({fx(332,{p1=20,p2=7,target=1}),fx(332,{p1=20,p2=8,target=1}),
+    fx(332,{p1=20,p2=9,target=1})},{target=5})}),world({}))
+local by=c.roles.buff.damagePercentBy
+assert(by[7]==20 and by[8]==20 and by[9]==20 and by[0]==nil)
+assert(one(fx(332,{p1=-25})).roles.debuff.damagePercentBy[0]==25)
+-- THAC0 (opcode 54): a bonus by type 0, the value itself by types 1 and 2, where less is better.
+assert(one(fx(54,{p1=2,target=1}),{target=5}).roles.buff.amounts.thac0==2)
+assert(one(fx(54,{p1=-2})).roles.debuff.amounts.thac0==2)
+c=one(fx(54,{p1=80,p2=2,target=1}),{target=5})
+assert(c.roles.buff.kinds.thac0 and c.roles.buff.amounts.thac0Percent==20 and c.roles.buff.amounts.thac0==nil)
+assert(one(fx(54,{p1=125,p2=2})).roles.debuff.amounts.thac0Percent==25)
+assert(next(one(fx(54,{p1=100,p2=2})).roles)==nil)
+c=classify(spl('TESTSET',{ability({fx(54,{p1=6,p2=1,target=1}),fx(54,{p1=-12,p2=1,target=1})},{target=5})}),world({}))
+assert(c.roles.buff.thac0Set==-12 and c.roles.debuff==nil)
+c=one(fx(54,{p1=20,p2=1}))
+assert(c.roles.debuff.thac0Set==20 and c.roles.buff==nil)
+-- Critical hits: parameter 2 names the hand, not a type.
+assert(one(fx(301,{p1=20,p2=2,target=1}),{target=5}).roles.buff.amounts.critical==20)
 c=one(fx(0,{p1=4,p2=2,target=1}),{target=5})
 assert(c.roles.protection.kinds.armor and c.roles.protection.amounts.armor==4)
 assert(one(fx(0,{p1=-2})).roles.debuff.kinds.armor)

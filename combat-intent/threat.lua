@@ -54,7 +54,8 @@ function M.attack(e)
     local apr=number(a.apr) and a.apr>0 and a.apr or u.apr
     return {apr=apr,thac0=number(a.thac0) and a.thac0 or u.thac0,
         damage=number(a.damage) and a.damage>=0 and a.damage or u.damage,
-        ranged=a.ranged==true,magical=a.magical~=false,range=number(a.range) and a.range or nil}
+        ranged=a.ranged==true,magical=a.magical~=false,range=number(a.range) and a.range or nil,
+        damageType=number(a.damageType) and a.damageType or nil}
 end
 
 -- How much of a creature's class casts, 0 for none.
@@ -171,7 +172,7 @@ function M.wielded(caster)
     if type(w)~='table' or not number(w.damage) then return false end
     local flags=number(w.flags) and w.flags or 0
     return {apr=number(w.apr) and w.apr or caster.apr,thac0=number(w.thac0) and w.thac0 or caster.thac0,
-        damage=w.damage,ranged=w.ranged==true,range=w.range,
+        damage=w.damage,ranged=w.ranged==true,range=w.range,damageType=w.damageType,
         magical=(number(w.enchantment) and w.enchantment>0) or math.floor(flags/64)%2==1}
 end
 

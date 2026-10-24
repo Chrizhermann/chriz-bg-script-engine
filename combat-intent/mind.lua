@@ -54,6 +54,9 @@ M.default={
     touchReach=10,
     -- Weapon attacks (D2c): the weapon in hand as an attack, and spells that conjure one.
     weapons=true,
+    -- Its own weapon counts for its own buffs (Kai, Whirlwind Attack, rages, potions): fighters and
+    -- monsters swing (M.FAMILIES), casters cast.
+    ownWeapon=false,
     -- Summons (D3c): no more summoning once this many summoned allies are in view (the game's own
     -- limit for summoned creatures is five).
     summonCap=5,
@@ -87,6 +90,7 @@ local CHECKS={coordination=share,best=share,band=share,economy=amount,minValue=a
     openers=function(v) return type(v)=='boolean' end,
     touch=function(v) return type(v)=='boolean' end,
     weapons=function(v) return type(v)=='boolean' end,
+    ownWeapon=function(v) return type(v)=='boolean' end,
     memory=function(v) return type(v)=='boolean' end,
     knowledge=function(v) return v=='scs' end,
     clouds=function(v) return v=='learned' or v=='best' or v=='once' end,
@@ -110,6 +114,17 @@ function M.new(changes)
         mind[k]=v
     end
     return mind
+end
+
+-- What a family's script changes in the profile: fighters and monsters fight with their weapons.
+M.FAMILIES={fighter={ownWeapon=true},monster={ownWeapon=true}}
+-- The profile base as a creature of the family ('mage', 'priest', 'fighter' or 'monster') thinks.
+function M.forFamily(base,family)
+    local changes=M.FAMILIES[family]
+    if not changes then return base end
+    local m=copy(base)
+    for k,v in pairs(changes) do m[k]=v end
+    return m
 end
 
 -- Wit (docs/research/MIND-01-wit-and-difficulty.md; Christopher, 2026-10-23 and 2026-10-24):

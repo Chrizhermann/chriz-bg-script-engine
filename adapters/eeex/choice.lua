@@ -291,9 +291,10 @@ function M.new(g,options)
         local ok,value=pcall(function() return g.EngineGlobals.g_pBaldurChitin.m_pObjectGame.m_options.m_nDifficultyLevel end)
         return ok and type(value)=='number' and value or nil
     end
-    -- The creature's profile: the default with its wit, made again when what it comes from changes.
+    -- The creature's profile: the default as its family thinks, with its wit, made again when what it
+    -- comes from changes.
     local function witted(sprite,family)
-        if not witOn then return defaultMind end
+        if not witOn then return mind.forFamily(defaultMind,family) end
         local t=sprite.m_typeAI
         local c={int=g.EEex_Sprite_GetStat(sprite,M.intStat),wis=g.EEex_Sprite_GetStat(sprite,M.wisStat),
             general=t.m_General,race=t.m_Race,class=t.m_Class,family=family,resref=text(sprite.m_resref:get()),
@@ -303,7 +304,7 @@ function M.new(g,options)
         local had=minds[sprite.m_id]
         if had and had.key==key then return had.mind end
         local w=mind.wit(c,witOverrides)
-        local made=mind.withWit(defaultMind,w)
+        local made=mind.withWit(mind.forFamily(defaultMind,family),w)
         if not had then
             if mindCount>=M.cacheLimit then minds,mindCount={},0 end
             mindCount=mindCount+1
@@ -321,7 +322,7 @@ function M.new(g,options)
             witError=tostring(m):sub(1,200)
             record({kind='error',where='wit',error=witError})
         end
-        return defaultMind
+        return mind.forFamily(defaultMind,family)
     end
     local function decline(why)
         counts.declines=counts.declines+1

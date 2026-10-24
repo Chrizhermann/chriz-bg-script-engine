@@ -666,6 +666,24 @@ for op,label in pairs(STATS) do
     end
 end
 for op in pairs(TOHIT) do H[op]=function(c,e,who,p) modifier(c,e,who,p,'thac0','buff','debuff') end end
+-- Opcode 54 changes the base THAC0 by a bonus (type 0: more is better), or the value itself, set
+-- (type 1) or scaled (type 2), where less is better (IESDP; the game's Potion of Power scales it
+-- to 80 per cent). A value set below the worst THAC0 is a buff and keeps the best one set
+-- (thac0Set), one set to the worst or above a debuff; thac0Percent tallies the per cent taken off
+-- (buff) or put on (debuff).
+M.worstThac0=20
+H[54]=function(c,e,who,p)
+    local mode=e.p2%65536
+    if mode==1 then
+        local good=e.p1<M.worstThac0
+        local r=kind(c,good and 'buff' or 'debuff','thac0',who,e,p)
+        r.thac0Set=good and math.min(r.thac0Set or e.p1,e.p1) or math.max(r.thac0Set or e.p1,e.p1)
+    elseif mode==2 then
+        if e.p1==100 then return end
+        local r=kind(c,e.p1<100 and 'buff' or 'debuff','thac0',who,e,p)
+        tally(set(r,'amounts'),'thac0Percent',math.abs(100-e.p1)*p)
+    else modifier(c,e,who,p,'thac0','buff','debuff') end
+end
 for op in pairs(WEAPON_DAMAGE) do H[op]=function(c,e,who,p) modifier(c,e,who,p,'damage','buff','debuff') end end
 H[250]=function(c,e,who,p) modifier(c,e,who,p,'damage','buff','debuff') end
 H[1]=function(c,e,who,p) modifier(c,e,who,p,'attacks','buff','debuff') end
@@ -682,7 +700,8 @@ H[189]=function(c,e,who,p)
 end
 -- Aura cleansing (Improved Alacrity): the next cast need not wait for the round to end.
 H[188]=function(c,e,who,p) kind(c,'buff','castingSpeed',who,e,p);kind(c,'buff','alacrity',who,e,p) end
-H[301]=function(c,e,who,p) modifier(c,e,who,p,'critical','buff','debuff') end
+-- Critical hits on a roll of 20 less parameter 1 (parameter 2 says which hand, not a type).
+H[301]=function(c,e,who,p) signed(c,e,who,p,e.p1,'critical','buff','debuff') end
 H[344]=function(c,e,who,p) kind(c,'buff','enchantment',who,e,p) end
 H[345]=H[344]
 -- An empty item reference creates no weapon (IESDP warns that the game can crash on it): a kit
@@ -731,8 +750,14 @@ end
 H[178]=function(c,e,who,p) signed(c,e,who,p,s32(e.special),'thac0VsType','buff','debuff') end
 H[179]=function(c,e,who,p) signed(c,e,who,p,s32(e.special),'damageVsType','buff','debuff') end
 H[219]=function(c,e,who,p) kind(c,'protection','armorVsType',who,e,p) end
--- Percent more (or less) damage dealt; parameter 2 is the damage type.
-H[332]=function(c,e,who,p) signed(c,e,who,p,e.p1,'damagePercent','buff','debuff') end
+-- Percent more (or less) damage dealt of the damage type in parameter 2 (0 all, 1 to 6 fire,
+-- cold, electricity, acid, magic and poison, 7 to 10 slashing, piercing, crushing and missile;
+-- IESDP): damagePercentBy tallies the per cent by type, as Kai raises three of them.
+H[332]=function(c,e,who,p)
+    if e.p1==0 then return end
+    local r=kind(c,e.p1>0 and 'buff' or 'debuff','damagePercent',who,e,p)
+    tally(set(r,'damagePercentBy'),e.p2,math.abs(e.p1)*p)
+end
 H[222]=function(c,e,who,p) kind(c,'debuff','teleportField',who,e,p) end
 -- Wild magic makes the receiver's own spells surge.
 H[280]=function(c,e,who,p) if who~='self' then kind(c,'debuff','wildSurge',who,e,p) end end
@@ -1994,6 +2019,9 @@ M.default={
     touchReach=10,
     -- Weapon attacks (D2c): the weapon in hand as an attack, and spells that conjure one.
     weapons=true,
+    -- Its own weapon counts for its own buffs (Kai, Whirlwind Attack, rages, potions): fighters and
+    -- monsters swing (M.FAMILIES), casters cast.
+    ownWeapon=false,
     -- Summons (D3c): no more summoning once this many summoned allies are in view (the game's own
     -- limit for summoned creatures is five).
     summonCap=5,
@@ -2027,6 +2055,7 @@ local CHECKS={coordination=share,best=share,band=share,economy=amount,minValue=a
     openers=function(v) return type(v)=='boolean' end,
     touch=function(v) return type(v)=='boolean' end,
     weapons=function(v) return type(v)=='boolean' end,
+    ownWeapon=function(v) return type(v)=='boolean' end,
     memory=function(v) return type(v)=='boolean' end,
     knowledge=function(v) return v=='scs' end,
     clouds=function(v) return v=='learned' or v=='best' or v=='once' end,
@@ -2050,6 +2079,17 @@ function M.new(changes)
         mind[k]=v
     end
     return mind
+end
+
+-- What a family's script changes in the profile: fighters and monsters fight with their weapons.
+M.FAMILIES={fighter={ownWeapon=true},monster={ownWeapon=true}}
+-- The profile base as a creature of the family ('mage', 'priest', 'fighter' or 'monster') thinks.
+function M.forFamily(base,family)
+    local changes=M.FAMILIES[family]
+    if not changes then return base end
+    local m=copy(base)
+    for k,v in pairs(changes) do m[k]=v end
+    return m
 end
 
 -- Wit (docs/research/MIND-01-wit-and-difficulty.md; Christopher, 2026-10-23 and 2026-10-24):
@@ -2198,7 +2238,8 @@ function M.attack(e)
     local apr=number(a.apr) and a.apr>0 and a.apr or u.apr
     return {apr=apr,thac0=number(a.thac0) and a.thac0 or u.thac0,
         damage=number(a.damage) and a.damage>=0 and a.damage or u.damage,
-        ranged=a.ranged==true,magical=a.magical~=false,range=number(a.range) and a.range or nil}
+        ranged=a.ranged==true,magical=a.magical~=false,range=number(a.range) and a.range or nil,
+        damageType=number(a.damageType) and a.damageType or nil}
 end
 
 -- How much of a creature's class casts, 0 for none.
@@ -2315,7 +2356,7 @@ function M.wielded(caster)
     if type(w)~='table' or not number(w.damage) then return false end
     local flags=number(w.flags) and w.flags or 0
     return {apr=number(w.apr) and w.apr or caster.apr,thac0=number(w.thac0) and w.thac0 or caster.thac0,
-        damage=w.damage,ranged=w.ranged==true,range=w.range,
+        damage=w.damage,ranged=w.ranged==true,range=w.range,damageType=w.damageType,
         magical=(number(w.enchantment) and w.enchantment>0) or math.floor(flags/64)%2==1}
 end
 
@@ -2691,8 +2732,10 @@ factories["combat-intent.defence"]=function(require)
 --   twice counts once (the larger), independent kinds compound (armour lowers the hits that
 --   get past weapon immunity), and a fresh Stoneskin over skins that last the horizon gains
 --   nothing: SCS keeps "at least one" up.
--- - A buff is worth the share of an enemy its receivers' extra weapon damage takes. The caster's
---   own weapon does not count; it casts.
+-- - A buff is worth the share of an enemy its receivers' extra weapon damage takes: more attacks,
+--   hits, damage and critical hits, less what the spell puts on its own receiver (Whirlwind
+--   Attack's penalties). The caster's own weapon counts only when its profile fights with it
+--   (mind.ownWeapon: fighters and monsters); a caster that casts does not swing.
 -- Harm comes from combat-intent/threat.lua: weapons, spells aimed at one creature, areas and
 -- disables, as the caster perceives them.
 -- In the caster's own Time Stop (D2a) nothing threatens it until time resumes: a cast that ends
@@ -2700,6 +2743,7 @@ factories["combat-intent.defence"]=function(require)
 local targeting=require('combat-intent.targeting')
 local threat=require('combat-intent.threat')
 local openers=require('combat-intent.openers')
+local weapons=require('combat-intent.weapons')
 local M={}
 M.ROUND=6
 -- Worth of a round a friend is in the fight, as a share of it (attacks count a hold for the full
@@ -2727,6 +2771,11 @@ M.costPerLevel=0.03
 -- Enemy armour class and hit points when no enemy shows them.
 M.enemyAc=5
 M.enemyHp=60
+-- Critical hits: the share of enemies whose helmets do not keep them from doubling a hit. Rough on
+-- purpose while the engine does not read their helmets; the lab tunes it.
+M.critOpen=0.5
+-- The damage types opcode 332 raises (its parameter 2) for each kind of weapon damage; 0 raises all.
+M.PERCENT_TYPES={slashing=7,piercing=8,crushing=9,missile=10}
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
 -- The share of a spell slot's cost that counts now (combat-intent/choice.lua, M.slotShare).
@@ -2939,10 +2988,34 @@ local function enemies(frame)
     if n==0 then return M.enemyAc,M.enemyHp,0 end
     return ac/n,hp/n,n
 end
+-- What a buff or debuff role adds to attack data a: to-hit points, damage, the per cent of damage
+-- of a's kind, and critical hit points. THAC0 itself set or scaled (opcode 54) counts by a's THAC0,
+-- where less is better.
+local function edge(role,a,debuff)
+    if type(role)~='table' then return 0,0,0,0 end
+    local k=type(role.kinds)=='table' and role.kinds or {}
+    local hit=amount(role,'thac0')+math.max(0,a.thac0)*amount(role,'thac0Percent')/100
+    if not debuff then
+        hit=hit+(k.bless and 1 or 0)+(k.aid and 1 or 0)+0.5*(amount(role,'luck')+(k.chant and 1 or 0))
+    end
+    if number(role.thac0Set) then hit=hit+math.max(0,debuff and role.thac0Set-a.thac0 or a.thac0-role.thac0Set) end
+    local by=type(role.damagePercentBy)=='table' and role.damagePercentBy or {}
+    local label=weapons.DAMAGE[a.damageType]
+    local percent=(number(by[0]) and by[0] or 0)+(label and number(by[M.PERCENT_TYPES[label]]) and by[M.PERCENT_TYPES[label]] or 0)
+    return hit,amount(role,'damage'),percent,amount(role,'critical')
+end
+-- A swing's expected damage: d on a hit; a critical hit (a roll of 20 less crit, at least 1 in
+-- 20) always hits and doubles d where no helmet keeps it off.
+local function swing(h,d,crit)
+    local q=clamp((1+crit)/20,0.05,1)
+    return d*(math.max(h,q)+(q-0.05)*M.critOpen)
+end
 -- The share of an enemy a buff's extra weapon damage takes through friend f over r rounds; only
--- friends with attack data and an enemy within a round's walk fight.
-function M.offense(buff,f,frame,r)
-    if type(buff)~='table' or type(f.attack)~='table' then return 0 end
+-- friends with attack data and an enemy within a round's walk fight. held: the attack data f
+-- swings with (f.attack when nil); own: what the spell puts on f itself (its debuff role).
+function M.offense(buff,f,frame,r,held,own)
+    held=held or f.attack
+    if type(buff)~='table' or type(held)~='table' then return 0 end
     local ac,hp,n=enemies(frame)
     if n==0 then return 0 end
     local close=false
@@ -2950,13 +3023,15 @@ function M.offense(buff,f,frame,r)
         if targeting.alive(e) and targeting.distance(e,f)<=threat.reach+threat.stride then close=true;break end
     end
     if not close then return 0 end
-    local a=threat.attack({attack=f.attack})
+    local a=threat.attack({attack=held})
     local k=type(buff.kinds)=='table' and buff.kinds or {}
     local apr=a.apr+M.attacks(amount(buff,'attacks'))
     if k.haste then apr=apr+(k.improvedHaste and a.apr or 1) end
-    local bonus=amount(buff,'thac0')+(k.bless and 1 or 0)+(k.aid and 1 or 0)+0.5*(amount(buff,'luck')+(k.chant and 1 or 0))
-    local before=a.apr*threat.hitChance(a.thac0,ac)*a.damage
-    local after=apr*threat.hitChance(a.thac0-bonus,ac)*(a.damage+amount(buff,'damage'))
+    local hit,damage,percent,crit=edge(buff,a)
+    local lost,less,fewer,blunt=edge(own,a,true)
+    local d=math.max(0,a.damage+damage-less+a.damage*(percent-fewer)/100)
+    local before=a.apr*swing(threat.hitChance(a.thac0,ac),a.damage,0)
+    local after=apr*swing(threat.hitChance(a.thac0-hit+lost,ac),d,crit-blunt)
     return math.max(0,after-before)*r/hp
 end
 
@@ -2982,6 +3057,14 @@ local function harmsFriends(spell)
     end
     return false
 end
+-- Whether a role reaches the caster and no one else.
+local function ownOnly(who)
+    for k,v in pairs(who) do if v and k~='self' then return false end end
+    return who.self==true
+end
+-- Heals and removals that ride along on the user alone: Barbarian Rage, Potion of Haste and
+-- Potion of Free Action take earlier copies or slowing effects off it, Enrage heals it a little.
+local OWN={heal=true,removal=true}
 -- The protection and buff roles a spell gives its receivers, or nil and why it is no defence.
 function M.defence(spell)
     if type(spell)~='table' or type(spell.roles)~='table' then return nil,'unclassified' end
@@ -2995,11 +3078,18 @@ function M.defence(spell)
         local r=spell.roles[name]
         if type(r)=='table' and type(r.who)=='table' and (r.who.target or r.who.point) then return nil,'attack' end
     end
+    -- Summons, raising, healing and removal are decisions of their own (combat-intent/summons.lua,
+    -- care.lua, removal.lua), unless the heal or removal reaches the caster alone.
     for _,name in ipairs({'summon','heal','raise','removal'}) do
         local r=spell.roles[name]
-        if type(r)=='table' and type(r.who)=='table' and next(r.who) then return nil,'role-'..name end
+        if type(r)=='table' and type(r.who)=='table' and next(r.who) and not (OWN[name] and ownOnly(r.who)) then
+            return nil,'role-'..name
+        end
     end
-    return {protection=forFriends(p) and p or nil,buff=forFriends(b) and b or nil}
+    -- own: what the spell puts on the caster itself besides (Whirlwind Attack's penalties).
+    local d=spell.roles.debuff
+    local own=type(d)=='table' and type(d.who)=='table' and d.who.self and d or nil
+    return {protection=forFriends(p) and p or nil,buff=forFriends(b) and b or nil,own=own}
 end
 
 local function seconds(role)
@@ -3101,6 +3191,8 @@ function M.options(input,rejected)
     local function heldOf(f) held[f.id]=held[f.id] or M.held(f);return held[f.id] end
     local caster=frame.self
     local ct=pictures[caster.id]
+    -- The weapon the caster swings when its profile fights with it.
+    local wielded=mind.ownWeapon==true and threat.wielded(caster) or nil
     for _,row in ipairs(type(input.spells)=='table' and input.spells or {}) do
         if type(row)=='table' and number(row.ready) and row.ready>0 and row.usable then
             local spell=row.spell
@@ -3126,7 +3218,8 @@ function M.options(input,rejected)
                                 local now=heldOf(f)
                                 gain=M.loss(now,f,t,rounds,killBonus)-M.loss(M.union(now,shield),f,t,rounds,killBonus)
                             end
-                            if f~=caster then gain=gain+M.offense(gives.buff,f,frame,rounds) end
+                            if f~=caster then gain=gain+M.offense(gives.buff,f,frame,rounds)
+                            elseif wielded then gain=gain+M.offense(gives.buff,f,frame,rounds,wielded,gives.own) end
                             if gain>0 then worth=worth+gain;hits[#hits+1]=f.id end
                         end
                     end
@@ -7343,9 +7436,10 @@ function M.new(g,options)
         local ok,value=pcall(function() return g.EngineGlobals.g_pBaldurChitin.m_pObjectGame.m_options.m_nDifficultyLevel end)
         return ok and type(value)=='number' and value or nil
     end
-    -- The creature's profile: the default with its wit, made again when what it comes from changes.
+    -- The creature's profile: the default as its family thinks, with its wit, made again when what it
+    -- comes from changes.
     local function witted(sprite,family)
-        if not witOn then return defaultMind end
+        if not witOn then return mind.forFamily(defaultMind,family) end
         local t=sprite.m_typeAI
         local c={int=g.EEex_Sprite_GetStat(sprite,M.intStat),wis=g.EEex_Sprite_GetStat(sprite,M.wisStat),
             general=t.m_General,race=t.m_Race,class=t.m_Class,family=family,resref=text(sprite.m_resref:get()),
@@ -7355,7 +7449,7 @@ function M.new(g,options)
         local had=minds[sprite.m_id]
         if had and had.key==key then return had.mind end
         local w=mind.wit(c,witOverrides)
-        local made=mind.withWit(defaultMind,w)
+        local made=mind.withWit(mind.forFamily(defaultMind,family),w)
         if not had then
             if mindCount>=M.cacheLimit then minds,mindCount={},0 end
             mindCount=mindCount+1
@@ -7373,7 +7467,7 @@ function M.new(g,options)
             witError=tostring(m):sub(1,200)
             record({kind='error',where='wit',error=witError})
         end
-        return defaultMind
+        return mind.forFamily(defaultMind,family)
     end
     local function decline(why)
         counts.declines=counts.declines+1
