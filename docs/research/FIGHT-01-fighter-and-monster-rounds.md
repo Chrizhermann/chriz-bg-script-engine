@@ -239,7 +239,8 @@ The engine searches with what the creature and its group perceived instead
   rule 7): its chase, its free detection casts and its walk to a door get a last condition,
   `BGSE_Search`, and are never copied above the hook (a fiend's teleport to the party member it
   noted was copied as a special before). So the engine alone searches, also when it has no clue. For
-  now that means mages and priests; fighters and monsters follow with F1e.
+  now that means mages and priests on the engine's side; fighters and monsters follow with F1e, and
+  a neutral or charmed creature keeps SCS's own hunt.
 - **Log.** Rows `hunt` (a search begins: clues, tactics, patience, guard, wit), `clue` (a hit),
   `search` and `return` (walks), `detect`, `reveal`, `gave-up` (why: patience, no clue, stuck) and
   `stuck`; `inspect()` has the search's counts.

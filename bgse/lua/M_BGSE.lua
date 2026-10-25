@@ -10168,11 +10168,14 @@ function M.new(g,options)
         assert(type(value)=='boolean');enabled=value
         if not value then pending,moves,waits={},{},{};seeker:invalidate() end
     end
-    -- Whether the engine searches for creatures of family it drives (BGSE_Search: SCS's own hunting
-    -- blocks stand aside for them): its choice is on for the family. Then the engine alone searches,
-    -- detects and gives up, also when it has no clue to go on.
-    function api:searches(family)
-        return enabled and not missing and M.families[family]==true
+    -- Whether the engine searches for creature id of family (BGSE_Search: SCS's own hunting blocks
+    -- stand aside for it): its choice is on for the family and the creature is on the engine's side,
+    -- as for every round the engine takes. Then the engine alone searches, detects and gives up, also
+    -- when it has no clue to go on; a creature off its side (neutral, charmed) keeps SCS's own.
+    function api:searches(family,id)
+        if not (enabled and not missing and M.families[family]==true) then return false end
+        local sprite=get(id)
+        return sprite~=nil and sense.side(sprite.m_typeAI.m_EnemyAlly)=='evil'
     end
     -- Whether the engine weighs danger zones for creature id of family now (BGSE_Zones: SCS's own
     -- cloud blocks stand aside meanwhile): not for a creature off the engine's
@@ -10440,7 +10443,7 @@ function M.install(g,options)
             register()
             local a=actor(object,script)
             local driver=gate:driver(a)
-            return choice~=nil and driver~=nil and choice:searches(driver)==true
+            return choice~=nil and driver~=nil and choice:searches(driver,a.id)==true
         end)
         return ok and result==true
     end

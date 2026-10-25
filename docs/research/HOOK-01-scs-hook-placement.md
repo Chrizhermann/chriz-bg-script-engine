@@ -88,7 +88,8 @@ Python, and `tests/integration/test_hook_installer.py` checks they agree.
    dead, every response only setting variables or showing text and ending in `Continue()`) stays
    unguarded, so the record is there again when the engine is off. A monster's own pursuit power
    that uses none of these (a phase spider's teleport, a mind flayer's astral travel) is not part
-   of it. `BGSE_Search` is true for every creature the engine drives: it searches itself, and SCS's
+   of it. `BGSE_Search` is true for every creature the engine drives (its choice on for the family,
+   the creature on the engine's side, not neutral or charmed): it searches itself, and SCS's
    give-up no longer ends `inafight` for it. That also keeps the behaviour the same whether or not
    the game counts a timer that was never set as run out (`GlobalTimerExpired`). In the SR lab's
    1,148 hooked scripts 14,191 blocks get the condition (1,632 above the anchor, 12,559 below):

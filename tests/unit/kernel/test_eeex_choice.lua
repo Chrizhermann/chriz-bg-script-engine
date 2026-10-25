@@ -1954,6 +1954,11 @@ assert(g32.BGSE_Search(m32,'mage','s1')==true and g32.BGSE_Search(m32,'fighter',
 root32.setChoice(false)
 assert(g32.BGSE_Search(m32,'mage','s1')==false)
 root32.setChoice(true)
+-- A creature off the engine's side (neutral, or charmed by the party) keeps SCS's own hunt.
+m32.m_typeAI.m_EnemyAlly=128
+assert(g32.BGSE_Search(m32,'mage','s1')==false)
+m32.m_typeAI.m_EnemyAlly=255
+assert(g32.BGSE_Search(m32,'mage','s1')==true)
 
 -- A mage without any detection: its enemy walks out of its sight. It walks to where the group last
 -- saw the enemy (MoveToPoint, held while it walks) and looks around there; once its patience (30

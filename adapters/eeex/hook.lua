@@ -188,7 +188,7 @@ function M.install(g,options)
             register()
             local a=actor(object,script)
             local driver=gate:driver(a)
-            return choice~=nil and driver~=nil and choice:searches(driver)==true
+            return choice~=nil and driver~=nil and choice:searches(driver,a.id)==true
         end)
         return ok and result==true
     end
