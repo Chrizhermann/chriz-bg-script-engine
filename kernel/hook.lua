@@ -30,8 +30,8 @@ function M.new(config)
     assert(held==nil or type(held)=='function')
     -- hooked: script resref (lower case) -> family, from the install. below(id, script): the
     -- creature's non-empty script resrefs in the slots after script, or nil when script is not
-    -- in its stack.
-    local hooked,below
+    -- in its stack. stack(id) (optional): all its non-empty script resrefs, from the top slot down.
+    local hooked,below,stack
     local function setHooked(t)
         assert(t==nil or type(t)=='table')
         if t==nil then hooked=nil;return end
@@ -41,8 +41,9 @@ function M.new(config)
         end
     end
     setHooked(config.hooked)
-    below=config.below
+    below,stack=config.below,config.stack
     assert(below==nil or type(below)=='function')
+    assert(stack==nil or type(stack)=='function')
     local pending,blocked,answers={},{},{}
     local counts={reached=0,repeats=0,claimed=0,acted=0,held=0,skipped=0,stale=0,errors=0,observeErrors=0,heldErrors=0}
     local declines={}
@@ -151,7 +152,7 @@ function M.new(config)
     function api:allows(family) return enabled and known[family]==true and families[family]==true end
     -- Whether the gate would ask the decider about this creature from this script now (its
     -- switches, the registry, the scripts below it, a decider and no backoff after an error),
-    -- without asking: for SCS blocks that stand aside while the engine drives the creature.
+    -- without asking.
     function api:drives(actor,family)
         local id=type(actor)=='table' and rawget(actor,'id')
         if not scalarId(id) then return false end
@@ -167,6 +168,32 @@ function M.new(config)
             if type(name)~='string' or not hooked[name:lower()] then return false end
         end
         return true
+    end
+    -- The family of the script that decides for the creature, when the gate would ask the
+    -- decider from it now (api:drives), else nil; the actor names the script that asks, which must
+    -- be in the creature's stack. The first hooked script in the stack decides: a lower script
+    -- runs only after every higher one let the pass through, and a higher hooked script asks on
+    -- the way. For SCS blocks in any of the creature's hooked scripts that stand aside while the
+    -- engine drives it.
+    function api:driver(actor)
+        local id=type(actor)=='table' and rawget(actor,'id')
+        if not scalarId(id) then return nil end
+        local script=rawget(actor,'script')
+        if type(script)~='string' or #script==0 or #script>32 or not (stack and hooked) then return nil end
+        script=script:lower()
+        local found,names=pcall(stack,id)
+        if not found or type(names)~='table' then return nil end
+        local first
+        for _,name in ipairs(names) do
+            if type(name)=='string' then
+                name=name:lower()
+                if not first and hooked[name] then first=name end
+                if name==script then
+                    if first and api:drives({id=id,script=first},hooked[first]) then return hooked[first] end
+                    return nil
+                end
+            end
+        end
     end
     function api:setEnabled(value)
         assert(type(value)=='boolean');enabled=value;answers={}

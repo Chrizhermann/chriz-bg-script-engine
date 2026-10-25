@@ -12,25 +12,36 @@ def text(name):
     return (FIXTURES / f'{name}.baf').read_text(encoding='utf-8')
 
 
+def guarded(source, spans, indices, condition):
+    """The source with the condition added to the blocks at these indices."""
+    for i in sorted(indices, reverse=True):
+        a, b = spans[i]
+        source = source[:a] + hook_rule.aside(source[a:b], [condition]) + source[b:]
+    return source
+
+
 def test_mage_hook_sits_before_the_action_choice_with_guarded_copies():
     source = text('B-HKMAG')
     spans, anchor, copies = hook_rule.plan(source)
-    # Setup, prebuff, first-round cast, cloud escape, SCS's stand-still in a cloud and its run
-    # from a Cloudkill stay above; the alacrity block is the first block of the per-round choice.
-    assert anchor == 6
+    # Setup, prebuff, first-round cast, cloud escape, SCS's stand-still in a cloud, its run from a
+    # Cloudkill, its free Oracle and its note of the party member it saw stay above; the alacrity
+    # block is the first block of the per-round choice.
+    assert anchor == 8
     # Two target picks and the special that aims at LastSeenBy, then the bookkeeping run with
     # its state-only middle block. The perceiving item block is not bookkeeping, but making
     # an item is more than a combat round, so it is kept too. The filler, the item-free state
-    # block and the spellbook-gated ForceSpellRES are not copied.
-    assert copies == [7, 8, 9, 10, 11, 12, 15]
+    # block, the spellbook-gated ForceSpellRES and SCS's chase are not copied.
+    assert copies == [9, 10, 11, 12, 13, 14, 17]
     patched, reason, family, count = hook_rule.patch(source, 'B-HKMAG')
     assert (reason, family, count) == ('hooked', 'mage', 7)
-    # Above the hook only the cloud blocks change (test_cloud_blocks_above_...).
-    head = source[:spans[anchor][0]]
+    # Above the hook only the cloud blocks and the free Oracle change, below it only SCS's chase
+    # (test_cloud_blocks_above_..., test_hunting_blocks_...).
+    expected = guarded(source, spans, [6, 20, 21, 22, 23], '  !' + hook_rule.search_guard('mage', 'b-hkmag'))
     for i in (3, 4, 5):
         cloud = source[spans[i][0]:spans[i][1]]
-        head = head.replace(cloud, hook_rule.stand_aside(cloud, 'mage', 'b-hkmag'), 1)
-    tail = source[spans[anchor][0]:]
+        expected = expected.replace(cloud, hook_rule.stand_aside(cloud, 'mage', 'b-hkmag'), 1)
+    at = expected.index(source[spans[anchor][0]:spans[anchor][1]])
+    head, tail = expected[:at], expected[at:]
     assert patched.startswith(head) and patched.endswith(tail)
     inserted = patched[len(head):len(patched) - len(tail)]
     guard = hook_rule.guard('mage', 'b-hkmag')
@@ -44,13 +55,13 @@ def test_mage_hook_sits_before_the_action_choice_with_guarded_copies():
 
 def test_priest_keeps_blade_bookkeeping_and_engine_owns_turn_undead():
     spans, anchor, copies = hook_rule.plan(text('B-HKPRI'))
-    assert anchor == 1 and copies == [3, 4]
+    assert anchor == 2 and copies == [4, 5]
     assert hook_rule.patch(text('B-HKPRI'), 'B-HKPRI')[1:] == ('hooked', 'priest', 2)
 
 
 def test_ranged_general_ai_skips_the_retarget_block():
     spans, anchor, copies = hook_rule.plan(text('B-HKRNG'))
-    assert anchor == 4 and copies == []
+    assert anchor == 5 and copies == []
     assert hook_rule.patch(text('B-HKRNG'), 'B-HKRNG')[1:] == ('hooked', 'fighter', 0)
 
 
@@ -92,7 +103,7 @@ def test_cloud_blocks_above_the_hook_yield_to_the_engine():
     patched = hook_rule.patch(source, 'B-HKRNG')[0]
     zones = hook_rule.zones_guard('fighter', 'b-hkrng')
     assert patched.count('IF\n  !' + zones + '\n  !INI("DMWW_genai_difficulty",1)\n  Heard([ANYONE],407)\n') == 1
-    assert source[spans[5][0]:spans[5][1]] in patched and patched.count(zones) == 1
+    assert source[spans[6][0]:spans[6][1]] in patched and patched.count(zones) == 1
     assert patched.startswith(source[spans[0][0]:spans[0][1]])
 
 
@@ -136,6 +147,93 @@ def test_cloud_condition_goes_last_unless_an_or_group_lacks_members(triggers, fi
     assert out == (f'IF\n{condition}{lines}' if first else f'IF\n{lines}{condition}') + block[block.index('THEN\n'):]
 
 
+@pytest.mark.parametrize('name,family,hunts', [
+    ('B-HKMAG', 'mage', [6, 20, 21, 22, 23]), ('B-HKPRI', 'priest', [1]), ('B-HKRNG', 'fighter', [4, 8]),
+    ('B-HKMON', 'monster', [1, 18]),
+])
+def test_hunting_blocks_yield_to_the_engines_search(name, family, hunts):
+    # SCS's hunt stands aside above and below the hook for every creature the engine drives: the
+    # mage's free Oracle and the priest's free Invisibility Purge on their detect timer, the chase's
+    # start, walk to the party member last seen, end and Dimension Door after it, the fighter's
+    # reset of its chase that clears its actions and its walk to the nearest door, the monster's end
+    # of a chase above the hook and its teleport to the party member it chases.
+    source = text(name)
+    spans, anchor, copies = hook_rule.plan(source)
+    assert hook_rule.hunts(source, spans) == hunts
+    assert not set(hunts) & set(copies)
+    patched = hook_rule.patch(source, name)[0]
+    search = hook_rule.search_guard(family, name.lower())
+    assert patched.count(search) == len(hunts)
+    for i in hunts:
+        assert hook_rule.aside(source[spans[i][0]:spans[i][1]], ['  !' + search]) in patched, i
+    if name == 'B-HKMAG':
+        # The note of the party member it saw and the chase's reset that ends with Continue()
+        # are bookkeeping and stay as they are.
+        for i in (7, 24):
+            assert source[spans[i][0]:spans[i][1]] in patched and not hook_rule.is_hunt(source[spans[i][0]:spans[i][1]])
+    if name == 'B-HKRNG':
+        # The walk to the door ends in an OR group that lacks a member: the condition goes first.
+        assert ('IF\n  !' + search + '\n  Global("inafight","LOCALS",1)\n') in patched
+    if name == 'B-HKMON':
+        # A ReallyForceSpellRES without a spellbook check is a special, but the teleport after the
+        # chased party member is SCS's hunt: never copied above the hook.
+        teleport = source[spans[18][0]:spans[18][1]]
+        assert hook_rule.is_special(teleport)
+        claim = hook_rule.guard(family, name.lower())
+        assert teleport.replace('IF\n', f'IF\n  {claim}\n', 1) not in patched
+
+
+def test_search_condition_names_the_script_and_fails_soft():
+    assert hook_rule.search_guard('mage', 'b-hkmag') == (
+        'EEex_LuaTrigger("return BGSE_Search and BGSE_Search(EEex_LuaTrigger_Object,'
+        "'mage','b-hkmag') or false\")")
+
+
+@pytest.mark.parametrize('triggers,actions,hunt', [
+    # The chase: its start, its walk to the party member last seen, its end, a fiend's teleport
+    # there, a Dimension Door after it, and its reset that clears the creature's actions.
+    (['ActionListEmpty()', 'Global("chasing","LOCALS",0)', '!Global("chasePC","LOCALS",0)'],
+     ['SetGlobalTimer("chasetimer","LOCALS",8)', 'SetGlobal("chasing","LOCALS",1)'], True),
+    (['!Detect(Player2)', 'GlobalTimerNotExpired("chasetimer","LOCALS")', 'Global("chasePC","LOCALS",2)'],
+     ['MoveToObject(Player2)'], True),
+    (['GlobalTimerExpired("chasetimer","LOCALS")', '!Global("chasePC","LOCALS",0)'],
+     ['SetGlobal("inafight","LOCALS",0)', 'SetGlobal("chasePC","LOCALS",0)'], True),
+    (['GlobalTimerNotExpired("chasetimer","LOCALS")', 'Global("chasePC","LOCALS",3)'],
+     ['ReallyForceSpellRES("dw#fitel",Player3)'], True),
+    (['!GlobalTimerNotExpired("teleportpursuetimer","LOCALS")', 'HaveSpell(WIZARD_DIMENSION_DOOR)'],
+     ['ReallyForceSpell(Player1,WIZARD_DIMENSION_DOOR)', 'SetGlobalTimer("teleportpursuetimer","LOCALS",18)'], True),
+    (['See(NearestEnemyOf(Myself))', '!Global("chasing","LOCALS",0)'],
+     ['SetGlobal("chasing","LOCALS",0)', 'ClearActions(Myself)'], True),
+    (['GlobalTimerNotExpired("ChaseTimer","LOCALS")', 'Global("ChasePC","LOCALS",1)'], ['MoveToObject(Player1)'], True),
+    # The walk to the nearest door, and a free detection cast on the detect timer.
+    (['Range(NearestDoor,15)', 'OpenState(NearestDoor,FALSE)'], ['MoveToObject(NearestDoor)', 'OpenDoor(NearestDoor)'], True),
+    (['Detect([PC])', '!See([PC])', '!GlobalTimerNotExpired("detect","LOCALS")'],
+     ['SetGlobalTimer("detect","LOCALS",1000)', 'SpellNoDec(Myself,WIZARD_ORACLE)'], True),
+    # The chase's bookkeeping: the note of the party member seen, forgetting the dead, the reset
+    # that continues, and the detect timer alone.
+    (['!GlobalTimerNotExpired("chasetarget","LOCALS")', 'See(Player1)'],
+     ['SetGlobalTimer("chasetarget","LOCALS",3600)', 'SetGlobal("chasePC","LOCALS",1)', 'Continue()'], False),
+    (['Global("chasePC","LOCALS",1)', 'StateCheck(Player1,STATE_REALLY_DEAD)'],
+     ['SetGlobal("chasePC","LOCALS",0)', 'Continue()'], False),
+    (['!Global("chasing","LOCALS",0)', 'See(NearestEnemyOf(Myself))'], ['SetGlobal("chasing","LOCALS",0)', 'Continue()'], False),
+    (['!GlobalTimerNotExpired("detect","LOCALS")'], ['SetGlobalTimer("detect","LOCALS",30)', 'Continue()'], False),
+    # A scripted door, and monsters' own pursuit powers outside SCS's chase.
+    (['Global("deadJoye","AR1513",2)'], ['OpenDoor("Door08")', 'MoveToObject([PC])'], False),
+    (['!Detect([PC])', 'See(NearestEnemyOf(Myself))'], ['ForceSpell(Player1,PSIONIC_ASTRAL_TRAVEL)'], False),
+])
+def test_hunting_blocks_are_scs_chase_free_detection_and_door_search(triggers, actions, hunt):
+    lines = ''.join(f'  {t}\n' for t in triggers)
+    response = ''.join(f'    {a}\n' for a in actions)
+    assert hook_rule.is_hunt(f'IF\n{lines}THEN\n  RESPONSE #100\n{response}END\n') is hunt
+
+
+def test_aside_keeps_the_order_of_several_conditions():
+    block = 'IF\n  OR(3)\n    A()\n    B()\nTHEN\n  RESPONSE #100\n    NoAction()\nEND\n'
+    assert hook_rule.aside(block, ['  !C()', '  !D()']) == 'IF\n  !C()\n  !D()\n' + block[len('IF\n'):]
+    block = 'IF\n  A()\nTHEN\n  RESPONSE #100\n    NoAction()\nEND\n'
+    assert hook_rule.aside(block, ['  !C()', '  !D()']) == 'IF\n  A()\n  !C()\n  !D()\nTHEN\n  RESPONSE #100\n    NoAction()\nEND\n'
+
+
 def test_windows_line_ends_give_the_same_result():
     source = text('B-HKMAG')
     assert hook_rule.patch(source.replace('\n', '\r\n'), 'B-HKMAG') == hook_rule.patch(source, 'B-HKMAG')
@@ -152,14 +250,14 @@ def test_hook_never_ends_with_continue_and_guards_come_first():
 def test_monster_script_keeps_specials_and_everything_beyond_a_combat_round():
     source = text('B-HKMON')
     spans, anchor, copies = hook_rule.plan(source)
-    # The setup block stays above; the first round-timer block is the anchor. Copied: the
-    # innate power, the summon with its target pick, the escape, the death handler, the
-    # allegiance change, the scripted heal cast with SpellNoDecRES and the two steps of a
-    # shape change the creature applies to itself. The ordinary attacks, the wandering, the
+    # The setup block and SCS's end of a chase stay above; the first round-timer block is the
+    # anchor. Copied: the innate power, the summon with its target pick, the escape, the death
+    # handler, the allegiance change, the scripted heal cast with SpellNoDecRES and the two steps
+    # of a shape change the creature applies to itself. The ordinary attacks, the wandering, the
     # two spellbook casts (checked with HaveSpell, or used up with RemoveSpell), the
-    # self-application checked with HaveSpellRES and the power applied to an enemy are the
-    # engine's.
-    assert anchor == 1 and copies == [2, 3, 4, 6, 7, 8, 10, 13, 14]
+    # self-application checked with HaveSpellRES, the power applied to an enemy and the fiend's
+    # teleport to the party member it chases (SCS's hunt) are the engine's.
+    assert anchor == 2 and copies == [3, 4, 5, 7, 8, 9, 11, 14, 15]
     patched, reason, family, count = hook_rule.patch(source, 'B-HKMON')
     assert (reason, family, count) == ('hooked', 'monster', 9)
     assert hook_rule.guard('monster', 'b-hkmon') in patched

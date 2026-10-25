@@ -251,4 +251,39 @@ tick=tick+151
 assert(g:drives({id=9,script='s1'},'mage')==true)
 g:setDecider(nil);assert(g:drives(actor,'mage')==false)
 assert(raw.new({now=clock,decide=function() end,below=function() return {} end}):drives(actor,'mage')==false)
-return 17
+
+-- 18. driver() names the family of the script that decides for the creature: the first hooked
+-- script in its stack, when the gate would ask from it (drives). The script that asks must be in
+-- the stack; a lower script follows the higher one's answer, not its own family's.
+local stacks={[7]={'tanari','s1'},[8]={'other','s1'},[9]={'s1','other'},[10]={'s1'},[11]={}}
+local function after(id,script)
+    local list=stacks[id]
+    if not list then return nil end
+    for i,name in ipairs(list) do
+        if name==script then
+            local rest={}
+            for j=i+1,#list do rest[#rest+1]=list[j] end
+            return rest
+        end
+    end
+end
+local config={now=clock,hooked={tanari='monster',s1='mage'},decide=function() return {hold=true} end,below=after,
+    stack=function(id) if id==12 then error('freed') end;return stacks[id] end}
+g=raw.new(config)
+pass()
+assert(g:driver({id=7,script='s1'})=='monster' and g:driver({id=7,script='TANARI'})=='monster')
+g:setFamily('monster',false)
+assert(g:driver({id=7,script='s1'})==nil and g:drives({id=7,script='s1'},'mage')==true)
+g:setFamily('monster',true)
+assert(g:driver({id=8,script='s1'})=='mage')
+assert(g:driver({id=9,script='s1'})==nil)
+assert(g:driver({id=10,script='S1'})=='mage' and g:driver({id=10,script='tanari'})==nil)
+assert(g:driver({id=11,script='s1'})==nil and g:driver({id=12,script='s1'})==nil and g:driver({id=13,script='s1'})==nil)
+assert(g:driver(nil)==nil and g:driver({id=7})==nil and g:driver({id=-1,script='s1'})==nil)
+assert(g:inspect().counts.errors==0 and g:inspect().counts.reached==0)
+g:setEnabled(false);assert(g:driver({id=10,script='s1'})==nil);g:setEnabled(true)
+config.stack=nil
+assert(raw.new(config):driver({id=10,script='s1'})==nil)
+assert(raw.new({now=clock,decide=config.decide,below=after,stack=function() return {'s1'} end}):driver({id=10,script='s1'})==nil)
+rejects(function() raw.new({now=clock,stack=1}) end)
+return 18

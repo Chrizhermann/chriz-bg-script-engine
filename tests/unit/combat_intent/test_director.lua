@@ -255,4 +255,31 @@ assert(plan.reserved[11]==2 and plan.reserved[12]==1)
 assert(cd:reserve({id=-1},{11},170)==0 and cd:reserve(mage,nil,170)==0 and cd:release(nil,170)==0)
 groups=groups+1
 
+-- 10. Clues for the engine's search (combat-intent/search.lua): where the group last saw each living
+-- enemy, when, by whom and which way it went: from two sightings at least headingMin ticks apart,
+-- none after a gap of more than headingTicks. A dead enemy is no clue. The members, by id.
+local sd=director.new({})
+sd:checkIn(mage,frame(100,nil,{enemy(11,{x=100,y=0}),enemy(12)}))
+sd:checkIn(priest,frame(102,{x=300},{enemy(11,{x=104,y=0})}))
+sd:checkIn(mage,frame(115,nil,{enemy(11,{x=130,y=30})}))
+local list=sd:clues(fighter.id,120)
+assert(#list==2 and list[1].id==11 and list[2].id==12)
+assert(list[1].x==130 and list[1].y==30 and list[1].tick==115 and list[1].by==true)
+-- 15 ticks, a second, from (100, 0) to (130, 30): the sighting two ticks after the first was too soon.
+assert(list[1].vx==30 and list[1].vy==30 and list[2].vx==nil and list[2].tick==100)
+-- The mage saw 11 last itself: no other member did then.
+assert(sd:clues(mage.id,120)[1].by==false and sd:clues(priest.id,120)[1].by==true)
+-- Seen again after a long gap: no heading until a second sighting.
+sd:checkIn(priest,frame(200,{x=300},{enemy(11,{x=400,y=0})}))
+assert(sd:clues(mage.id,200)[1].vx==nil)
+sd:checkIn(priest,frame(205,{x=300},{enemy(11,{x=410,y=0})}))
+assert(sd:clues(mage.id,205)[1].vx==30)
+sd:checkIn(priest,frame(210,{x=300},{enemy(12,{hp=0,state=0x800})}))
+list=sd:clues(mage.id,210)
+assert(#list==1 and list[1].id==11)
+local members=sd:members(210)
+assert(#members==2 and members[1].id==1 and members[1].family=='mage' and members[2].id==2 and members[2].x==300)
+assert(#sd:members(400)==0)
+groups=groups+1
+
 return groups

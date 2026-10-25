@@ -21,4 +21,4 @@ def test_targeting(backend):
 
 @pytest.mark.parametrize('backend', ['lua51', 'luajit21'])
 def test_director(backend):
-    assert run(backend, 'test_director.lua') == 9
+    assert run(backend, 'test_director.lua') == 10

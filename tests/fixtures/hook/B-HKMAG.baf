@@ -66,6 +66,30 @@ THEN
 END
 
 IF
+  Detect([PC])
+  !See([PC])
+  !GlobalTimerNotExpired("detect","LOCALS")
+THEN
+  RESPONSE #50
+    SetGlobalTimer("castspell","LOCALS",6)
+    SetGlobalTimer("detect","LOCALS",1000)
+    SpellNoDec(Myself,WIZARD_ORACLE)
+  RESPONSE #600
+    SetGlobalTimer("detect","LOCALS",30)
+    Continue()
+END
+
+IF
+  !GlobalTimerNotExpired("chasetarget","LOCALS")
+  See(Player1)
+THEN
+  RESPONSE #100
+    SetGlobalTimer("chasetarget","LOCALS",3600)
+    SetGlobal("chasePC","LOCALS",1)
+    Continue()
+END
+
+IF
   CheckStatGT(Myself,0,WIZARD_IMPROVED_ALACRITY)
   GlobalTimerNotExpired("castspell","LOCALS")
 THEN
@@ -174,6 +198,64 @@ THEN
   RESPONSE #100
     SetGlobalTimer("castspell","LOCALS",6)
     Spell(NearestEnemyOf(Myself),WIZARD_MAGIC_MISSILE)
+END
+
+IF
+  ActionListEmpty()
+  Global("inafight","LOCALS",1)
+  !See(NearestEnemyOf(Myself))
+  Global("chasing","LOCALS",0)
+  !Global("chasePC","LOCALS",0)
+THEN
+  RESPONSE #100
+    SetGlobalTimer("chasetimer","LOCALS",180)
+    SetGlobal("chasing","LOCALS",1)
+END
+
+IF
+  !See(NearestEnemyOf(Myself))
+  !Detect(Player1)
+  ActionListEmpty()
+  GlobalTimerNotExpired("chasetimer","LOCALS")
+  Global("chasePC","LOCALS",1)
+THEN
+  RESPONSE #100
+    MoveToObject(Player1)
+END
+
+IF
+  !See(NearestEnemyOf(Myself))
+  GlobalTimerExpired("chasetimer","LOCALS")
+  !Global("inafight","LOCALS",0)
+  !Global("chasePC","LOCALS",0)
+THEN
+  RESPONSE #100
+    SetGlobal("inafight","LOCALS",0)
+    SetGlobal("chasePC","LOCALS",0)
+END
+
+IF
+  !GlobalTimerNotExpired("teleportpursuetimer","LOCALS")
+  GlobalTimerExpired("chasetimer","LOCALS")
+  Global("chasePC","LOCALS",1)
+  !Detect([PC])
+  HaveSpell(WIZARD_DIMENSION_DOOR)
+THEN
+  RESPONSE #100
+    SetGlobalTimer("castspell","LOCALS",6)
+    ReallyForceSpell(Player1,WIZARD_DIMENSION_DOOR)
+    RemoveSpell(WIZARD_DIMENSION_DOOR)
+    SetGlobalTimer("teleportpursuetimer","LOCALS",18)
+    SetGlobal("chasePC","LOCALS",0)
+END
+
+IF
+  !Global("chasing","LOCALS",0)
+  See(NearestEnemyOf(Myself))
+THEN
+  RESPONSE #100
+    SetGlobal("chasing","LOCALS",0)
+    Continue()
 END
 
 IF

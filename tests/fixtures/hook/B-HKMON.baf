@@ -9,6 +9,17 @@ THEN
 END
 
 IF
+  !See(NearestEnemyOf(Myself))
+  GlobalTimerExpired("chasetimer","LOCALS")
+  !Global("inafight","LOCALS",0)
+  !Global("chasePC","LOCALS",0)
+THEN
+  RESPONSE #100
+    SetGlobal("inafight","LOCALS",0)
+    SetGlobal("chasePC","LOCALS",0)
+END
+
+IF
   !GlobalTimerNotExpired("castspell","LOCALS")
   See(NearestEnemyOf(Myself))
   HPPercentLT(Myself,90)
@@ -146,5 +157,15 @@ IF
 THEN
   RESPONSE #100
     ApplySpellRES("b-hkpow",NearestEnemyOf(Myself))
+END
+
+IF
+  ActionListEmpty()
+  GlobalTimerNotExpired("chasetimer","LOCALS")
+  Global("chasePC","LOCALS",1)
+  Global("inafight","LOCALS",1)
+THEN
+  RESPONSE #100
+    ReallyForceSpellRES("b-hkfit",Player1)
 END
 

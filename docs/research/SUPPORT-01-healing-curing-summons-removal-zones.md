@@ -279,7 +279,9 @@ markers, so it knows every zone, also those SCS marks not, and judges each by th
 - **SCS's escape stands aside** (HOOK-01, rule 6): the installer gives SCS's escape blocks, its
   mages' run from a Cloudkill before they see the enemy and its stand-still while it hears a
   cloud (above the hook) a last condition: they run when `BGSE_Zones` says no. `BGSE_Zones` is true while the gate would ask the engine (switches,
-  registry, the scripts below, no backoff after an error), the choice is on, zones can be read
+  registry, the scripts below, no backoff after an error) from the script that decides for the
+  creature (the first hooked script in its stack, since 2026-10-25 also for a lower script's
+  blocks), the choice is on for that script's family, zones can be read
   and the creature is on the engine's side; with no enemy in sight only when the engine has a way
   out of a zone that hurts the creature (its claim then leads it out); and not while it casts, or
   swings in a strike or weapon round of the engine's, in a zone that hurts it and that the engine

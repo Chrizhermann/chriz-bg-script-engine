@@ -82,6 +82,9 @@ M.default={
     -- and by what the group has seen it do in clouds; 'best' only by the cheaper choice; 'once'
     -- counts one explosion.
     clouds='learned',
+    -- How long the creature searches for enemies it cannot see, as a share of its wit's patience
+    -- (combat-intent/search.lua): labs and fight designs can stretch or shorten it.
+    searchPatience=1,
     -- Wit around danger zones (M.wit): 'clever', 'normal' or 'dull'; and how seriously the creature
     -- takes harm from them (1 for a WIS of 10).
     wit='clever',
@@ -101,6 +104,7 @@ end
 local CHECKS={coordination=share,best=share,band=share,economy=amount,minValue=amount,
     focusBonus=amount,killBonus=amount,interrupt=amount,tactics=share,caution=amount,horizon=amount,redefend=amount,acute=share,
     castCost=amount,allySpells=resrefs,slowSpeed=amount,touchReach=amount,summonCap=amount,fightCap=amount,
+    searchPatience=amount,
     openers=function(v) return type(v)=='boolean' end,
     touch=function(v) return type(v)=='boolean' end,
     weapons=function(v) return type(v)=='boolean' end,

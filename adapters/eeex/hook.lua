@@ -3,7 +3,10 @@
 -- BGSE_Claim too. script is the hooked script's own resref, written in at install time. SCS's own
 -- cloud blocks above the hook (escapes, runs from a marker, stand-still) ask
 -- BGSE_Zones(object, family, script) last and stand aside while it is true: the engine weighs
--- danger zones for the creature (D3e).
+-- danger zones for the creature (D3e). SCS's hunting blocks ask BGSE_Search(object, family,
+-- script) the same way: the engine searches for every creature it drives. Both go by the script
+-- that decides for the creature (kernel/hook.lua, driver), which for a creature with two hooked
+-- scripts is the higher one, also in the lower one's blocks.
 -- Switches live in the player's Baldur.lua under [BGSE] (Enabled, Mages, Priests, Fighters,
 -- Monsters; all on unless set to 0). The install also writes M_BGSEHK.lua, which sets
 -- BGSE_HOOKED (hooked script -> family); the gate reads it on first use. Errors never escape
@@ -75,6 +78,16 @@ function M.below(g,object,script)
         end
     end
 end
+-- The creature's non-empty scripts from the top slot down, or nil when the stack cannot be read.
+function M.stack(g,object)
+    local names=M.scripts(g,object)
+    if not names then return nil end
+    local list={}
+    for _,name in ipairs(names) do
+        if name~='' and name~='none' then list[#list+1]=name end
+    end
+    return list
+end
 function M.install(g,options)
     options=options or {}
     local settings=M.settings(g)
@@ -90,6 +103,10 @@ function M.install(g,options)
         below=function(id,script)
             local object=sprite(g,id)
             if object then return M.below(g,object,script) end
+        end,
+        stack=function(id)
+            local object=sprite(g,id)
+            if object then return M.stack(g,object) end
         end,
         perform=function(a,decision)
             local object=sprite(g,a.id)
@@ -152,13 +169,26 @@ function M.install(g,options)
         return ok and result==true
     end
     -- True while the engine weighs danger zones for the creature: its gate would ask the engine
-    -- (gate:drives) and the choice weighs zones for it now (choice:zones). Any error is false, so
-    -- SCS's cloud escape runs.
+    -- from the script that decides for it (gate:driver) and the choice weighs zones for it now as
+    -- that script's family (choice:zones). Any error is false, so SCS's cloud escape runs.
     g.BGSE_Zones=function(object,family,script)
         local ok,result=pcall(function()
             register()
             local a=actor(object,script)
-            return choice~=nil and gate:drives(a,family) and choice:zones(family,a.id)==true
+            local driver=gate:driver(a)
+            return choice~=nil and driver~=nil and choice:zones(driver,a.id)==true
+        end)
+        return ok and result==true
+    end
+    -- True for every creature the engine drives and searches for (gate:driver, choice:searches):
+    -- SCS's own hunting blocks (its chase after the first party member it saw, its free detection
+    -- casts, its door search) stand aside, and the engine alone searches. Any error is false.
+    g.BGSE_Search=function(object,family,script)
+        local ok,result=pcall(function()
+            register()
+            local a=actor(object,script)
+            local driver=gate:driver(a)
+            return choice~=nil and driver~=nil and choice:searches(driver)==true
         end)
         return ok and result==true
     end

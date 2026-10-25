@@ -618,4 +618,36 @@ function M.frame(g,sprite,tick,detailed)
     table.sort(frame.fallen,function(a,b) return a.id<b.id end)
     return frame
 end
+
+-- Whether the creature could see a spot (x, y) now (the engine's search): within its sight range
+-- and line of sight, by the area search from the spot with the creature's own terrain table, as
+-- M.frame finds creatures lying down. A blind creature sees no spot.
+function M.sees(g,sprite,x,y)
+    if band(g,g.EEex_Sprite_GetState(sprite),M.blind)~=0 then return false end
+    local area=sprite.m_pArea
+    if not area or type(x)~='number' or type(y)~='number' then return false end
+    local ok,terrain=pcall(function() return sprite:virtual_GetVisibleTerrainTable() end)
+    if not ok then terrain=nil end
+    local found=false
+    g.EEex_Area_ForAllOfTypeStringInRange(area,math.floor(x+0.5),math.floor(y+0.5),'[ANYONE]',M.sightRange,
+        function(other) if other~=nil and other.m_id==sprite.m_id then found=true end end,1,0,terrain)
+    return found
+end
+
+-- Whether the creature sees a living enemy now, as M.frame would list one standing (not one lying
+-- down): a light look for holds that end when an enemy shows.
+function M.seesEnemy(g,sprite)
+    local side=M.side(sprite.m_typeAI.m_EnemyAlly)
+    if side==nil or band(g,g.EEex_Sprite_GetState(sprite),M.blind)~=0 then return false end
+    local seeInvisible=stat(g,sprite,M.stats.seeInvisible)>0 or stat(g,sprite,M.stats.trueSight)>0
+    local found=false
+    g.EEex_Sprite_ForAllOfTypeStringInRange(sprite,'[ANYONE]',M.sightRange,function(object)
+        if found or object==nil or object.m_id==sprite.m_id or not g.EEex_GameObject_IsSprite(object,false) then return end
+        local other=M.side(object.m_typeAI.m_EnemyAlly)
+        if other~=nil and other~=side and (seeInvisible or band(g,g.EEex_Sprite_GetState(object),M.unseen)==0) then
+            found=true
+        end
+    end,1,0)
+    return found
+end
 return M

@@ -38,6 +38,15 @@ THEN
 END
 
 IF
+  See(NearestEnemyOf(Myself))
+  !Global("chasing","LOCALS",0)
+THEN
+  RESPONSE #100
+    SetGlobal("chasing","LOCALS",0)
+    ClearActions(Myself)
+END
+
+IF
   !GlobalTimerNotExpired("castspell","LOCALS")
   HasItem("potn52",Myself)
   HPPercentLT(Myself,50)
@@ -63,5 +72,17 @@ IF
 THEN
   RESPONSE #100
     AttackReevaluate(NearestEnemyOf(Myself),30)
+END
+
+IF
+  Global("inafight","LOCALS",1)
+  !Range(NearestEnemyOf(Myself),30)
+  Range(NearestDoor,15)
+  OR(2)
+    OpenState(NearestDoor,FALSE)
+THEN
+  RESPONSE #100
+    MoveToObject(NearestDoor)
+    OpenDoor(NearestDoor)
 END
 

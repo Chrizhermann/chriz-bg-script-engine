@@ -180,6 +180,15 @@ the profile's own `tactics`, so a lab can switch tactics off). A normal creature
 decision, and only when there is a chance to see. The first tactic is interrupting a cast
 ([FIGHT-01](FIGHT-01-fighter-and-monster-rounds.md), "Orders and interrupting").
 
+The search for enemies a creature cannot see (FIGHT-01, "Searching") draws once a search instead,
+so a normal creature searches cleverly in about half its searches and plainly in the rest. Its
+tactics: leading a moving enemy along its last heading, spreading out from members that search the
+same spot, casters staying behind a fighter that searches it too, seeing that an enemy that
+vanished on a spot in sight turned invisible (and detecting it), and a rogue's Detect Illusion.
+How long a creature searches goes by wit as well: 30 seconds after the newest clue for a clever
+creature, 18 for a normal one, 8 for a dull one, halved for the wounded and for cowards
+(`mind.searchPatience` scales it).
+
 ## Guard rails (Christopher, 2026-10-23)
 
 - **Decisions must stay understandable.** "Ich will halt auch nicht … dass wir … so ein komplexes

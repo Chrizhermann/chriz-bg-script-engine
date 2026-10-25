@@ -19,6 +19,15 @@ only when the engine leads the creature out of a zone that hurts it. SCS's own t
 first, as before, and the engine is asked only when SCS would act. Those below the anchor run
 only when the engine declines and stay as they are.
 
+SCS's hunt for enemies the creature no longer sees stands aside, above and below the anchor, for
+every creature the engine drives, which searches with its own senses and abilities instead: its
+chase (the blocks that use its chase variables and walk to the party member it last saw, teleport
+there, start or end the chase), its free detection casts (Oracle, Invisibility Purge or Detect
+Invisibility on its detect timer) and its walk to the nearest closed door. They get a last
+condition that holds when BGSE_Search says no, and they are never copied above the hook. The
+chase's bookkeeping (which party member it last saw, forgetting the dead) ends with Continue()
+and stays as it is.
+
 Run it on a folder of decompiled scripts to see what an install would do:
     python tools/hook_rule.py <folder-with-baf> [report.json]
 """
@@ -79,6 +88,15 @@ COMBAT = UNGATED_CAST | {
     'RemoveSpell', 'ApplySpellRES', 'ApplySpell',
     'Continue', 'SetGlobal', 'SetGlobalTimer', 'SetGlobalTimerRandom', 'IncrementGlobal',
     'DisplayString', 'DisplayStringHead', 'VerbalConstant', 'PlaySound'}
+# SCS's hunt in every script it generates: its chase variables, its free detection timer and its
+# walk to the nearest door.
+CHASE = re.compile(r'"(chasetimer|chasing|chasepc|chasetarget|teleportpursuetimer)","LOCALS"', re.I)
+DETECT_TIMER = re.compile(r'^ {4}SetGlobalTimer\("detect","LOCALS",', re.M | re.I)
+DOOR_SEARCH = re.compile(r'^ {4}OpenDoor\(NearestDoor\)', re.M)
+# What a chase block may do and still be the chase's bookkeeping, when every response ends with
+# Continue().
+HUNT_BOOKKEEPING = {'SetGlobal', 'SetGlobalTimer', 'SetGlobalTimerRandom', 'IncrementGlobal', 'Continue',
+                    'DisplayString', 'DisplayStringHead'}
 
 
 def guard(family, script):
@@ -88,6 +106,11 @@ def guard(family, script):
 
 def zones_guard(family, script):
     return ('EEex_LuaTrigger("return BGSE_Zones and BGSE_Zones(EEex_LuaTrigger_Object,'
+            f"'{family}','{script}') or false\")")
+
+
+def search_guard(family, script):
+    return ('EEex_LuaTrigger("return BGSE_Search and BGSE_Search(EEex_LuaTrigger_Object,'
             f"'{family}','{script}') or false\")")
 
 
@@ -133,15 +156,19 @@ def open_or(trig):
     return False
 
 
-def stand_aside(block, family, script):
-    """A cloud block that runs only when the engine does not weigh zones for the creature. The
-    condition goes last; first when the triggers end in an OR group that lacks members, which it
-    would otherwise join."""
+def aside(block, conditions):
+    """The block with extra trigger lines. They go last; first when the triggers end in an OR group
+    that lacks members, which they would otherwise join."""
     trig, resp = split(block)
-    condition = f'  !{zones_guard(family, script)}'
+    lines = '\n'.join(conditions)
     if open_or(trig):
-        return 'IF\n' + condition + '\n' + block[len('IF\n'):]
-    return trig + '\n' + condition + resp
+        return 'IF\n' + lines + '\n' + block[len('IF\n'):]
+    return trig + '\n' + lines + resp
+
+
+def stand_aside(block, family, script):
+    """A cloud block that runs only when the engine does not weigh zones for the creature."""
+    return aside(block, [f'  !{zones_guard(family, script)}'])
 
 
 def is_cloud(block):
@@ -167,6 +194,25 @@ def clouds(text, spans, anchor):
     if anchor is None:
         return []
     return [i for i in range(anchor) if is_cloud(text[spans[i][0]:spans[i][1]])]
+
+
+def is_hunt(block):
+    """A block of SCS's hunt for enemies the creature cannot see: it walks to the nearest door and
+    opens it, casts on its detect timer, or uses SCS's chase variables for more than bookkeeping
+    that ends with Continue() (it walks or teleports to the party member it last saw, starts the
+    chase or ends it). Monsters' own pursuit powers that use none of these (a phase spider's
+    teleport, a mind flayer's astral travel) are not part of it."""
+    _, resp = split(block)
+    rs = responses(block)
+    acts = any(n not in HUNT_BOOKKEEPING for r in rs for n in r)
+    if DOOR_SEARCH.search(resp) or (acts and DETECT_TIMER.search(resp)):
+        return True
+    return bool(CHASE.search(block)) and (acts or not all(r and r[-1] == 'Continue' for r in rs))
+
+
+def hunts(text, spans):
+    """Indices of SCS's hunting blocks, above and below the anchor."""
+    return [i for i, (a, b) in enumerate(spans) if is_hunt(text[a:b])]
 
 
 def is_anchor(block):
@@ -244,14 +290,16 @@ def plan(text):
         else:
             i += 1
     for i in range(anchor, len(texts)):
-        if is_special(texts[i]) or is_encounter(texts[i]):
+        if (is_special(texts[i]) or is_encounter(texts[i])) and not is_hunt(texts[i]):
             copies.add(i)
             if 'LastSeenBy(Myself)' in texts[i]:
                 k = i - 1
                 while k >= anchor and is_target_pick(texts[k]):
                     copies.add(k)
                     k -= 1
-    return spans, anchor, sorted(copies)
+    # SCS's hunt is never copied: it stands aside for the engine's search (a fiend's teleport to
+    # the party member it last saw is a special, for one).
+    return spans, anchor, sorted(i for i in copies if not is_hunt(texts[i]))
 
 
 def patch(text, script):
@@ -274,12 +322,20 @@ def patch(text, script):
     insert = ''.join(text[spans[i][0]:spans[i][1]].replace('IF\n', f'IF\n  {guard(fam, script)}\n', 1) + '\n'
                      for i in copies)
     at = spans[anchor][0]
-    head = text[:at]
+    head, tail = text[:at], text[at:]
+    cloudy, hunting = set(clouds(text, spans, anchor)), set(hunts(text, spans))
     # From the last one up, so the blocks before keep their offsets.
-    for i in reversed(clouds(text, spans, anchor)):
-        a, b = spans[i]
-        head = head[:a] + stand_aside(text[a:b], fam, script) + head[b:]
-    return head + insert + hook_block(fam, script) + text[at:], 'hooked', fam, len(copies)
+    for i in reversed(range(len(spans))):
+        conditions = ([f'  !{zones_guard(fam, script)}'] if i in cloudy else []) + (
+            [f'  !{search_guard(fam, script)}'] if i in hunting else [])
+        if conditions:
+            a, b = spans[i]
+            block = aside(text[a:b], conditions)
+            if i < anchor:
+                head = head[:a] + block + head[b:]
+            else:
+                tail = tail[:a - at] + block + tail[b - at:]
+    return head + insert + hook_block(fam, script) + tail, 'hooked', fam, len(copies)
 
 
 def main():
@@ -288,9 +344,12 @@ def main():
     for path in sorted(folder.glob('*.baf')):
         text = path.read_text(encoding='latin-1')
         patched, reason, fam, copies = patch(text, path.stem)
-        spans, anchor, _ = plan(text.replace('\r', ''))
-        aside = len(clouds(text.replace('\r', ''), spans, anchor)) if patched else 0
-        rows.append({'script': path.stem, 'family': fam, 'result': reason, 'copies': copies, 'clouds': aside})
+        text = text.replace('\r', '')
+        spans, anchor, _ = plan(text)
+        cloudy = len(clouds(text, spans, anchor)) if patched else 0
+        hunting = len(hunts(text, spans)) if patched else 0
+        rows.append({'script': path.stem, 'family': fam, 'result': reason, 'copies': copies, 'clouds': cloudy,
+                     'hunts': hunting})
     summary = {}
     for row in rows:
         key = f"{row['family']}/{row['result']}"

@@ -1913,4 +1913,118 @@ assert(choices.new(g31,{reader=reader,orders={TEST1={target='protagonist',stay=t
 end)()
 groups=groups+1
 
+-- 32. Searching (combat-intent/search.lua, adapters/eeex/search.lua). A mage with a spell that lets
+-- it see the invisible fights an enemy, which turns invisible on a spot the mage sees: it vanished.
+-- The mage, clever and so tactical, casts the spell on itself; once it sees the enemy again, the
+-- detection is judged by that. Where its fight began is its post. BGSE_Search is true for every
+-- creature the engine drives, so SCS's own hunting stands aside.
+;(function()
+records.TESTSEE=spl('TESTSEE',2,{fx(193,{target=1,duration=30})},5,1)
+local function setup(seed,orders)
+    local w=world()
+    local d=directors.new(w,{reader=reader})
+    local c=choices.new(w,{reader=reader,director=d,seed=seed,orders=orders})
+    local list={}
+    c:setSink(function(row) list[#list+1]=row end)
+    local r=runtime.install(w,{director=d,choice=c,version='test'})
+    local function lastOf(kind) for n=#list,1,-1 do if list[n].kind==kind then return list[n] end end end
+    local function claimAt(s,tick,family,script) w.ticks=tick;return w.BGSE_Claim(s,family or 'mage',script or 's1') end
+    return w,c,r,lastOf,claimAt
+end
+local g32,ch32,root32,last32,claim32=setup(32)
+local m32=g32.add(sprite(1,0,0,255))
+learn(m32,1,'TESTSEE')
+local e32=g32.add(sprite(11,300,0,2))
+assert(claim32(m32,100)==true and ch32:inspect().search.posts==1)
+e32.state=0x10
+assert(claim32(m32,116)==true)
+local d32=last32('detect')
+assert(d32 and d32.spell=='TESTSEE' and d32.self==true and d32.clue=='vanished' and d32.target==11 and d32.tactical==true)
+assert(last32('hunt').tactical==true and last32('hunt').wit=='clever' and ch32:inspect().search.searching==1)
+g32.BGSE_Act(m32)
+assert(g32.queued[#g32.queued].text=='SpellRES("TESTSEE",Myself)' and ch32:inspect().search.counts.detects==1)
+g32.ticks=117
+g32.listeners.started[1](m32,action(31,'TESTSEE',-1))
+m32.m_curAction=action(31,'TESTSEE',-1)
+assert(claim32(m32,125)==true and ch32:inspect().running==1)
+m32.m_curAction={m_actionID=0};m32.stats[81]=1
+assert(claim32(m32,150)==true and ch32:inspect().search.searching==0)
+assert(claim32(m32,185)==true and last32('reveal').seen==1 and ch32:inspect().counts.revealed==1)
+assert(g32.BGSE_Search(m32,'mage','s1')==true and g32.BGSE_Search(m32,'fighter','s3')==false)
+root32.setChoice(false)
+assert(g32.BGSE_Search(m32,'mage','s1')==false)
+root32.setChoice(true)
+
+-- A mage without any detection: its enemy walks out of its sight. It walks to where the group last
+-- saw the enemy (MoveToPoint, held while it walks) and looks around there; once its patience (30
+-- seconds, clever) is out, it gives up and walks back to its post, where its own life goes on.
+local g33,ch33,_,last33,claim33=setup(33)
+local m33=g33.add(sprite(1,0,0,255))
+local e33=g33.add(sprite(11,300,0,2))
+local function seeker33() return ch33:inspect().search end
+assert(claim33(m33,100)==true)
+e33.m_pos={x=900,y=0}
+assert(claim33(m33,140)==true and last33('hunt').clues==1)
+g33.BGSE_Act(m33)
+local s33=last33('search')
+assert(g33.queued[#g33.queued].text=='MoveToPoint([300.0])' and s33.clue=='seen' and s33.target==11 and s33.to.x==300)
+m33.m_curAction={m_actionID=23}
+local holds33=ch33:inspect().counts.holds
+assert(claim33(m33,150)==true and ch33:inspect().counts.holds==holds33+1)
+m33.m_pos={x=300,y=0};m33.m_curAction={m_actionID=0}
+assert(claim33(m33,200)==true and seeker33().counts.looks==1)
+assert(claim33(m33,210)==true and seeker33().counts.looks==1)
+assert(claim33(m33,600)==true and last33('gave-up').since==140)
+g33.BGSE_Act(m33)
+assert(g33.queued[#g33.queued].text=='MoveToPoint([0.0])' and last33('return').gaveUp==true and seeker33().counts.gaveUp==1)
+m33.m_pos={x=0,y=0}
+assert(claim33(m33,700)==false and ch33:inspect().reasons['given-up']==1 and seeker33().posts==0)
+-- Hit by the enemy, invisible now, from a spot it sees: anyone notices that. With nothing to detect
+-- with and no heal worth casting, it searches toward where the attacker stands.
+e33.state=0x10;e33.m_pos={x=200,y=0}
+m33.m_lHitter={m_Instance=11};m33.m_baseStats.m_hitPoints=30
+assert(claim33(m33,800)==true)
+assert(last33('clue').clue=='hit' and last33('clue').near==true and last33('clue').lost==10 and seeker33().counts.hunts==2)
+g33.BGSE_Act(m33)
+assert(g33.queued[#g33.queued].text=='MoveToPoint([200.0])' and last33('search').clue=='hit')
+-- A dead enemy is no clue: with none left the search is over.
+e33.state=0x800
+m33.m_curAction={m_actionID=0}
+assert(claim33(m33,830)==false and ch33:inspect().reasons['given-up']==2 and last33('gave-up').why=='no-clue')
+
+-- With no enemy in sight a priest heals a hurt ally; with nobody hurt and no clue, its own life goes
+-- on.
+local g34,ch34,_,last34,claim34=setup(34)
+local p34=g34.add(sprite(7,0,0,255,{levels={[7]='S2'},stats={[1]=40,[34]=10}}))
+learn(p34,3,'TESTHEAL')
+local hurt34=g34.add(sprite(8,20,0,255,{stats={[1]=40,[34]=10}}))
+assert(claim34(p34,100,'priest','s2')==false and ch34:inspect().reasons['no-enemy']==1)
+hurt34.m_baseStats.m_hitPoints=4
+assert(claim34(p34,200,'priest','s2')==true)
+local c34=last34('choice')
+assert(c34.castKind=='heal' and c34.target==8 and c34.spell=='TESTHEAL')
+
+-- A boss (level 12, with two members of level 5 in its group) guards where its fight began: an
+-- enemy last seen 400 away from there is not followed, it looks around at its post. Its orders can
+-- let it search like anyone.
+local function bossFight(seed,orders)
+    local w,c,_,lastOf,claimAt=setup(seed,orders)
+    local boss=w.add(sprite(1,0,0,255,{stats={[1]=40,[34]=12}}))
+    local a=w.add(sprite(2,0,40,255,{stats={[1]=40,[34]=5}}))
+    local b=w.add(sprite(3,0,-40,255,{stats={[1]=40,[34]=5}}))
+    local e=w.add(sprite(11,400,0,2))
+    assert(claimAt(a,100)==true and claimAt(b,100)==true and claimAt(boss,100)==true)
+    e.m_pos={x=1200,y=0}
+    return w,c,boss,lastOf,claimAt
+end
+local g35,ch35,boss35,last35,claim35=bossFight(35)
+assert(ch35:inspect().search.counts.guards==1)
+assert(claim35(boss35,140)==true and last35('search')==nil and ch35:inspect().search.counts.looks==1)
+local g36,ch36,boss36,last36,claim36=bossFight(36,{TEST1={guard=false}})
+assert(ch36:inspect().search.counts.guards==0 and claim36(boss36,140)==true)
+g36.BGSE_Act(boss36)
+assert(g36.queued[#g36.queued].text=='MoveToPoint([400.0])' and last36('search').member==1)
+end)()
+groups=groups+1
+
 return groups

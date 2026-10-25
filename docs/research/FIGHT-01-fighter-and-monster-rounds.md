@@ -14,14 +14,18 @@ The hook sits before a script's first block that tests SCS's round timer
 the compiled `genai` scripts; decompiled read only) that is the first potion block.
 
 **Above the hook** (stays SCS's): battle cries and turning hostile, thief detection, the backstab
-plan's setup, resting, hunting enemies the creature does not see (the `chasetarget` and `chasePC`
-timers), walking to the party when it hears a cloud's shout and sees no one (archers run from the
-shout instead), and on lower settings destroying its potions.
+plan's setup, resting, noting the first party member it sees (the `chasetarget` and `chasePC`
+records) and ending a chase once it sees an enemy, walking to the party when it hears a cloud's
+shout and sees no one (archers run from the shout instead), and on lower settings destroying its
+potions.
 
 **Below the hook** (the engine's once it takes the round), in SCS's order:
 
 - 54 potion blocks (`UseItem`): protection, buffs and healing;
 - kit abilities (an assassin's poison, `Spell(Myself,ASSASSIN_POISON)`);
+- the hunt for enemies it does not see: the walk to a closed door nearby, the chase's start, its
+  give-up and `MoveToObject` to the party member it noted (it stands aside for the engine's search
+  now, "Searching" below);
 - the backstab: `Attack` while invisible, within range 4 or with the backstab plan;
 - melee: `EquipMostDamagingMelee` and `AttackOneRound` within range 4, by the target's class
   (mage, mage-thief, thief, bard, cleric, anyone) and health (below 20 %, below 50 %, any);
@@ -175,6 +179,78 @@ Built for Agreed point 1 (`combat-intent/orders.lua`, `combat-intent/choice.lua`
   normal one in half its decisions (drawn once a decision, and only when an enemy casts), a dull
   one never. Every new tactic reads the same knob ([MIND-01](MIND-01-wit-and-difficulty.md)).
 
+### Searching (2026-10-25)
+
+Christopher on SCS's hunt: "Das können wir doch auch einbauen? Vielleicht sogar geiler als SCS?",
+and "ok." to the proposal the same day. SCS is the blueprint (`genai/ssl/chase.ssl`,
+`mage/ssl/generalblocks/chase.ssl` and `findhidden.ssl`, credit DavidW): its creatures note the
+first party member they see; with no enemy in sight while their fight goes on, they walk for 8 to
+15 seconds to where that party member really is (`MoveToObject` follows it, seen or not), mages
+with Dimension Door teleport there, fighters open a closed door nearby, and mages and priests of
+higher levels cast a free Oracle, Detect Invisibility or Invisibility Purge (`SpellNoDec`) when a
+hidden party member is near (`Detect` without `See`, which only the game knows); then they give up.
+The engine searches with what the creature and its group perceived instead
+(`combat-intent/search.lua`, `adapters/eeex/search.lua`, `combat-intent/director.lua`'s clues,
+`adapters/eeex/choice.lua`):
+
+- **When.** With no enemy in sight the engine first leads the creature out of a zone that hurts it,
+  then heals or cures a friend in sight that has lost hit points, is held or has a condition a cure
+  takes away (worth decides, as in a fight), and otherwise searches.
+- **Clues.** Where the group last saw each living enemy and which way it was going (the director
+  works out a heading from two sightings at least 5 ticks apart); an enemy another member sees now
+  (`sighted`); a hit from an attacker the creature does not see: its hit points dropped and the game
+  names an enemy as the last to hit it (`m_lHitter`), and the clue is where that enemy stands
+  (`hit`); an enemy lost from sight within two seconds on a spot the creature still sees, and for a
+  walking enemy the spot it would have reached by now (`vanished`: likely invisible). The best clue
+  is the strongest kind (sighted, hit, vanished, last seen), then the newest, then the nearest.
+  Clues are kept 30 seconds, or longer while the creature's patience lasts.
+- **The walk.** `MoveToPoint` to the open spot nearest the clue, held while the creature walks it
+  (at most twice the straight walk plus 2 seconds) and ended at once when an enemy shows or the
+  creature is hurt. A spot inside a danger zone counts as searched. On a searched spot the creature
+  looks around for a second and takes the next clue.
+- **Detection.** Only when a clue says the enemy is likely invisible near the creature: a hit from a
+  spot it sees with no one there tells anyone; an enemy that vanished on such a spot, or that
+  another member sees there, tells a creature that sees its tactics this search. The creature uses
+  what it has, judged by what it does (so with or without Spell Revisions): a buff that lets it see
+  the invisible (True Seeing, Detect Invisibility), an area that takes invisibility away around it
+  (Invisibility Purge) or at a point it can reach (Glitterdust), and items that do the same, the
+  lowest spell level first and at equal levels the lasting buff; not while it sees the invisible
+  already, nor within 6 seconds of its last detection. A rogue with Detect Illusion of 30 or more
+  switches to its Find Traps mode within 224 of the spot, and only when it sees its tactics ("auf
+  keinen Fall alle"). The log judges each detection by whether the caster sees an enemy afterwards
+  (`reveal` rows, `revealed` and `unrevealed` counts).
+- **Patience** by wit: 30 seconds for a clever creature, 18 for a normal one, 8 for a dull one (SCS:
+  8 to 15), counted from the newest clue, so a search goes on while clues keep coming. Halved for a
+  creature below half its hit points and again for a coward (morale break 7 or more);
+  `mind.searchPatience` stretches or shortens it for labs and fight designs.
+- **Giving up** is not forgetting. The creature walks back to its post (where its fight began),
+  where heals and cures go on as above, and its own script goes on; it stops trying when two walks
+  back in a row bring it no nearer. A new clue (a hit, a member seeing the enemy again) starts the
+  search again, and the next enemy in sight starts a full fight.
+- **Guarding.** A group's boss (at least two other members, each at least two levels below it)
+  guards its post: it searches only clues within 240 of it and otherwise goes back or looks
+  around. Orders override it either way (`guard=true` or `guard=false`, `combat-intent/orders.lua`).
+- **Tactics by wit** (`mind.tactics`, drawn once a search: clever always, normal in half its
+  searches, dull never): leading a moving enemy along its last heading (up to 2 seconds, 150 at
+  most), spreading out from members that search the same spot (80 apart), casters staying 120
+  short of a spot a fighter of their group searches too, seeing that a vanished enemy turned
+  invisible, and a rogue's Detect Illusion.
+- **SCS's hunt stands aside** for every creature the engine drives ([HOOK-01](HOOK-01-scs-hook-placement.md),
+  rule 7): its chase, its free detection casts and its walk to a door get a last condition,
+  `BGSE_Search`, and are never copied above the hook (a fiend's teleport to the party member it
+  noted was copied as a special before). So the engine alone searches, also when it has no clue. For
+  now that means mages and priests; fighters and monsters follow with F1e.
+- **Log.** Rows `hunt` (a search begins: clues, tactics, patience, guard, wit), `clue` (a hit),
+  `search` and `return` (walks), `detect`, `reveal`, `gave-up` (why: patience, no clue, stuck) and
+  `stuck`; `inspect()` has the search's counts.
+
+Not built yet: opening doors, teleporting toward a clue (SCS's Dimension Door pursuit and fiend
+teleport), buffing at the post after giving up, barks, and an ordered target's clues coming first.
+Monsters' own pursuit powers outside SCS's chase (a phase spider's teleport, a mind flayer's
+astral travel, dragons that walk to a party member they do not detect) are to be decided before
+F1e. To see in a lab: searches in real fights, whether spell damage sets `m_lHitter` as weapon
+hits do, and what Detect Illusion reveals.
+
 ## Agreed (Christopher, 2026-10-25)
 
 1. **Target choice by worth, with overrides.** Not SCS's fixed list ("Ich würde es nicht eins zu
@@ -225,4 +301,5 @@ Known gaps, for later:
   (the lab saw one cast end under an imposed silence, ACT-02). A spell is worth breaking by its
   level alone, not by what it would do to whom. Changed casting speeds (opcode 189, Improved
   Alacrity on the enemy) are not read. A lab has to show interrupts in fights.
-- An ordered target out of sight is not looked for yet; the engine's own search comes next.
+- An ordered target out of sight is searched for like any other enemy; its clues do not come first
+  yet ("Searching").

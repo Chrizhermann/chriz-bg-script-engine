@@ -12,6 +12,10 @@
 -- the creature's attacks on that enemy while it can attack it at all; otherwise the enemy is
 -- preferred, as the group's focus is: what an attack does to it counts bonus (default 1) more. A
 -- bonus given with always counts as well.
+--
+-- guard=true keeps the creature near the spot where its fight began while it searches for enemies it
+-- cannot see (combat-intent/search.lua); guard=false lets it search like anyone, also as its
+-- group's boss, which guards by default.
 local targeting=require('combat-intent.targeting')
 local M={}
 M.bonus=1
@@ -38,6 +42,8 @@ function M.check(o)
             elseif not selector(v) then return false,'target' end
         elseif k=='always' then
             if type(v)~='boolean' then return false,'always' end
+        elseif k=='guard' then
+            if type(v)~='boolean' then return false,'guard' end
         elseif k=='bonus' then
             if not number(v) or v<0 or v>100 then return false,'bonus' end
         else return false,tostring(k) end

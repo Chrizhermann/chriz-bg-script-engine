@@ -13,9 +13,12 @@ local M={}
 -- otherwise); a disable reservation lasts reserveTicks at most and graceTicks after its cast
 -- ended, so the disable can show before another one is allowed. The engine's own disables
 -- reserve their targets as soon as they are chosen, before the cast is queued: such a claim
--- lasts claimTicks at most, until the cast starts.
+-- lasts claimTicks at most, until the cast starts. An enemy's heading comes from two sightings at
+-- least headingMin ticks apart; one seen again after more than headingTicks starts without one. An
+-- enemy is forgotten forgetTicks after it was last seen.
 M.defaults={memberTicks=150,enemyTicks=90,reserveTicks=225,graceTicks=30,claimTicks=60,forgetTicks=450,
-    logCapacity=256,families={mage=true,priest=true}}
+    headingMin=5,headingTicks=45,logCapacity=256,families={mage=true,priest=true}}
+M.ticksPerSecond=15
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
 local function id(v) return number(v) and v>=0 and v%1==0 end
@@ -83,6 +86,18 @@ function M.new(config)
         if lastTick and tick<lastTick then api:invalidate('clock') end
         lastTick=tick
     end
+    -- The enemy's heading (vx, vy: world units a second) from where it was seen last (px, py at
+    -- ptick) and where it is seen now.
+    local function heading(seen,e,tick)
+        if not (number(e.x) and number(e.y)) then return end
+        if seen.ptick==nil or tick<seen.ptick or tick-seen.ptick>o.headingTicks then
+            seen.px,seen.py,seen.ptick,seen.vx,seen.vy=e.x,e.y,tick,nil,nil
+        elseif tick-seen.ptick>=o.headingMin then
+            local seconds=(tick-seen.ptick)/M.ticksPerSecond
+            seen.vx,seen.vy=(e.x-seen.px)/seconds,(e.y-seen.py)/seconds
+            seen.px,seen.py,seen.ptick=e.x,e.y,tick
+        end
+    end
 
     function api:isMember(member) return members[member]~=nil end
     -- member = {id, family}; frame = the member's plain perception frame.
@@ -96,6 +111,7 @@ function M.new(config)
         for _,e in ipairs(type(frame.enemies)=='table' and frame.enemies or {}) do
             if id(e.id) then
                 local seen=enemies[e.id] or {seenBy={}}
+                heading(seen,e,tick)
                 seen.lastTick=tick;seen.x,seen.y,seen.hp,seen.maxHp=e.x,e.y,e.hp,e.maxHp
                 seen.state,seen.held,seen.minHp=e.state,e.held,e.minHp
                 seen.seenBy[member.id]=tick
@@ -229,6 +245,31 @@ function M.new(config)
         record({kind='start',tick=tick,member=member.id,family=member.family,spell=cast.spell,
             role=role,target=cast.target,original=cast.original,redirected=cast.redirected or nil,
             typed=cast.typed or nil,own=cast.own or nil})
+    end
+    -- Where the group last saw each living enemy it remembers, for a member that sees none (the
+    -- engine's search, combat-intent/search.lua): {id, x, y, tick (when it was last seen), vx, vy
+    -- (its heading then, when known), by (whether a member other than member saw it then)}, by id.
+    function api:clues(member,tick)
+        clock(tick)
+        local out={}
+        for key,e in pairs(enemies) do
+            if targeting.alive(e) and e.lastTick<=tick and number(e.x) and number(e.y) then
+                local by=false
+                for m,at in pairs(e.seenBy) do if m~=member and at==e.lastTick then by=true end end
+                out[#out+1]={id=key,x=e.x,y=e.y,tick=e.lastTick,vx=e.vx,vy=e.vy,by=by}
+            end
+        end
+        table.sort(out,function(a,b) return a.id<b.id end)
+        return out
+    end
+    -- The group's members at tick, by id: {id, family, x, y} (where each last checked in).
+    function api:members(tick)
+        local out={}
+        for key,m in pairs(members) do
+            if tick>=m.lastTick and tick-m.lastTick<=o.memberTicks then out[#out+1]={id=key,family=m.family,x=m.x,y=m.y} end
+        end
+        table.sort(out,function(a,b) return a.id<b.id end)
+        return out
     end
     -- A member started some other action: its cast, if any, is over.
     function api:action(member,tick) clock(tick);finish(member,tick,'next-action') end

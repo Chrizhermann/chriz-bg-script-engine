@@ -105,10 +105,20 @@
 -- damage can break carries it, its spell read at its caster's level and the count of its casting
 -- aura (sense.casting). The choice row logs what breaking a spell added (interrupt) and an attack
 -- on an enemy the orders name (ordered).
+--
+-- Searching (combat-intent/search.lua, adapters/eeex/search.lua): with no enemy in sight, once no
+-- zone hurts the creature and no friend in sight needs a heal or cure worth casting, the engine
+-- searches: it walks to where the group last saw an enemy or was hit from (MoveToPoint to the
+-- nearest open spot, held while it walks), looks around, detects with what the creature has (a cast
+-- or item on itself or at a point, or a rogue's Find Traps mode for its Detect Illusion), and gives
+-- up after its patience, walking back to where its fight began; there the creature's own life goes
+-- on. A detection is judged by whether the creature sees an enemy afterwards. BGSE_Search
+-- (api:searches) tells SCS's own hunting blocks to stand aside for every creature the engine drives.
 local sense=require('adapters.eeex.sense')
 local creature=require('adapters.eeex.creature')
 local resources=require('adapters.eeex.resources')
 local directors=require('adapters.eeex.director')
+local searches=require('adapters.eeex.search')
 local spells=require('combat-intent.spells')
 local targeting=require('combat-intent.targeting')
 local defence=require('combat-intent.defence')
@@ -255,6 +265,21 @@ function M.response(decision)
     end
 end
 
+-- Whether a friend in frame (the creature itself or an ally it sees) has lost hit points, is held
+-- or has a condition a cure takes away: then heals and cures are weighed with no enemy in sight.
+function M.ailing(frame)
+    local friends={frame.self}
+    for _,a in ipairs(frame.allies) do friends[#friends+1]=a end
+    for _,f in ipairs(friends) do
+        if type(f.hp)=='number' and type(f.maxHp)=='number' and f.hp<f.maxHp then return true end
+        if (f.held or 0)>0 then return true end
+        for _,bit in ipairs(M.CONDITION_BITS) do
+            if targeting.has(f.state,bit) then return true end
+        end
+    end
+    return false
+end
+
 -- Orders by creature file (combat-intent/orders.lua): t's entries under their resref in capitals,
 -- or nil and the first bad entry.
 function M.orderBook(t)
@@ -324,7 +349,7 @@ function M.new(g,options)
         hits=0,misses=0,errors=0,holds=0,frozen=0,marks=0,markFailures=0,defences=0,guarded=0,unguarded=0,
         guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0,arms=0,attacks=0,attackHits=0,
         weaponFailures=0,releases=0,heals=0,cures=0,potions=0,cared=0,uncared=0,summons=0,conjured=0,
-        unconjured=0,removals=0,stripped=0,unstripped=0,wardFailures=0}
+        unconjured=0,removals=0,stripped=0,unstripped=0,wardFailures=0,revealed=0,unrevealed=0}
     local reasons={}
     local log,nextRow,size={},1,0
     local root,sink,lastError,markError,guardError,weaponError,wardError,zoneError,witError
@@ -342,6 +367,8 @@ function M.new(g,options)
         lastError=where..': '..tostring(err):sub(1,200)
         record({kind='error',where=where,error=tostring(err):sub(1,200)})
     end
+    -- The engine's own search for enemies a creature cannot see (adapters/eeex/search.lua).
+    local seeker=searches.new(g,{director=director,record=record,rng=rng})
     -- Wit (combat-intent/mind.lua): the game's difficulty (1 to 5), nil when it cannot be read.
     local function difficulty()
         local ok,value=pcall(function() return g.EngineGlobals.g_pBaldurChitin.m_pObjectGame.m_options.m_nDifficultyLevel end)
@@ -760,6 +787,16 @@ function M.new(g,options)
             if joined>0 then counts.conjured=counts.conjured+1 else counts.unconjured=counts.unconjured+1 end
             record({kind='conjure',tick=a.ended,member=a.caster,spell=a.resref,mode=a.mode,expected=a.count,
                 joined=joined,read=ok or nil})
+            return
+        end
+        if a.kind=='detect' then
+            -- A detection (the engine's search): whether the caster sees an enemy now.
+            local caster=get(a.caster)
+            if not caster then return end
+            local frame=sense.frame(g,caster,a.ended,false)
+            local seen=frame and #frame.enemies or 0
+            if seen>0 then counts.revealed=counts.revealed+1 else counts.unrevealed=counts.unrevealed+1 end
+            record({kind='reveal',tick=a.ended,member=a.caster,spell=a.resref,mode=a.mode,seen=seen})
             return
         end
         if not defending and (not a.target or a.mode~='creature') then return end
@@ -1235,6 +1272,32 @@ function M.new(g,options)
         end
     end
 
+    -- With no enemy in sight: the engine's search (adapters/eeex/search.lua) as the gate's decision,
+    -- or nil, and the creature's own life goes on ('no-enemy' without a clue, 'given-up'). A
+    -- detection is cast or used like the engine's other casts; a walk goes to the nearest open spot
+    -- (prepare); a look holds.
+    local function seek(sprite,frame,id,tick,family,rows,carried,m)
+        local raw=zoneList(sprite,tick)
+        local d,why=seeker:decide(sprite,frame,tick,family,m,rows,carried,function(p) return inZone(raw,p.x,p.y) end,
+            orderBook[text(sprite.m_resref:get())])
+        if not d then return decline(why=='given-up' and 'given-up' or 'no-enemy') end
+        if director then director:release(id,tick) end
+        if d.kind=='look' then return hold() end
+        if d.kind=='modal' then return {own=true,response='FindTraps()',kind='modal',clue=d.clue,target=d.target} end
+        if d.kind=='detect' then
+            local response=M.response({resref=d.resref,self=d.self,point=d.point,use=d.item})
+            if not response then return decline('bad-response') end
+            counts.claims=counts.claims+1
+            local spell
+            for _,row in ipairs(rows) do if row.resref==d.resref then spell=row.spell end end
+            return {own=true,response=response,spell=d.resref,kind='detect',mode=d.self and 'self' or 'point',point=d.point,
+                self=d.self,hits={},castTicks=spell and type(spell.speed)=='number' and spell.speed*9 or nil,use=d.item,
+                cover=(type(d.speed)=='number' and d.speed>0 and d.speed or 0)*9+M.coverSlack}
+        end
+        return {own=true,response='MoveToPoint(['..d.point.x..'.'..d.point.y..'])',kind=d.kind,point=d.point,
+            clue=d.clue,target=d.target,gaveUp=d.gaveUp,guard=d.guard}
+    end
+
     local function decide(view,family)
         if not enabled or missing then return decline(missing and 'missing' or 'off') end
         if not M.families[family] then return decline('family') end
@@ -1310,14 +1373,30 @@ function M.new(g,options)
         end
         -- What follows decides anew: the last wait only tells whether a new one goes on with it.
         waits[id]=nil
+        -- A search walk, look or detection mode runs while it lasts (adapters/eeex/search.lua);
+        -- meanwhile the creature may still walk out of a zone that hurts it.
+        if seeker:holding(sprite,id,tick) then
+            local d=flee(sprite,id,tick,family)
+            if d then seeker:stop(id);return d end
+            return hold()
+        end
         if targeting.CASTS[sprite.m_curAction.m_actionID] then return decline('casting') end
         local frame=sense.frame(g,sprite,tick,true)
         if not frame then return decline('no-frame') end
         if sense.side(frame.self.ea)~='evil' then return decline('side') end
-        if #frame.enemies==0 then
+        -- With no enemy in sight: out of a zone that hurts, a heal or cure for a friend in need, else
+        -- the search.
+        local unseen=#frame.enemies==0
+        if unseen then
             local d=flee(sprite,id,tick,family)
             if d then return d end
-            return decline('no-enemy')
+            if not M.ailing(frame) then
+                local rows,carried=book(sprite)
+                if not rows then failed('book',carried);return nil end
+                return seek(sprite,frame,id,tick,family,rows,carried,mindFor(sprite,family))
+            end
+        else
+            seeker:fight(sprite,frame,tick,orderBook[text(sprite.m_resref:get())])
         end
         local rows,carried=book(sprite)
         if not rows then failed('book',carried);return nil end
@@ -1344,6 +1423,7 @@ function M.new(g,options)
         -- The share of a spell slot's cost that counts now, kept for the log.
         input.slots=choice.slotShare(input)
         local d,why,options,rejected=choice.decide(input)
+        if unseen and not (d and M.CARE[d.kind]) then return seek(sprite,frame,id,tick,family,rows,carried,input.mind) end
         lastDetail=rejected
         local top={}
         for i=1,math.min(3,#options) do
@@ -1500,6 +1580,14 @@ function M.new(g,options)
             moves[object.m_id]={tick=tick,point=point,zones=type(decision.zones)=='table' and decision.zones or {},
                 limit=M.walkTicks(decision.walk)+M.moveMargin}
             record({kind='move',tick=tick,member=object.m_id,from={x=object.m_pos.x,y=object.m_pos.y},to=point})
+        elseif decision.kind=='search' or decision.kind=='return' then
+            -- A search walk or the way back: to the nearest open spot (no zones to keep out of).
+            local point=walkable(object,{point=decision.point})
+            if not point then return 'skipped' end
+            decision.response='MoveToPoint(['..point.x..'.'..point.y..'])'
+            seeker:walk(object,decision,point,tick)
+        elseif decision.kind=='modal' then
+            seeker:mode(object,tick)
         else
             pending[object.m_id]={caster=object.m_id,resref=decision.spell,kind=decision.kind,mode=decision.mode,
                 target=decision.target,point=decision.point,hits=decision.hits,tick=tick,hp=hp,
@@ -1590,7 +1678,13 @@ function M.new(g,options)
 
     function api:setEnabled(value)
         assert(type(value)=='boolean');enabled=value
-        if not value then pending,moves,waits={},{},{} end
+        if not value then pending,moves,waits={},{},{};seeker:invalidate() end
+    end
+    -- Whether the engine searches for creatures of family it drives (BGSE_Search: SCS's own hunting
+    -- blocks stand aside for them): its choice is on for the family. Then the engine alone searches,
+    -- detects and gives up, also when it has no clue to go on.
+    function api:searches(family)
+        return enabled and not missing and M.families[family]==true
     end
     -- Whether the engine weighs danger zones for creature id of family now (BGSE_Zones: SCS's own
     -- cloud blocks stand aside meanwhile): not for a creature off the engine's
@@ -1644,6 +1738,7 @@ function M.new(g,options)
         stays,stayCount,insideOf,insideCount,lookedAt={},0,{},0,{}
         minds,mindCount,hurts,hurtCount,pained={},0,{},0,{}
         waits={}
+        seeker:invalidate()
     end
     function api:inspect()
         local copy=function(t) local c={};for k,v in pairs(t) do c[k]=v end;return c end
@@ -1657,7 +1752,7 @@ function M.new(g,options)
             pending=open,running=busy,judging=#judging,remembered=remembered,log=rows,lastError=lastError or false,
             markError=markError or false,guardError=guardError or false,weaponError=weaponError or false,
             wardError=wardError or false,zoneError=zoneError or false,witError=witError or false,
-            orderError=orderError or false,wit=witOn,moving=(function()
+            orderError=orderError or false,wit=witOn,search=seeker:inspect(),moving=(function()
                 local n=0;for _ in pairs(moves) do n=n+1 end;return n end)(),waiting=(function()
                 local n=0;for _,w in pairs(waits) do if not w.over then n=n+1 end end;return n end)(),stays=(function()
                 local c={};for id,s in pairs(stays) do c[id]={stay=s.stay,left=s.left} end;return c end)()}

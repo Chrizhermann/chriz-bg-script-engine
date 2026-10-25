@@ -38,6 +38,8 @@ TRIGGER = """IDS V1.0
 0x400E HPPercentLT(O:Object*,I:Hit Points*)
 0x400F Die()
 0x4010 Range(O:Object*,I:Range*)
+0x4011 Detect(O:Object*)
+0x4012 OpenState(O:Object*,I:Open*Boolean)
 0x4089 OR(I:OrCount*)
 """
 ACTION = """IDS V1.0
@@ -68,9 +70,12 @@ ACTION = """IDS V1.0
 24 ApplySpell(O:Target,I:Spell*Spell)
 25 MoveToObject(O:Object*)
 26 SetInterrupt(I:State*Boolean)
+27 OpenDoor(O:Object*)
+28 ReallyForceSpell(O:Target*,I:Spell*Spell)
 """
 IDS = {
-    'OBJECT': 'IDS V1.0\n0 Nothing\n1 Myself\n12 NearestEnemyOf\n18 LastSeenBy\n20 LastHeardBy\n21 Player1\n22 Player2\n',
+    'OBJECT': ('IDS V1.0\n0 Nothing\n1 Myself\n12 NearestEnemyOf\n18 LastSeenBy\n20 LastHeardBy\n21 Player1\n22 Player2\n'
+               '40 NearestDoor\n'),
     'EA': 'IDS V1.0\n0 ANYONE\n2 PC\n255 ENEMY\n',
     'GENERAL': 'IDS V1.0\n0 ANYONE\n',
     'RACE': 'IDS V1.0\n0 ANYONE\n',
@@ -78,7 +83,8 @@ IDS = {
     'SPECIFIC': 'IDS V1.0\n0 ANYONE\n',
     'GENDER': 'IDS V1.0\n0 ANYONE\n',
     'ALIGN': 'IDS V1.0\n0 ANYONE\n',
-    'SPELL': 'IDS V1.0\n2101 WIZARD_MAGIC_MISSILE\n2102 WIZARD_MIRROR_IMAGE\n3101 DEMILICH_TRAP_SOUL\n',
+    'SPELL': ('IDS V1.0\n1308 CLERIC_INVISIBILITY_PURGE\n2101 WIZARD_MAGIC_MISSILE\n2102 WIZARD_MIRROR_IMAGE\n'
+              '2420 WIZARD_ORACLE\n2525 WIZARD_DIMENSION_DOOR\n3101 DEMILICH_TRAP_SOUL\n'),
     'STATS': 'IDS V1.0\n18 RESISTMAGIC\n200 WIZARD_IMPROVED_ALACRITY\n',
     'BOOLEAN': 'IDS V1.0\n0 FALSE\n1 TRUE\n',
 }
@@ -177,7 +183,7 @@ def test_installer_matches_reference_and_is_reversible(tmp_path: Path) -> None:
     output = _install(tmp_path, '--force-install-list', '0')
     assert 'SUCCESSFULLY INSTALLED' in output, output
     assert ('BGSE hook: 4 SCS scripts hooked, 18 SCS blocks guarded, 4 SCS cloud blocks yield to the engine, '
-            '3 left as they are.') in output, output
+            "10 SCS hunting blocks yield to the engine's search, 3 left as they are.") in output, output
     for name, reason in (('B-HKNOA', 'no-anchor'), ('B-HKOLD', 'already-hooked'), ('B-HKCST', 'no-castspell')):
         assert f'left {name} as it is ({reason})'.casefold() in output.casefold(), output
     installed = _snapshot(tmp_path)
@@ -201,6 +207,11 @@ def test_installer_matches_reference_and_is_reversible(tmp_path: Path) -> None:
     # member) first; the fighter's escape below the hook stays.
     for name, count in (('B-HKMAG', 3), ('B-HKRNG', 1), ('B-HKPRI', 0), ('B-HKMON', 0)):
         assert hooked[name].count(hook_rule.zones_guard(HOOKED[name][0], name.lower())) == count, name
+    # SCS's hunt stands aside above and below the hook: the mage's free Oracle and chase, the
+    # priest's free Invisibility Purge, the fighter's chase reset and walk to the door (whose
+    # triggers end in an OR group that lacks a member), the monster's end of a chase and teleport.
+    for name, count in (('B-HKMAG', 5), ('B-HKRNG', 2), ('B-HKPRI', 1), ('B-HKMON', 2)):
+        assert hooked[name].count(hook_rule.search_guard(HOOKED[name][0], name.lower())) == count, name
 
     _install(tmp_path, '--force-uninstall-list', '0', '--force-install-list', '0')
     assert _snapshot(tmp_path) == installed

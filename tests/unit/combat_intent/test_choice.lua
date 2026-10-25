@@ -594,6 +594,8 @@ assert(select(2,orders.check({target='protagonist',always='yes'}))=='always')
 assert(select(2,orders.check({target={}}))=='target' and select(2,orders.check({target='TOOLONGNAME'}))=='target')
 assert(select(2,orders.check({target='protagonist',stay=true}))=='stay' and select(2,orders.check('x'))=='orders')
 assert(select(2,orders.check({target='protagonist',bonus=-1}))=='bonus')
+assert(orders.check({guard=true}) and orders.check({guard=false,target='player1'}) and
+    select(2,orders.check({guard='yes'}))=='guard')
 groups=groups+1
 
 -- 22. Interrupting (Christopher, 2026-10-25: worth decides, "with a bonus for interrupting an

@@ -189,6 +189,28 @@ function M.new(g,options)
         failed('release',n)
         return 0
     end
+    -- For the engine's search (adapters/eeex/search.lua): where the group last saw its enemies, for
+    -- member id at tick (combat-intent/director.lua's clues), and the other members of its group;
+    -- empty outside a group.
+    function adapter:clues(id,tick)
+        local area=memberArea[id]
+        local d=area and directors[area]
+        if not d then return {} end
+        local ok,list=pcall(d.clues,d,id,tick)
+        if ok then return list end
+        failed('clues',list)
+        return {}
+    end
+    function adapter:group(id,tick)
+        local area=memberArea[id]
+        local d=area and directors[area]
+        if not d then return {} end
+        local ok,list=pcall(d.members,d,tick)
+        if not ok then failed('group',list);return {} end
+        local out={}
+        for _,m in ipairs(list) do if m.id~=id then out[#out+1]=m end end
+        return out
+    end
     function adapter:setChoice(c) choice=c end
     function adapter:attach(r) root=r end
     function adapter:setSink(fn) assert(fn==nil or type(fn)=='function');sink=fn end

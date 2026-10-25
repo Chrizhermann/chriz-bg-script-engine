@@ -640,8 +640,8 @@ owns the round" and "Casts walk into range"): no decline to SCS between two of t
 actions; while the casting aura runs a creature attacks with its weapon or waits, and decides
 again when the wait is over; SCS's round timer only marks the round for SCS's blocks above the
 hook; and casts at enemies beyond their range walk into range first, the walk lowering the worth.
-Still left to the creature's script: casts the engine did not queue, no enemy in sight, and the
-engine switched off or failing.
+Still left to the creature's script: casts the engine did not queue, no enemy in sight with no
+clue left or after giving up a search (below), and the engine switched off or failing.
 
 Also built the same day ([FIGHT-01](../research/FIGHT-01-fighter-and-monster-rounds.md), "Orders
 and interrupting"): a designer's orders by creature file, for now the target (the protagonist, a
@@ -649,8 +649,18 @@ party place or a creature file; preferred, or always while it can be attacked), 
 damage that breaks an enemy's spell in time, by the spell's level; clever creatures always see that
 chance, normal ones in half their decisions, dull ones never.
 
-Next: the engine's own search for enemies a creature cannot see, then F1e (switching fighters and
-monsters on) with a lab, then F2.
+And the engine's own search for enemies a creature cannot see
+([FIGHT-01](../research/FIGHT-01-fighter-and-monster-rounds.md), "Searching"; Christopher's "ok."
+the same day): from what the creature and its group perceived (where an enemy was last seen and
+where it was going, a hit from an unseen attacker, an enemy that vanished on a spot in sight), with
+the detection the creature really has, patience by wit, a boss guarding its post, and giving up
+without forgetting: back to the post, where heals go on, and a full fight at the next sight of an
+enemy. SCS's hunt (its chase, its free detection casts, its door walk) stands aside for every
+creature the engine drives, for now mages and priests.
+
+Next: monsters' own pursuit powers outside SCS's chase (a phase spider's teleport, a mind flayer's
+astral travel, dragons walking to a party member they do not detect) against fair play, then F1e
+(switching fighters and monsters on) with a lab, then F2.
 
 ## To design with Christopher
 
@@ -825,6 +835,14 @@ Christopher's ideas so far (living list; more will follow):
   still seeing the target, behind a wall, invisible). One rule for both sides stays; if enemies
   only count their own eyes while the party shares its vision, fix the cause. Avoiding such
   casts is no substitute.
+  His wish, later the same day: "wenn das bei einfach nur weiter weg gehen/um die Ecke gehen
+  nicht so streng wäre … Falls möglich". A target that becomes invisible, or leaves the room or
+  area, may break the cast ("Macht ja auch Sinn, das Target ist weg"); one that only walks farther
+  away or around a corner should not, for Magic Missile as for Hold Person ("Ob der Gegner jetzt
+  hinter der Ecke ist oder nicht, dürfte ja egal sein?"). An area spell is cast at a spot, even if
+  SCS let it follow its target ("es macht ja irgendwie keinen Sinn?"). **So:** the lab probe
+  finds the game's rule for both sides; where it is stricter than that, the engine changes it
+  through EEex for both sides alike.
 - **Area spells at a creature or at a spot** (2026-10-25): "In seltenen Fällen ist das vielleicht
   besser … einem Spell auszuweichen wäre ja auch Skill." SCS aims at creatures; Tactics Remix
   aims at spots and guesses where the player is running. The engine already aims at a spot,
@@ -836,7 +854,11 @@ Christopher's ideas so far (living list; more will follow):
   searching together, by wit. Every creature uses the detection it has (spells, abilities,
   items: True Seeing, Detect Invisibility, Glitterdust and the like), not only mages; a thief's
   Detect Illusion skill only very clever or tactical rogues, "auf keinen Fall alle". Giving up
-  must be clever too; Christopher asked how games with good enemy AI do it.
+  must be clever too; Christopher asked how games with good enemy AI do it. Built the same day
+  ([FIGHT-01](../research/FIGHT-01-fighter-and-monster-rounds.md), "Searching"); not yet in a lab.
+- **Challenge Mode: no leaving mid-fight** (2026-10-25): "dass man die meisten Räume/Areas nicht
+  einfach verlassen kann, wenn man noch im Kampf ist (nicht bei allen regulären Kämpfen, aber bei
+  vielen)". Later work, designed with Christopher.
 - **Variance by wit in every tactic** (2026-10-25): e.g. walking into position during the casting
   cooldown, "zwischen taktisch klugen Gegnern und taktisch dummen Gegnern zu unterscheiden …
   um ein bisschen Varianz ins Spiel zu bringen".

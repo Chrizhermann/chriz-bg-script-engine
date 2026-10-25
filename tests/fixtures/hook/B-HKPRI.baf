@@ -8,6 +8,20 @@ THEN
 END
 
 IF
+  Detect([PC])
+  !See([PC])
+  !GlobalTimerNotExpired("detect","LOCALS")
+THEN
+  RESPONSE #50
+    SetGlobalTimer("castspell","LOCALS",6)
+    SetGlobalTimer("detect","LOCALS",1000)
+    SpellNoDec(Myself,CLERIC_INVISIBILITY_PURGE)
+  RESPONSE #600
+    SetGlobalTimer("detect","LOCALS",30)
+    Continue()
+END
+
+IF
   See(NearestEnemyOf(Myself))
   !GlobalTimerNotExpired("castspell","LOCALS")
   !GlobalTimerNotExpired("turninitialise","LOCALS")

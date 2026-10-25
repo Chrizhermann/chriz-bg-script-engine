@@ -76,11 +76,47 @@ Python, and `tests/integration/test_hook_installer.py` checks they agree.
    for 34 to 38 seconds (SUPPORT-01). In the SR lab's 1,148 hooked scripts 11,496 blocks get the
    condition, all of it last: 9,957 escapes, 952 stand-stills and 587 runs from a marker (585 in
    mage scripts, 2 in monster scripts; host run of the rule, nothing installed).
+7. SCS's hunt for enemies the creature no longer sees gets a last condition,
+   `!EEex_LuaTrigger(...BGSE_Search...)`, above and below the anchor, and is never copied above
+   the hook (2026-10-25, [FIGHT-01](FIGHT-01-fighter-and-monster-rounds.md), "Searching"). Its
+   blocks: those that use its chase variables (`chasetimer`, `chasing`, `chasePC`, `chasetarget`,
+   `teleportpursuetimer`) and act, or end a response without `Continue()` (the chase's start, its
+   walks with `MoveToObject` to the party member it noted, its give-up, a mage's Dimension Door and
+   a fiend's teleport to that party member, the chase's end with `ClearActions`); its free
+   detection casts on the `detect` timer; and its walk to the nearest closed door
+   (`OpenDoor(NearestDoor)`). The chase's bookkeeping (which party member it noted, forgetting the
+   dead, every response only setting variables or showing text and ending in `Continue()`) stays
+   unguarded, so the record is there again when the engine is off. A monster's own pursuit power
+   that uses none of these (a phase spider's teleport, a mind flayer's astral travel) is not part
+   of it. `BGSE_Search` is true for every creature the engine drives: it searches itself, and SCS's
+   give-up no longer ends `inafight` for it. That also keeps the behaviour the same whether or not
+   the game counts a timer that was never set as run out (`GlobalTimerExpired`). In the SR lab's
+   1,148 hooked scripts 14,191 blocks get the condition (1,632 above the anchor, 12,559 below):
+   6,906 chase walks, 1,159 chase starts, 4,051 give-ups, 806 ends of a chase, 706 free detection
+   casts (all above), 205 door walks, 258 fiend teleports (42 scripts), 96 Dimension Door pursuits
+   (8 scripts) and 4 other chase blocks. The chase's walks, start and give-up and the door walk sit
+   below the anchor, except in 15 vampire and spider scripts (`C6VAMPIR`, `LASSAL`, `PPJOYE`,
+   `PPVAMP`, `PPVAMPIR`, …); the free detection casts and nearly every end of a chase sit above it.
+   No block is both a cloud block and a hunting block. Copies fell from 3,173 to 2,915: the fiend teleports
+   were copied as specials before. When the triggers end in an OR group that lacks members, the
+   condition goes first, as in rule 6; a block that is both gets both conditions, the cloud's first.
+
+`BGSE_Zones` and `BGSE_Search` go by the script that decides for the creature: the first hooked
+script in its stack, since a lower script runs only after every higher one let the pass through
+and a higher hooked script asks on the way. So in a creature with two hooked scripts (SCS's general
+AI above a mage script, or a monster script above the general AI) the lower script's cloud and
+hunting blocks stand aside exactly when the higher one's do (`kernel/hook.lua`, `driver`; since
+2026-10-25, before which each script went by its own family).
+
+`tools/hook_agree.py` checks that WeiDU and `tools/hook_rule.py` agree without a game: WeiDU runs
+`bgse_hook_baf` on a folder of decompiled scripts with `--nogame`, and every result, count and text
+must match. On the SR lab's 1,241 decompiled scripts (1,148 hooked) all agree byte for byte
+(2026-10-25, 2 to 3 minutes).
 
 The claim is cached per creature and game tick, so the copies and the hook ask once per
 script pass and get the same answer. When the engine declines or is switched off, every
 copy's first trigger fails and SCS's script runs in its original order; a switched-off engine
-also lets every cloud escape run.
+also lets every cloud escape and SCS's whole hunt run.
 
 ## Install results in the lab game
 

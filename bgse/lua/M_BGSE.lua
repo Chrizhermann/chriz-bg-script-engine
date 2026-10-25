@@ -186,8 +186,8 @@ function M.new(config)
     assert(held==nil or type(held)=='function')
     -- hooked: script resref (lower case) -> family, from the install. below(id, script): the
     -- creature's non-empty script resrefs in the slots after script, or nil when script is not
-    -- in its stack.
-    local hooked,below
+    -- in its stack. stack(id) (optional): all its non-empty script resrefs, from the top slot down.
+    local hooked,below,stack
     local function setHooked(t)
         assert(t==nil or type(t)=='table')
         if t==nil then hooked=nil;return end
@@ -197,8 +197,9 @@ function M.new(config)
         end
     end
     setHooked(config.hooked)
-    below=config.below
+    below,stack=config.below,config.stack
     assert(below==nil or type(below)=='function')
+    assert(stack==nil or type(stack)=='function')
     local pending,blocked,answers={},{},{}
     local counts={reached=0,repeats=0,claimed=0,acted=0,held=0,skipped=0,stale=0,errors=0,observeErrors=0,heldErrors=0}
     local declines={}
@@ -307,7 +308,7 @@ function M.new(config)
     function api:allows(family) return enabled and known[family]==true and families[family]==true end
     -- Whether the gate would ask the decider about this creature from this script now (its
     -- switches, the registry, the scripts below it, a decider and no backoff after an error),
-    -- without asking: for SCS blocks that stand aside while the engine drives the creature.
+    -- without asking.
     function api:drives(actor,family)
         local id=type(actor)=='table' and rawget(actor,'id')
         if not scalarId(id) then return false end
@@ -323,6 +324,32 @@ function M.new(config)
             if type(name)~='string' or not hooked[name:lower()] then return false end
         end
         return true
+    end
+    -- The family of the script that decides for the creature, when the gate would ask the
+    -- decider from it now (api:drives), else nil; the actor names the script that asks, which must
+    -- be in the creature's stack. The first hooked script in the stack decides: a lower script
+    -- runs only after every higher one let the pass through, and a higher hooked script asks on
+    -- the way. For SCS blocks in any of the creature's hooked scripts that stand aside while the
+    -- engine drives it.
+    function api:driver(actor)
+        local id=type(actor)=='table' and rawget(actor,'id')
+        if not scalarId(id) then return nil end
+        local script=rawget(actor,'script')
+        if type(script)~='string' or #script==0 or #script>32 or not (stack and hooked) then return nil end
+        script=script:lower()
+        local found,names=pcall(stack,id)
+        if not found or type(names)~='table' then return nil end
+        local first
+        for _,name in ipairs(names) do
+            if type(name)=='string' then
+                name=name:lower()
+                if not first and hooked[name] then first=name end
+                if name==script then
+                    if first and api:drives({id=id,script=first},hooked[first]) then return hooked[first] end
+                    return nil
+                end
+            end
+        end
     end
     function api:setEnabled(value)
         assert(type(value)=='boolean');enabled=value;answers={}
@@ -2052,6 +2079,9 @@ M.default={
     -- and by what the group has seen it do in clouds; 'best' only by the cheaper choice; 'once'
     -- counts one explosion.
     clouds='learned',
+    -- How long the creature searches for enemies it cannot see, as a share of its wit's patience
+    -- (combat-intent/search.lua): labs and fight designs can stretch or shorten it.
+    searchPatience=1,
     -- Wit around danger zones (M.wit): 'clever', 'normal' or 'dull'; and how seriously the creature
     -- takes harm from them (1 for a WIS of 10).
     wit='clever',
@@ -2071,6 +2101,7 @@ end
 local CHECKS={coordination=share,best=share,band=share,economy=amount,minValue=amount,
     focusBonus=amount,killBonus=amount,interrupt=amount,tactics=share,caution=amount,horizon=amount,redefend=amount,acute=share,
     castCost=amount,allySpells=resrefs,slowSpeed=amount,touchReach=amount,summonCap=amount,fightCap=amount,
+    searchPatience=amount,
     openers=function(v) return type(v)=='boolean' end,
     touch=function(v) return type(v)=='boolean' end,
     weapons=function(v) return type(v)=='boolean' end,
@@ -4030,6 +4061,10 @@ factories["combat-intent.orders"]=function(require)
 -- the creature's attacks on that enemy while it can attack it at all; otherwise the enemy is
 -- preferred, as the group's focus is: what an attack does to it counts bonus (default 1) more. A
 -- bonus given with always counts as well.
+--
+-- guard=true keeps the creature near the spot where its fight began while it searches for enemies it
+-- cannot see (combat-intent/search.lua); guard=false lets it search like anyone, also as its
+-- group's boss, which guards by default.
 local targeting=require('combat-intent.targeting')
 local M={}
 M.bonus=1
@@ -4056,6 +4091,8 @@ function M.check(o)
             elseif not selector(v) then return false,'target' end
         elseif k=='always' then
             if type(v)~='boolean' then return false,'always' end
+        elseif k=='guard' then
+            if type(v)~='boolean' then return false,'guard' end
         elseif k=='bonus' then
             if not number(v) or v<0 or v>100 then return false,'bonus' end
         else return false,tostring(k) end
@@ -6200,9 +6237,12 @@ local M={}
 -- otherwise); a disable reservation lasts reserveTicks at most and graceTicks after its cast
 -- ended, so the disable can show before another one is allowed. The engine's own disables
 -- reserve their targets as soon as they are chosen, before the cast is queued: such a claim
--- lasts claimTicks at most, until the cast starts.
+-- lasts claimTicks at most, until the cast starts. An enemy's heading comes from two sightings at
+-- least headingMin ticks apart; one seen again after more than headingTicks starts without one. An
+-- enemy is forgotten forgetTicks after it was last seen.
 M.defaults={memberTicks=150,enemyTicks=90,reserveTicks=225,graceTicks=30,claimTicks=60,forgetTicks=450,
-    logCapacity=256,families={mage=true,priest=true}}
+    headingMin=5,headingTicks=45,logCapacity=256,families={mage=true,priest=true}}
+M.ticksPerSecond=15
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
 local function id(v) return number(v) and v>=0 and v%1==0 end
@@ -6270,6 +6310,18 @@ function M.new(config)
         if lastTick and tick<lastTick then api:invalidate('clock') end
         lastTick=tick
     end
+    -- The enemy's heading (vx, vy: world units a second) from where it was seen last (px, py at
+    -- ptick) and where it is seen now.
+    local function heading(seen,e,tick)
+        if not (number(e.x) and number(e.y)) then return end
+        if seen.ptick==nil or tick<seen.ptick or tick-seen.ptick>o.headingTicks then
+            seen.px,seen.py,seen.ptick,seen.vx,seen.vy=e.x,e.y,tick,nil,nil
+        elseif tick-seen.ptick>=o.headingMin then
+            local seconds=(tick-seen.ptick)/M.ticksPerSecond
+            seen.vx,seen.vy=(e.x-seen.px)/seconds,(e.y-seen.py)/seconds
+            seen.px,seen.py,seen.ptick=e.x,e.y,tick
+        end
+    end
 
     function api:isMember(member) return members[member]~=nil end
     -- member = {id, family}; frame = the member's plain perception frame.
@@ -6283,6 +6335,7 @@ function M.new(config)
         for _,e in ipairs(type(frame.enemies)=='table' and frame.enemies or {}) do
             if id(e.id) then
                 local seen=enemies[e.id] or {seenBy={}}
+                heading(seen,e,tick)
                 seen.lastTick=tick;seen.x,seen.y,seen.hp,seen.maxHp=e.x,e.y,e.hp,e.maxHp
                 seen.state,seen.held,seen.minHp=e.state,e.held,e.minHp
                 seen.seenBy[member.id]=tick
@@ -6417,6 +6470,31 @@ function M.new(config)
             role=role,target=cast.target,original=cast.original,redirected=cast.redirected or nil,
             typed=cast.typed or nil,own=cast.own or nil})
     end
+    -- Where the group last saw each living enemy it remembers, for a member that sees none (the
+    -- engine's search, combat-intent/search.lua): {id, x, y, tick (when it was last seen), vx, vy
+    -- (its heading then, when known), by (whether a member other than member saw it then)}, by id.
+    function api:clues(member,tick)
+        clock(tick)
+        local out={}
+        for key,e in pairs(enemies) do
+            if targeting.alive(e) and e.lastTick<=tick and number(e.x) and number(e.y) then
+                local by=false
+                for m,at in pairs(e.seenBy) do if m~=member and at==e.lastTick then by=true end end
+                out[#out+1]={id=key,x=e.x,y=e.y,tick=e.lastTick,vx=e.vx,vy=e.vy,by=by}
+            end
+        end
+        table.sort(out,function(a,b) return a.id<b.id end)
+        return out
+    end
+    -- The group's members at tick, by id: {id, family, x, y} (where each last checked in).
+    function api:members(tick)
+        local out={}
+        for key,m in pairs(members) do
+            if tick>=m.lastTick and tick-m.lastTick<=o.memberTicks then out[#out+1]={id=key,family=m.family,x=m.x,y=m.y} end
+        end
+        table.sort(out,function(a,b) return a.id<b.id end)
+        return out
+    end
     -- A member started some other action: its cast, if any, is over.
     function api:action(member,tick) clock(tick);finish(member,tick,'next-action') end
     -- The engine's own disable for member, just chosen and not yet queued, claims its targets
@@ -6488,6 +6566,391 @@ function M.new(config)
             known=known,counts=values.copy(counts),log=rows}
     end
     return api
+end
+return M
+end
+factories["combat-intent.search"]=function(require)
+-- The engine's own search for enemies a creature cannot see (Christopher, 2026-10-25: "Das können
+-- wir doch auch einbauen? Vielleicht sogar geiler als SCS?"; his "ok" to the proposal the same
+-- day). SCS is the blueprint ([src] genai/ssl/chase.ssl, mage/ssl/generalblocks/chase.ssl and
+-- findhidden.ssl, credit DavidW): its creatures note the first party member they see; when they see
+-- no enemy while their fight goes on, they walk for 8 to 15 seconds to where that party member
+-- really is (MoveToObject), mages with Dimension Door teleport there and fighters open a near closed
+-- door; mages and priests of higher levels cast a free Oracle, Detect Invisibility or Invisibility
+-- Purge with a taunt when a hidden party member is near (Detect without See); then they give up.
+--
+-- Here the creature acts only on what it or its group perceived (fair play):
+-- - clues: where the group last saw each enemy and which way it was going (seen), an enemy another
+--   member sees now (sighted), a hit from an attacker it did not see, from where the attacker stood
+--   (hit), and an enemy lost from sight on a spot the creature still sees (vanished: likely
+--   invisible). The adapter marks a hit near when the creature sees the attacker's spot;
+-- - detection: what the creature has (spells, abilities and items that take invisibility away or
+--   let it see the invisible), when a clue says the enemy is likely invisible and the detection
+--   reaches its spot; a rogue's Detect Illusion (its modal search) as well;
+-- - the walk: to the best clue's point. A tactical creature leads a moving enemy along its last
+--   heading, spreads out from members that search the same spot and, as a caster, stays behind a
+--   fighter that searches it too;
+-- - patience: by wit, counted from the newest clue, halved for the wounded and the cowardly; then it
+--   gives up: back to its post (where its fight began), where the engine heals as it does in a fight.
+--   One that guards (a boss, or by its orders) searches only near its post;
+-- - tactics by wit (mind.tactics): a clever creature always, a normal one when its search draws it
+--   (once a search), a dull one never. Seeing that a vanished enemy turned invisible is a tactic;
+--   a hit from an unseen attacker on a spot in sight tells anyone.
+-- Inputs are plain values; nothing here touches the engine.
+local targeting=require('combat-intent.targeting')
+local M={}
+M.ticksPerSecond=15
+-- Patience by wit: seconds a creature goes on searching after its newest clue (SCS: 8 to 15).
+M.PATIENCE={clever=30,normal=18,dull=8}
+-- Each halves the patience: hit points below woundedShare of the most, or a morale break at or
+-- above cowardBreak (STATS.IDS MORALEBREAK; in the SR lab's 9,399 creature files mostly 5 or 7,
+-- and 0 for the fearless).
+M.woundedShare=0.5
+M.cowardBreak=7
+M.giveUpShare=0.5
+-- Clues older than this are forgotten (the director forgets enemies after 30 seconds), unless the
+-- creature's patience lasts longer: a patient creature keeps its clues while it searches.
+M.memorySeconds=30
+-- The best clue: by kind, then the newest, then the nearest.
+M.PRIORITY={sighted=4,hit=3,vanished=2,seen=1}
+-- A tactical creature leads a moving enemy by up to leadSeconds of its last heading, at most
+-- leadMax world units.
+M.leadSeconds=2
+M.leadMax=150
+-- Members that search the same spot keep spread apart; a caster stays holdBack short of a spot a
+-- fighter searches too.
+M.spread=80
+M.holdBack=120
+-- A spot counts as searched within arrive of it; the post as reached within postSlack.
+M.arrive=48
+M.postSlack=48
+-- A creature that guards searches only clues within guardRadius of its post.
+M.guardRadius=240
+-- No new detection within detectGap seconds of the last. A buff that lets the creature see the
+-- invisible works in its sight (sense.sightRange). A rogue's Detect Illusion counts from
+-- illusionMin per cent and within illusionRange (what it reveals is still to be seen in a lab).
+M.detectGap=6
+M.sightRange=448
+M.illusionMin=30
+M.illusionRange=224
+-- Families that cast rather than fight in melee.
+M.CASTERS={mage=true,priest=true}
+-- The group's picture as clues (M.kindOf): an enemy another member saw within sightedTicks is still
+-- in its sight (members check in every 15 ticks); one lost from sight within vanishTicks on a spot
+-- the creature sees vanished there.
+M.sightedTicks=16
+M.vanishTicks=30
+-- An item that detects is used after every spell (M.options): its level for the ranking.
+M.itemLevel=10
+-- A group's boss guards its post (M.boss): it has at least bossOthers other members, each at least
+-- bossLead levels below it.
+M.bossOthers=2
+M.bossLead=2
+
+local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
+local function list(t) return type(t)=='table' and t or {} end
+local function point(p) return type(p)=='table' and number(p.x) and number(p.y) end
+local function whole(p) return {x=math.max(0,math.floor(p.x+0.5)),y=math.max(0,math.floor(p.y+0.5))} end
+
+-- Whether the creature sees a tactic's chance in this search: input.tactical once the search has
+-- drawn it (M.draw), else whether its chance (mind.tactics) is a half or more.
+function M.tactical(input)
+    if input.tactical~=nil then return input.tactical==true end
+    local p=number(input.mind.tactics) and input.mind.tactics or 1
+    return p>=0.5
+end
+-- The draw a search makes once: whether the creature uses its tactics this search (mind.tactics);
+-- without rng, when its chance is a half or more.
+function M.draw(m,rng)
+    local p=type(m)=='table' and number(m.tactics) and m.tactics or 1
+    if p>=1 then return true end
+    if p<=0 then return false end
+    if not rng then return p>=0.5 end
+    return rng:nextInt(1,1000)<=math.floor(p*1000+0.5)
+end
+
+-- The creature's patience in seconds: its wit's (mind.searchPatience scales it for labs), halved
+-- when it is wounded and again when it is cowardly.
+function M.patience(input)
+    local m=input.mind
+    local p=M.PATIENCE[m.wit] or M.PATIENCE.normal
+    if number(m.searchPatience) and m.searchPatience>=0 then p=p*m.searchPatience end
+    local s=input.frame.self
+    if number(s.hp) and number(s.maxHp) and s.maxHp>0 and s.hp<s.maxHp*M.woundedShare then p=p*M.giveUpShare end
+    if number(s.moraleBreak) and s.moraleBreak>=M.cowardBreak then p=p*M.giveUpShare end
+    return p
+end
+
+-- The kind of clue an enemy in the group's picture gives a creature that sees none: 'sighted' when
+-- another member saw it (by) within sightedTicks (age), 'vanished' when it was lost from sight within
+-- vanishTicks on a spot the creature sees (near), else 'seen'.
+function M.kindOf(age,near,by)
+    if by and age<=M.sightedTicks then return 'sighted' end
+    if age<=M.vanishTicks and near then return 'vanished' end
+    return 'seen'
+end
+
+-- Whether a creature of level is its group's boss (others: the other members' levels), which
+-- guards its post.
+function M.boss(level,others)
+    if not number(level) or type(others)~='table' or #others<M.bossOthers then return false end
+    for _,l in ipairs(others) do
+        if not number(l) or l>level-M.bossLead then return false end
+    end
+    return true
+end
+
+-- One detection option from a classified spell or item ability c (combat-intent/spells.lua), or nil:
+-- a buff of seeInvisible on the caster ('see'); a removal of invisibility through an area around the
+-- caster ('purge', center 'self') or, for a spell, at a point it aims (center 'point', its range in
+-- world units).
+local function option(c,resref,level,item)
+    if type(c)~='table' or type(c.roles)~='table' then return nil end
+    local buff,removal=c.roles.buff,c.roles.removal
+    local speed=number(c.speed) and c.speed or 0
+    if type(buff)=='table' and type(buff.kinds)=='table' and buff.kinds.seeInvisible and type(buff.who)=='table' and
+        buff.who.self then
+        return {resref=resref,kind='see',level=level,speed=speed,item=item}
+    end
+    if type(removal)=='table' and type(removal.kinds)=='table' and removal.kinds.invisibility and
+        type(removal.who)=='table' and removal.who.area and type(c.area)=='table' and number(c.area.radius) and
+        c.area.radius>0 then
+        if c.target=='self' then
+            return {resref=resref,kind='purge',center='self',radius=c.area.radius,level=level,speed=speed,item=item}
+        end
+        if c.target=='point' and not item and number(c.range) then
+            return {resref=resref,kind='purge',center='point',radius=c.area.radius,range=c.range*targeting.rangeUnit,
+                level=level,speed=speed}
+        end
+    end
+end
+-- The detections a creature has ready (M.detection's options): its spells ready to cast (rows:
+-- {resref, level, ready, usable, spell: the classification}) and the items it carries (carried:
+-- {resref, abilities: {effect: the classification, uses}}), each item by its first ability, used on
+-- the creature itself, while it has uses left. Spells Spell Revisions or other mods change count by
+-- what they do: True Seeing with or without its own sight, Glitterdust at a point.
+function M.options(rows,carried)
+    local out={}
+    for _,row in ipairs(list(rows)) do
+        if type(row)=='table' and type(row.resref)=='string' and number(row.ready) and row.ready>0 and row.usable then
+            local level=number(row.level) and row.level or (type(row.spell)=='table' and number(row.spell.level) and
+                row.spell.level) or 9
+            local o=option(row.spell,row.resref,level)
+            if o then out[#out+1]=o end
+        end
+    end
+    for _,it in ipairs(list(carried)) do
+        local a=type(it)=='table' and type(it.abilities)=='table' and it.abilities[1]
+        if type(a)=='table' and type(it.resref)=='string' and (a.uses==nil or (number(a.uses) and a.uses>0)) then
+            local o=option(a.effect,it.resref,M.itemLevel,true)
+            if o then out[#out+1]=o end
+        end
+    end
+    return out
+end
+
+-- The key a clue is searched under: its enemy (or its spot) and when it was seen.
+function M.key(clue)
+    local who=number(clue.id) and tostring(clue.id) or ('@'..math.floor(clue.x)..','..math.floor(clue.y))
+    return clue.kind..':'..who..':'..clue.tick
+end
+
+-- The clues worth acting on: well formed, not from the future, not forgotten (kept for
+-- memorySeconds, or longer while the creature's patience lasts).
+local function current(input,patience)
+    local horizon=math.max(M.memorySeconds,patience)*M.ticksPerSecond
+    local out={}
+    for _,c in ipairs(list(input.clues)) do
+        if type(c)=='table' and M.PRIORITY[c.kind] and point(c) and number(c.tick) and c.tick<=input.tick and
+            input.tick-c.tick<=horizon then out[#out+1]=c end
+    end
+    return out
+end
+
+-- The best clue not searched yet: by kind, then the newest, then the nearest; ties by key.
+local function best(input,clues,searched)
+    local self=input.frame.self
+    local chosen,chosenKey
+    for _,c in ipairs(clues) do
+        local key=M.key(c)
+        if not searched[key] then
+            local k={M.PRIORITY[c.kind],c.tick,-targeting.distance(self,c)}
+            local better=chosen==nil
+            if not better then
+                for i=1,#k do
+                    if k[i]~=chosenKey[i] then better=k[i]>chosenKey[i];break end
+                end
+            end
+            if better then chosen,chosenKey=c,k end
+        end
+    end
+    return chosen
+end
+
+-- Whether clue says its enemy is likely invisible near the creature, on a spot the creature sees
+-- (near) with no one there: a hit from such a spot tells anyone; an enemy that vanished there, or
+-- one another member sees there, tells a tactical creature.
+local function hidden(clue,tactical)
+    if clue.near~=true then return false end
+    if clue.kind=='hit' then return true end
+    return (clue.kind=='vanished' or clue.kind=='sighted') and tactical
+end
+
+-- The detection that reaches clue's spot, the cheapest first: a buff that lets the creature see the
+-- invisible (o.kind 'see', within its sight), an area that takes invisibility around it (o.kind
+-- 'purge', o.center 'self', within o.radius) or at a point it can reach (o.center 'point', within
+-- o.range and o.radius beyond). At equal levels the buff, which lasts, comes first. Returns the
+-- option and where it goes: 'self' or a point.
+function M.detection(input,clue)
+    local self=input.frame.self
+    local d=targeting.distance(self,clue)
+    local chosen,chosenKey,where
+    local ORDER={see=3,self=2,point=1}
+    for _,o in ipairs(list(input.detects)) do
+        local at
+        if type(o)=='table' and type(o.resref)=='string' then
+            if o.kind=='see' and d<=M.sightRange then at='self'
+            elseif o.kind=='purge' and o.center=='self' and number(o.radius) and d<=o.radius then at='self'
+            elseif o.kind=='purge' and o.center=='point' and number(o.radius) and number(o.range) and d<=o.range+o.radius then
+                if d<=o.range then at={x=clue.x,y=clue.y}
+                else
+                    -- As far as the spell reaches toward the spot: the area takes in the rest.
+                    local k=o.range/d
+                    at={x=self.x+(clue.x-self.x)*k,y=self.y+(clue.y-self.y)*k}
+                end
+                at=whole(at)
+            end
+        end
+        if at then
+            local level=number(o.level) and o.level or 9
+            local k={-level,ORDER[o.kind=='see' and 'see' or o.center] or 0}
+            local better=chosen==nil
+            if not better then
+                for i=1,#k do
+                    if k[i]~=chosenKey[i] then better=k[i]>chosenKey[i];break end
+                end
+                if not better and k[1]==chosenKey[1] and k[2]==chosenKey[2] and o.resref<chosen.resref then better=true end
+            end
+            if better then chosen,chosenKey,where=o,k,at end
+        end
+    end
+    return chosen,where
+end
+
+-- Where the creature walks for clue: its spot, led along the enemy's heading by a tactical creature;
+-- a tactical caster stays holdBack short of a spot a fighter of its group searches too, and a
+-- tactical creature spreads out from members already searching the spot (a ring around it, the
+-- first two to the sides, then beyond and short of it).
+function M.aim(input,clue,tactical)
+    local self=input.frame.self
+    local p={x=clue.x,y=clue.y}
+    if tactical and number(clue.vx) and number(clue.vy) then
+        local t=math.min(M.leadSeconds,math.max(0,(input.tick-clue.tick)/M.ticksPerSecond))
+        local dx,dy=clue.vx*t,clue.vy*t
+        local len=math.sqrt(dx*dx+dy*dy)
+        if len>M.leadMax then dx,dy=dx*M.leadMax/len,dy*M.leadMax/len end
+        p.x,p.y=p.x+dx,p.y+dy
+    end
+    if not tactical then return whole(p) end
+    local group=list(input.group)
+    if M.CASTERS[input.family] then
+        local fighter=false
+        for _,o in ipairs(group) do
+            if type(o)=='table' and not M.CASTERS[o.family] and point(o.point) and targeting.distance(o.point,p)<=M.spread*2 then
+                fighter=true
+            end
+        end
+        if fighter then
+            local d=targeting.distance(self,p)
+            if d<=M.holdBack then return whole(self) end
+            local k=(d-M.holdBack)/d
+            p={x=self.x+(p.x-self.x)*k,y=self.y+(p.y-self.y)*k}
+        end
+    end
+    local rank=0
+    for _,o in ipairs(group) do
+        if type(o)=='table' and point(o.point) and targeting.distance(o.point,p)<M.spread then rank=rank+1 end
+    end
+    if rank>0 then
+        local ax,ay=p.x-self.x,p.y-self.y
+        local len=math.sqrt(ax*ax+ay*ay)
+        if len<1 then ax,ay,len=1,0,1 end
+        ax,ay=ax/len,ay/len
+        local ring=math.floor((rank-1)/4)+1
+        local side=(rank-1)%4
+        local ox,oy
+        if side==0 then ox,oy=-ay,ax elseif side==1 then ox,oy=ay,-ax elseif side==2 then ox,oy=ax,ay else ox,oy=-ax,-ay end
+        p.x,p.y=p.x+ox*M.spread*ring,p.y+oy*M.spread*ring
+    end
+    return whole(p)
+end
+
+-- What the creature does while it sees no enemy, or nil and why not:
+-- {kind='detect', resref, self=true or point, level, item, slot, speed, clue, target, key},
+-- {kind='modal', clue, target, key} (Detect Illusion), {kind='search', point, clue, target, key},
+-- {kind='look', key} (on a searched spot, or kept at its post or rooted), {kind='return', point}
+-- (given up, or kept near its post: back there).
+-- input: tick; frame (self: x, y, hp, maxHp, moraleBreak, seeInvisible, rooted; enemies empty);
+-- mind (wit, tactics, searchPatience); family; clues; post; since (the tick its search began, if
+-- it searches); searched (keys of searched spots); gaveUp (the tick the creature gave up, if it
+-- did); detected (the tick of its last detection);
+-- group (other members: {id, family, point}); guard; detects (see M.detection); illusion (its
+-- Detect Illusion skill); tactical (M.draw's, once a search).
+-- The decision says what the adapter keeps: searched (a key now searched), gaveUp (true when the
+-- creature gives up now).
+function M.decide(input)
+    if type(input)~='table' or type(input.frame)~='table' or type(input.frame.self)~='table' or
+        type(input.mind)~='table' or not number(input.tick) then return nil,'bad-input' end
+    local self=input.frame.self
+    if not point(self) then return nil,'bad-input' end
+    local patience=M.patience(input)
+    local clues=current(input,patience)
+    local post=point(input.post) and input.post or nil
+    local function back(gaveUp)
+        if post and targeting.distance(self,post)>M.postSlack and not self.rooted then
+            return {kind='return',point=whole(post),gaveUp=gaveUp or nil}
+        end
+        return nil,'given-up'
+    end
+    local newest
+    for _,c in ipairs(clues) do if not newest or c.tick>newest then newest=c.tick end end
+    if not newest then
+        -- Nothing to go on: one that searched goes back to its post.
+        if number(input.gaveUp) or number(input.since) then return back(not number(input.gaveUp)) end
+        return nil,'no-clue'
+    end
+    -- Given up, and nothing new since: back to the post, then the creature's own life.
+    if number(input.gaveUp) and newest<=input.gaveUp then return back() end
+    if (input.tick-newest)/M.ticksPerSecond>patience then return back(true) end
+    local tactical=M.tactical(input)
+    local searched=type(input.searched)=='table' and input.searched or {}
+    local clue=best(input,clues,searched)
+    if not clue then return {kind='look'} end
+    local key=M.key(clue)
+    -- Detection, when the clue says the enemy is likely invisible here and the creature does not
+    -- see the invisible already.
+    if hidden(clue,tactical) and not self.seeInvisible and
+        not (number(input.detected) and input.tick-input.detected<M.detectGap*M.ticksPerSecond) then
+        local o,where=M.detection(input,clue)
+        if o then
+            local d={kind='detect',resref=o.resref,level=o.level,item=o.item,slot=o.slot,speed=o.speed,clue=clue.kind,
+                target=clue.id,key=key}
+            if where=='self' then d.self=true else d.point=where end
+            return d
+        end
+        if number(input.illusion) and input.illusion>=M.illusionMin and tactical and
+            targeting.distance(self,clue)<=M.illusionRange then
+            return {kind='modal',clue=clue.kind,target=clue.id,key=key}
+        end
+    end
+    if input.guard and post and targeting.distance(post,clue)>M.guardRadius then
+        if targeting.distance(self,post)>M.postSlack and not self.rooted then return {kind='return',point=whole(post)} end
+        return {kind='look',key=key,guard=true}
+    end
+    if self.rooted then return {kind='look',key=key,rooted=true} end
+    local p=M.aim(input,clue,tactical)
+    if targeting.distance(self,p)<=M.arrive then return {kind='look',key=key,searched=key} end
+    return {kind='search',point=p,clue=clue.kind,target=clue.id,key=key}
 end
 return M
 end
@@ -7353,6 +7816,38 @@ function M.frame(g,sprite,tick,detailed)
     table.sort(frame.fallen,function(a,b) return a.id<b.id end)
     return frame
 end
+
+-- Whether the creature could see a spot (x, y) now (the engine's search): within its sight range
+-- and line of sight, by the area search from the spot with the creature's own terrain table, as
+-- M.frame finds creatures lying down. A blind creature sees no spot.
+function M.sees(g,sprite,x,y)
+    if band(g,g.EEex_Sprite_GetState(sprite),M.blind)~=0 then return false end
+    local area=sprite.m_pArea
+    if not area or type(x)~='number' or type(y)~='number' then return false end
+    local ok,terrain=pcall(function() return sprite:virtual_GetVisibleTerrainTable() end)
+    if not ok then terrain=nil end
+    local found=false
+    g.EEex_Area_ForAllOfTypeStringInRange(area,math.floor(x+0.5),math.floor(y+0.5),'[ANYONE]',M.sightRange,
+        function(other) if other~=nil and other.m_id==sprite.m_id then found=true end end,1,0,terrain)
+    return found
+end
+
+-- Whether the creature sees a living enemy now, as M.frame would list one standing (not one lying
+-- down): a light look for holds that end when an enemy shows.
+function M.seesEnemy(g,sprite)
+    local side=M.side(sprite.m_typeAI.m_EnemyAlly)
+    if side==nil or band(g,g.EEex_Sprite_GetState(sprite),M.blind)~=0 then return false end
+    local seeInvisible=stat(g,sprite,M.stats.seeInvisible)>0 or stat(g,sprite,M.stats.trueSight)>0
+    local found=false
+    g.EEex_Sprite_ForAllOfTypeStringInRange(sprite,'[ANYONE]',M.sightRange,function(object)
+        if found or object==nil or object.m_id==sprite.m_id or not g.EEex_GameObject_IsSprite(object,false) then return end
+        local other=M.side(object.m_typeAI.m_EnemyAlly)
+        if other~=nil and other~=side and (seeInvisible or band(g,g.EEex_Sprite_GetState(object),M.unseen)==0) then
+            found=true
+        end
+    end,1,0)
+    return found
+end
 return M
 end
 factories["adapters.eeex.creature"]=function(require)
@@ -7654,6 +8149,28 @@ function M.new(g,options)
         failed('release',n)
         return 0
     end
+    -- For the engine's search (adapters/eeex/search.lua): where the group last saw its enemies, for
+    -- member id at tick (combat-intent/director.lua's clues), and the other members of its group;
+    -- empty outside a group.
+    function adapter:clues(id,tick)
+        local area=memberArea[id]
+        local d=area and directors[area]
+        if not d then return {} end
+        local ok,list=pcall(d.clues,d,id,tick)
+        if ok then return list end
+        failed('clues',list)
+        return {}
+    end
+    function adapter:group(id,tick)
+        local area=memberArea[id]
+        local d=area and directors[area]
+        if not d then return {} end
+        local ok,list=pcall(d.members,d,tick)
+        if not ok then failed('group',list);return {} end
+        local out={}
+        for _,m in ipairs(list) do if m.id~=id then out[#out+1]=m end end
+        return out
+    end
     function adapter:setChoice(c) choice=c end
     function adapter:attach(r) root=r end
     function adapter:setSink(fn) assert(fn==nil or type(fn)=='function');sink=fn end
@@ -7669,6 +8186,302 @@ function M.new(g,options)
             markError=markError or false}
     end
     return adapter
+end
+return M
+end
+factories["adapters.eeex.search"]=function(require)
+-- EEex side of the engine's own search for enemies a creature cannot see (combat-intent/search.lua),
+-- for the choice adapter (adapters/eeex/choice.lua). With no enemy in sight it gathers the
+-- creature's clues: where its group last saw each enemy and which way it went (the director's
+-- picture), as the creature reads it (still seen by another member; vanished on a spot it sees, the
+-- spot where the enemy would be now included; or seen before), and a hit from an attacker it does
+-- not see (its hit points dropped and the game names an enemy as the last to hit it: where that
+-- enemy stands). What it can detect with comes from its ready spells and items, and a rogue's
+-- Detect Illusion skill (STATS.IDS DETECTILLUSIONS). Each creature keeps where its fight began (its
+-- post, where it goes back when it gives up), whether its search draws its tactics, the spots it has
+-- searched, when it gave up and when it last detected; its group's boss, or one whose orders say so,
+-- guards its post. A walk is held while the creature walks it, a look and the rogue's detection mode
+-- briefly; each ends early when an enemy shows or the creature is hurt. Session-local; a load
+-- forgets it all.
+local sense=require('adapters.eeex.sense')
+local search=require('combat-intent.search')
+local targeting=require('combat-intent.targeting')
+local M={}
+M.ticksPerSecond=15
+-- MoveToPoint (ACTION.IDS). A walk is held while the creature walks it, or walkGrace ticks until it
+-- starts, and twice its seconds at walkSpeed (world units a second, combat-intent/zones.lua's) and
+-- walkMargin ticks at most.
+M.MOVE=23
+M.walkGrace=8
+M.walkMargin=30
+M.walkSpeed=100
+-- Ticks a look and the rogue's detection mode are held.
+M.lookTicks=15
+M.modalTicks=8
+-- A member's walk counts for the group's spreading out this long after it began.
+M.aimTicks=150
+-- An enemy farther than twice the sight range cannot just have hit the creature: an old name.
+M.hitRange=896
+-- STATS.IDS DETECTILLUSIONS; the modal state of the Find Traps mode (MODAL.IDS DETECTTRAPS), in which
+-- a rogue's Detect Illusion works.
+M.illusionStat=136
+M.detectMode=2
+-- A walk back that ends no nearer than progress to the post than the last is stuck; after
+-- stuckLimit of them the creature stays where it is.
+M.progress=32
+M.stuckLimit=2
+M.cacheLimit=1024
+
+function M.new(g,options)
+    options=options or {}
+    local director=options.director
+    local record=type(options.record)=='function' and options.record or function() end
+    local rng=options.rng
+    local states,stateCount={},0
+    local counts={hunts=0,walks=0,looks=0,returns=0,gaveUp=0,detects=0,modals=0,hitClues=0,guards=0,stuck=0,
+        guardFailures=0}
+    local seeker={}
+    local function state(id)
+        local s=states[id]
+        if not s then
+            if stateCount>=M.cacheLimit then states,stateCount={},0 end
+            s={searched={},clues={},hits={},stuck=0}
+            states[id]=s;stateCount=stateCount+1
+        end
+        return s
+    end
+    -- Whether the creature guards its post: its orders say so (guard), else whether it is its
+    -- group's boss (search.boss, by the levels of the members the director knows).
+    local function guards(sprite,id,tick,orders)
+        if type(orders)=='table' and type(orders.guard)=='boolean' then return orders.guard end
+        if not director then return false end
+        local ok,boss=pcall(function()
+            local others={}
+            for _,m in ipairs(director:group(id,tick)) do
+                local object=g.EEex_GameObject_Get(m.id)
+                if object and g.EEex_GameObject_IsSprite(object,false) then others[#others+1]=sense.identity(g,object,{}).level end
+            end
+            return search.boss(sense.identity(g,sprite,{}).level,others)
+        end)
+        if ok then return boss==true end
+        counts.guardFailures=counts.guardFailures+1
+        return false
+    end
+    local function giveUp(s,id,tick,why)
+        if s.gaveUp then return end
+        s.gaveUp=tick;counts.gaveUp=counts.gaveUp+1
+        record({kind='gave-up',tick=tick,member=id,since=s.since,why=why})
+    end
+
+    -- An enemy in sight: the fight goes on. Where it began is the creature's post; a search is over,
+    -- and the next starts afresh.
+    function seeker:fight(sprite,frame,tick,orders)
+        local id=frame.self.id
+        local s=state(id)
+        s.hp=frame.self.hp
+        if not s.post then
+            s.post={x=frame.self.x,y=frame.self.y}
+            s.guard=guards(sprite,id,tick,orders)
+            if s.guard then counts.guards=counts.guards+1 end
+        end
+        s.since,s.gaveUp,s.tactical,s.act,s.aim,s.back,s.stuck=nil,nil,nil,nil,nil,nil,0
+        s.searched,s.clues,s.hits={},{},{}
+    end
+
+    -- A hit from an enemy the creature does not see (it sees none): its hit points dropped since it
+    -- was last looked at, and the game names that enemy as the last to hit it. The clue is where the
+    -- enemy stands, near when the creature sees the spot.
+    local function hit(s,sprite,frame,tick,lost)
+        local ok,hitter=pcall(function() return sprite.m_lHitter.m_Instance end)
+        if not ok or type(hitter)~='number' or hitter<=0 then return end
+        local object=g.EEex_GameObject_Get(hitter)
+        if not object or not g.EEex_GameObject_IsSprite(object,false) then return end
+        local side=sense.side(object.m_typeAI.m_EnemyAlly)
+        if side==nil or side==sense.side(frame.self.ea) then return end
+        local at={x=object.m_pos.x,y=object.m_pos.y}
+        if targeting.distance(frame.self,at)>M.hitRange then return end
+        local near=sense.sees(g,sprite,at.x,at.y)
+        s.hits[hitter]={kind='hit',id=hitter,x=at.x,y=at.y,tick=tick,near=near}
+        counts.hitClues=counts.hitClues+1
+        record({kind='clue',tick=tick,member=frame.self.id,clue='hit',target=hitter,near=near,lost=lost})
+    end
+    -- Whether the creature with id lives: a dead enemy is no clue, its body lies where a search
+    -- would find it (the group's picture keeps the last it saw of each enemy, also of one that died
+    -- out of sight).
+    local function living(id)
+        local object=g.EEex_GameObject_Get(id)
+        return object~=nil and g.EEex_GameObject_IsSprite(object,false)
+    end
+    -- The creature's clues now: the group's picture as it reads it, each enemy's kept while its
+    -- patience lasts (horizon, in ticks), and its own hits. An enemy lost from sight lately counts as
+    -- vanished where the creature sees its spot and, for one that was walking, the spot it would
+    -- have reached by now.
+    local function clues(s,sprite,frame,tick,horizon)
+        if director then
+            for _,c in ipairs(director:clues(frame.self.id,tick)) do
+                local had=s.clues[c.id]
+                if not had or c.tick>=had.tick then s.clues[c.id]=c end
+            end
+        end
+        local out={}
+        for key,c in pairs(s.clues) do
+            local age=tick-c.tick
+            if age<0 or age>horizon or not living(c.id) then s.clues[key]=nil
+            else
+                local near=false
+                if age<=search.vanishTicks then
+                    near=sense.sees(g,sprite,c.x,c.y)
+                    if near and type(c.vx)=='number' and type(c.vy)=='number' then
+                        local t=math.min(age/M.ticksPerSecond,search.leadSeconds)
+                        local ahead={x=c.x+c.vx*t,y=c.y+c.vy*t}
+                        if targeting.distance(c,ahead)>=search.arrive then near=sense.sees(g,sprite,ahead.x,ahead.y) end
+                    end
+                end
+                out[#out+1]={kind=search.kindOf(age,near,c.by),id=c.id,x=c.x,y=c.y,tick=c.tick,vx=c.vx,vy=c.vy,near=near}
+            end
+        end
+        for key,c in pairs(s.hits) do
+            if tick<c.tick or tick-c.tick>horizon or not living(c.id) then s.hits[key]=nil else out[#out+1]=c end
+        end
+        table.sort(out,function(a,b) if a.kind~=b.kind then return a.kind<b.kind end return a.id<b.id end)
+        return out
+    end
+    -- The group's other searchers in the area and the spots they make for.
+    local function group(id,area,tick)
+        local out={}
+        for other,s in pairs(states) do
+            if other~=id and s.aim and s.area==area and tick>=s.aimTick and tick-s.aimTick<=M.aimTicks then
+                out[#out+1]={id=other,family=s.family,point=s.aim}
+            end
+        end
+        table.sort(out,function(a,b) return a.id<b.id end)
+        return out
+    end
+    -- A rogue's Detect Illusion skill, unless its detection mode is on already.
+    local function illusion(sprite)
+        local ok,mode=pcall(function() return sprite.m_nModalState end)
+        if ok and mode==M.detectMode then return nil end
+        local skill=g.EEex_Sprite_GetStat(sprite,M.illusionStat)
+        return type(skill)=='number' and skill>0 and skill or nil
+    end
+
+    -- With no enemy in sight: what the creature does now (combat-intent/search.lua's decision; a look
+    -- is held from here), or nil and why its own life goes on ('no-clue', 'given-up'). m: its profile;
+    -- rows and carried: what it has ready (adapters/eeex/choice.lua's book); zoneAt(p): whether a spot
+    -- lies in a danger zone, where no search walks; orders: its designer's orders.
+    function seeker:decide(sprite,frame,tick,family,m,rows,carried,zoneAt,orders)
+        local self=frame.self
+        local id=self.id
+        local s=state(id)
+        s.family,s.area=family,frame.area
+        if type(s.hp)=='number' and type(self.hp)=='number' and self.hp<s.hp then hit(s,sprite,frame,tick,s.hp-self.hp) end
+        s.hp=self.hp
+        local patience=search.patience({mind=m,frame=frame})
+        local list=clues(s,sprite,frame,tick,math.max(search.memorySeconds,patience)*M.ticksPerSecond)
+        local newest
+        for _,c in ipairs(list) do if not newest or c.tick>newest then newest=c.tick end end
+        -- Something new since the creature gave up (a hit, a member seeing the enemy again): it
+        -- searches again.
+        if newest and s.gaveUp and newest>s.gaveUp then s.gaveUp,s.since=nil,nil end
+        if newest and not s.since and not s.gaveUp then
+            s.since=tick;s.tactical=search.draw(m,rng)
+            counts.hunts=counts.hunts+1
+            record({kind='hunt',tick=tick,member=id,family=family,clues=#list,tactical=s.tactical,patience=patience,
+                guard=s.guard or nil,wit=m.wit})
+        end
+        local d,why=search.decide({tick=tick,frame=frame,mind=m,family=family,clues=list,post=s.post,since=s.since,
+            searched=s.searched,gaveUp=s.gaveUp,detected=s.detected,group=group(id,frame.area,tick),guard=s.guard,
+            detects=search.options(rows,carried),illusion=illusion(sprite),tactical=s.tactical})
+        if not d then
+            if why=='given-up' then
+                giveUp(s,id,tick,newest and 'patience' or 'no-clue')
+                -- At its post, or kept where it is: the search is over, and the next fight sets the post
+                -- anew.
+                s.post,s.aim,s.act,s.back=nil,nil,nil,nil
+            end
+            return nil,why
+        end
+        if d.gaveUp then giveUp(s,id,tick,newest and 'patience' or 'no-clue') end
+        if d.kind=='search' and type(zoneAt)=='function' and zoneAt(d.point) then
+            d={kind='look',key=d.key,searched=d.key,zone=true}
+        end
+        if d.searched then s.searched[d.searched]=true end
+        if d.kind=='return' then
+            -- A creature that cannot come nearer its post stays where it is.
+            local away=targeting.distance(self,s.post)
+            if s.back and away>s.back-M.progress then s.stuck=s.stuck+1 end
+            s.back=away
+            if s.stuck>=M.stuckLimit then
+                counts.stuck=counts.stuck+1
+                record({kind='stuck',tick=tick,member=id,post=s.post,at={x=self.x,y=self.y}})
+                giveUp(s,id,tick,'stuck')
+                s.post,s.aim,s.act,s.back=nil,nil,nil,nil
+                return nil,'given-up'
+            end
+        else
+            s.back,s.stuck=nil,0
+        end
+        if d.kind=='look' then
+            s.act={kind='look',tick=tick,limit=M.lookTicks};counts.looks=counts.looks+1
+        elseif d.kind=='detect' or d.kind=='modal' then
+            s.detected=tick
+            if d.kind=='detect' then counts.detects=counts.detects+1 else counts.modals=counts.modals+1 end
+            record({kind='detect',tick=tick,member=id,spell=d.resref,clue=d.clue,target=d.target,self=d.self,point=d.point,
+                item=d.item,modal=d.kind=='modal' or nil,tactical=s.tactical})
+        end
+        return d
+    end
+    -- The walk prepared for a search or a way back (decision: its kind, clue, target, gaveUp and
+    -- guard), to point, an open spot: held while the creature walks it.
+    function seeker:walk(sprite,decision,point,tick)
+        local id=sprite.m_id
+        local s=state(id)
+        local from={x=sprite.m_pos.x,y=sprite.m_pos.y}
+        local seconds=targeting.distance(from,point)/M.walkSpeed
+        s.act={kind='walk',tick=tick,limit=math.ceil(seconds*M.ticksPerSecond*2)+M.walkMargin}
+        if decision.kind=='search' then
+            s.aim,s.aimTick=point,tick
+            counts.walks=counts.walks+1
+        else
+            s.aim=nil
+            counts.returns=counts.returns+1
+        end
+        record({kind=decision.kind,tick=tick,member=id,from=from,to=point,clue=decision.clue,target=decision.target,
+            gaveUp=decision.gaveUp,guard=decision.guard})
+    end
+    -- The rogue's detection mode, started: held briefly before the search goes on.
+    function seeker:mode(sprite,tick)
+        state(sprite.m_id).act={kind='modal',tick=tick,limit=M.modalTicks}
+    end
+    -- Whether the creature's walk, look or detection mode goes on: not past its time, a walk not once
+    -- the creature has stopped walking, and none once an enemy shows or the creature was hurt.
+    function seeker:holding(sprite,id,tick)
+        local s=states[id]
+        local a=s and s.act
+        if not a then return false end
+        local over=tick<a.tick or tick-a.tick>=a.limit
+        if not over and a.kind=='walk' and sprite.m_curAction.m_actionID~=M.MOVE and tick-a.tick>=M.walkGrace then over=true end
+        if not over and type(s.hp)=='number' and sprite.m_baseStats.m_hitPoints<s.hp then over=true end
+        if not over and sense.seesEnemy(g,sprite) then over=true end
+        if over then s.act=nil end
+        return not over
+    end
+    function seeker:stop(id)
+        local s=states[id]
+        if s then s.act=nil end
+    end
+    function seeker:invalidate() states,stateCount={},0 end
+    function seeker:inspect()
+        local c={}
+        for k,v in pairs(counts) do c[k]=v end
+        local searching,posts=0,0
+        for _,s in pairs(states) do
+            if s.since and not s.gaveUp then searching=searching+1 end
+            if s.post then posts=posts+1 end
+        end
+        return {counts=c,searching=searching,posts=posts}
+    end
+    return seeker
 end
 return M
 end
@@ -7780,10 +8593,20 @@ factories["adapters.eeex.choice"]=function(require)
 -- damage can break carries it, its spell read at its caster's level and the count of its casting
 -- aura (sense.casting). The choice row logs what breaking a spell added (interrupt) and an attack
 -- on an enemy the orders name (ordered).
+--
+-- Searching (combat-intent/search.lua, adapters/eeex/search.lua): with no enemy in sight, once no
+-- zone hurts the creature and no friend in sight needs a heal or cure worth casting, the engine
+-- searches: it walks to where the group last saw an enemy or was hit from (MoveToPoint to the
+-- nearest open spot, held while it walks), looks around, detects with what the creature has (a cast
+-- or item on itself or at a point, or a rogue's Find Traps mode for its Detect Illusion), and gives
+-- up after its patience, walking back to where its fight began; there the creature's own life goes
+-- on. A detection is judged by whether the creature sees an enemy afterwards. BGSE_Search
+-- (api:searches) tells SCS's own hunting blocks to stand aside for every creature the engine drives.
 local sense=require('adapters.eeex.sense')
 local creature=require('adapters.eeex.creature')
 local resources=require('adapters.eeex.resources')
 local directors=require('adapters.eeex.director')
+local searches=require('adapters.eeex.search')
 local spells=require('combat-intent.spells')
 local targeting=require('combat-intent.targeting')
 local defence=require('combat-intent.defence')
@@ -7930,6 +8753,21 @@ function M.response(decision)
     end
 end
 
+-- Whether a friend in frame (the creature itself or an ally it sees) has lost hit points, is held
+-- or has a condition a cure takes away: then heals and cures are weighed with no enemy in sight.
+function M.ailing(frame)
+    local friends={frame.self}
+    for _,a in ipairs(frame.allies) do friends[#friends+1]=a end
+    for _,f in ipairs(friends) do
+        if type(f.hp)=='number' and type(f.maxHp)=='number' and f.hp<f.maxHp then return true end
+        if (f.held or 0)>0 then return true end
+        for _,bit in ipairs(M.CONDITION_BITS) do
+            if targeting.has(f.state,bit) then return true end
+        end
+    end
+    return false
+end
+
 -- Orders by creature file (combat-intent/orders.lua): t's entries under their resref in capitals,
 -- or nil and the first bad entry.
 function M.orderBook(t)
@@ -7999,7 +8837,7 @@ function M.new(g,options)
         hits=0,misses=0,errors=0,holds=0,frozen=0,marks=0,markFailures=0,defences=0,guarded=0,unguarded=0,
         guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0,arms=0,attacks=0,attackHits=0,
         weaponFailures=0,releases=0,heals=0,cures=0,potions=0,cared=0,uncared=0,summons=0,conjured=0,
-        unconjured=0,removals=0,stripped=0,unstripped=0,wardFailures=0}
+        unconjured=0,removals=0,stripped=0,unstripped=0,wardFailures=0,revealed=0,unrevealed=0}
     local reasons={}
     local log,nextRow,size={},1,0
     local root,sink,lastError,markError,guardError,weaponError,wardError,zoneError,witError
@@ -8017,6 +8855,8 @@ function M.new(g,options)
         lastError=where..': '..tostring(err):sub(1,200)
         record({kind='error',where=where,error=tostring(err):sub(1,200)})
     end
+    -- The engine's own search for enemies a creature cannot see (adapters/eeex/search.lua).
+    local seeker=searches.new(g,{director=director,record=record,rng=rng})
     -- Wit (combat-intent/mind.lua): the game's difficulty (1 to 5), nil when it cannot be read.
     local function difficulty()
         local ok,value=pcall(function() return g.EngineGlobals.g_pBaldurChitin.m_pObjectGame.m_options.m_nDifficultyLevel end)
@@ -8435,6 +9275,16 @@ function M.new(g,options)
             if joined>0 then counts.conjured=counts.conjured+1 else counts.unconjured=counts.unconjured+1 end
             record({kind='conjure',tick=a.ended,member=a.caster,spell=a.resref,mode=a.mode,expected=a.count,
                 joined=joined,read=ok or nil})
+            return
+        end
+        if a.kind=='detect' then
+            -- A detection (the engine's search): whether the caster sees an enemy now.
+            local caster=get(a.caster)
+            if not caster then return end
+            local frame=sense.frame(g,caster,a.ended,false)
+            local seen=frame and #frame.enemies or 0
+            if seen>0 then counts.revealed=counts.revealed+1 else counts.unrevealed=counts.unrevealed+1 end
+            record({kind='reveal',tick=a.ended,member=a.caster,spell=a.resref,mode=a.mode,seen=seen})
             return
         end
         if not defending and (not a.target or a.mode~='creature') then return end
@@ -8910,6 +9760,32 @@ function M.new(g,options)
         end
     end
 
+    -- With no enemy in sight: the engine's search (adapters/eeex/search.lua) as the gate's decision,
+    -- or nil, and the creature's own life goes on ('no-enemy' without a clue, 'given-up'). A
+    -- detection is cast or used like the engine's other casts; a walk goes to the nearest open spot
+    -- (prepare); a look holds.
+    local function seek(sprite,frame,id,tick,family,rows,carried,m)
+        local raw=zoneList(sprite,tick)
+        local d,why=seeker:decide(sprite,frame,tick,family,m,rows,carried,function(p) return inZone(raw,p.x,p.y) end,
+            orderBook[text(sprite.m_resref:get())])
+        if not d then return decline(why=='given-up' and 'given-up' or 'no-enemy') end
+        if director then director:release(id,tick) end
+        if d.kind=='look' then return hold() end
+        if d.kind=='modal' then return {own=true,response='FindTraps()',kind='modal',clue=d.clue,target=d.target} end
+        if d.kind=='detect' then
+            local response=M.response({resref=d.resref,self=d.self,point=d.point,use=d.item})
+            if not response then return decline('bad-response') end
+            counts.claims=counts.claims+1
+            local spell
+            for _,row in ipairs(rows) do if row.resref==d.resref then spell=row.spell end end
+            return {own=true,response=response,spell=d.resref,kind='detect',mode=d.self and 'self' or 'point',point=d.point,
+                self=d.self,hits={},castTicks=spell and type(spell.speed)=='number' and spell.speed*9 or nil,use=d.item,
+                cover=(type(d.speed)=='number' and d.speed>0 and d.speed or 0)*9+M.coverSlack}
+        end
+        return {own=true,response='MoveToPoint(['..d.point.x..'.'..d.point.y..'])',kind=d.kind,point=d.point,
+            clue=d.clue,target=d.target,gaveUp=d.gaveUp,guard=d.guard}
+    end
+
     local function decide(view,family)
         if not enabled or missing then return decline(missing and 'missing' or 'off') end
         if not M.families[family] then return decline('family') end
@@ -8985,14 +9861,30 @@ function M.new(g,options)
         end
         -- What follows decides anew: the last wait only tells whether a new one goes on with it.
         waits[id]=nil
+        -- A search walk, look or detection mode runs while it lasts (adapters/eeex/search.lua);
+        -- meanwhile the creature may still walk out of a zone that hurts it.
+        if seeker:holding(sprite,id,tick) then
+            local d=flee(sprite,id,tick,family)
+            if d then seeker:stop(id);return d end
+            return hold()
+        end
         if targeting.CASTS[sprite.m_curAction.m_actionID] then return decline('casting') end
         local frame=sense.frame(g,sprite,tick,true)
         if not frame then return decline('no-frame') end
         if sense.side(frame.self.ea)~='evil' then return decline('side') end
-        if #frame.enemies==0 then
+        -- With no enemy in sight: out of a zone that hurts, a heal or cure for a friend in need, else
+        -- the search.
+        local unseen=#frame.enemies==0
+        if unseen then
             local d=flee(sprite,id,tick,family)
             if d then return d end
-            return decline('no-enemy')
+            if not M.ailing(frame) then
+                local rows,carried=book(sprite)
+                if not rows then failed('book',carried);return nil end
+                return seek(sprite,frame,id,tick,family,rows,carried,mindFor(sprite,family))
+            end
+        else
+            seeker:fight(sprite,frame,tick,orderBook[text(sprite.m_resref:get())])
         end
         local rows,carried=book(sprite)
         if not rows then failed('book',carried);return nil end
@@ -9019,6 +9911,7 @@ function M.new(g,options)
         -- The share of a spell slot's cost that counts now, kept for the log.
         input.slots=choice.slotShare(input)
         local d,why,options,rejected=choice.decide(input)
+        if unseen and not (d and M.CARE[d.kind]) then return seek(sprite,frame,id,tick,family,rows,carried,input.mind) end
         lastDetail=rejected
         local top={}
         for i=1,math.min(3,#options) do
@@ -9175,6 +10068,14 @@ function M.new(g,options)
             moves[object.m_id]={tick=tick,point=point,zones=type(decision.zones)=='table' and decision.zones or {},
                 limit=M.walkTicks(decision.walk)+M.moveMargin}
             record({kind='move',tick=tick,member=object.m_id,from={x=object.m_pos.x,y=object.m_pos.y},to=point})
+        elseif decision.kind=='search' or decision.kind=='return' then
+            -- A search walk or the way back: to the nearest open spot (no zones to keep out of).
+            local point=walkable(object,{point=decision.point})
+            if not point then return 'skipped' end
+            decision.response='MoveToPoint(['..point.x..'.'..point.y..'])'
+            seeker:walk(object,decision,point,tick)
+        elseif decision.kind=='modal' then
+            seeker:mode(object,tick)
         else
             pending[object.m_id]={caster=object.m_id,resref=decision.spell,kind=decision.kind,mode=decision.mode,
                 target=decision.target,point=decision.point,hits=decision.hits,tick=tick,hp=hp,
@@ -9265,7 +10166,13 @@ function M.new(g,options)
 
     function api:setEnabled(value)
         assert(type(value)=='boolean');enabled=value
-        if not value then pending,moves,waits={},{},{} end
+        if not value then pending,moves,waits={},{},{};seeker:invalidate() end
+    end
+    -- Whether the engine searches for creatures of family it drives (BGSE_Search: SCS's own hunting
+    -- blocks stand aside for them): its choice is on for the family. Then the engine alone searches,
+    -- detects and gives up, also when it has no clue to go on.
+    function api:searches(family)
+        return enabled and not missing and M.families[family]==true
     end
     -- Whether the engine weighs danger zones for creature id of family now (BGSE_Zones: SCS's own
     -- cloud blocks stand aside meanwhile): not for a creature off the engine's
@@ -9319,6 +10226,7 @@ function M.new(g,options)
         stays,stayCount,insideOf,insideCount,lookedAt={},0,{},0,{}
         minds,mindCount,hurts,hurtCount,pained={},0,{},0,{}
         waits={}
+        seeker:invalidate()
     end
     function api:inspect()
         local copy=function(t) local c={};for k,v in pairs(t) do c[k]=v end;return c end
@@ -9332,7 +10240,7 @@ function M.new(g,options)
             pending=open,running=busy,judging=#judging,remembered=remembered,log=rows,lastError=lastError or false,
             markError=markError or false,guardError=guardError or false,weaponError=weaponError or false,
             wardError=wardError or false,zoneError=zoneError or false,witError=witError or false,
-            orderError=orderError or false,wit=witOn,moving=(function()
+            orderError=orderError or false,wit=witOn,search=seeker:inspect(),moving=(function()
                 local n=0;for _ in pairs(moves) do n=n+1 end;return n end)(),waiting=(function()
                 local n=0;for _,w in pairs(waits) do if not w.over then n=n+1 end end;return n end)(),stays=(function()
                 local c={};for id,s in pairs(stays) do c[id]={stay=s.stay,left=s.left} end;return c end)()}
@@ -9347,7 +10255,10 @@ factories["adapters.eeex.hook"]=function(require)
 -- BGSE_Claim too. script is the hooked script's own resref, written in at install time. SCS's own
 -- cloud blocks above the hook (escapes, runs from a marker, stand-still) ask
 -- BGSE_Zones(object, family, script) last and stand aside while it is true: the engine weighs
--- danger zones for the creature (D3e).
+-- danger zones for the creature (D3e). SCS's hunting blocks ask BGSE_Search(object, family,
+-- script) the same way: the engine searches for every creature it drives. Both go by the script
+-- that decides for the creature (kernel/hook.lua, driver), which for a creature with two hooked
+-- scripts is the higher one, also in the lower one's blocks.
 -- Switches live in the player's Baldur.lua under [BGSE] (Enabled, Mages, Priests, Fighters,
 -- Monsters; all on unless set to 0). The install also writes M_BGSEHK.lua, which sets
 -- BGSE_HOOKED (hooked script -> family); the gate reads it on first use. Errors never escape
@@ -9419,6 +10330,16 @@ function M.below(g,object,script)
         end
     end
 end
+-- The creature's non-empty scripts from the top slot down, or nil when the stack cannot be read.
+function M.stack(g,object)
+    local names=M.scripts(g,object)
+    if not names then return nil end
+    local list={}
+    for _,name in ipairs(names) do
+        if name~='' and name~='none' then list[#list+1]=name end
+    end
+    return list
+end
 function M.install(g,options)
     options=options or {}
     local settings=M.settings(g)
@@ -9434,6 +10355,10 @@ function M.install(g,options)
         below=function(id,script)
             local object=sprite(g,id)
             if object then return M.below(g,object,script) end
+        end,
+        stack=function(id)
+            local object=sprite(g,id)
+            if object then return M.stack(g,object) end
         end,
         perform=function(a,decision)
             local object=sprite(g,a.id)
@@ -9496,13 +10421,26 @@ function M.install(g,options)
         return ok and result==true
     end
     -- True while the engine weighs danger zones for the creature: its gate would ask the engine
-    -- (gate:drives) and the choice weighs zones for it now (choice:zones). Any error is false, so
-    -- SCS's cloud escape runs.
+    -- from the script that decides for it (gate:driver) and the choice weighs zones for it now as
+    -- that script's family (choice:zones). Any error is false, so SCS's cloud escape runs.
     g.BGSE_Zones=function(object,family,script)
         local ok,result=pcall(function()
             register()
             local a=actor(object,script)
-            return choice~=nil and gate:drives(a,family) and choice:zones(family,a.id)==true
+            local driver=gate:driver(a)
+            return choice~=nil and driver~=nil and choice:zones(driver,a.id)==true
+        end)
+        return ok and result==true
+    end
+    -- True for every creature the engine drives and searches for (gate:driver, choice:searches):
+    -- SCS's own hunting blocks (its chase after the first party member it saw, its free detection
+    -- casts, its door search) stand aside, and the engine alone searches. Any error is false.
+    g.BGSE_Search=function(object,family,script)
+        local ok,result=pcall(function()
+            register()
+            local a=actor(object,script)
+            local driver=gate:driver(a)
+            return choice~=nil and driver~=nil and choice:searches(driver)==true
         end)
         return ok and result==true
     end
