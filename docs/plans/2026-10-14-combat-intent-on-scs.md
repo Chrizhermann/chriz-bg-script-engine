@@ -807,6 +807,26 @@ Christopher's ideas so far (living list; more will follow):
   casts aimed at a character, such as Davaeorn's suspected Fireball, usually don't go off
   once that character runs around a corner. Not yet reproduced in a lab. A likely
   approach: aim area spells at the spot instead of the creature, so they still land.
+  Status (asked again 2026-10-25): since the second slice the engine casts area spells that
+  can go to a spot at a point (`SpellPointRES`), so those are not tied to the target. Casts
+  at a single creature still break off; the engine no longer takes such a break for an
+  immunity. To do: reproduce in a lab (is the spell lost?), then let clever casters avoid
+  starting a slow single-target cast at an enemy about to leave their sight.
+- **Area spells at a creature or at a spot** (2026-10-25): "In seltenen Fällen ist das vielleicht
+  besser … einem Spell auszuweichen wäre ja auch Skill." SCS aims at creatures; Tactics Remix
+  aims at spots and guesses where the player is running. The engine already aims at a spot,
+  usually the middle of the enemies it catches, so a fast player can dodge today. Later: weigh a
+  creature (the spell follows it, but breaks off if it leaves sight) against a spot (more enemies,
+  no break-off, can be dodged), and clever casters lead a moving target.
+- **Searching for enemies the creature cannot see** (2026-10-25, the engine's own, "vielleicht
+  sogar geiler als SCS"): last known position, searching toward an unseen attacker, the group
+  searching together, by wit. Every creature uses the detection it has (spells, abilities,
+  items: True Seeing, Detect Invisibility, Glitterdust and the like), not only mages; a thief's
+  Detect Illusion skill only very clever or tactical rogues, "auf keinen Fall alle". Giving up
+  must be clever too; Christopher asked how games with good enemy AI do it.
+- **Variance by wit in every tactic** (2026-10-25): e.g. walking into position during the casting
+  cooldown, "zwischen taktisch klugen Gegnern und taktisch dummen Gegnern zu unterscheiden …
+  um ein bisschen Varianz ins Spiel zu bringen".
 - **Prebuffed area buffs reach the allies, not only the caster.** Designed in August; one
   lab probe on `codex/aoe-prebuff-design` cast SCS's Haste prebuff for real and both the
   caster and a nearby ally got it. Not wired in yet.
