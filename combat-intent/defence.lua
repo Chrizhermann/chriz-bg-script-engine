@@ -50,8 +50,9 @@ M.schoolShare=1/8
 -- Share of the harm from enemies that do not see invisible creatures that invisibility keeps away
 -- (areas and answers such as True Seeing still find some).
 M.unseeing=0.9
--- A speed point of casting time is a tenth of a round.
-M.speedSeconds=0.6
+-- A speed point of casting time is 10 game ticks, two thirds of a second (ACT-05: the casting
+-- action ended 10, 40 and 60 ticks after it began at speeds 1, 4 and 6).
+M.speedSeconds=10/15
 -- Worth of one spell level, times the profile's economy (as for attacks); a potion costs as a
 -- first-level spell.
 M.costPerLevel=0.03

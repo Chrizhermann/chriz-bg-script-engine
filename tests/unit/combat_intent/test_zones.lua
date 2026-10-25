@@ -272,14 +272,14 @@ do
     idle.frame.enemies={foe}
     d,why=choice.decide(idle)
     assert(d and d.kind=='escape')
-    -- The gentle cloud's next explosion comes in 2 seconds: a slow bolt (5.4 seconds) would break
-    -- and is worth nothing, so the way out comes first; the quick bolt lands before it.
+    -- The gentle cloud's next explosion comes in 2.5 seconds: a slow bolt (6 seconds) would break
+    -- and is worth nothing, so the way out comes first; the quick bolt (2 seconds) lands before it.
     local slow=spell('TESTSLOW',3,{fx(12,{p2=8*65536,dice=10,sides=6})},{speed=9})
-    local timed=input({spells={row('TESTSLOW',slow,3)},zones={zone(gentle,{next=2})}})
+    local timed=input({spells={row('TESTSLOW',slow,3)},zones={zone(gentle,{next=2.5})}})
     timed.frame.enemies={foe}
     d,why=choice.decide(timed)
     assert(d and d.kind=='escape' and why=='escape')
-    local quick=input({spells=base.spells,zones={zone(gentle,{next=2})}})
+    local quick=input({spells=base.spells,zones={zone(gentle,{next=2.5})}})
     quick.frame.enemies={foe}
     d,why=choice.decide(quick)
     assert(d and d.resref=='TESTBOLT')

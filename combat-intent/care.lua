@@ -43,8 +43,8 @@ M.STATE={sleep=0x1,berserk=0x2,panic=0x4,stun=0x8,silence=0x1000,poison=0x4000,b
 -- reaches one range unit): a round's walk, at about 100 world units a second.
 M.walk=600
 M.walkSpeed=100
--- A speed point of casting time is a tenth of a round (as for defences).
-M.speedSeconds=0.6
+-- A speed point of casting time is 10 game ticks (as for defences).
+M.speedSeconds=10/15
 -- Worth of one spell level, times the profile's economy; a potion costs as a first-level spell.
 M.costPerLevel=0.03
 M.itemLevel=1

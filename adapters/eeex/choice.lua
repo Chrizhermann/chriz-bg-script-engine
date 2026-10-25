@@ -138,8 +138,10 @@ M.families={mage=true,priest=true}
 M.pendingTicks=45
 M.outcomeTicks=30
 -- A started cast that ends this much before its casting time, counted from when its casting began
--- (M.castBegan), was interrupted.
+-- (M.castBegan), was interrupted. A speed point of casting time is speedTicks (ACT-05: the casting
+-- action ended 10, 40 and 60 ticks after it began at speeds 1, 4 and 6).
 M.interruptSlack=3
+M.speedTicks=10
 -- The name under which the caster's EEex_Target table holds the engine's target.
 M.targetName='BGSE'
 -- SCS's round timer, the round's marker for SCS's own blocks (see the top), and a round in ticks
@@ -1291,8 +1293,8 @@ function M.new(g,options)
             local spell
             for _,row in ipairs(rows) do if row.resref==d.resref then spell=row.spell end end
             return {own=true,response=response,spell=d.resref,kind='detect',mode=d.self and 'self' or 'point',point=d.point,
-                self=d.self,hits={},castTicks=spell and type(spell.speed)=='number' and spell.speed*9 or nil,use=d.item,
-                cover=(type(d.speed)=='number' and d.speed>0 and d.speed or 0)*9+M.coverSlack}
+                self=d.self,hits={},castTicks=spell and type(spell.speed)=='number' and spell.speed*M.speedTicks or nil,
+                use=d.item,cover=(type(d.speed)=='number' and d.speed>0 and d.speed or 0)*M.speedTicks+M.coverSlack}
         end
         return {own=true,response='MoveToPoint(['..d.point.x..'.'..d.point.y..'])',kind=d.kind,point=d.point,
             clue=d.clue,target=d.target,gaveUp=d.gaveUp,guard=d.guard}
@@ -1507,14 +1509,14 @@ function M.new(g,options)
             sources=strike.sources
             disable=type(strike.roles)=='table' and type(strike.roles.disable)=='table' or nil
         end
-        -- A cast or drink is covered by the round's marker for its casting time (a speed point is
-        -- 9 ticks), a walk into range first (R3) and coverSlack.
+        -- A cast or drink is covered by the round's marker for its casting time (speedTicks a speed
+        -- point), a walk into range first (R3) and coverSlack.
         local cover
         if d.kind~='strike' and d.kind~='weapon' then
-            cover=(type(d.speed)=='number' and d.speed>0 and d.speed or 0)*9+M.walkTicks(d.walk)+M.coverSlack
+            cover=(type(d.speed)=='number' and d.speed>0 and d.speed or 0)*M.speedTicks+M.walkTicks(d.walk)+M.coverSlack
         end
         return {own=true,response=response,spell=d.resref,kind=d.kind,mode=d.mode,target=d.target,point=d.point,
-            self=d.self,hits=d.hits,castTicks=spell and type(spell.speed)=='number' and spell.speed*9 or nil,
+            self=d.self,hits=d.hits,castTicks=spell and type(spell.speed)=='number' and spell.speed*M.speedTicks or nil,
             sources=sources,expected=d.expected,disable=disable,charge=d.kind=='strike' and d.spell or nil,
             use=d.use,before=before,count=d.count,creatures=d.creatures,monsters=d.monsters,known=seen,cover=cover,
             walk=d.walk}

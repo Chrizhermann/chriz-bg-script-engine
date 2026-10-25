@@ -601,18 +601,20 @@ groups=groups+1
 -- 22. Interrupting (Christopher, 2026-10-25: worth decides, "with a bonus for interrupting an
 -- enemy that is casting"): damage that lands while an enemy casts breaks its spell, worth a tenth
 -- of an enemy for each spell level, times the chance it lands in time.
--- When a cast can be broken: a speed-5 cast one second into its three seconds of casting has two
--- left; with its aura free it has not begun; an aura count well past the casting time is the last
--- cast's, which it waits for; within the slack after the casting time it is over.
+-- When a cast can be broken: a speed-5 cast (50 ticks, 3 1/3 seconds) one second into its casting
+-- has 2 1/3 left; with its aura free it has not begun; an aura count well past the casting time is
+-- the last cast's, which it waits for; within the slack after the casting time it is over.
+local zones=require('combat-intent.zones')
+local five=5*zones.speedSeconds
 local function window(c) return {choice.castWindow(c)} end
-local w1=window({speed=5,timer=15});assert(w1[1]==0 and near(w1[2],2))
-w1=window({speed=5,timer=-1});assert(w1[1]==0 and near(w1[2],3))
-w1=window({speed=5,timer=60});assert(near(w1[1],40/15) and near(w1[2],40/15+3))
-assert(choice.castWindow({speed=5,timer=47})==nil and choice.castWindow({speed=0,timer=5})==nil)
+local w1=window({speed=5,timer=15});assert(w1[1]==0 and near(w1[2],five-1))
+w1=window({speed=5,timer=-1});assert(w1[1]==0 and near(w1[2],five))
+w1=window({speed=5,timer=60});assert(near(w1[1],40/15) and near(w1[2],40/15+five))
+assert(choice.castWindow({speed=5,timer=52})==nil and choice.castWindow({speed=0,timer=5})==nil)
 assert(choice.castWindow({timer=5})==nil and choice.castWindow(nil)==nil)
--- A fighter beside a casting mage: two swings a round hitting 0.8 each come 0.533 times in the two
--- seconds left, at least once in 41 %; the level-6 spell makes the attack 0.248 more worth, more
--- than the hurt fighter beside it.
+-- A fighter beside a casting mage: two swings a round hitting 0.8 each come 0.622 times in the
+-- 2 1/3 seconds left, at least once in 46 %; the level-6 spell makes the attack 0.278 more worth,
+-- more than the hurt fighter beside it.
 local fighter=mind.forFamily(mind.new(),'fighter')
 local function duel(cast,fields)
     local mage=enemy(11,{x=150,ac=5,cast=cast})
@@ -624,7 +626,7 @@ end
 assert(choice.decide(duel(nil)).target==12)
 local casting={level=6,speed=5,timer=15}
 d=choice.decide(duel(casting))
-local p=1-math.exp(-1.6*2/6)
+local p=1-math.exp(-1.6*(five-1)/6)
 assert(d.target==11 and near(d.interrupt,0.6*p) and near(d.worth,7.2/50+0.6*p))
 -- Too far to arrive in time (a walk of 3.36 seconds), behind a Stoneskin skin, or for a dull
 -- fighter: no bonus.

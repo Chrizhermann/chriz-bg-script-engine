@@ -120,8 +120,8 @@ Built after the two engine-wide rules below (commit 11704bc; `combat-intent/choi
   round's marker for SCS's own blocks above the hook (specials and other copies): when the hook's
   response runs, a decision's or a hold's, and the timer has run out, the engine sets it for a round
   (90 ticks), so those blocks get one pass a round, as in SCS's own order. A cast or drink of the
-  engine's stretches it to cover its casting (a speed point is 9 ticks, plus 15) and any walk into
-  range.
+  engine's stretches it to cover its casting (a speed point is 10 ticks, measured in ACT-05; 9
+  until 2026-10-26; plus 15) and any walk into range.
 - **Left to the creature's script:** a cast the engine did not queue (a copy's special), which only
   that block may keep going, and the engine's own cast once it is held past its time (decline
   `casting`); no enemy in sight (`no-enemy`); the engine switched off, missing an EEex function or
@@ -165,7 +165,8 @@ Built for Agreed point 1 (`combat-intent/orders.lua`, `combat-intent/choice.lua`
   stays spent (ACT-03, batch H5). Each enemy in a cast that damage can break (Spell, SpellPoint
   and their NoDec forms; forced casts cannot be broken) carries its spell, read at the enemy's
   caster level, and the count of its casting aura. The casting runs from the aura's restart for
-  its casting time (0.6 seconds a speed point); a count past the casting time is the last cast's
+  its casting time (10 ticks, two thirds of a second, a speed point: ACT-05; 0.6 seconds until
+  2026-10-26); a count past the casting time is the last cast's
   aura, which the cast waits for. Breaking the spell adds 0.1 of an enemy for each spell level
   (`mind.interrupt`), times the chance the attack's damage lands while the casting runs: a
   weapon's hits after the walk, less those Mirror Images and Stoneskin take first; a spell's damage

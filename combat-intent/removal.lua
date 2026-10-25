@@ -50,7 +50,8 @@ local weapons=require('combat-intent.weapons')
 local orders=require('combat-intent.orders')
 local M={}
 M.ROUND=6
-M.speedSeconds=0.6
+-- A speed point of casting time is 10 game ticks (as for defences).
+M.speedSeconds=10/15
 M.costPerLevel=0.03
 -- Allies keep this much room beyond an area's edge (as for attacks).
 M.allyMargin=32

@@ -1452,7 +1452,7 @@ assert(claim16(m17,320)==true and claim16(m17,600)==true and ch16:inspect().coun
 game16.m_nTimeStop,game16.m_nTimeStopCaster=0,0
 assert(claim16(m17,610)==true and claim16(m17,655)==true and ch16:inspect().counts.holds==holds+4)
 assert(claim16(m17,656)==true and ch16:inspect().counts.holds==holds+4 and last16('choice',2).tick==656)
--- A cast is held for its casting time as well: the bolt's three tenths of a round, then
+-- A cast is held for its casting time as well: the bolt's three speed points (30 ticks), then
 -- pendingTicks. A cast still running past that is the mage's to finish.
 local m18=g16.add(sprite(3,0,-200,255))
 learn(m18,2,'TESTBOLT')
@@ -1461,8 +1461,8 @@ g16.BGSE_Act(m18)
 local bolt18=action(31,'TESTBOLT',11)
 m18.m_curAction=bolt18
 g16.listeners.started[1](m18,bolt18)
-assert(claim16(m18,772)==true and ch16:inspect().counts.holds==holds+5)
-assert(claim16(m18,773)==false and ch16:inspect().reasons.casting==1)
+assert(claim16(m18,775)==true and ch16:inspect().counts.holds==holds+5)
+assert(claim16(m18,776)==false and ch16:inspect().reasons.casting==1)
 end)()
 groups=groups+1
 
@@ -1832,12 +1832,12 @@ assert(claim30(100)==true)
 local c30=last30('choice')
 assert(c30.spell=='TESTNEAR' and c30.target==11 and c30.walk==2.5)
 g30.BGSE_Act(m30)
-assert(g30.queued[#g30.queued].text=='SpellRES("TESTNEAR",EEex_Target("BGSE"))' and m30.locals.castspell==100+27+75+15)
+assert(g30.queued[#g30.queued].text=='SpellRES("TESTNEAR",EEex_Target("BGSE"))' and m30.locals.castspell==100+30+75+15)
 -- Queued, never started: held pendingTicks and the walk's 75 ticks, then given up.
 assert(claim30(220)==true and counts30().holds==1)
 assert(claim30(221)==true and counts30().lost==1 and last30('choice').tick==221)
 g30.BGSE_Act(m30)
-assert(m30.locals.castspell==221+117)
+assert(m30.locals.castspell==221+120)
 -- Started: held through the walk (78 ticks on, past casting time and pendingTicks alone).
 begin30(222)
 assert(claim30(300)==true and counts30().holds==2)

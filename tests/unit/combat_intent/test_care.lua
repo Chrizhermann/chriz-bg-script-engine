@@ -91,9 +91,9 @@ i.frame.allies={friend(2,{x=110,hp=20,maxHp=100})}
 i.spells={row('TESTCURE',cure,4)}
 local o=only(i)[1]
 assert(o.kind=='heal' and o.target==2 and o.mode=='ally' and near(o.worth,0.3) and o.hits[1]==2)
-assert(near(o.cost,0.12+0.02*1.8))
+assert(near(o.cost,0.12+0.02*3*care.speedSeconds))
 -- A spell slot costs input.slots of its price (combat-intent/choice.lua); the casting time does not.
-i.slots=0.5;assert(near(only(i)[1].cost,0.06+0.02*1.8));i.slots=nil
+i.slots=0.5;assert(near(only(i)[1].cost,0.06+0.02*3*care.speedSeconds));i.slots=nil
 -- An enemy fighter at the ally (19 hit points a round): it falls either way, but the heal keeps
 -- it standing about a round and a half longer.
 i.frame.enemies={enemy(11,{x=150,attack={apr=2,thac0=5,damage=10},actee=2})}
@@ -123,7 +123,7 @@ assert(only(i)[1].target==2)
 i.plan={};i.frame.allies[1].x=100+16+601;i.rejected={}
 assert(#only(i)==0)
 i.frame.allies[1].x=100+16+500
-o=only(i)[1];assert(o.target==2 and near(o.cost,0.12+0.02*(1.8+5)))
+o=only(i)[1];assert(o.target==2 and near(o.cost,0.12+0.02*(3*care.speedSeconds+5)))
 i.frame.self.hp=10
 o=only(i)[1];assert(o.self==true and o.mode=='self' and near(o.worth,30/50))
 groups=groups+1

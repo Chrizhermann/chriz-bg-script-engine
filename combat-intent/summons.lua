@@ -41,8 +41,9 @@ M.SUMMONED=6
 -- EA.IDS: the good side ends at GOODCUTOFF, the evil side starts at EVILCUTOFF.
 M.GOOD_CUTOFF=30
 M.EVIL_CUTOFF=200
--- A speed point of casting time is a tenth of a round; a spell level costs this, times economy.
-M.speedSeconds=0.6
+-- A speed point of casting time is 10 game ticks (as for defences); a spell level costs this,
+-- times economy.
+M.speedSeconds=10/15
 M.costPerLevel=0.03
 -- Mean enemy armour class and hit points when no enemy shows them.
 M.enemyAc=5

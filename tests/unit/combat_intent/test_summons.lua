@@ -151,7 +151,8 @@ i.spells={row('TESTHORD',spell('TESTHORD',3,{fx(67,{res='TESTMON',target=1,durat
     fx(67,{res='TESTMON',target=1,duration=180})},{speed=9}),3)}
 i.frame.enemies[1].x=150
 o=summons.options(i)[1]
-assert(o.worth<both*(25-5.4)/25 and near(o.cost,0.09+0.02*5.4))
+local casting=9*summons.speedSeconds
+assert(o.worth<both*(25-casting)/25 and near(o.cost,0.09+0.02*casting))
 groups=groups+1
 
 -- 5. Where it goes: the group's focus in range, else the nearest enemy in range, else toward the

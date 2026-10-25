@@ -54,8 +54,8 @@ M.margin=24
 M.directions=16
 -- Exits further away than a round's walk are not tried.
 M.maxWalk=600
--- A speed point of casting time is a tenth of a round.
-M.speedSeconds=0.6
+-- A speed point of casting time is 10 game ticks (as for defences).
+M.speedSeconds=10/15
 -- What conditions that hinder without taking a creature out are worth for the full time
 -- (harm.fullSeconds), as care.CONDITION counts blindness, deafness and disease; Stinking Cloud's
 -- spell failure counts as a silence. Those for casters count a fifth on others.

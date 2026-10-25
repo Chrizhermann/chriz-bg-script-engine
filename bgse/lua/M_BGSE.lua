@@ -2882,8 +2882,9 @@ M.schoolShare=1/8
 -- Share of the harm from enemies that do not see invisible creatures that invisibility keeps away
 -- (areas and answers such as True Seeing still find some).
 M.unseeing=0.9
--- A speed point of casting time is a tenth of a round.
-M.speedSeconds=0.6
+-- A speed point of casting time is 10 game ticks, two thirds of a second (ACT-05: the casting
+-- action ended 10, 40 and 60 ticks after it began at speeds 1, 4 and 6).
+M.speedSeconds=10/15
 -- Worth of one spell level, times the profile's economy (as for attacks); a potion costs as a
 -- first-level spell.
 M.costPerLevel=0.03
@@ -3437,8 +3438,8 @@ M.STATE={sleep=0x1,berserk=0x2,panic=0x4,stun=0x8,silence=0x1000,poison=0x4000,b
 -- reaches one range unit): a round's walk, at about 100 world units a second.
 M.walk=600
 M.walkSpeed=100
--- A speed point of casting time is a tenth of a round (as for defences).
-M.speedSeconds=0.6
+-- A speed point of casting time is 10 game ticks (as for defences).
+M.speedSeconds=10/15
 -- Worth of one spell level, times the profile's economy; a potion costs as a first-level spell.
 M.costPerLevel=0.03
 M.itemLevel=1
@@ -3780,8 +3781,9 @@ M.SUMMONED=6
 -- EA.IDS: the good side ends at GOODCUTOFF, the evil side starts at EVILCUTOFF.
 M.GOOD_CUTOFF=30
 M.EVIL_CUTOFF=200
--- A speed point of casting time is a tenth of a round; a spell level costs this, times economy.
-M.speedSeconds=0.6
+-- A speed point of casting time is 10 game ticks (as for defences); a spell level costs this,
+-- times economy.
+M.speedSeconds=10/15
 M.costPerLevel=0.03
 -- Mean enemy armour class and hit points when no enemy shows them.
 M.enemyAc=5
@@ -4233,7 +4235,8 @@ local weapons=require('combat-intent.weapons')
 local orders=require('combat-intent.orders')
 local M={}
 M.ROUND=6
-M.speedSeconds=0.6
+-- A speed point of casting time is 10 game ticks (as for defences).
+M.speedSeconds=10/15
 M.costPerLevel=0.03
 -- Allies keep this much room beyond an area's edge (as for attacks).
 M.allyMargin=32
@@ -4707,8 +4710,8 @@ M.margin=24
 M.directions=16
 -- Exits further away than a round's walk are not tried.
 M.maxWalk=600
--- A speed point of casting time is a tenth of a round.
-M.speedSeconds=0.6
+-- A speed point of casting time is 10 game ticks (as for defences).
+M.speedSeconds=10/15
 -- What conditions that hinder without taking a creature out are worth for the full time
 -- (harm.fullSeconds), as care.CONDITION counts blindness, deafness and disease; Stinking Cloud's
 -- spell failure counts as a silence. Those for casters count a fifth on others.
@@ -8626,8 +8629,10 @@ M.families={mage=true,priest=true}
 M.pendingTicks=45
 M.outcomeTicks=30
 -- A started cast that ends this much before its casting time, counted from when its casting began
--- (M.castBegan), was interrupted.
+-- (M.castBegan), was interrupted. A speed point of casting time is speedTicks (ACT-05: the casting
+-- action ended 10, 40 and 60 ticks after it began at speeds 1, 4 and 6).
 M.interruptSlack=3
+M.speedTicks=10
 -- The name under which the caster's EEex_Target table holds the engine's target.
 M.targetName='BGSE'
 -- SCS's round timer, the round's marker for SCS's own blocks (see the top), and a round in ticks
@@ -9779,8 +9784,8 @@ function M.new(g,options)
             local spell
             for _,row in ipairs(rows) do if row.resref==d.resref then spell=row.spell end end
             return {own=true,response=response,spell=d.resref,kind='detect',mode=d.self and 'self' or 'point',point=d.point,
-                self=d.self,hits={},castTicks=spell and type(spell.speed)=='number' and spell.speed*9 or nil,use=d.item,
-                cover=(type(d.speed)=='number' and d.speed>0 and d.speed or 0)*9+M.coverSlack}
+                self=d.self,hits={},castTicks=spell and type(spell.speed)=='number' and spell.speed*M.speedTicks or nil,
+                use=d.item,cover=(type(d.speed)=='number' and d.speed>0 and d.speed or 0)*M.speedTicks+M.coverSlack}
         end
         return {own=true,response='MoveToPoint(['..d.point.x..'.'..d.point.y..'])',kind=d.kind,point=d.point,
             clue=d.clue,target=d.target,gaveUp=d.gaveUp,guard=d.guard}
@@ -9995,14 +10000,14 @@ function M.new(g,options)
             sources=strike.sources
             disable=type(strike.roles)=='table' and type(strike.roles.disable)=='table' or nil
         end
-        -- A cast or drink is covered by the round's marker for its casting time (a speed point is
-        -- 9 ticks), a walk into range first (R3) and coverSlack.
+        -- A cast or drink is covered by the round's marker for its casting time (speedTicks a speed
+        -- point), a walk into range first (R3) and coverSlack.
         local cover
         if d.kind~='strike' and d.kind~='weapon' then
-            cover=(type(d.speed)=='number' and d.speed>0 and d.speed or 0)*9+M.walkTicks(d.walk)+M.coverSlack
+            cover=(type(d.speed)=='number' and d.speed>0 and d.speed or 0)*M.speedTicks+M.walkTicks(d.walk)+M.coverSlack
         end
         return {own=true,response=response,spell=d.resref,kind=d.kind,mode=d.mode,target=d.target,point=d.point,
-            self=d.self,hits=d.hits,castTicks=spell and type(spell.speed)=='number' and spell.speed*9 or nil,
+            self=d.self,hits=d.hits,castTicks=spell and type(spell.speed)=='number' and spell.speed*M.speedTicks or nil,
             sources=sources,expected=d.expected,disable=disable,charge=d.kind=='strike' and d.spell or nil,
             use=d.use,before=before,count=d.count,creatures=d.creatures,monsters=d.monsters,known=seen,cover=cover,
             walk=d.walk}

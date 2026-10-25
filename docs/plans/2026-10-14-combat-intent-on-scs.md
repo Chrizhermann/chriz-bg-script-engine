@@ -658,6 +658,12 @@ without forgetting: back to the post, where heals go on, and a full fight at the
 enemy. SCS's hunt (its chase, its free detection casts, its door walk) stands aside for every
 creature the engine drives, for now mages and priests.
 
+The sight probe ran on 2026-10-26 ([ACT-05](../research/ACT-05-casts-out-of-sight.md)): a cast
+that has begun goes through when its target walks away, around a corner or out of range, for
+both sides, and only invisibility breaks it, as Christopher wished; no EEex change is needed. It
+also measured a speed point of casting time as 10 ticks, not the 9 the engine assumed; the engine
+now uses 10.
+
 Next: monsters' own pursuit powers outside SCS's chase (a phase spider's teleport, a mind flayer's
 astral travel, dragons walking to a party member they do not detect) against fair play, then F1e
 (switching fighters and monsters on) with a lab, then F2.
@@ -843,12 +849,25 @@ Christopher's ideas so far (living list; more will follow):
   SCS let it follow its target ("es macht ja irgendwie keinen Sinn?"). **So:** the lab probe
   finds the game's rule for both sides; where it is stricter than that, the engine changes it
   through EEex for both sides alike.
+  **Status 2026-10-26** ([ACT-05](../research/ACT-05-casts-out-of-sight.md), 26 lab phases):
+  the game already follows the wish. A cast that has begun hit its target after it jumped out of
+  sight, out of the spell's range or behind a wall, or walked behind it; only invisibility ended
+  it (copy spent, no missile). An enemy casting at the party and a party mage casting at an enemy
+  behaved the same, and the group's sight played no part: a begun cast needs no sight at all. No
+  EEex change. Still walking into range, the caster even follows the target's true position
+  unseen; the engine instead decides again on what its creature perceives once its hold runs out.
+  The September report is not explained by sight: invisibility, damage during the casting, an
+  `ActionOverride` or an area change are likelier. Not run: Hold Person and other spells with a
+  saving throw, a Fireball thrown at a creature, and missiles chasing a target still moving.
 - **Area spells at a creature or at a spot** (2026-10-25): "In seltenen Fällen ist das vielleicht
   besser … einem Spell auszuweichen wäre ja auch Skill." SCS aims at creatures; Tactics Remix
   aims at spots and guesses where the player is running. The engine already aims at a spot,
   usually the middle of the enemies it catches, so a fast player can dodge today. Later: weigh a
-  creature (the spell follows it, but breaks off if it leaves sight) against a spot (more enemies,
-  no break-off, can be dodged), and clever casters lead a moving target.
+  creature (the spell follows it wherever it goes; only invisibility breaks it off, ACT-05)
+  against a spot (more enemies, can be dodged), and clever casters lead a moving target. Open for
+  Christopher: area spells at a creature, by a player's click on an enemy or by spells that can
+  only be cast at a creature (Vitriolic Sphere), follow it today, the game's way; whether they
+  should land on the spot instead is his call.
 - **Searching for enemies the creature cannot see** (2026-10-25, the engine's own, "vielleicht
   sogar geiler als SCS"): last known position, searching toward an unseen attacker, the group
   searching together, by wit. Every creature uses the detection it has (spells, abilities,
