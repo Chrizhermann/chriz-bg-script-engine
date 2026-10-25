@@ -36,8 +36,10 @@
 --   of the first item with a matching effect above power 0;
 -- - a removal by opcode (337) takes those effects (with a matching parameter 2 unless it names -1);
 -- - a purge of invisibility takes the invisible state.
--- Stoneskin skins and Mirror Images go with the spell that gave them. Inputs are plain values: each
--- enemy's wards (adapters/eeex/sense.lua, M.wards) and the frame. Nothing here touches the engine.
+-- Stoneskin skins and Mirror Images go with the spell that gave them. What a removal opens on an
+-- enemy the creature's orders name counts more (combat-intent/orders.lua). Inputs are plain values:
+-- each enemy's wards (adapters/eeex/sense.lua, M.wards) and the frame. Nothing here touches the
+-- engine.
 local targeting=require('combat-intent.targeting')
 local threat=require('combat-intent.threat')
 local defence=require('combat-intent.defence')
@@ -45,6 +47,7 @@ local care=require('combat-intent.care')
 local ids=require('combat-intent.ids')
 local spells=require('combat-intent.spells')
 local weapons=require('combat-intent.weapons')
+local orders=require('combat-intent.orders')
 local M={}
 M.ROUND=6
 M.speedSeconds=0.6
@@ -427,6 +430,7 @@ function M.options(input,rejected,attack)
                             for _,e in ipairs(list(frame.enemies)) do
                                 if targeting.alive(e) and targeting.distance(center,e)<=a.radius then
                                     local w,no=M.on(input,spell,e,r)
+                                    if w>0 then w=w*orders.favour(input,e) end
                                     worth=worth+w
                                     if w>0 then hits[#hits+1]=e.id else reason=reason or no end
                                 end
@@ -434,7 +438,7 @@ function M.options(input,rejected,attack)
                         else reason=reason or 'ally-in-area' end
                     elseif aim.enemy then
                         local w,no=M.on(input,spell,aim.enemy,r)
-                        if w>0 then worth=w;hits[1]=aim.enemy.id else reason=reason or no end
+                        if w>0 then worth=w*orders.favour(input,aim.enemy);hits[1]=aim.enemy.id else reason=reason or no end
                     end
                     -- A walk into range comes first and lowers the worth (combat-intent/choice.lua).
                     if aim.walk then worth=worth*weapons.paced(aim.walk) end

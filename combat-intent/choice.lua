@@ -85,6 +85,20 @@
 -- left, adapters/eeex/choice.lua), from M.stayPrior worth M.stayWeight sightings. An ally or the
 -- caster may stand in the caster's own area when the area does nothing to it. The profile's
 -- clouds switch: 'learned', 'best' (A alone) or 'once' (one explosion, as before).
+--
+-- Orders (combat-intent/orders.lua; Christopher, 2026-10-25): a designer's target order makes what
+-- the creature's attacks do to the enemy it names count more, or keeps its attacks on that enemy
+-- while it can attack it at all.
+--
+-- Interrupting (Christopher, 2026-10-25: worth decides, with a bonus for interrupting an enemy that
+-- is casting): damage that lands while an enemy casts breaks its spell, and its spell slot stays
+-- spent (ACT-03, batch H5). The creature may know the spell, as SCS's scripts can learn it from the
+-- game's SpellCast triggers: an enemy carries cast {level, speed, timer} while it casts in a way
+-- damage can break (adapters/eeex/choice.lua). Breaking the spell is worth mind.interrupt for each
+-- of its levels, times the chance the attack's damage lands while the casting runs
+-- (M.castWindow). Only damage counts yet; whether a hold, sleep or silence breaks a cast is open.
+-- How often a creature sees the chance is its wit (mind.tactics): a clever one always, a normal
+-- one in half its decisions, a dull one never.
 local targeting=require('combat-intent.targeting')
 local harm=require('combat-intent.harm')
 local defence=require('combat-intent.defence')
@@ -97,6 +111,7 @@ local openers=require('combat-intent.openers')
 local touch=require('combat-intent.touch')
 local weapons=require('combat-intent.weapons')
 local spells=require('combat-intent.spells')
+local orders=require('combat-intent.orders')
 local M={}
 M.rangeUnit=targeting.rangeUnit
 -- Allies keep this much room beyond an area's edge; positions are up to a check-in old.
@@ -133,6 +148,12 @@ M.stayWeight=4
 M.ROUND=threat.ROUND
 M.auraLead=0.5
 M.idle=1
+-- Interrupting (see the top): a casting aura counts from 0 at a cast's start to about 99, a tick at
+-- a time (adapters/eeex/choice.lua reads it); a count up to castSlack seconds past the casting time
+-- is still the cast's own.
+M.auraTicks=100
+M.ticksPerSecond=15
+M.castSlack=0.4
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
 local function clamp(v,a,b) if v<a then return a elseif v>b then return b end return v end
@@ -262,25 +283,27 @@ local function remembered(input,resref,e,role)
     return 0.5^misses
 end
 
--- The worth of a damage role on e (combat-intent/harm.lua), more on the group's focus, and the hit
--- points it is expected to take. floor: the hit points e keeps at least (targeting.floor).
+-- The worth of a damage role on e (combat-intent/harm.lua), more on the group's focus and on an
+-- enemy the creature's orders name, and the hit points it is expected to take. floor: the hit
+-- points e keeps at least (targeting.floor).
 local function damageOn(input,row,role,e,floor)
     local worth,expected=harm.damage(role,e,input.mind.killBonus,floor)
     if expected<=0 then return 0,0 end
     local plan=input.plan
     if type(plan)=='table' and plan.focus==e.id then worth=worth*(1+input.mind.focusBonus*input.mind.coordination) end
+    worth=worth*orders.favour(input,e)
     local still=remembered(input,row.resref,e,role)
     return worth*still,expected*still
 end
 
--- The worth of a disable role on e (combat-intent/harm.lua): none on an enemy another member has
--- claimed for its disable. floor as for damageOn.
+-- The worth of a disable role on e (combat-intent/harm.lua), more on an enemy the creature's orders
+-- name: none on an enemy another member has claimed for its disable. floor as for damageOn.
 local function disableOn(input,row,role,e,floor)
     if targeting.disabled(e) then return 0 end
     local plan=input.plan
     local reserved=type(plan)=='table' and type(plan.reserved)=='table' and plan.reserved[e.id]
     if reserved and reserved~=input.frame.self.id and input.mind.coordination>=0.5 then return 0 end
-    return harm.disable(role,e,input.mind.killBonus,floor)*remembered(input,row.resref,e,role)
+    return harm.disable(role,e,input.mind.killBonus,floor)*remembered(input,row.resref,e,role)*orders.favour(input,e)
 end
 
 local function offset(a,b) return b.x-a.x,(b.y-a.y)*4/3 end
@@ -424,10 +447,86 @@ local function spared(input,spell,f)
     return worth<=0
 end
 
+-- Interrupting (see the top). When the cast c of an enemy (e.cast: its speed, and timer, the count
+-- of its casting aura, -1 while the aura is free) can be broken, in seconds from now: from start
+-- until finish; nil when its casting is over, instant or unknown. A count past the casting time is
+-- the last cast's aura, which the cast waits for: it begins casting when the aura frees. With the
+-- aura free the cast has not begun (it may still walk into range): all its casting is ahead.
+function M.castWindow(c)
+    if type(c)~='table' or not number(c.speed) or c.speed<=0 then return nil end
+    local casting=c.speed*zones.speedSeconds
+    local timer=number(c.timer) and c.timer or -1
+    if timer<0 then return 0,casting end
+    local since=timer/M.ticksPerSecond
+    if since<=casting+M.castSlack then
+        if since>=casting then return nil end
+        return 0,casting-since
+    end
+    local start=math.max(0,(M.auraTicks-timer)/M.ticksPerSecond)
+    return start,start+casting
+end
+-- Whether the creature sees the chance a tactic needs wit for in this decision: input.tactical once
+-- the decision has drawn it (M.notices), else whether its chance (mind.tactics) is a half or more.
+function M.tactical(input)
+    if input.tactical~=nil then return input.tactical==true end
+    local p=number(input.mind.tactics) and input.mind.tactics or 1
+    return p>=0.5
+end
+-- Draws once a decision whether the creature sees a tactic's chance (mind.tactics), and only when
+-- there is one to see (an enemy casts), so that other decisions draw nothing. Without input.rng:
+-- when its chance is a half or more.
+function M.notices(input)
+    local p=number(input.mind.tactics) and input.mind.tactics or 1
+    if p>=1 then return true end
+    if p<=0 then return false end
+    local any=false
+    for _,e in ipairs(input.frame.enemies) do
+        if type(e)=='table' and type(e.cast)=='table' then any=true;break end
+    end
+    if not any then return false end
+    local rng=input.rng
+    if not rng then return p>=0.5 end
+    return rng:nextInt(1,1000)<=math.floor(p*1000+0.5)
+end
+-- What breaking e's spell is worth to an attack whose damage lands how.at seconds from now with
+-- chance how.chance, or whose hits come how.rate a round from how.from seconds on, less how.absorbed
+-- hits that Mirror Images and Stoneskin take first: mind.interrupt for each level of the spell, times
+-- the chance damage lands while the casting runs. Nothing when the creature does not see the chance
+-- (M.tactical).
+function M.interruption(input,e,how)
+    local c=type(e)=='table' and e.cast or nil
+    local per=number(input.mind.interrupt) and input.mind.interrupt or 0
+    if type(c)~='table' or per<=0 or not number(c.level) or c.level<=0 or not M.tactical(input) then return 0 end
+    local start,finish=M.castWindow(c)
+    if not start then return 0 end
+    local p
+    if number(how.rate) then
+        local from=math.max(number(how.from) and how.from or 0,start)
+        local span=math.min(finish,from+M.ROUND)-from
+        if span<=0 then return 0 end
+        local n=how.rate*span/M.ROUND-(number(how.absorbed) and how.absorbed or 0)
+        if n<=0 then return 0 end
+        p=1-math.exp(-n)
+    else
+        if not number(how.at) or how.at<start or how.at>=finish then return 0 end
+        p=clamp(number(how.chance) and how.chance or 0,0,1)
+    end
+    return per*c.level*p
+end
+-- The chance a damage role hurts e at all: magic resistance, a saving throw that keeps all of it off
+-- (one for half still hurts) and the effect's own chance.
+local function hurts(role,e)
+    local save=role.saveForHalf and 0 or M.saveChance(role,e)
+    return landing(role,e)*(1-save)*clamp(number(role.chance) and role.chance or 1,0,1)
+end
+
 -- One option: the spell aimed at a creature or a point, its worth, cost and score, or nil
 -- and why it is no option. ctx keeps what one choice works out once (the rest of the fight). An
 -- aim with a walk into range must keep the caster out of its area where the walk ends, and the
--- walk comes first and lowers the worth as a walk to a melee enemy does (weapons.paced).
+-- walk comes first and lowers the worth as a walk to a melee enemy does (weapons.paced). Damage on
+-- a casting enemy adds what breaking its spell is worth (interrupt), once the walk has lowered the
+-- rest: the damage lands after the casting aura, the walk and the casting, and an area that skips
+-- its first explosion a round of explosions later.
 local function evaluate(input,row,spell,kind,mode,aim,ctx)
     local frame=input.frame
     local caster=frame.self
@@ -435,6 +534,15 @@ local function evaluate(input,row,spell,kind,mode,aim,ctx)
     local worth,hits,slack,expected=0,{},0,{}
     local sat
     local walk=number(aim.walk) and aim.walk>0 and aim.walk or nil
+    local stop=0
+    local land=(number(caster.aura) and caster.aura>0 and caster.aura or 0)+(walk or 0)+
+        (number(spell.speed) and spell.speed or 0)*zones.speedSeconds+
+        (type(a)=='table' and a.skipFirst and number(a.every) and a.every or 0)
+    local function breaks(roles,e,hp)
+        if kind=='damage' and number(hp) and hp>0 then
+            stop=stop+M.interruption(input,e,{at=land,chance=hurts(roles.damage,e)})
+        end
+    end
     if mode=='creature' then
         local e=aim.enemy
         local roles,why=affects(spell,e,kind)
@@ -442,6 +550,7 @@ local function evaluate(input,row,spell,kind,mode,aim,ctx)
         if kind=='disable' and targeting.disabled(e) then return nil,'disabled' end
         worth,expected[e.id]=worthOn(input,row,kind,roles,e)
         worth=worth+stripped(input,spell,e)
+        breaks(roles,e,expected[e.id])
         hits[1]=e.id
     else
         local center=aim.point
@@ -452,6 +561,7 @@ local function evaluate(input,row,spell,kind,mode,aim,ctx)
             if not roles then return nil,'shape' end
             worth,expected[e.id]=worthOn(input,row,kind,roles,e)
             worth=worth+stripped(input,spell,e)
+            breaks(roles,e,expected[e.id])
             hits[1]=e.id
         else
             local inside,near=shape(spell,caster,center,aim.point)
@@ -482,6 +592,7 @@ local function evaluate(input,row,spell,kind,mode,aim,ctx)
                     w=w+stripped(input,spell,e)
                     if w>0 then
                         worth=worth+w;hits[#hits+1]=e.id;expected[e.id]=hp
+                        breaks(roles,e,hp)
                         if seen then sat[#sat+1]=seen end
                         slack=math.min(slack,a.radius-targeting.distance(a.cone and caster or center,e))
                     end
@@ -492,10 +603,12 @@ local function evaluate(input,row,spell,kind,mode,aim,ctx)
     end
     if worth<=0 then return nil,'no-worth' end
     if walk then worth=worth*weapons.paced(walk) end
+    worth=worth+stop
     local level=number(row.level) and row.level or number(spell.level) and spell.level or 1
     local cost=input.mind.economy*slots(input)*M.costPerLevel*level
     local option={resref=row.resref,kind=kind,mode=mode,worth=worth,cost=cost,score=worth-cost,hits=hits,slack=slack,
-        speed=number(spell.speed) and spell.speed or 0,release=spell.release or nil,walk=walk}
+        speed=number(spell.speed) and spell.speed or 0,release=spell.release or nil,walk=walk,
+        interrupt=stop>0 and stop or nil}
     if kind=='damage' then option.expected=expected end
     if sat and #sat>0 then option.lasting=sat end
     if aim.enemy and (mode=='creature' or mode=='creature-area') then option.target=aim.enemy.id
@@ -527,14 +640,18 @@ local function weaponsOut(input)
 end
 
 -- Touch options of one ready spell: cast on the caster, aimed at each enemy in reach the charge
--- would work on. Worth: the hit's worth times the chance to hit. Cost: the spell's level, and the
--- caster's hit points lost to the weapons around the target while it strikes, times caution.
+-- would work on. Worth: the hit's worth times the chance to hit, and on a casting enemy what
+-- breaking its spell is worth when the strike comes after the casting aura and the casting. Cost:
+-- the spell's level, and the caster's hit points lost to the weapons around the target while it
+-- strikes, times caution.
 local function touchOptions(input,row,spell,w,out,reject)
     local frame=input.frame
     local caster=frame.self
     local mind=input.mind
     local maxHp=number(caster.maxHp) and caster.maxHp>0 and caster.maxHp or nil
     local level=number(row.level) and row.level or number(spell.level) and spell.level or 1
+    local ahead=(number(caster.aura) and caster.aura>0 and caster.aura or 0)+
+        (number(spell.speed) and spell.speed or 0)*zones.speedSeconds
     for _,e in ipairs(frame.enemies) do
         local ok,why=touch.reachable(caster,e,mind)
         if ok then why=touch.blocked(e,w) end
@@ -542,11 +659,13 @@ local function touchOptions(input,row,spell,w,out,reject)
             local worth,expected=strikeOn(input,row,w,e)
             if worth>0 then
                 local p=touch.hitChance(caster,e,w)
+                local stop=expected>0 and M.interruption(input,e,{from=ahead,rate=p}) or 0
                 local exposure=maxHp and mind.caution*touch.exposure(frame,e)*touch.exposedRounds/maxHp or 0
                 local cost=mind.economy*slots(input)*M.costPerLevel*level+exposure
-                out[#out+1]={resref=row.resref,kind='touch',mode='self',self=true,target=e.id,worth=worth*p,
-                    cost=cost,score=worth*p-cost,hits={e.id},slack=0,hit=p,expected={[e.id]=expected*p},
-                    speed=number(spell.speed) and spell.speed or 0,item=w.item}
+                local value=worth*p+stop
+                out[#out+1]={resref=row.resref,kind='touch',mode='self',self=true,target=e.id,worth=value,
+                    cost=cost,score=value-cost,hits={e.id},slack=0,hit=p,expected={[e.id]=expected*p},
+                    speed=number(spell.speed) and spell.speed or 0,item=w.item,interrupt=stop>0 and stop or nil}
             else reject('no-worth') end
         else reject(why) end
     end
@@ -583,6 +702,7 @@ local function hitsOn(input,arms,hits,e)
         if floor<=0 then worth=worth+input.mind.killBonus*clamp(hits-math.ceil(hp/per)+1,0,1) end
         local plan=input.plan
         if type(plan)=='table' and plan.focus==e.id then worth=worth*(1+input.mind.focusBonus*input.mind.coordination) end
+        worth=worth*orders.favour(input,e)
     end
     if roles and reaches(roles.disable) then
         worth=worth+disableOn(input,{resref=arms.item or ''},roles.disable,e,floor)*math.min(1,hits)
@@ -625,8 +745,9 @@ local function armOptions(input,row,spell,arms,out,reject)
 end
 
 -- The strike of the touch charge the caster holds (frame.self.charge, a weapon entry): at the
--- enemy in reach where the hit is worth most times its chance to land, or nil. No minimum: the
--- charge is spent already.
+-- enemy in reach where the hit is worth most times its chance to land, with what breaking a casting
+-- enemy's spell is worth, or nil; an order to always attack an enemy keeps it there while it can
+-- strike that enemy (combat-intent/orders.lua). No minimum: the charge is spent already.
 -- rejected (a table, optional) counts why each enemy got no strike: 'strike-' and the reason.
 function M.strike(input,rejected)
     local function reject(why) if rejected then rejected['strike-'..why]=(rejected['strike-'..why] or 0)+1 end end
@@ -635,20 +756,24 @@ function M.strike(input,rejected)
     if type(w)~='table' then return nil end
     if type(w.strike)~='table' then reject('unread');return nil end
     if weaponsOut(input) then reject('weapons-out');return nil end
-    local best
+    local list={}
     for _,e in ipairs(input.frame.enemies) do
         local ok,why=touch.reachable(caster,e,input.mind)
         if ok then why=touch.blocked(e,w) end
         if ok and not why then
             local worth,expected=strikeOn(input,{resref=w.spell or w.item},w,e)
             local p=touch.hitChance(caster,e,w)
-            local score=worth*p
-            if score>0 and (not best or score>best.score or (score==best.score and e.id<best.target)) then
-                best={resref=w.item,spell=w.spell,kind='strike',mode='creature',target=e.id,worth=score,cost=0,
-                    score=score,hits={e.id},slack=0,hit=p,expected={[e.id]=expected*p},speed=0}
-            end
-            if score<=0 then reject('no-worth') end
+            local stop=expected>0 and M.interruption(input,e,{from=0,rate=p}) or 0
+            local score=worth*p+stop
+            if score>0 then
+                list[#list+1]={resref=w.item,spell=w.spell,kind='strike',mode='creature',target=e.id,worth=score,cost=0,
+                    score=score,hits={e.id},slack=0,hit=p,expected={[e.id]=expected*p},speed=0,interrupt=stop>0 and stop or nil}
+            else reject('no-worth') end
         else reject(why or 'unknown') end
+    end
+    local best
+    for _,c in ipairs((orders.keep(input,list,{}))) do
+        if not best or c.score>best.score or (c.score==best.score and c.target<best.target) then best=c end
     end
     return best
 end
@@ -769,7 +894,8 @@ end
 -- Attacks with the weapon in the caster's hand (frame.self.weapon, arms): at each enemy it
 -- reaches and can hurt, best first. Worth: a round of its hits, for melee as much of it as counts
 -- for a round after the walk to the enemy (weapons.paced; a creature that chases walks to any
--- enemy it sees, weapons.reach); cost: for melee, the hit points the caster loses to the weapons
+-- enemy it sees, weapons.reach), and on a casting enemy what breaking its spell is worth with the
+-- hits that come after the walk; cost: for melee, the hit points the caster loses to the weapons
 -- around the target that round, times caution. Not while the caster holds a touch charge (the
 -- strike decides where that goes), in its own Time Stop or under Improved Alacrity.
 function M.weaponOptions(input,rejected)
@@ -785,7 +911,7 @@ function M.weaponOptions(input,rejected)
         local ok,why=weapons.reachable(caster,e,mind,arms)
         if ok and weapons.immuneTo(e,arms) then ok,why=false,'weapon-immunity' end
         if ok then
-            local hits=weapons.hits(arms.apr,arms.thac0,e)
+            local hits,raw,absorbed=weapons.hits(arms.apr,arms.thac0,e)
             local worth,expected=hitsOn(input,arms,hits,e)
             if worth>0 then
                 local cost,walk=0,0
@@ -794,9 +920,11 @@ function M.weaponOptions(input,rejected)
                     worth=worth*weapons.paced(walk)
                     if maxHp then cost=mind.caution*weapons.exposure(frame,e)/maxHp end
                 end
+                local stop=expected>0 and M.interruption(input,e,{from=walk,rate=raw,absorbed=absorbed}) or 0
+                worth=worth+stop
                 out[#out+1]={resref=arms.item or 'WEAPON',kind='weapon',mode='creature',target=e.id,worth=worth,
                     cost=cost,score=worth-cost,hits={e.id},slack=0,expected={[e.id]=expected},speed=0,
-                    melee=not arms.ranged or nil,walk=walk>0 and walk or nil}
+                    melee=not arms.ranged or nil,walk=walk>0 and walk or nil,interrupt=stop>0 and stop or nil}
             else reject(hits<=0 and 'absorbed' or 'no-worth') end
         else reject(why) end
     end
@@ -904,6 +1032,8 @@ local function pick(input)
         for _,o in ipairs(swings) do zones.adjust(input,o,at) end
         table.sort(swings,better)
     end
+    -- An order to always attack an enemy keeps the attacks on it while one reaches it.
+    options,swings=orders.keep(input,options,swings)
     table.sort(options,better)
     local swing=swings[1]
     local function all()
@@ -959,17 +1089,20 @@ end
 -- count of reasons the ready spells gave none. Leaving costs no spell, only the seconds of the
 -- walk: it comes first when it is worth more than that share of a round of the choice, or when the
 -- pain drives a dull creature out (forced). Spell slots cost input.slots of their price,
--- M.slotShare's when it is not given.
+-- M.slotShare's when it is not given. The creature's target order (input.ordered, false for none;
+-- combat-intent/orders.lua) and whether it sees a tactic's chance (input.tactical, M.notices) are
+-- worked out once, when not given; an attack on an enemy its order names is marked ordered.
 function M.decide(input)
     if type(input)~='table' or type(input.frame)~='table' or type(input.frame.self)~='table' or
         type(input.frame.enemies)~='table' or type(input.mind)~='table' then return nil,'bad-input',{} end
-    if input.slots==nil then
-        local view={}
-        for k,v in pairs(input) do view[k]=v end
-        view.slots=M.slotShare(input)
-        input=view
-    end
+    local view={}
+    for k,v in pairs(input) do view[k]=v end
+    if view.slots==nil then view.slots=M.slotShare(input) end
+    if view.ordered==nil then view.ordered=orders.of(view) or false end
+    if view.tactical==nil then view.tactical=M.notices(view) end
+    input=view
     local d,why,options,rejected=pick(input)
+    if d and orders.on(input,d) then d.ordered=true end
     local escape=zones.active(input) and zones.escape(input) or nil
     if escape then
         local score=d and number(d.score) and d.score or 0

@@ -131,11 +131,12 @@ function M.exposure(frame,e)
 end
 
 -- Hits a round on e of a weapon swung apr times with thac0 (bonuses in): d20 rolls against e's
--- armour class, less the hits its Mirror Images and Stoneskin skins take first.
+-- armour class, less the hits its Mirror Images and Stoneskin skins take first; then the hits before
+-- those and the hits they take.
 function M.hits(apr,thac0,e)
     local raw=(number(apr) and apr>0 and apr or 0)*threat.hitChance(thac0,e.ac)
     local absorbed=(number(e.mirror) and e.mirror>0 and e.mirror or 0)+(number(e.skins) and e.skins>0 and e.skins or 0)
-    return math.max(0,raw-absorbed)
+    return math.max(0,raw-absorbed),raw,absorbed
 end
 
 -- The weapon a classified spell conjures for the caster as an attack (arms), or nil: its first

@@ -28,6 +28,12 @@ M.default={
     focusBonus=0.5,
     -- Worth of killing an enemy beyond the hit points taken.
     killBonus=0.5,
+    -- Worth of breaking an enemy's spell, for each of its spell levels, when an attack's damage lands
+    -- while the enemy casts (combat-intent/choice.lua, interrupting).
+    interrupt=0.1,
+    -- How often the creature sees the chance a tactic needs some wit for (interrupting a cast, for
+    -- now): 1 in every decision, 0 never. Its wit scales it (M.TACTICS).
+    tactics=1,
     -- Defences (step 3, third slice; Christopher, 2026-10-19: weigh them against attacks every
     -- round). Weight of what protections and buffs save against what attacks take.
     caution=1,
@@ -93,7 +99,7 @@ local function resrefs(v)
     return true
 end
 local CHECKS={coordination=share,best=share,band=share,economy=amount,minValue=amount,
-    focusBonus=amount,killBonus=amount,caution=amount,horizon=amount,redefend=amount,acute=share,
+    focusBonus=amount,killBonus=amount,interrupt=amount,tactics=share,caution=amount,horizon=amount,redefend=amount,acute=share,
     castCost=amount,allySpells=resrefs,slowSpeed=amount,touchReach=amount,summonCap=amount,fightCap=amount,
     openers=function(v) return type(v)=='boolean' end,
     touch=function(v) return type(v)=='boolean' end,
@@ -251,12 +257,18 @@ function M.wit(c,overrides)
     return {step=step,danger=clamp(1+(wis-10)*M.DANGER_PER_WIS,M.DANGER_MIN,M.DANGER_MAX),int=int,wis=wis,
         from=from,group=group}
 end
--- The profile base with wit w: its step and danger weight, and its own clouds weighed as its step
--- works them out: a clever creature as base says, a normal one by the cheaper of staying and
--- walking out at most, a dull one by one explosion.
+-- How often each step sees the chance for a tactic that needs some wit (Christopher, 2026-10-25:
+-- not every creature does the clever thing, "um ein bisschen Varianz ins Spiel zu bringen"): a
+-- clever creature always, a normal one in half its decisions, a dull one never.
+M.TACTICS={clever=1,normal=0.5,dull=0}
+-- The profile base with wit w: its step and danger weight, how often it sees a tactic's chance
+-- (base's tactics times its step's), and its own clouds weighed as its step works them out: a
+-- clever creature as base says, a normal one by the cheaper of staying and walking out at most, a
+-- dull one by one explosion.
 function M.withWit(base,w)
     local m=copy(base)
     m.wit,m.danger=w.step,w.danger
+    m.tactics=(type(base.tactics)=='number' and base.tactics or 1)*(M.TACTICS[w.step] or 1)
     if w.step=='dull' then m.clouds='once' elseif w.step=='normal' and m.clouds=='learned' then m.clouds='best' end
     return m
 end

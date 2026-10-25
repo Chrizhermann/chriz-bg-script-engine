@@ -143,13 +143,45 @@ With no round left to SCS, an enemy beyond a spell's range is no reason to wait 
   range unit) reaches every enemy a creature sees, apart from some above or below it, as heights
   count 4/3 in range. Walks come mostly with shorter-range spells.
 
+### Orders and interrupting (2026-10-25)
+
+Built for Agreed point 1 (`combat-intent/orders.lua`, `combat-intent/choice.lua`,
+`combat-intent/mind.lua`, `adapters/eeex/sense.lua`, `adapters/eeex/choice.lua`):
+
+- **Orders.** A designer gives a creature orders by its creature file, through `options.orders`
+  or `api:setOrders({MYBOSS={target='protagonist',always=true}})`. The target names the
+  protagonist (`protagonist`, the game's Player1), a party place (`player1` to `player6`, by
+  joining, as the game counts them) or a creature file, or a list of them, of which the first that
+  names an enemy in sight counts. Preferred, what an attack does to that enemy counts its bonus
+  more (1 by default: twice). With `always=true` every attack (spells, removals, touch charges,
+  strikes, weapon attacks) stays on it while one of them reaches it; defences, heals, cures,
+  summons and ways out of a zone stay free, and with the enemy out of sight or reach everything is
+  open again. The choice row logs `ordered`. Other decisions get their orders as they are built.
+- **Interrupting.** Damage that lands while an enemy casts breaks its spell, and the spell slot
+  stays spent (ACT-03, batch H5). Each enemy in a cast that damage can break (Spell, SpellPoint
+  and their NoDec forms; forced casts cannot be broken) carries its spell, read at the enemy's
+  caster level, and the count of its casting aura. The casting runs from the aura's restart for
+  its casting time (0.6 seconds a speed point); a count past the casting time is the last cast's
+  aura, which the cast waits for. Breaking the spell adds 0.1 of an enemy for each spell level
+  (`mind.interrupt`), times the chance the attack's damage lands while the casting runs: a
+  weapon's hits after the walk, less those Mirror Images and Stoneskin take first; a spell's damage
+  after the creature's own casting aura, the walk and the casting, as likely as magic resistance
+  and a save that keeps all of it off let it through; a touch charge's strike. Example: a fighter
+  with two swings that hit 0.8 each, beside a mage one second into a three-second Cone of Cold,
+  breaks it in 41 % of such rounds, and the fifth-level spell adds 0.2 to the attack. The creature
+  may know the spell: SCS's scripts can learn it from the game's SpellCast triggers. The choice row
+  logs `interrupt`.
+- **Wit.** How often a creature sees the chance is `mind.tactics`: a clever creature always, a
+  normal one in half its decisions (drawn once a decision, and only when an enemy casts), a dull
+  one never. Every new tactic reads the same knob ([MIND-01](MIND-01-wit-and-difficulty.md)).
+
 ## Agreed (Christopher, 2026-10-25)
 
 1. **Target choice by worth, with overrides.** Not SCS's fixed list ("Ich würde es nicht eins zu
    eins so eine statische Liste machen … Das ist ein bisschen zu simpel"): worth decides, with a
    bonus for interrupting an enemy that is casting. And for target choice "und bei solchen
    ähnlichen Entscheidungen, die KI treffen muss, immer auch einen Override", for example "wenn ein
-   bestimmter Gegner immer auf den Main-Charakter gehen soll".
+   bestimmter Gegner immer auf den Main-Charakter gehen soll". Built: "Orders and interrupting".
 2. **Staging** as above.
 3. **Wit by race group** ([MIND-01](MIND-01-wit-and-difficulty.md), built): ogres and trolls stay
    normal on Insane. More detail later if needed.
@@ -189,3 +221,8 @@ Known gaps, for later:
 - To see in a lab: whether `SpellPointRES` walks as `SpellRES` does, whether EEex's started-action
   listener fires when the walk begins or when the casting does (the engine holds a queued cast for
   the walk too, in case it is the latter), and long walks with `AttackOneRound`.
+- Interrupting: only damage counts; whether a hold, sleep, stun or silence breaks a cast is open
+  (the lab saw one cast end under an imposed silence, ACT-02). A spell is worth breaking by its
+  level alone, not by what it would do to whom. Changed casting speeds (opcode 189, Improved
+  Alacrity on the enemy) are not read. A lab has to show interrupts in fights.
+- An ordered target out of sight is not looked for yet; the engine's own search comes next.

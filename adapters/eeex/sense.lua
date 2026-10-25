@@ -56,6 +56,11 @@ M.quiver={11,12,13}
 M.expiring=6
 -- Opcodes that deliver other effects; what they delivered is in the list already.
 M.delivered={[146]=true,[148]=true,[177]=true,[272]=true,[283]=true,[326]=true,[333]=true,[366]=true}
+-- Casts that damage breaks (ACTION.IDS): Spell, SpellPoint, SpellNoDec and SpellPointNoDec (their
+-- RES forms share the numbers). Forced casts cannot be broken.
+M.breakable={[31]=true,[95]=true,[191]=true,[192]=true}
+-- SPELL.IDS numbers name their resref by thousands: 1 priest, 2 wizard, 3 innate, 4 class.
+M.prefixes={'SPPR','SPWI','SPIN','SPCL'}
 -- Conditions a cure takes away, by the opcode that sets them (combat-intent/spells.lua's labels;
 -- combat-intent/care.lua weighs them). Hold (II) (185) stands apart: opcode 162, the cure of
 -- holds, does not remove it (IESDP).
@@ -154,7 +159,10 @@ function M.protectionRows(g,sprite)
 end
 
 -- Creature IDS values, saving throws, resistances, level and the spell protections in both
--- effect lists (M.protectionRows).
+-- effect lists (M.protectionRows); its creature file (resref) and, for a party member, its place
+-- in the party (player: 1 for Player1, the protagonist, up to 6, by joining, as the game's Player1
+-- to Player6 count; EEex_Sprite_GetCharacterIndex), for a designer's orders
+-- (combat-intent/orders.lua).
 function M.details(g,sprite,entry)
     local t=sprite.m_typeAI
     entry.ids={ea=t.m_EnemyAlly,general=t.m_General,race=t.m_Race,class=t.m_Class,
@@ -166,7 +174,35 @@ function M.details(g,sprite,entry)
     for _,n in ipairs(M.levels) do level=math.max(level,stat(g,sprite,n)) end
     entry.level=level
     entry.protections=M.protectionRows(g,sprite)
+    local resref=name(sprite.m_resref)
+    entry.resref=resref~='' and resref or nil
+    local place=rawget(g,'EEex_Sprite_GetCharacterIndex')
+    if type(place)=='function' then
+        local ok,n=pcall(place,sprite)
+        if ok and type(n)=='number' and n>=0 and n<=5 then entry.player=n+1 end
+    end
     return entry
+end
+
+-- The spell an action casts: its resref string, else the resref its SPELL.IDS number names; nil
+-- for none.
+function M.spellOf(action)
+    local resref=text(action.m_string1.m_pchData:get())
+    if resref~='' then return resref end
+    local number=action.m_specificID
+    if type(number)~='number' or number<1000 or number>=5000 or number%1~=0 then return nil end
+    return M.prefixes[math.floor(number/1000)]..string.format('%03d',number%1000)
+end
+-- The cast a creature is in that damage can break (M.breakable), as plain values: its spell
+-- (resref) and the count of its casting aura (timer, -1 while the aura is free; it counts from 0
+-- when the casting begins); nil for none.
+function M.casting(g,sprite)
+    local action=sprite.m_curAction
+    if not M.breakable[action.m_actionID] then return nil end
+    local resref=M.spellOf(action)
+    if not resref then return nil end
+    local timer=g.EEex_Sprite_GetCastTimer(sprite)
+    return {resref=resref,timer=type(timer)=='number' and timer or -1}
 end
 
 -- The engine's own SPLPROT check, CRuleTables::IsProtectedFromSpell(row, stats, mine, value) as

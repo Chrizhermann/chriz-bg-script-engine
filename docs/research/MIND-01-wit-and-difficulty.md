@@ -168,6 +168,18 @@ Written down for later (Christopher: "eventuell hinterher komplizierter/komplexe
 a range of INT per group instead of one value (the AD&D classes are ranges), or each monster's own
 intelligence from the books.
 
+## Tactics by wit (built 2026-10-25)
+
+Christopher, on three new behaviours the same day: a thief's Detect Illusion only for "sehr schlaue
+oder taktische Schurken … auf keinen Fall alle", giving up a search "sollte wieder schlau gemacht
+werden", and walking into position during the casting cooldown "zwischen taktisch klugen Gegnern
+und taktisch dummen Gegnern zu unterscheiden … um ein bisschen Varianz ins Spiel zu bringen". So
+every tactic that needs some wit reads one knob, `mind.tactics`: how often the creature sees the
+chance, 1 for a clever creature, 0.5 for a normal one and 0 for a dull one (`mind.TACTICS`, times
+the profile's own `tactics`, so a lab can switch tactics off). A normal creature draws once a
+decision, and only when there is a chance to see. The first tactic is interrupting a cast
+([FIGHT-01](FIGHT-01-fighter-and-monster-rounds.md), "Orders and interrupting").
+
 ## Guard rails (Christopher, 2026-10-23)
 
 - **Decisions must stay understandable.** "Ich will halt auch nicht … dass wir … so ein komplexes

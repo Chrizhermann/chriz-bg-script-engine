@@ -543,4 +543,118 @@ rejected={}
 assert(#choice.options(i,rejected)==0 and rejected['out-of-reach']==1)
 groups=groups+1
 
+-- 21. Orders (Christopher, 2026-10-25: "wenn ein bestimmter Gegner immer auf den Main-Charakter
+-- gehen soll"): a target order names the protagonist, a party place or a creature file. Preferred,
+-- what an attack does to that enemy counts its bonus more (1 by default); always, the attacks stay
+-- on it while one reaches it, and everything is open again when none does. A list takes the first
+-- selector that names an enemy in sight.
+local orders=require('combat-intent.orders')
+local function party(wounded)
+    return {enemy(11,{x=150,player=2,resref='IMOEN',hp=wounded==11 and 15 or 50}),
+        enemy(12,{x=300,player=1,resref='CHARNAME',hp=wounded==12 and 15 or 50})}
+end
+i=enemies(input({spells={row('TESTBOLT',bolt,3)}}),party())
+d=choice.decide(i)
+assert(d.target==11 and not d.ordered)
+i.orders={target='protagonist'}
+d=choice.decide(i)
+assert(d.target==12 and d.ordered and near(d.worth,0.84))
+-- A wounded enemy beside it: half again is not enough; the order to always attack it is, and it
+-- leaves only the attacks on the protagonist, at their own worth.
+i=enemies(input({spells={row('TESTBOLT',bolt,3)},orders={target='protagonist',bonus=0.5}}),party(11))
+assert(choice.decide(i).target==11)
+i.orders={target='protagonist',always=true}
+d,reason,options=choice.decide(i)
+assert(d.target==12 and d.ordered and #options==1 and near(d.worth,0.42))
+-- The protagonist out of the caster's sight (invisible): everything is open again.
+i.frame.enemies[2].state=0x10
+d=choice.decide(i)
+assert(d.target==11 and not d.ordered)
+-- The first selector of a list that names someone; a creature file in any case.
+i=enemies(input({spells={row('TESTBOLT',bolt,3)},orders={target={'player3','protagonist'},always=true}}),party(11))
+assert(choice.decide(i).target==12)
+i=enemies(input({spells={row('TESTBOLT',bolt,3)},orders={target='imoen',always=true}}),party(12))
+assert(choice.decide(i).target==11)
+-- A fighter's weapon attacks keep to it as well.
+i=enemies(input({mind=mind.forFamily(mind.new(),'fighter')}),{enemy(11,{x=150,ac=5,hp=4,player=2}),enemy(12,{x=140,ac=5,player=1})})
+i.frame.self.weapon={item='TESTMACE',damage=4.5,damageType=2,apr=1,thac0=10,ranged=false,flags=0,enchantment=0}
+assert(choice.decide(i).target==11)
+i.orders={target='protagonist',always=true}
+d=choice.decide(i)
+assert(d.kind=='weapon' and d.target==12 and d.ordered)
+-- The bonus: given, or 1 for a preference and none for an order to always attack; and the checks.
+local view={orders={target='protagonist',always=true,bonus=0.5},frame={enemies=party()}}
+assert(near(orders.favour(view,view.frame.enemies[2]),1.5) and orders.favour(view,view.frame.enemies[1])==1)
+view.orders={target='protagonist',always=true}
+assert(orders.favour(view,view.frame.enemies[2])==1)
+view.orders={target='player2'}
+assert(orders.favour(view,view.frame.enemies[1])==2)
+assert(orders.check({target='Player2',always=true,bonus=2}))
+assert(select(2,orders.check({target='protagonist',always='yes'}))=='always')
+assert(select(2,orders.check({target={}}))=='target' and select(2,orders.check({target='TOOLONGNAME'}))=='target')
+assert(select(2,orders.check({target='protagonist',stay=true}))=='stay' and select(2,orders.check('x'))=='orders')
+assert(select(2,orders.check({target='protagonist',bonus=-1}))=='bonus')
+groups=groups+1
+
+-- 22. Interrupting (Christopher, 2026-10-25: worth decides, "with a bonus for interrupting an
+-- enemy that is casting"): damage that lands while an enemy casts breaks its spell, worth a tenth
+-- of an enemy for each spell level, times the chance it lands in time.
+-- When a cast can be broken: a speed-5 cast one second into its three seconds of casting has two
+-- left; with its aura free it has not begun; an aura count well past the casting time is the last
+-- cast's, which it waits for; within the slack after the casting time it is over.
+local function window(c) return {choice.castWindow(c)} end
+local w1=window({speed=5,timer=15});assert(w1[1]==0 and near(w1[2],2))
+w1=window({speed=5,timer=-1});assert(w1[1]==0 and near(w1[2],3))
+w1=window({speed=5,timer=60});assert(near(w1[1],40/15) and near(w1[2],40/15+3))
+assert(choice.castWindow({speed=5,timer=47})==nil and choice.castWindow({speed=0,timer=5})==nil)
+assert(choice.castWindow({timer=5})==nil and choice.castWindow(nil)==nil)
+-- A fighter beside a casting mage: two swings a round hitting 0.8 each come 0.533 times in the two
+-- seconds left, at least once in 41 %; the level-6 spell makes the attack 0.248 more worth, more
+-- than the hurt fighter beside it.
+local fighter=mind.forFamily(mind.new(),'fighter')
+local function duel(cast,fields)
+    local mage=enemy(11,{x=150,ac=5,cast=cast})
+    for k,v in pairs(fields or {}) do mage[k]=v end
+    local t=enemies(input({mind=fighter}),{mage,enemy(12,{x=140,ac=5,hp=30,maxHp=30})})
+    t.frame.self.weapon={item='TESTMACE',damage=4.5,damageType=2,apr=2,thac0=10,ranged=false,flags=0,enchantment=0}
+    return t
+end
+assert(choice.decide(duel(nil)).target==12)
+local casting={level=6,speed=5,timer=15}
+d=choice.decide(duel(casting))
+local p=1-math.exp(-1.6*2/6)
+assert(d.target==11 and near(d.interrupt,0.6*p) and near(d.worth,7.2/50+0.6*p))
+-- Too far to arrive in time (a walk of 3.36 seconds), behind a Stoneskin skin, or for a dull
+-- fighter: no bonus.
+d,reason,options=choice.decide(duel(casting,{x=500}))
+assert(d.target==12 and options[2].target==11 and options[2].interrupt==nil)
+d,reason,options=choice.decide(duel(casting,{skins=1}))
+assert(d.target==12 and options[2].target==11 and options[2].interrupt==nil)
+i=duel(casting);i.mind=mind.withWit(fighter,{step='dull',danger=1})
+assert(choice.decide(i).target==12)
+-- A normal fighter sees it in half its decisions: one draw a decision, and none without a cast.
+local draws=0
+local function stub(v) return {nextInt=function() draws=draws+1;return v end} end
+local normal=mind.withWit(fighter,{step='normal',danger=1})
+i=duel(casting);i.mind=normal;i.rng=stub(400)
+assert(choice.decide(i).target==11 and draws==1)
+i.rng=stub(600)
+assert(choice.decide(i).target==12 and draws==2)
+i=duel(nil);i.mind=normal;i.rng=stub(400)
+assert(choice.decide(i).target==12 and draws==2)
+-- Spells: a quick one lands in time, a slow one too late; a save that keeps all the damage off
+-- lowers the chance. After the caster's own casting aura even the quick one is too late.
+local quick=spell('TESTQUIK',1,{fx(12,{p1=1,p2=64*65536,dice=1,sides=4})},{projectile=69,speed=1})
+local zap=spell('TESTZAP',2,{fx(12,{p2=FIRE,dice=2,sides=6,save=1})},{speed=1})
+i=enemies(input({spells={row('TESTQUIK',quick,1),row('TESTBOLT',bolt,3),row('TESTZAP',zap,2)}}),
+    {enemy(11,{x=150,cast={level=4,speed=3,timer=9}})})
+local by={}
+for _,o in ipairs(choice.options(i)) do by[o.resref]=o end
+assert(near(by.TESTQUIK.interrupt,0.4) and by.TESTBOLT.interrupt==nil)
+local saved=choice.saveChance(zap.roles.damage,i.frame.enemies[1])
+assert(saved>0 and near(by.TESTZAP.interrupt,0.4*(1-saved)))
+i.frame.self.aura=1
+for _,o in ipairs(choice.options(i)) do assert(o.interrupt==nil) end
+groups=groups+1
+
 return groups

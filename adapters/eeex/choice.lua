@@ -98,6 +98,13 @@
 -- (zones.painChance); then it leaves until it is out. SCS's cloud blocks stand aside for a dull
 -- creature meanwhile, so it stays and fights. A creature in one of the game's rage states counts
 -- as raging.
+--
+-- Orders (combat-intent/orders.lua): a designer's orders for a creature, by its creature file
+-- (options.orders, api:setOrders), go to the choice; the enemies carry their creature file and
+-- place in the party (sense.details). Interrupting (combat-intent/choice.lua): each enemy in a cast
+-- damage can break carries it, its spell read at its caster's level and the count of its casting
+-- aura (sense.casting). The choice row logs what breaking a spell added (interrupt) and an attack
+-- on an enemy the orders name (ordered).
 local sense=require('adapters.eeex.sense')
 local creature=require('adapters.eeex.creature')
 local resources=require('adapters.eeex.resources')
@@ -110,6 +117,7 @@ local choice=require('combat-intent.choice')
 local summons=require('combat-intent.summons')
 local zones=require('combat-intent.zones')
 local mind=require('combat-intent.mind')
+local orders=require('combat-intent.orders')
 local rngs=require('kernel.rng')
 local M={}
 M.families={mage=true,priest=true}
@@ -187,7 +195,7 @@ M.ticksPerSecond=15
 M.lookTicks=5
 -- The casting aura of a creature's last cast counts from 0 at the cast's start to about 99, then
 -- reads -1 (docs/learned.md, section 2); a cast queued meanwhile starts casting when it frees.
-M.auraTicks=100
+M.auraTicks=choice.auraTicks
 -- What EEex must offer for zones to be read.
 M.zoneRequired={'EEex_Projectile_GetType','EEex_CastUD'}
 local UNSEEN=targeting.STATE.invisible+targeting.STATE.improvedInvisible
@@ -247,6 +255,21 @@ function M.response(decision)
     end
 end
 
+-- Orders by creature file (combat-intent/orders.lua): t's entries under their resref in capitals,
+-- or nil and the first bad entry.
+function M.orderBook(t)
+    if t==nil then return {} end
+    if type(t)~='table' then return nil,'orders' end
+    local book={}
+    for k,o in pairs(t) do
+        if type(k)~='string' or #k==0 or #k>8 then return nil,tostring(k) end
+        local ok,bad=orders.check(o)
+        if not ok then return nil,k..': '..tostring(bad) end
+        book[k:upper()]=o
+    end
+    return book
+end
+
 function M.new(g,options)
     options=options or {}
     local reader=options.reader or resources.new(g)
@@ -258,6 +281,9 @@ function M.new(g,options)
     -- profile with the values it was made from (minds), rebuilt when the default changes (version).
     local witOn,witOverrides=options.wit~=false,options.witOverrides
     local minds,mindCount,mindVersion={},0,0
+    -- Orders by creature file (M.orderBook); bad ones at the start leave none, and say why (inspect).
+    local orderBook,orderError=M.orderBook(options.orders)
+    if not orderBook then orderBook={} end
     -- hurts: each creature's hit points when last looked at for pain; pained: the tick the pain
     -- drove a dull creature out, until it is out.
     local hurts,hurtCount,pained={},0,{}
@@ -423,6 +449,24 @@ function M.new(g,options)
         return roles
     end
     local function none() return {} end
+    -- Interrupting (combat-intent/choice.lua): each enemy in a cast damage can break carries it as
+    -- cast: its spell, that spell's level and casting speed at the enemy's caster level, and the
+    -- count of its casting aura (sense.casting). An enemy whose cast cannot be read carries none.
+    local function casts(frame)
+        for _,e in ipairs(frame.enemies) do
+            local object=get(e.id)
+            local ok,c
+            if object then ok,c=pcall(sense.casting,g,object) end
+            if ok and c then
+                local read,level=pcall(g.EEex_Sprite_GetCasterLevelForSpell,object,c.resref,false)
+                if not read or type(level)~='number' or level<1 then level=1 end
+                local spell=classify(c.resref,level)
+                if spell and type(spell.level)=='number' then
+                    e.cast={resref=c.resref,level=spell.level,speed=type(spell.speed)=='number' and spell.speed or 0,timer=c.timer}
+                end
+            end
+        end
+    end
     -- Whether a ready spell removes something from enemies.
     local function strips(rows)
         for _,row in ipairs(rows) do
@@ -1133,6 +1177,64 @@ function M.new(g,options)
         judging=keep
     end
 
+    -- What the creature knows of the fight beyond its frame, added to it: its ready spells' SPLPROT
+    -- marks, what protects each friend and the weapons around (sense.defend), what a removal could
+    -- take from each enemy, the enemies' casts that damage can break (casts), and its own Improved
+    -- Alacrity, THAC0, touch charge, magic weapon slot, casting aura and weapon.
+    local function situate(sprite,frame,rows,tick)
+        mark(sprite,frame,rows)
+        local bad,last=sense.defend(g,frame,tick,reader,effectsOf)
+        if bad>0 then
+            counts.guardFailures=counts.guardFailures+bad
+            if not guardError then
+                guardError=tostring(last):sub(1,200)
+                record({kind='error',where='guard',error=guardError})
+            end
+        end
+        -- What a removal could take from each enemy, read only when a ready spell removes; an enemy
+        -- whose effects cannot be read keeps none (its removal is worth nothing).
+        if strips(rows) then
+            for _,e in ipairs(frame.enemies) do
+                local object=get(e.id)
+                if object then
+                    local ok,value=pcall(sense.wards,g,object,tick,single)
+                    if ok then e.wards=value
+                    else
+                        counts.wardFailures=counts.wardFailures+1
+                        if not wardError then
+                            wardError=tostring(value):sub(1,200)
+                            record({kind='error',where='wards',error=wardError})
+                        end
+                    end
+                end
+            end
+        end
+        casts(frame)
+        if g.EEex_Sprite_GetStat(sprite,M.alacrityStat)>0 then frame.self.alacrity=true end
+        frame.self.thac0=sense.thac0(g,sprite)
+        frame.self.charge=chargeIn(sprite,rows)
+        lastCharge=frame.self.charge and frame.self.charge.item or nil
+        frame.self.magicItem=held(sprite)~=nil
+        -- Seconds until the casting aura frees: casts wait for it (combat-intent/choice.lua). Under
+        -- Improved Alacrity (aura cleansing) it holds no cast back.
+        local aura=g.EEex_Sprite_GetCastTimer(sprite)
+        frame.self.aura=not frame.self.alacrity and type(aura)=='number' and aura>=0 and
+            math.max(0,M.auraTicks-aura)/M.ticksPerSecond or 0
+        -- A weapon that cannot be read leaves the caster without a weapon attack, nothing more.
+        local read,err=pcall(function()
+            local own=sense.attack(g,sprite,reader)
+            frame.self.apr=own.apr
+            frame.self.weapon=arms(own)
+        end)
+        if not read then
+            counts.weaponFailures=counts.weaponFailures+1
+            if not weaponError then
+                weaponError=tostring(err):sub(1,200)
+                record({kind='error',where='weapon',error=weaponError})
+            end
+        end
+    end
+
     local function decide(view,family)
         if not enabled or missing then return decline(missing and 'missing' or 'off') end
         if not M.families[family] then return decline('family') end
@@ -1219,61 +1321,12 @@ function M.new(g,options)
         end
         local rows,carried=book(sprite)
         if not rows then failed('book',carried);return nil end
-        mark(sprite,frame,rows)
-        local bad,last=sense.defend(g,frame,tick,reader,effectsOf)
-        if bad>0 then
-            counts.guardFailures=counts.guardFailures+bad
-            if not guardError then
-                guardError=tostring(last):sub(1,200)
-                record({kind='error',where='guard',error=guardError})
-            end
-        end
-        -- What a removal could take from each enemy, read only when a ready spell removes; an enemy
-        -- whose effects cannot be read keeps none (its removal is worth nothing).
-        if strips(rows) then
-            for _,e in ipairs(frame.enemies) do
-                local object=get(e.id)
-                if object then
-                    local ok,value=pcall(sense.wards,g,object,tick,single)
-                    if ok then e.wards=value
-                    else
-                        counts.wardFailures=counts.wardFailures+1
-                        if not wardError then
-                            wardError=tostring(value):sub(1,200)
-                            record({kind='error',where='wards',error=wardError})
-                        end
-                    end
-                end
-            end
-        end
+        situate(sprite,frame,rows,tick)
         counts.decisions=counts.decisions+1
-        if g.EEex_Sprite_GetStat(sprite,M.alacrityStat)>0 then frame.self.alacrity=true end
-        frame.self.thac0=sense.thac0(g,sprite)
-        frame.self.charge=chargeIn(sprite,rows)
-        lastCharge=frame.self.charge and frame.self.charge.item or nil
-        frame.self.magicItem=held(sprite)~=nil
-        -- Seconds until the casting aura frees: casts wait for it (combat-intent/choice.lua). Under
-        -- Improved Alacrity (aura cleansing) it holds no cast back.
-        local aura=g.EEex_Sprite_GetCastTimer(sprite)
-        frame.self.aura=not frame.self.alacrity and type(aura)=='number' and aura>=0 and
-            math.max(0,M.auraTicks-aura)/M.ticksPerSecond or 0
-        -- A weapon that cannot be read leaves the caster without a weapon attack, nothing more.
-        local read,err=pcall(function()
-            local own=sense.attack(g,sprite,reader)
-            frame.self.apr=own.apr
-            frame.self.weapon=arms(own)
-        end)
-        if not read then
-            counts.weaponFailures=counts.weaponFailures+1
-            if not weaponError then
-                weaponError=tostring(err):sub(1,200)
-                record({kind='error',where='weapon',error=weaponError})
-            end
-        end
         local holder,left=timeStop()
         local input={tick=tick,family=family,frame=frame,spells=rows,items=carried,lastDefence=lastDefence[id],
             plan=director and director:plan(id,tick) or {},memory=memory[id] or {},mind=mindFor(sprite,family),rng=rng,
-            creatures=summoned(rows),stays=stays}
+            creatures=summoned(rows),stays=stays,orders=orderBook[text(sprite.m_resref:get())]}
         -- The zones in the area, with what they weigh about the caster itself.
         local raw=zoneList(sprite,tick)
         local seen={}
@@ -1335,7 +1388,8 @@ function M.new(g,options)
             focus=input.plan.focus,rule=d.rule,stop=input.timeStop and input.timeStop.left or nil,
             alacrity=frame.self.alacrity or nil,release=d.release,use=d.use,creatures=d.creatures,count=d.count,
             rest=d.rest,slots=input.slots,finish=d.finish,aura=frame.self.aura~=0 and frame.self.aura or nil,
-            inZones=zoneView(input,d),lasting=d.lasting,wit=input.mind.wit,walk=d.walk})
+            inZones=zoneView(input,d),lasting=d.lasting,wit=input.mind.wit,walk=d.walk,interrupt=d.interrupt,
+            ordered=d.ordered})
         -- A disable claims its targets in the group at once, so that another member deciding
         -- before this cast starts leaves them alone; any other decision gives earlier claims back.
         if director then
@@ -1574,6 +1628,15 @@ function M.new(g,options)
         witOverrides=t;minds,mindCount={},0
         return true
     end
+    -- A designer's orders by creature file (combat-intent/orders.lua), e.g.
+    -- {MYBOSS={target='protagonist',always=true}}; nil clears them. A bad table changes nothing:
+    -- false and the first bad entry.
+    function api:setOrders(t)
+        local book,bad=M.orderBook(t)
+        if not book then return false,bad end
+        orderBook,orderError=book,nil
+        return true
+    end
     function api:invalidate()
         pending,running,judging,memory,stop,resumed={},{},{},{},nil,nil
         lastDefence,known,stopCasts,strikes={},{},{},{}
@@ -1593,7 +1656,8 @@ function M.new(g,options)
         return {enabled=enabled,missing=missing or false,trace=trace,counts=copy(counts),reasons=copy(reasons),
             pending=open,running=busy,judging=#judging,remembered=remembered,log=rows,lastError=lastError or false,
             markError=markError or false,guardError=guardError or false,weaponError=weaponError or false,
-            wardError=wardError or false,zoneError=zoneError or false,witError=witError or false,wit=witOn,moving=(function()
+            wardError=wardError or false,zoneError=zoneError or false,witError=witError or false,
+            orderError=orderError or false,wit=witOn,moving=(function()
                 local n=0;for _ in pairs(moves) do n=n+1 end;return n end)(),waiting=(function()
                 local n=0;for _,w in pairs(waits) do if not w.over then n=n+1 end end;return n end)(),stays=(function()
                 local c={};for id,s in pairs(stays) do c[id]={stay=s.stay,left=s.left} end;return c end)()}

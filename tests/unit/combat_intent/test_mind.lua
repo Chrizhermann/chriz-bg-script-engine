@@ -129,4 +129,15 @@ assert(mind.wit({race='DRAGON',int=12,wis=12,difficulty=5}).step=='clever')
 assert(mind.wit({race='HUMAN',int=12,wis=12,difficulty=4}).step=='clever')
 groups=groups+1
 
+-- 7. Tactics by wit (Christopher, 2026-10-25: "um ein bisschen Varianz ins Spiel zu bringen"): a
+-- clever creature sees a tactic's chance always, a normal one in half its decisions, a dull one
+-- never; the profile's own tactics scales that. The interrupt worth is checked like any knob.
+assert(base.tactics==1 and base.interrupt==0.1)
+assert(mind.withWit(base,{step='clever',danger=1}).tactics==1 and mind.withWit(base,{step='normal',danger=1}).tactics==0.5)
+assert(mind.withWit(base,{step='dull',danger=1}).tactics==0)
+assert(mind.withWit(mind.new({tactics=0.5}),{step='normal',danger=1}).tactics==0.25)
+bad,why=mind.new({tactics=2});assert(bad==nil and why=='tactics')
+bad,why=mind.new({interrupt=-1});assert(bad==nil and why=='interrupt')
+groups=groups+1
+
 return groups

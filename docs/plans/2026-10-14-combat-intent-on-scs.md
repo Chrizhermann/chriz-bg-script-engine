@@ -643,8 +643,14 @@ hook; and casts at enemies beyond their range walk into range first, the walk lo
 Still left to the creature's script: casts the engine did not queue, no enemy in sight, and the
 engine switched off or failing.
 
-Next: target overrides and the interrupt bonus, then F1e (switching fighters and monsters on) with
-a lab, then F2.
+Also built the same day ([FIGHT-01](../research/FIGHT-01-fighter-and-monster-rounds.md), "Orders
+and interrupting"): a designer's orders by creature file, for now the target (the protagonist, a
+party place or a creature file; preferred, or always while it can be attacked), and a bonus for
+damage that breaks an enemy's spell in time, by the spell's level; clever creatures always see that
+chance, normal ones in half their decisions, dull ones never.
+
+Next: the engine's own search for enemies a creature cannot see, then F1e (switching fighters and
+monsters on) with a lab, then F2.
 
 ## To design with Christopher
 
@@ -812,10 +818,13 @@ Christopher's ideas so far (living list; more will follow):
   casts at a single creature the game's rule is unknown: IESDP says nothing, and in our one
   lab case (ACT-04) a target that walked away still got the spell. Christopher: invisibility
   breaking a cast makes sense, a target that merely steps out of sight range should not ("Ist
-  das nicht falsch? Wie ist das denn umgekehrt…?"). To do: a lab probe in both directions (an
-  enemy casting at the party, the party at an enemy; out of sight range, behind a wall,
-  invisible). If enemies only count their own eyes while the party shares its vision, fix the
-  cause so one rule holds for both; avoiding such casts is no substitute.
+  das nicht falsch? Wie ist das denn umgekehrt…?"). He believes the whole group's sight counts
+  for either side ("Egal welche Gruppe das ist"; 90 % sure his own casts go on while another of
+  his characters still sees the enemy). To do: a lab probe in both directions (an enemy casting
+  at the party, the party at an enemy; out of sight range with and without another group member
+  still seeing the target, behind a wall, invisible). One rule for both sides stays; if enemies
+  only count their own eyes while the party shares its vision, fix the cause. Avoiding such
+  casts is no substitute.
 - **Area spells at a creature or at a spot** (2026-10-25): "In seltenen Fällen ist das vielleicht
   besser … einem Spell auszuweichen wäre ja auch Skill." SCS aims at creatures; Tactics Remix
   aims at spots and guesses where the player is running. The engine already aims at a spot,

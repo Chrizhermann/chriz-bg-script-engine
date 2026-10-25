@@ -1871,4 +1871,46 @@ assert(claim30(560)==true and counts30().hits==1 and counts30().interrupted==2 a
 end)()
 groups=groups+1
 
+-- 31. Orders and interrupting. A mage with a quick spell (speed 1) sees enemy 11, the protagonist
+-- (the first character by joining), and enemy 12, which the spell would kill and the group focuses.
+-- Ordered to always attack the protagonist, it does, and the choice row says so; a bad order table
+-- changes nothing, and none at the start leaves none, saying why. Without orders, 11 casting a
+-- ninth-level spell a second in draws the quick spell there, in time: the row logs what breaking
+-- it adds (0.9). A forced cast cannot be broken.
+;(function()
+records.TESTQUIK=spl('TESTQUIK',1,{fx(12,{p1=1,p2=64*65536,dice=1,sides=4})})
+records.TESTQUIK.abilities[1].speed=1
+records.TESTWISH=spl('TESTWISH',9,{fx(17,{p1=20})})
+records.TESTWISH.abilities[1].speed=9
+local g31=world()
+g31.EEex_Sprite_GetCharacterIndex=function(s) return s.m_id==11 and 0 or -1 end
+local m31=g31.add(sprite(1,0,0,255))
+learn(m31,0,'TESTQUIK',3)
+local e31=g31.add(sprite(11,100,0,2))
+g31.add(sprite(12,200,0,2,{m_baseStats={m_hitPoints=3,m_generalState=0}}))
+local dir31=directors.new(g31,{reader=reader})
+local ch31=choices.new(g31,{reader=reader,director=dir31,seed=31,orders={test1={target='protagonist',always=true}}})
+local rows31={}
+ch31:setSink(function(row) rows31[#rows31+1]=row end)
+runtime.install(g31,{director=dir31,choice=ch31,version='test'})
+local function last31(kind) for n=#rows31,1,-1 do if rows31[n].kind==kind then return rows31[n] end end end
+local function claim31(tick) g31.ticks=tick;return g31.BGSE_Claim(m31,'mage','s1') end
+assert(claim31(100)==true)
+local c31=last31('choice')
+assert(c31.spell=='TESTQUIK' and c31.target==11 and c31.ordered==true and c31.interrupt==nil and c31.focus==12)
+local ok31,bad31=ch31:setOrders({TEST1={target='protagonist',always='yes'}})
+assert(ok31==false and bad31=='TEST1: always')
+assert(claim31(200)==true and last31('choice').target==11)
+assert(ch31:setOrders(nil)==true)
+assert(claim31(300)==true and last31('choice').target==12 and last31('choice').ordered==nil)
+e31.m_curAction=action(31,'TESTWISH',1);e31.castTimer=15
+assert(claim31(400)==true)
+c31=last31('choice')
+assert(c31.target==11 and near(c31.interrupt,0.9) and c31.ordered==nil)
+e31.m_curAction=action(113,'TESTWISH',1)
+assert(claim31(500)==true and last31('choice').target==12 and last31('choice').interrupt==nil)
+assert(choices.new(g31,{reader=reader,orders={TEST1={target='protagonist',stay=true}}}):inspect().orderError=='TEST1: stay')
+end)()
+groups=groups+1
+
 return groups

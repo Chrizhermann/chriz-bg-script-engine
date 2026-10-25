@@ -19,17 +19,8 @@ local core=require('combat-intent.director')
 local M={}
 M.checkTicks=15
 M.cacheLimit=512
--- SPELL.IDS numbers name their resref by thousands: 1 priest, 2 wizard, 3 innate, 4 class.
-M.prefixes={'SPPR','SPWI','SPIN','SPCL'}
-
-local function text(value) return (value:match('^[^%z]*'):upper()) end
-function M.resref(action)
-    local name=text(action.m_string1.m_pchData:get())
-    if name~='' then return name end
-    local number=action.m_specificID
-    if type(number)~='number' or number<1000 or number>=5000 or number%1~=0 then return nil end
-    return M.prefixes[math.floor(number/1000)]..string.format('%03d',number%1000)
-end
+-- The spell an action casts (sense.spellOf).
+M.resref=sense.spellOf
 
 function M.new(g,options)
     options=options or {}
