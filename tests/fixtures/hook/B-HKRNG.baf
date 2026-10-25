@@ -38,6 +38,20 @@ THEN
 END
 
 IF
+  !INI("DMWW_genai_difficulty",1)
+  Heard([ANYONE],411)
+  Range(LastHeardBy(Myself),15)
+  OR(2)
+    !CheckStatGT(Myself,80,RESISTMAGIC)
+    !See(NearestEnemyOf(Myself))
+  !See([PC])
+THEN
+  RESPONSE #100
+    SetGlobalTimer("seencloud","LOCALS",20)
+    MoveToObject([PC])
+END
+
+IF
   See(NearestEnemyOf(Myself))
   !Global("chasing","LOCALS",0)
 THEN

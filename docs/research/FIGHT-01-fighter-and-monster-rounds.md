@@ -239,7 +239,12 @@ The engine searches with what the creature and its group perceived instead
 - **SCS's hunt stands aside** for every creature the engine drives ([HOOK-01](HOOK-01-scs-hook-placement.md),
   rule 7): its chase, its free detection casts and its walk to a door get a last condition,
   `BGSE_Search`, and are never copied above the hook (a fiend's teleport to the party member it
-  noted was copied as a special before). So the engine alone searches, also when it has no clue. For
+  noted was copied as a special before). Since 2026-10-26 so does every other pursuit of an enemy
+  the creature does not perceive: a phase spider's or a mind flayer's teleport to a party member,
+  Melissan's teleport, a dragon's walk to a party member it does not detect, the walk to the
+  nearest enemy on an ally's shout, the walk at the party it does not see out of a cloud, and the
+  random walk when an unseen attacker hits it (the hit is a clue for the engine's search instead).
+  An ally's walk after the party stays. So the engine alone searches, also when it has no clue. For
   now that means mages and priests on the engine's side; fighters and monsters follow with F1e, and
   a neutral or charmed creature keeps SCS's own hunt.
 - **Log.** Rows `hunt` (a search begins: clues, tactics, patience, guard, wit), `clue` (a hit),
@@ -248,10 +253,8 @@ The engine searches with what the creature and its group perceived instead
 
 Not built yet: opening doors, teleporting toward a clue (SCS's Dimension Door pursuit and fiend
 teleport), buffing at the post after giving up, barks, and an ordered target's clues coming first.
-Monsters' own pursuit powers outside SCS's chase (a phase spider's teleport, a mind flayer's
-astral travel, dragons that walk to a party member they do not detect) are to be decided before
-F1e. To see in a lab: searches in real fights, whether spell damage sets `m_lHitter` as weapon
-hits do, and what Detect Illusion reveals.
+To see in a lab: searches in real fights, whether spell damage sets `m_lHitter` as weapon hits do,
+and what Detect Illusion reveals.
 
 ## Agreed (Christopher, 2026-10-25)
 
@@ -296,9 +299,10 @@ Known gaps, for later:
 - Heals and cures at allies weigh a walk to the ally by its seconds (`castCost`), attacks by
   `weapons.paced`; one rule for both is open. Defences, heals and cures at allies do not walk into
   range yet.
-- To see in a lab: whether `SpellPointRES` walks as `SpellRES` does, whether EEex's started-action
-  listener fires when the walk begins or when the casting does (the engine holds a queued cast for
-  the walk too, in case it is the latter), and long walks with `AttackOneRound`.
+- To see in a lab: whether `SpellPointRES` walks as `SpellRES` does, and long walks with
+  `AttackOneRound`. EEex's started-action listener fires when the walk into range begins, not when
+  the casting does ([ACT-05](ACT-05-casts-out-of-sight.md)), so the engine's hold of a queued cast
+  over the walk is needed.
 - Interrupting: only damage counts; whether a hold, sleep, stun or silence breaks a cast is open
   (the lab saw one cast end under an imposed silence, ACT-02). A spell is worth breaking by its
   level alone, not by what it would do to whom. Changed casting speeds (opcode 189, Improved

@@ -265,3 +265,13 @@ THEN
     SetGlobalTimer("castspell","LOCALS",6)
 END
 
+IF
+  GlobalTimerNotExpired("castspell","LOCALS")
+  !See(NearestEnemyOf(Myself))
+  !Heard([ANYONE],404)
+  GlobalTimerNotExpired("whatthe","LOCALS")
+THEN
+  RESPONSE #100
+    RandomWalkContinuous()
+END
+

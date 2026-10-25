@@ -35,8 +35,9 @@ def test_mage_hook_sits_before_the_action_choice_with_guarded_copies():
     patched, reason, family, count = hook_rule.patch(source, 'B-HKMAG')
     assert (reason, family, count) == ('hooked', 'mage', 7)
     # Above the hook only the cloud blocks and the free Oracle change, below it only SCS's chase
-    # (test_cloud_blocks_above_..., test_hunting_blocks_...).
-    expected = guarded(source, spans, [6, 20, 21, 22, 23], '  !' + hook_rule.search_guard('mage', 'b-hkmag'))
+    # and its random walk while an unseen attacker puzzles the mage (test_cloud_blocks_above_...,
+    # test_hunting_blocks_...).
+    expected = guarded(source, spans, [6, 20, 21, 22, 23, 26], '  !' + hook_rule.search_guard('mage', 'b-hkmag'))
     for i in (3, 4, 5):
         cloud = source[spans[i][0]:spans[i][1]]
         expected = expected.replace(cloud, hook_rule.stand_aside(cloud, 'mage', 'b-hkmag'), 1)
@@ -61,7 +62,7 @@ def test_priest_keeps_blade_bookkeeping_and_engine_owns_turn_undead():
 
 def test_ranged_general_ai_skips_the_retarget_block():
     spans, anchor, copies = hook_rule.plan(text('B-HKRNG'))
-    assert anchor == 5 and copies == []
+    assert anchor == 6 and copies == []
     assert hook_rule.patch(text('B-HKRNG'), 'B-HKRNG')[1:] == ('hooked', 'fighter', 0)
 
 
@@ -95,15 +96,18 @@ def test_cloud_blocks_above_the_hook_yield_to_the_engine():
     assert patched.count(escape) == 1 and patched.count(still) == 1 and patched.count(run) == 1
     assert patched.count(zones) == 3
     # The ranged fighter's escape ends in an OR group that lacks a member: the condition goes
-    # first. Its escape below the hook runs only when the engine declines and stays, and so does
-    # its NoAction() that listens for no cloud.
+    # first. Its walk at the party it does not see out of a cloud is SCS's hunt as well: both
+    # conditions go last, the zones' first. Its escape below the hook runs only when the engine
+    # declines and stays, and so does its NoAction() that listens for no cloud.
     source = text('B-HKRNG')
     spans, anchor, _ = hook_rule.plan(source)
-    assert hook_rule.clouds(source, spans, anchor) == [3]
+    assert hook_rule.clouds(source, spans, anchor) == [3, 4]
     patched = hook_rule.patch(source, 'B-HKRNG')[0]
     zones = hook_rule.zones_guard('fighter', 'b-hkrng')
+    search = hook_rule.search_guard('fighter', 'b-hkrng')
     assert patched.count('IF\n  !' + zones + '\n  !INI("DMWW_genai_difficulty",1)\n  Heard([ANYONE],407)\n') == 1
-    assert source[spans[6][0]:spans[6][1]] in patched and patched.count(zones) == 1
+    assert patched.count('  !See([PC])\n  !' + zones + '\n  !' + search + '\nTHEN\n') == 1
+    assert source[spans[7][0]:spans[7][1]] in patched and patched.count(zones) == 2
     assert patched.startswith(source[spans[0][0]:spans[0][1]])
 
 
@@ -148,15 +152,17 @@ def test_cloud_condition_goes_last_unless_an_or_group_lacks_members(triggers, fi
 
 
 @pytest.mark.parametrize('name,family,hunts', [
-    ('B-HKMAG', 'mage', [6, 20, 21, 22, 23]), ('B-HKPRI', 'priest', [1]), ('B-HKRNG', 'fighter', [4, 8]),
-    ('B-HKMON', 'monster', [1, 18]),
+    ('B-HKMAG', 'mage', [6, 20, 21, 22, 23, 26]), ('B-HKPRI', 'priest', [1]), ('B-HKRNG', 'fighter', [4, 5, 9]),
+    ('B-HKMON', 'monster', [1, 18, 19, 20]),
 ])
 def test_hunting_blocks_yield_to_the_engines_search(name, family, hunts):
     # SCS's hunt stands aside above and below the hook for every creature the engine drives: the
     # mage's free Oracle and the priest's free Invisibility Purge on their detect timer, the chase's
-    # start, walk to the party member last seen, end and Dimension Door after it, the fighter's
-    # reset of its chase that clears its actions and its walk to the nearest door, the monster's end
-    # of a chase above the hook and its teleport to the party member it chases.
+    # start, walk to the party member last seen, end and Dimension Door after it, the mage's random
+    # walk while an unseen attacker puzzles it, the fighter's walk at the party it does not see out
+    # of a cloud, its reset of its chase that clears its actions and its walk to the nearest door,
+    # the monster's end of a chase above the hook, its teleport to the party member it chases, its
+    # walk to a party member it does not detect and its teleport to one.
     source = text(name)
     spans, anchor, copies = hook_rule.plan(source)
     assert hook_rule.hunts(source, spans) == hunts
@@ -164,8 +170,11 @@ def test_hunting_blocks_yield_to_the_engines_search(name, family, hunts):
     patched = hook_rule.patch(source, name)[0]
     search = hook_rule.search_guard(family, name.lower())
     assert patched.count(search) == len(hunts)
+    # A cloud block above the hook that hunts as well takes the zones' condition first.
+    clouds = hook_rule.clouds(source, spans, anchor)
     for i in hunts:
-        assert hook_rule.aside(source[spans[i][0]:spans[i][1]], ['  !' + search]) in patched, i
+        conditions = (['  !' + hook_rule.zones_guard(family, name.lower())] if i in clouds else []) + ['  !' + search]
+        assert hook_rule.aside(source[spans[i][0]:spans[i][1]], conditions) in patched, i
     if name == 'B-HKMAG':
         # The note of the party member it saw and the chase's reset that ends with Continue()
         # are bookkeeping and stay as they are.
@@ -176,11 +185,14 @@ def test_hunting_blocks_yield_to_the_engines_search(name, family, hunts):
         assert ('IF\n  !' + search + '\n  Global("inafight","LOCALS",1)\n') in patched
     if name == 'B-HKMON':
         # A ReallyForceSpellRES without a spellbook check is a special, but the teleport after the
-        # chased party member is SCS's hunt: never copied above the hook.
-        teleport = source[spans[18][0]:spans[18][1]]
-        assert hook_rule.is_special(teleport)
+        # chased party member and the one to a party member it does not detect are SCS's hunt:
+        # never copied above the hook. An ally's walk after the party is no hunt.
         claim = hook_rule.guard(family, name.lower())
-        assert teleport.replace('IF\n', f'IF\n  {claim}\n', 1) not in patched
+        for i in (18, 20):
+            teleport = source[spans[i][0]:spans[i][1]]
+            assert hook_rule.is_special(teleport)
+            assert teleport.replace('IF\n', f'IF\n  {claim}\n', 1) not in patched
+        assert source[spans[21][0]:spans[21][1]] in patched
 
 
 def test_search_condition_names_the_script_and_fails_soft():
@@ -217,14 +229,59 @@ def test_search_condition_names_the_script_and_fails_soft():
      ['SetGlobal("chasePC","LOCALS",0)', 'Continue()'], False),
     (['!Global("chasing","LOCALS",0)', 'See(NearestEnemyOf(Myself))'], ['SetGlobal("chasing","LOCALS",0)', 'Continue()'], False),
     (['!GlobalTimerNotExpired("detect","LOCALS")'], ['SetGlobalTimer("detect","LOCALS",30)', 'Continue()'], False),
-    # A scripted door, and monsters' own pursuit powers outside SCS's chase.
+    # A scripted door.
     (['Global("deadJoye","AR1513",2)'], ['OpenDoor("Door08")', 'MoveToObject([PC])'], False),
-    (['!Detect([PC])', 'See(NearestEnemyOf(Myself))'], ['ForceSpell(Player1,PSIONIC_ASTRAL_TRAVEL)'], False),
 ])
 def test_hunting_blocks_are_scs_chase_free_detection_and_door_search(triggers, actions, hunt):
     lines = ''.join(f'  {t}\n' for t in triggers)
     response = ''.join(f'    {a}\n' for a in actions)
     assert hook_rule.is_hunt(f'IF\n{lines}THEN\n  RESPONSE #100\n{response}END\n') is hunt
+
+
+@pytest.mark.parametrize('triggers,actions,hunt', [
+    # A mind flayer's astral travel to a party member while it detects none, a phase spider's
+    # teleport while it sees no enemy, a dragon's walk to a party member it does not detect,
+    # Melissan's teleport, Illasera's walk, the walk to the nearest enemy on an ally's shout and
+    # the walk at the party out of a cloud while it sees no party member.
+    (['!Detect([PC])', 'OR(2)', '  HitBy([GOODCUTOFF],CRUSHING)', '  See(NearestEnemyOf(Myself))',
+      'InMyArea(Player1)'], ['SetGlobalTimer("castspell","LOCALS",ONE_ROUND)', 'ForceSpell(Player1,PSIONIC_ASTRAL_TRAVEL)'], True),
+    (['GlobalTimerNotExpired("DMWWphase","GLOBAL")', '!See(NearestEnemyOf(Myself))', 'InMyArea(Player2)'],
+     ['ForceSpell(Player2,INNATE_PHASE_SPIDER_TELEPORT)'], True),
+    (['!Detect(NearestEnemyOf(Myself))', '!Detect(Player3)', 'Global("inafight","LOCALS",1)'], ['MoveToObject(Player3)'], True),
+    (['!GlobalTimerNotExpired("castspell","LOCALS")', '!Detect(NearestEnemyOf(Myself))', 'Allegiance(Myself,ENEMY)'],
+     ['ReallyForceSpellRES("dw#fitel",Player4)  // Teleport'], True),
+    (['!See(NearestEnemyOf(Myself))'], ['MoveToObject(Player5)'], True),
+    (['Heard([ANYONE],111)', '!See(NearestEnemyOf(Myself))'], ['MoveToObject(NearestEnemyOf(Myself))'], True),
+    (['Heard([ANYONE],404)', 'Range(LastHeardBy(Myself),20)', '!See([PC])'],
+     ['SetGlobalTimer("seencloud","LOCALS",FOUR_MINUTES)', 'MoveToObject([PC])'], True),
+    # A walk to the one party member it does not detect, while it sees others.
+    (['See(NearestEnemyOf(Myself))', 'Global("helptarget","LOCALS",6)', '!Detect(Player6)'], ['MoveToObject(Player6)'], True),
+    # Its random walk while an unseen attacker puzzles it.
+    (['!See(NearestEnemyOf(Myself))', 'GlobalTimerNotExpired("whatthe","LOCALS")'], ['RandomWalkContinuous()'], True),
+    (['GlobalTimerNotExpired("castspell","LOCALS")', '!See(NearestEnemyOf(Myself))', '!Heard([ANYONE],404)',
+      'GlobalTimerNotExpired("whatthe","LOCALS")'], ['RandomWalk()'], True),
+    # Not a pursuit: it sees the one it acts on; it must be on the party's side (an ally that
+    # follows the party); it sees no mage but may see others; the one it does not see is not the
+    # one it acts on; no trigger says it misses anyone; the random walk while nothing puzzles it
+    # or while it sees an enemy; the whatthe timer without a walk.
+    (['!See(NearestEnemyOf(Myself))', 'See(Player1)'], ['MoveToObject(Player1)'], False),
+    (['Allegiance(Myself,GOODCUTOFF)', '!See([ENEMY])', 'CombatCounter(0)', '!Range(Player1,20)'], ['MoveToObject(Player1)'], False),
+    (['See([PC])', '!See([PC.0.0.MAGE_ALL])'], ['Attack(LastSeenBy(Myself))'], False),
+    (['!Detect(Player2)'], ['MoveToObject(Player1)'], False),
+    (['Global("ai","LOCALS",1)'], ['MoveToObject(Player1)'], False),
+    (['!See(NearestEnemyOf(Myself))', 'Global("inafight","LOCALS",0)'], ['RandomWalkContinuous()'], False),
+    (['See(NearestEnemyOf(Myself))', 'GlobalTimerNotExpired("whatthe","LOCALS")'], ['RandomWalkContinuous()'], False),
+    (['!See(NearestEnemyOf(Myself))', 'GlobalTimerNotExpired("whatthe","LOCALS")'], ['NoAction()'], False),
+    # Casting at itself or walking to a point is no pursuit of someone else.
+    (['!See(NearestEnemyOf(Myself))'], ['Spell(Myself,WIZARD_STONE_SKIN)'], False),
+    (['!See(NearestEnemyOf(Myself))'], ['MoveToPoint([1200.800])'], False),
+])
+def test_pursuit_of_a_creature_it_does_not_perceive_is_part_of_the_hunt(triggers, actions, hunt):
+    lines = ''.join(f'  {t}\n' for t in triggers)
+    response = ''.join(f'    {a}\n' for a in actions)
+    block = f'IF\n{lines}THEN\n  RESPONSE #100\n{response}END\n'
+    assert hook_rule.is_pursuit(block) is hunt
+    assert hook_rule.is_hunt(block) is hunt
 
 
 def test_aside_keeps_the_order_of_several_conditions():
@@ -255,8 +312,9 @@ def test_monster_script_keeps_specials_and_everything_beyond_a_combat_round():
     # handler, the allegiance change, the scripted heal cast with SpellNoDecRES and the two steps
     # of a shape change the creature applies to itself. The ordinary attacks, the wandering, the
     # two spellbook casts (checked with HaveSpell, or used up with RemoveSpell), the
-    # self-application checked with HaveSpellRES, the power applied to an enemy and the fiend's
-    # teleport to the party member it chases (SCS's hunt) are the engine's.
+    # self-application checked with HaveSpellRES, the power applied to an enemy, the fiend's
+    # teleport to the party member it chases, its walk and teleport to one it does not detect (SCS's
+    # hunt) and an ally's walk after the party are the engine's.
     assert anchor == 2 and copies == [3, 4, 5, 7, 8, 9, 11, 14, 15]
     patched, reason, family, count = hook_rule.patch(source, 'B-HKMON')
     assert (reason, family, count) == ('hooked', 'monster', 9)

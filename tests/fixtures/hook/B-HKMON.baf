@@ -169,3 +169,29 @@ THEN
     ReallyForceSpellRES("b-hkfit",Player1)
 END
 
+IF
+  !Detect(NearestEnemyOf(Myself))
+  !Detect(Player2)
+  Global("inafight","LOCALS",1)
+THEN
+  RESPONSE #100
+    MoveToObject(Player2)
+END
+
+IF
+  !GlobalTimerNotExpired("castspell","LOCALS")
+  !Detect(NearestEnemyOf(Myself))
+THEN
+  RESPONSE #100
+    ReallyForceSpellRES("b-hkfit",Player2)
+END
+
+IF
+  Allegiance(Myself,GOODCUTOFF)
+  !See([ENEMY])
+  !Range(Player1,20)
+THEN
+  RESPONSE #100
+    MoveToObject(Player1)
+END
+

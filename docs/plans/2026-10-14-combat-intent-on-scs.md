@@ -664,9 +664,16 @@ both sides, and only invisibility breaks it, as Christopher wished; no EEex chan
 also measured a speed point of casting time as 10 ticks, not the 9 the engine assumed; the engine
 now uses 10.
 
-Next: monsters' own pursuit powers outside SCS's chase (a phase spider's teleport, a mind flayer's
-astral travel, dragons walking to a party member they do not detect) against fair play, then F1e
-(switching fighters and monsters on) with a lab, then F2.
+Monsters' own pursuit outside SCS's chase stands aside as well since 2026-10-26
+([HOOK-01](../research/HOOK-01-scs-hook-placement.md), rule 7): every SCS block that walks,
+teleports or casts at an enemy the creature does not perceive (a phase spider's teleport, a mind
+flayer's astral travel, Melissan's teleport, dragons walking to a party member they do not
+detect, the walk to the nearest enemy on an ally's shout, the walk at the party out of a cloud),
+and the random walk when an unseen attacker hits, which the engine's search answers with the
+attacker's spot as a clue.
+
+Next: the search teleports toward a clue with the creature's own teleports (fair: to the spot, not
+to the party member), then F1e (switching fighters and monsters on) with a lab, then F2.
 
 ## To design with Christopher
 

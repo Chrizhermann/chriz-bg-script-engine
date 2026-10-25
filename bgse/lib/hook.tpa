@@ -24,9 +24,14 @@
 // for every creature the engine drives, which searches with its own senses and abilities
 // instead: its chase (blocks that use its chase variables for more than bookkeeping that ends
 // with Continue(): the walk or teleport to the party member it last saw, the chase's start and
-// end), its free detection casts on its detect timer and its walk to the nearest closed door.
-// They get a last condition that holds when BGSE_Search says no (first in an OR group that lacks
-// members, as above) and are never copied above the hook.
+// end), its free detection casts on its detect timer and its walk to the nearest closed door. So
+// does every other pursuit of a creature it does not perceive: triggers that say it sees or
+// detects no enemy (or not the one it acts on) and a walk, jump, cast or attack at an enemy or
+// party member no trigger says it sees (a phase spider's or a mind flayer's teleport to a party
+// member, a dragon's walk to one, the walk to the nearest enemy on an ally's shout), unless the
+// creature must be on the party's side for it; and its random walk while an unseen attacker
+// puzzles it (the whatthe timer). They get a last condition that holds when BGSE_Search says no
+// (first in an OR group that lacks members, as above) and are never copied above the hook.
 //
 // tools/hook_rule.py is the reference version of this rule. Keep the two in step;
 // tests/integration/test_hook_installer.py compares them.
@@ -157,9 +162,75 @@ BEGIN
   END
 END
 
+// Whether a block pursues a creature the creature does not perceive (tools/hook_rule.py:
+// is_pursuit): its triggers say it sees or detects no enemy (the nearest enemy or a whole class
+// of creatures), or not the one it acts on, and a response walks, jumps, casts, uses an item or
+// attacks at a party member, the nearest enemy, the creature last seen or a class of creatures
+// that no trigger says it sees or detects; not when the creature must be on the party's side. Or
+// it random-walks while an unseen attacker puzzles it (the whatthe timer) and sees or detects no
+// enemy. Comments go first.
+DEFINE_PATCH_FUNCTION bgse_pursuit_block
+  STR_VAR bgse_block = ~~
+  RET bgse_pursuit
+BEGIN
+  SET bgse_pursuit = 0
+  INNER_PATCH_SAVE text ~%bgse_block%~ BEGIN
+    REPLACE_TEXTUALLY CASE_SENSITIVE ~ *//.*$~ ~~
+  END
+  TEXT_SPRINT trig ~~
+  TEXT_SPRINT resp ~~
+  INNER_PATCH ~%text%~ BEGIN
+    SET then = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~%LNL%THEN%LNL%~)
+    PATCH_IF (then > 0) BEGIN
+      READ_ASCII 0 trig (then)
+      READ_ASCII then resp (BUFFER_LENGTH - then)
+    END
+  END
+  PATCH_IF (STRING_LENGTH ~%resp%~ > 0) AND (INDEX (CASE_SENSITIVE ~^ +Allegiance(Myself,GOODCUTOFF)~ ~%trig%~) < 0) BEGIN
+    // The creatures the triggers say it sees or detects and those they say it does not, as
+    // |object| lists; not seeing the nearest enemy or a whole class means no enemy.
+    TEXT_SPRINT seen ~|~
+    TEXT_SPRINT unseen ~|~
+    SET none_seen = 0
+    INNER_PATCH ~%trig%~ BEGIN
+      REPLACE_EVALUATE CASE_SENSITIVE ~^ +\(!?\)\(See\|Detect\)(\(.*\)) *$~ BEGIN
+        PATCH_IF (STRING_LENGTH ~%MATCH1%~ > 0) BEGIN
+          TEXT_SPRINT unseen ~%unseen%%MATCH3%|~
+          PATCH_IF (INDEX (CASE_SENSITIVE ~^\(NearestEnemyOf(Myself)\|\[\(PC\|GOODCUTOFF\|ENEMY\|ANYONE\)\]\)$~ ~%MATCH3%~) = 0) BEGIN
+            SET none_seen = 1
+          END
+        END ELSE BEGIN
+          TEXT_SPRINT seen ~%seen%%MATCH3%|~
+        END
+      END ~%MATCH0%~
+    END
+    PATCH_IF (none_seen = 1) AND (INDEX (CASE_SENSITIVE ~^ +GlobalTimerNotExpired("whatthe","LOCALS")~ ~%trig%~) >= 0)
+        AND (INDEX (CASE_SENSITIVE ~^    RandomWalk\(Continuous\)?(~ ~%resp%~) >= 0) BEGIN
+      SET bgse_pursuit = 1
+    END ELSE BEGIN
+      // The objects of its walks, jumps, casts, item uses and attacks, one action a line.
+      TEXT_SPRINT args ~~
+      INNER_PATCH ~%resp%~ BEGIN
+        REPLACE_EVALUATE CASE_SENSITIVE ~^    \(MoveToObject\|MoveToObjectFollow\|MoveToObjectNoInterrupt\|JumpToObject\|ForceSpell\|ForceSpellRES\|ReallyForceSpell\|ReallyForceSpellRES\|Spell\|SpellRES\|SpellNoDec\|SpellNoDecRES\|UseItem\|Attack\|AttackOneRound\|AttackReevaluate\|AttackNoSound\)(\(.*\)) *$~ BEGIN
+          TEXT_SPRINT args ~%args%%MATCH2%%LNL%~
+        END ~%MATCH0%~
+      END
+      INNER_PATCH ~%args%~ BEGIN
+        REPLACE_EVALUATE CASE_SENSITIVE ~Player[1-6]\|NearestEnemyOf(Myself)\|LastSeenBy(Myself)\|\[\(PC\|GOODCUTOFF\|ENEMY\|ANYONE\)[^]]*\]~ BEGIN
+          PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%MATCH0%|~ ~%seen%~) < 0)
+              AND ((none_seen = 1) OR (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%MATCH0%|~ ~%unseen%~) >= 0)) BEGIN
+            SET bgse_pursuit = 1
+          END
+        END ~%MATCH0%~
+      END
+    END
+  END
+END
+
 // Whether a block belongs to SCS's hunt for enemies the creature cannot see (tools/hook_rule.py:
-// is_hunt): it walks to the nearest door and opens it, casts on its detect timer, or uses SCS's
-// chase variables for more than bookkeeping that ends with Continue().
+// is_hunt): it walks to the nearest door and opens it, casts on its detect timer, uses SCS's
+// chase variables for more than bookkeeping that ends with Continue(), or pursues a creature it
+// does not perceive (bgse_pursuit_block).
 DEFINE_PATCH_FUNCTION bgse_hunt_block
   STR_VAR bgse_block = ~~
   RET bgse_hunt
@@ -212,6 +283,10 @@ BEGIN
         SET bgse_hunt = 1
       END
     END
+  END
+  PATCH_IF (bgse_hunt = 0) BEGIN
+    LPF bgse_pursuit_block STR_VAR bgse_block = EVAL ~%bgse_block%~ RET bgse_pursuit END
+    SET bgse_hunt = bgse_pursuit
   END
 END
 
@@ -333,9 +408,12 @@ BEGIN
           PATCH_IF (INDEX (CASE_INSENSITIVE EXACT_MATCH ~chas~ ~%block%~) >= 0)
               OR (INDEX (CASE_INSENSITIVE EXACT_MATCH ~teleportpursuetimer~ ~%block%~) >= 0)
               OR (INDEX (CASE_INSENSITIVE EXACT_MATCH ~"detect"~ ~%block%~) >= 0)
-              OR (INDEX (CASE_SENSITIVE EXACT_MATCH ~OpenDoor(NearestDoor)~ ~%block%~) >= 0) BEGIN
+              OR (INDEX (CASE_SENSITIVE EXACT_MATCH ~OpenDoor(NearestDoor)~ ~%block%~) >= 0)
+              OR (INDEX (CASE_SENSITIVE EXACT_MATCH ~!See(~ ~%block%~) >= 0)
+              OR (INDEX (CASE_SENSITIVE EXACT_MATCH ~!Detect(~ ~%block%~) >= 0) BEGIN
             // SCS's hunt, above and below the anchor (only blocks with these words can be part
-            // of it).
+            // of it: a pursuit needs a trigger that says the creature does not see or detect
+            // someone).
             LPF bgse_hunt_block STR_VAR bgse_block = EVAL ~%block%~ RET bgse_hunt END
             SET $bgse_hunt(~%n%~) = bgse_hunt
           END

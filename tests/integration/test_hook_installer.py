@@ -40,6 +40,7 @@ TRIGGER = """IDS V1.0
 0x4010 Range(O:Object*,I:Range*)
 0x4011 Detect(O:Object*)
 0x4012 OpenState(O:Object*,I:Open*Boolean)
+0x4013 Allegiance(O:Object*,I:Allegiance*EA)
 0x4089 OR(I:OrCount*)
 """
 ACTION = """IDS V1.0
@@ -76,7 +77,7 @@ ACTION = """IDS V1.0
 IDS = {
     'OBJECT': ('IDS V1.0\n0 Nothing\n1 Myself\n12 NearestEnemyOf\n18 LastSeenBy\n20 LastHeardBy\n21 Player1\n22 Player2\n'
                '40 NearestDoor\n'),
-    'EA': 'IDS V1.0\n0 ANYONE\n2 PC\n255 ENEMY\n',
+    'EA': 'IDS V1.0\n0 ANYONE\n2 PC\n30 GOODCUTOFF\n255 ENEMY\n',
     'GENERAL': 'IDS V1.0\n0 ANYONE\n',
     'RACE': 'IDS V1.0\n0 ANYONE\n',
     'CLASS': 'IDS V1.0\n0 ANYONE\n',
@@ -182,8 +183,8 @@ def test_installer_matches_reference_and_is_reversible(tmp_path: Path) -> None:
 
     output = _install(tmp_path, '--force-install-list', '0')
     assert 'SUCCESSFULLY INSTALLED' in output, output
-    assert ('BGSE hook: 4 SCS scripts hooked, 18 SCS blocks guarded, 4 SCS cloud blocks yield to the engine, '
-            "10 SCS hunting blocks yield to the engine's search, 3 left as they are.") in output, output
+    assert ('BGSE hook: 4 SCS scripts hooked, 18 SCS blocks guarded, 5 SCS cloud blocks yield to the engine, '
+            "14 SCS hunting blocks yield to the engine's search, 3 left as they are.") in output, output
     for name, reason in (('B-HKNOA', 'no-anchor'), ('B-HKOLD', 'already-hooked'), ('B-HKCST', 'no-castspell')):
         assert f'left {name} as it is ({reason})'.casefold() in output.casefold(), output
     installed = _snapshot(tmp_path)
@@ -204,13 +205,17 @@ def test_installer_matches_reference_and_is_reversible(tmp_path: Path) -> None:
         assert hooked[name] == expected, name
     # The mage's cloud escape, its run from a Cloudkill's marker and its stand-still take the
     # condition last, the ranged fighter's escape (whose triggers end in an OR group that lacks a
-    # member) first; the fighter's escape below the hook stays.
-    for name, count in (('B-HKMAG', 3), ('B-HKRNG', 1), ('B-HKPRI', 0), ('B-HKMON', 0)):
+    # member) first and its walk at the party out of a cloud last; the fighter's escape below the
+    # hook stays.
+    for name, count in (('B-HKMAG', 3), ('B-HKRNG', 2), ('B-HKPRI', 0), ('B-HKMON', 0)):
         assert hooked[name].count(hook_rule.zones_guard(HOOKED[name][0], name.lower())) == count, name
-    # SCS's hunt stands aside above and below the hook: the mage's free Oracle and chase, the
-    # priest's free Invisibility Purge, the fighter's chase reset and walk to the door (whose
-    # triggers end in an OR group that lacks a member), the monster's end of a chase and teleport.
-    for name, count in (('B-HKMAG', 5), ('B-HKRNG', 2), ('B-HKPRI', 1), ('B-HKMON', 2)):
+    # SCS's hunt stands aside above and below the hook: the mage's free Oracle, chase and random
+    # walk while an unseen attacker puzzles it, the priest's free Invisibility Purge, the fighter's
+    # walk at the party it does not see out of a cloud, chase reset and walk to the door (whose
+    # triggers end in an OR group that lacks a member), the monster's end of a chase, teleport after
+    # the party member it chases and walk and teleport to one it does not detect; not an ally's
+    # walk after the party.
+    for name, count in (('B-HKMAG', 6), ('B-HKRNG', 3), ('B-HKPRI', 1), ('B-HKMON', 4)):
         assert hooked[name].count(hook_rule.search_guard(HOOKED[name][0], name.lower())) == count, name
 
     _install(tmp_path, '--force-uninstall-list', '0', '--force-install-list', '0')

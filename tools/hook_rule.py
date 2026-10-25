@@ -23,10 +23,15 @@ SCS's hunt for enemies the creature no longer sees stands aside, above and below
 every creature the engine drives, which searches with its own senses and abilities instead: its
 chase (the blocks that use its chase variables and walk to the party member it last saw, teleport
 there, start or end the chase), its free detection casts (Oracle, Invisibility Purge or Detect
-Invisibility on its detect timer) and its walk to the nearest closed door. They get a last
-condition that holds when BGSE_Search says no, and they are never copied above the hook. The
-chase's bookkeeping (which party member it last saw, forgetting the dead) ends with Continue()
-and stays as it is.
+Invisibility on its detect timer) and its walk to the nearest closed door. So does every other
+pursuit of a creature it does not perceive: a block whose triggers say it sees or detects no enemy
+(or not the one it acts on) and that walks, jumps, casts or attacks at an enemy or party member no
+trigger says it sees (a phase spider's or a mind flayer's teleport to a party member, a dragon's
+walk to one, the walk to the nearest enemy on an ally's shout), unless the creature must be on the
+party's side for it (an ally following the party); and its random walk while an unseen attacker
+puzzles it (the whatthe timer). They get a last condition that holds when BGSE_Search says no, and
+they are never copied above the hook. The chase's bookkeeping (which party member it last saw,
+forgetting the dead) ends with Continue() and stays as it is.
 
 Run it on a folder of decompiled scripts to see what an install would do:
     python tools/hook_rule.py <folder-with-baf> [report.json]
@@ -97,6 +102,21 @@ DOOR_SEARCH = re.compile(r'^ {4}OpenDoor\(NearestDoor\)', re.M)
 # Continue().
 HUNT_BOOKKEEPING = {'SetGlobal', 'SetGlobalTimer', 'SetGlobalTimerRandom', 'IncrementGlobal', 'Continue',
                     'DisplayString', 'DisplayStringHead'}
+# Pursuit of a creature the creature does not perceive (is_pursuit). Comments go first: WeiDU
+# writes resource names and texts after some actions.
+COMMENT = re.compile(r' *//.*$', re.M)
+SENSE = re.compile(r'^ +(!?)(?:See|Detect)\((.*)\) *$', re.M)
+# A party member, the nearest enemy, the creature last seen or a class of creatures.
+TARGET = re.compile(r'Player[1-6]|NearestEnemyOf\(Myself\)|LastSeenBy\(Myself\)|\[(?:PC|GOODCUTOFF|ENEMY|ANYONE)[^\]]*\]')
+# Not seeing or detecting one of these means not perceiving any enemy.
+ANY_ENEMY = re.compile(r'NearestEnemyOf\(Myself\)|\[(?:PC|GOODCUTOFF|ENEMY|ANYONE)\]')
+PURSUIT = re.compile(
+    r'^ {4}(?:MoveToObject|MoveToObjectFollow|MoveToObjectNoInterrupt|JumpToObject|ForceSpell|ForceSpellRES|'
+    r'ReallyForceSpell|ReallyForceSpellRES|Spell|SpellRES|SpellNoDec|SpellNoDecRES|UseItem|Attack|AttackOneRound|'
+    r'AttackReevaluate|AttackNoSound)\((.*)\) *$', re.M)
+ALLY = re.compile(r'^ +Allegiance\(Myself,GOODCUTOFF\)', re.M)
+PUZZLED = re.compile(r'^ +GlobalTimerNotExpired\("whatthe","LOCALS"\)', re.M)
+WANDER = re.compile(r'^ {4}RandomWalk(?:Continuous)?\(', re.M)
 
 
 def guard(family, script):
@@ -196,18 +216,40 @@ def clouds(text, spans, anchor):
     return [i for i in range(anchor) if is_cloud(text[spans[i][0]:spans[i][1]])]
 
 
+def is_pursuit(block):
+    """A pursuit of a creature the creature does not perceive: its triggers say it sees or detects
+    no enemy (the nearest enemy or a class of creatures), or not the one it acts on, and a response
+    walks, jumps, casts, uses an item or attacks at an enemy or party member that no trigger says it
+    sees or detects; not when the creature must be on the party's side (an ally following the
+    party). Or it random-walks while an unseen attacker puzzles it (SCS's whatthe timer) and it
+    sees or detects no enemy."""
+    trig, resp = split(COMMENT.sub('', block))
+    if ALLY.search(trig):
+        return False
+    seen, unseen = set(), set()
+    for m in SENSE.finditer(trig):
+        (unseen if m.group(1) else seen).add(m.group(2))
+    none_seen = any(ANY_ENEMY.fullmatch(t) for t in unseen)
+    if none_seen and PUZZLED.search(trig) and WANDER.search(resp):
+        return True
+    return any(t not in seen and (none_seen or t in unseen)
+               for m in PURSUIT.finditer(resp) for t in TARGET.findall(m.group(1)))
+
+
 def is_hunt(block):
     """A block of SCS's hunt for enemies the creature cannot see: it walks to the nearest door and
-    opens it, casts on its detect timer, or uses SCS's chase variables for more than bookkeeping
-    that ends with Continue() (it walks or teleports to the party member it last saw, starts the
-    chase or ends it). Monsters' own pursuit powers that use none of these (a phase spider's
-    teleport, a mind flayer's astral travel) are not part of it."""
+    opens it, casts on its detect timer, uses SCS's chase variables for more than bookkeeping that
+    ends with Continue() (it walks or teleports to the party member it last saw, starts the chase or
+    ends it), or pursues a creature it does not perceive (is_pursuit: a phase spider's or a mind
+    flayer's teleport, a dragon's walk to a party member)."""
     _, resp = split(block)
     rs = responses(block)
     acts = any(n not in HUNT_BOOKKEEPING for r in rs for n in r)
     if DOOR_SEARCH.search(resp) or (acts and DETECT_TIMER.search(resp)):
         return True
-    return bool(CHASE.search(block)) and (acts or not all(r and r[-1] == 'Continue' for r in rs))
+    if CHASE.search(block) and (acts or not all(r and r[-1] == 'Continue' for r in rs)):
+        return True
+    return is_pursuit(block)
 
 
 def hunts(text, spans):
