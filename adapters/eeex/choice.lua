@@ -137,6 +137,9 @@ M.families={mage=true,priest=true}
 -- resumes if a Time Stop froze the target, its effect on the target is judged.
 M.pendingTicks=45
 M.outcomeTicks=30
+-- A search teleport landed when its caster stands within landSlack of its spot (combat-intent/
+-- search.lua's arrive).
+M.landSlack=48
 -- A started cast that ends this much before its casting time, counted from when its casting began
 -- (M.castBegan), was interrupted. A speed point of casting time is speedTicks (ACT-05: the casting
 -- action ended 10, 40 and 60 ticks after it began at speeds 1, 4 and 6).
@@ -351,7 +354,7 @@ function M.new(g,options)
         hits=0,misses=0,errors=0,holds=0,frozen=0,marks=0,markFailures=0,defences=0,guarded=0,unguarded=0,
         guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0,arms=0,attacks=0,attackHits=0,
         weaponFailures=0,releases=0,heals=0,cures=0,potions=0,cared=0,uncared=0,summons=0,conjured=0,
-        unconjured=0,removals=0,stripped=0,unstripped=0,wardFailures=0,revealed=0,unrevealed=0}
+        unconjured=0,removals=0,stripped=0,unstripped=0,wardFailures=0,revealed=0,unrevealed=0,landed=0,unlanded=0}
     local reasons={}
     local log,nextRow,size={},1,0
     local root,sink,lastError,markError,guardError,weaponError,wardError,zoneError,witError
@@ -799,6 +802,15 @@ function M.new(g,options)
             local seen=frame and #frame.enemies or 0
             if seen>0 then counts.revealed=counts.revealed+1 else counts.unrevealed=counts.unrevealed+1 end
             record({kind='reveal',tick=a.ended,member=a.caster,spell=a.resref,mode=a.mode,seen=seen})
+            return
+        end
+        if a.kind=='teleport' then
+            -- A teleport (the engine's search): how far from its spot the caster stands now.
+            local caster=get(a.caster)
+            if not caster or type(a.point)~='table' then return end
+            local off=math.floor(targeting.distance({x=caster.m_pos.x,y=caster.m_pos.y},a.point)+0.5)
+            if off<=M.landSlack then counts.landed=counts.landed+1 else counts.unlanded=counts.unlanded+1 end
+            record({kind='landed',tick=a.ended,member=a.caster,spell=a.resref,point=a.point,off=off})
             return
         end
         if not defending and (not a.target or a.mode~='creature') then return end
@@ -1276,8 +1288,8 @@ function M.new(g,options)
 
     -- With no enemy in sight: the engine's search (adapters/eeex/search.lua) as the gate's decision,
     -- or nil, and the creature's own life goes on ('no-enemy' without a clue, 'given-up'). A
-    -- detection is cast or used like the engine's other casts; a walk goes to the nearest open spot
-    -- (prepare); a look holds.
+    -- detection is cast or used like the engine's other casts, and so is a teleport, to the nearest
+    -- open spot (prepare); a walk goes to the nearest open spot (prepare); a look holds.
     local function seek(sprite,frame,id,tick,family,rows,carried,m)
         local raw=zoneList(sprite,tick)
         local d,why=seeker:decide(sprite,frame,tick,family,m,rows,carried,function(p) return inZone(raw,p.x,p.y) end,
@@ -1295,6 +1307,15 @@ function M.new(g,options)
             return {own=true,response=response,spell=d.resref,kind='detect',mode=d.self and 'self' or 'point',point=d.point,
                 self=d.self,hits={},castTicks=spell and type(spell.speed)=='number' and spell.speed*M.speedTicks or nil,
                 use=d.item,cover=(type(d.speed)=='number' and d.speed>0 and d.speed or 0)*M.speedTicks+M.coverSlack}
+        end
+        if d.kind=='teleport' then
+            local response=M.response({resref=d.resref,point=d.point})
+            if not response then return decline('bad-response') end
+            counts.claims=counts.claims+1
+            return {own=true,response=response,spell=d.resref,kind='teleport',mode='point',point=d.point,hits={},
+                castTicks=type(d.speed)=='number' and d.speed*M.speedTicks or nil,
+                cover=(type(d.speed)=='number' and d.speed>0 and d.speed or 0)*M.speedTicks+M.coverSlack,
+                clue=d.clue,aim=d.target,innate=d.innate}
         end
         return {own=true,response='MoveToPoint(['..d.point.x..'.'..d.point.y..'])',kind=d.kind,point=d.point,
             clue=d.clue,target=d.target,gaveUp=d.gaveUp,guard=d.guard}
@@ -1591,6 +1612,14 @@ function M.new(g,options)
         elseif decision.kind=='modal' then
             seeker:mode(object,tick)
         else
+            if decision.kind=='teleport' then
+                -- A teleport toward a clue: to the nearest open spot where the creature fits.
+                local point=walkable(object,{point=decision.point})
+                local response=point and M.response({resref=decision.spell,point=point})
+                if not response then return 'skipped' end
+                decision.point,decision.response=point,response
+                seeker:jump(object,decision,point,tick)
+            end
             pending[object.m_id]={caster=object.m_id,resref=decision.spell,kind=decision.kind,mode=decision.mode,
                 target=decision.target,point=decision.point,hits=decision.hits,tick=tick,hp=hp,
                 castTicks=decision.castTicks,sources=decision.sources,expected=decision.expected,before=decision.before,

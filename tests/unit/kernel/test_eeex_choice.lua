@@ -2029,6 +2029,71 @@ local g36,ch36,boss36,last36,claim36=bossFight(36,{TEST1={guard=false}})
 assert(ch36:inspect().search.counts.guards==0 and claim36(boss36,140)==true)
 g36.BGSE_Act(boss36)
 assert(g36.queued[#g36.queued].text=='MoveToPoint([400.0])' and last36('search').member==1)
+
+-- A creature with an innate teleport cast at a point (a phase spider's) whose enemy walks out of its
+-- sight teleports to where the group last saw the enemy instead of walking: cast like the engine's
+-- other spells (SpellPointRES, held while it runs) and judged by where the creature stands after.
+records.TESTBLNK=spl('TESTBLNK',1,{fx(124,{target=1})},4)
+records.TESTDOOR=spl('TESTDOOR',4,{fx(124,{target=1})},4)
+local g37,ch37,_,last37,claim37=setup(37)
+local s37=g37.add(sprite(1,0,0,255))
+gift(s37,'TESTBLNK')
+local e37=g37.add(sprite(11,300,0,2))
+assert(claim37(s37,100)==true)
+e37.m_pos={x=900,y=0}
+assert(claim37(s37,140)==true)
+g37.BGSE_Act(s37)
+local t37=last37('teleport')
+assert(g37.queued[#g37.queued].text=='SpellPointRES("TESTBLNK",[300.0])' and t37.spell=='TESTBLNK' and t37.to.x==300 and
+    t37.clue=='seen' and t37.target==11 and t37.innate==true and ch37:inspect().search.counts.teleports==1)
+g37.ticks=141
+g37.listeners.started[1](s37,action(95,'TESTBLNK',-1))
+s37.m_curAction=action(95,'TESTBLNK',-1)
+assert(claim37(s37,150)==true and ch37:inspect().running==1)
+s37.m_pos={x=300,y=0};s37.m_curAction={m_actionID=0}
+assert(claim37(s37,175)==true)
+assert(claim37(s37,210)==true and last37('landed').off==0 and ch37:inspect().counts.landed==1)
+
+-- A memorized teleport spends its slot: a clever mage uses it for a longer walk, as far toward the
+-- spot as it reaches (range 30: 480 of 700); a dull one walks.
+local function doorFight(seed,int,wis)
+    local w,c,_,lastOf,claimAt=setup(seed)
+    local m=w.add(sprite(1,0,0,255))
+    if int then m.stats[38],m.stats[39]=int,wis end
+    learn(m,4,'TESTDOOR')
+    local e=w.add(sprite(11,400,0,2))
+    assert(claimAt(m,100)==true)
+    e.m_pos={x=2000,y=0};m.m_pos={x=-300,y=0}
+    assert(claimAt(m,140)==true)
+    w.BGSE_Act(m)
+    return w,c,lastOf
+end
+local g38,ch38,last38=doorFight(38)
+assert(g38.queued[#g38.queued].text=='SpellPointRES("TESTDOOR",[180.0])' and last38('teleport').innate==nil and
+    ch38:inspect().search.counts.teleports==1)
+local g39,ch39,last39=doorFight(39,4,8)
+assert(g39.queued[#g39.queued].text=='MoveToPoint([400.0])' and last39('teleport')==nil and
+    ch39:inspect().search.counts.teleports==0)
+
+-- A jump that would land in a danger zone short of its spot walks there instead; a spot in a zone
+-- counts as searched, whether the creature would jump or walk there (range 30: it lands at 180 of
+-- the 700 to the spot at 400).
+local seekers=require('adapters.eeex.search')
+local g40=world()
+local s40=g40.add(sprite(1,-300,0,255))
+g40.add(sprite(11,2000,0,2))
+local director40={clues=function() return {{id=11,x=400,y=0,tick=100}} end,group=function() return {} end}
+local seeker40=seekers.new(g40,{director=director40})
+local rows40={{resref='TESTBLNK',ready=1,usable=true,list='innate',level=1,
+    spell={target='point',range=30,speed=0,roles={move={kinds={teleport=true},who={self=true}}}}}}
+local frame40={area='AR0002',self={id=1,x=-300,y=0,hp=40,maxHp=40,ea=255},enemies={}}
+local function decide40(zoneAt) return seeker40:decide(s40,frame40,150,'mage',{wit='clever',tactics=1},rows40,{},zoneAt) end
+local d40=decide40(nil)
+assert(d40.kind=='teleport' and d40.resref=='TESTBLNK' and d40.point.x==180 and d40.toward.x==400)
+d40=decide40(function(p) return p.x>=100 and p.x<=300 end)
+assert(d40.kind=='search' and d40.point.x==400 and d40.clue=='seen' and d40.target==11)
+d40=decide40(function(p) return p.x>=300 end)
+assert(d40.kind=='look' and d40.zone==true and d40.searched==d40.key)
 end)()
 groups=groups+1
 

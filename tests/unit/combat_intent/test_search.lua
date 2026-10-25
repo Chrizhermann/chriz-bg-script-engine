@@ -223,4 +223,73 @@ d=search.decide(input({clues={{kind='vanished',id=11,x=1300,y=1000,tick=2990,nea
 assert(d.kind=='detect' and d.resref=='TESTEYES' and d.item==true and d.self==true)
 groups=groups+1
 
+-- 10. The jump: what moves the caster to a point counts (a phase spider's teleport, astral travel,
+-- Dimension Door), nothing aimed at a creature, moving others, not ready or not usable. A long walk
+-- goes by an innate teleport for anyone, a longer one by a memorized spell for a tactical creature
+-- only; not again within the gap; the innate first; as far toward the spot as the range reaches.
+local blinkSpell={target='point',range=200,speed=0,roles={move={who={self=true},kinds={teleport=true}}}}
+local doorSpell={target='point',range=1000,speed=1,level=4,roles={move={who={self=true},kinds={teleport=true}},
+    buff={who={self=true},kinds={}}}}
+local shortBlink={target='point',range=20,speed=0,roles={move={who={self=true},kinds={teleport=true}}}}
+local pushSpell={target='creature',range=20,speed=1,roles={move={who={target=true},kinds={teleport=true}}}}
+local fieldSpell={target='point',range=20,speed=2,area={radius=200},roles={move={who={area=true},kinds={teleport=true}}}}
+local jumps=search.teleports({
+    {resref='SPIN147',list='innate',level=1,ready=1,usable=true,spell=blinkSpell},
+    {resref='SPWI402',list='mage',level=4,ready=2,usable=true,spell=doorSpell},
+    {resref='TESTPUSH',list='mage',level=3,ready=1,usable=true,spell=pushSpell},
+    {resref='TESTFLD',list='mage',level=5,ready=1,usable=true,spell=fieldSpell},
+    {resref='SPIN186',list='innate',level=1,ready=0,usable=true,spell=blinkSpell},
+    {resref='TESTMUTE',list='mage',level=4,ready=1,usable=false,spell=doorSpell},
+    {resref='TESTBOLT',list='mage',level=1,ready=1,usable=true,spell=bolt}})
+local jumpBy={}
+for _,o in ipairs(jumps) do jumpBy[o.resref]=o end
+assert(#jumps==2 and jumpBy.SPIN147.innate==true and jumpBy.SPIN147.range==3200 and jumpBy.SPIN147.speed==0)
+assert(jumpBy.SPWI402.innate==nil and jumpBy.SPWI402.level==4 and jumpBy.SPWI402.range==16000 and jumpBy.SPWI402.speed==1)
+local blink,door=jumpBy.SPIN147,jumpBy.SPWI402
+local farSeen={kind='seen',id=11,x=1700,y=1000,tick=2950}
+-- An innate teleport for a walk of 200 or more, by a dull creature too; the walk below that.
+d=search.decide(input({clues={farSeen},teleports={blink},mind={wit='dull',tactics=0}}))
+assert(d.kind=='teleport' and d.resref=='SPIN147' and d.innate==true and d.point.x==1700 and d.point.y==1000 and
+    d.clue=='seen' and d.target==11 and d.key=='seen:11:2950')
+d=search.decide(input({clues={{kind='seen',id=11,x=1150,y=1000,tick=2950}},teleports={blink}}))
+assert(d.kind=='search')
+-- A memorized spell: 600 or more, and only for a tactical creature.
+d=search.decide(input({clues={farSeen},teleports={door}}))
+assert(d.kind=='teleport' and d.resref=='SPWI402' and d.innate==nil and d.level==4 and d.speed==1)
+d=search.decide(input({clues={{kind='seen',id=11,x=1500,y=1000,tick=2950}},teleports={door}}))
+assert(d.kind=='search')
+d=search.decide(input({clues={farSeen},teleports={door},mind={wit='normal',tactics=0.5},tactical=false}))
+assert(d.kind=='search')
+-- The innate one first; none again within its gap (6 seconds, 18 for a memorized spell).
+d=search.decide(input({clues={farSeen},teleports={door,blink}}))
+assert(d.resref=='SPIN147')
+d=search.decide(input({clues={farSeen},teleports={blink},jumped=3000-5*15}))
+assert(d.kind=='search')
+d=search.decide(input({clues={farSeen},teleports={blink},jumped=3000-6*15}))
+assert(d.kind=='teleport')
+d=search.decide(input({clues={farSeen},teleports={door},jumped=3000-17*15}))
+assert(d.kind=='search')
+d=search.decide(input({clues={farSeen},teleports={door,blink},jumped=3000-10*15}))
+assert(d.resref=='SPIN147')
+-- Beyond its range: as far toward the spot as it reaches.
+local short=search.teleports({{resref='TESTSHRT',list='innate',level=1,ready=1,usable=true,spell=shortBlink}})[1]
+d=search.decide(input({clues={farSeen},teleports={short}}))
+assert(d.kind=='teleport' and d.point.x==1320 and d.point.y==1000 and d.toward.x==1700 and d.toward.y==1000)
+-- Its spot led and spread like a walk's; a guard, a rooted creature and a searched spot do not jump.
+d=search.decide(input({clues={{kind='seen',id=11,x=1700,y=1000,tick=2985,vx=40,vy=0}},teleports={blink}}))
+assert(d.kind=='teleport' and d.point.x==1740)
+d=search.decide(input({clues={farSeen},teleports={blink},guard=true,post={x=1000,y=1000}}))
+assert(d.kind=='look' and d.guard==true)
+d=search.decide(input({frame={self=self({rooted=true})},clues={farSeen},teleports={blink}}))
+assert(d.kind=='look' and d.rooted==true)
+d=search.decide(input({frame={self=self({x=1690})},clues={farSeen},teleports={blink}}))
+assert(d.kind=='look' and d.searched=='seen:11:2950')
+-- Detection still comes first where a clue says the enemy is likely invisible in sight.
+d=search.decide(input({clues={{kind='hit',id=12,x=1700,y=1000,tick=2990,near=true}},detects={purge},teleports={blink}}))
+assert(d.kind=='search' or d.kind=='teleport')
+d=search.decide(input({clues={{kind='hit',id=12,x=1300,y=1000,tick=2990,near=true}},detects={purge},teleports={blink}}))
+assert(d.kind=='detect')
+assert(select(1,search.jump(input({teleports={{resref='X',range=0,innate=true}}}),{x=2000,y=1000},1000,true))==nil)
+groups=groups+1
+
 return groups

@@ -5,9 +5,10 @@
 -- spot where the enemy would be now included; or seen before), and a hit from an attacker it does
 -- not see (its hit points dropped and the game names an enemy as the last to hit it: where that
 -- enemy stands). What it can detect with comes from its ready spells and items, and a rogue's
--- Detect Illusion skill (STATS.IDS DETECTILLUSIONS). Each creature keeps where its fight began (its
--- post, where it goes back when it gives up), whether its search draws its tactics, the spots it has
--- searched, when it gave up and when it last detected; its group's boss, or one whose orders say so,
+-- Detect Illusion skill (STATS.IDS DETECTILLUSIONS); what it can teleport with from its ready spells
+-- and innate abilities. Each creature keeps where its fight began (its post, where it goes back when
+-- it gives up), whether its search draws its tactics, the spots it has searched, when it gave up,
+-- when it last detected and when it last teleported; its group's boss, or one whose orders say so,
 -- guards its post. A walk is held while the creature walks it, a look and the rogue's detection mode
 -- briefly; each ends early when an enemy shows or the creature is hurt. Session-local; a load
 -- forgets it all.
@@ -46,8 +47,8 @@ function M.new(g,options)
     local record=type(options.record)=='function' and options.record or function() end
     local rng=options.rng
     local states,stateCount={},0
-    local counts={hunts=0,walks=0,looks=0,returns=0,gaveUp=0,detects=0,modals=0,hitClues=0,guards=0,stuck=0,
-        guardFailures=0}
+    local counts={hunts=0,walks=0,looks=0,returns=0,gaveUp=0,detects=0,modals=0,teleports=0,hitClues=0,guards=0,
+        stuck=0,guardFailures=0}
     local seeker={}
     local function state(id)
         local s=states[id]
@@ -176,7 +177,7 @@ function M.new(g,options)
     -- With no enemy in sight: what the creature does now (combat-intent/search.lua's decision; a look
     -- is held from here), or nil and why its own life goes on ('no-clue', 'given-up'). m: its profile;
     -- rows and carried: what it has ready (adapters/eeex/choice.lua's book); zoneAt(p): whether a spot
-    -- lies in a danger zone, where no search walks; orders: its designer's orders.
+    -- lies in a danger zone, where no search walks or jumps; orders: its designer's orders.
     function seeker:decide(sprite,frame,tick,family,m,rows,carried,zoneAt,orders)
         local self=frame.self
         local id=self.id
@@ -198,8 +199,9 @@ function M.new(g,options)
                 guard=s.guard or nil,wit=m.wit})
         end
         local d,why=search.decide({tick=tick,frame=frame,mind=m,family=family,clues=list,post=s.post,since=s.since,
-            searched=s.searched,gaveUp=s.gaveUp,detected=s.detected,group=group(id,frame.area,tick),guard=s.guard,
-            detects=search.options(rows,carried),illusion=illusion(sprite),tactical=s.tactical})
+            searched=s.searched,gaveUp=s.gaveUp,detected=s.detected,jumped=s.jumped,group=group(id,frame.area,tick),
+            guard=s.guard,detects=search.options(rows,carried),teleports=search.teleports(rows),illusion=illusion(sprite),
+            tactical=s.tactical})
         if not d then
             if why=='given-up' then
                 giveUp(s,id,tick,newest and 'patience' or 'no-clue')
@@ -210,8 +212,13 @@ function M.new(g,options)
             return nil,why
         end
         if d.gaveUp then giveUp(s,id,tick,newest and 'patience' or 'no-clue') end
-        if d.kind=='search' and type(zoneAt)=='function' and zoneAt(d.point) then
-            d={kind='look',key=d.key,searched=d.key,zone=true}
+        if (d.kind=='search' or d.kind=='teleport') and type(zoneAt)=='function' then
+            if zoneAt(d.toward or d.point) then
+                d={kind='look',key=d.key,searched=d.key,zone=true}
+            elseif d.kind=='teleport' and zoneAt(d.point) then
+                -- A jump that would land in a danger zone short of its spot: the creature walks there.
+                d={kind='search',point=d.toward,clue=d.clue,target=d.target,key=d.key}
+            end
         end
         if d.searched then s.searched[d.searched]=true end
         if d.kind=='return' then
@@ -256,6 +263,17 @@ function M.new(g,options)
         end
         record({kind=decision.kind,tick=tick,member=id,from=from,to=point,clue=decision.clue,target=decision.target,
             gaveUp=decision.gaveUp,guard=decision.guard})
+    end
+    -- The teleport prepared for a search (decision: its spell, clue and target), to point, an open
+    -- spot: cast like the engine's other casts, which hold it; the members spread out from its spot.
+    function seeker:jump(sprite,decision,point,tick)
+        local id=sprite.m_id
+        local s=state(id)
+        s.jumped=tick
+        s.aim,s.aimTick=point,tick
+        counts.teleports=counts.teleports+1
+        record({kind='teleport',tick=tick,member=id,from={x=sprite.m_pos.x,y=sprite.m_pos.y},to=point,spell=decision.spell,
+            clue=decision.clue,target=decision.aim,innate=decision.innate,tactical=s.tactical})
     end
     -- The rogue's detection mode, started: held briefly before the search goes on.
     function seeker:mode(sprite,tick)

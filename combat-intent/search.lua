@@ -18,6 +18,11 @@
 -- - the walk: to the best clue's point. A tactical creature leads a moving enemy along its last
 --   heading, spreads out from members that search the same spot and, as a caster, stays behind a
 --   fighter that searches it too;
+-- - the jump: a long walk goes by a teleport the creature has, cast at the spot like any spell (SCS's
+--   phase spiders and mind flayers teleport to the party member they do not see, its mages Dimension
+--   Door after the one they chase; here the spot is the clue's, not where the party member really
+--   is). An innate power anyone uses; a memorized spell, which spends its slot, only a creature that
+--   sees its tactics, and only for a longer walk;
 -- - patience: by wit, counted from the newest clue, halved for the wounded and the cowardly; then it
 --   gives up: back to its post (where its fight began), where the engine heals as it does in a fight.
 --   One that guards (a boss, or by its orders) searches only near its post;
@@ -70,6 +75,14 @@ M.sightedTicks=16
 M.vanishTicks=30
 -- An item that detects is used after every spell (M.options): its level for the ranking.
 M.itemLevel=10
+-- A search walk at least jumpMin long goes by an innate teleport, one at least jumpSlotMin long by
+-- a memorized one (M.jump); no innate teleport within jumpGap seconds of the creature's last, no
+-- memorized one within jumpSlotGap (SCS's mages wait 18 seconds between their Dimension Door
+-- pursuits).
+M.jumpMin=200
+M.jumpSlotMin=600
+M.jumpGap=6
+M.jumpSlotGap=18
 -- A group's boss guards its post (M.boss): it has at least bossOthers other members, each at least
 -- bossLead levels below it.
 M.bossOthers=2
@@ -175,6 +188,68 @@ function M.options(rows,carried)
         end
     end
     return out
+end
+
+-- One teleport from a classified spell c (combat-intent/spells.lua), or nil: cast at a point, it
+-- moves the caster there (opcode 124 or 274 on the caster: a phase spider's teleport, a mind
+-- flayer's astral travel, Dimension Door). Its range in world units.
+local function teleport(c,resref,level,innate)
+    if type(c)~='table' or type(c.roles)~='table' or c.target~='point' or not number(c.range) or c.range<=0 then
+        return nil
+    end
+    local move=c.roles.move
+    if type(move)~='table' or type(move.kinds)~='table' or not move.kinds.teleport or type(move.who)~='table' or
+        not move.who.self then return nil end
+    return {resref=resref,level=level,range=c.range*targeting.rangeUnit,speed=number(c.speed) and c.speed or 0,
+        innate=innate or nil}
+end
+-- The teleports a creature has ready (M.jump's options): its spells ready to cast (rows, as for
+-- M.options), innate when they come from its innate abilities (list 'innate'). Whatever moves the
+-- caster to a point counts, with or without Spell Revisions.
+function M.teleports(rows)
+    local out={}
+    for _,row in ipairs(list(rows)) do
+        if type(row)=='table' and type(row.resref)=='string' and number(row.ready) and row.ready>0 and row.usable then
+            local level=number(row.level) and row.level or (type(row.spell)=='table' and number(row.spell.level) and
+                row.spell.level) or 9
+            local o=teleport(row.spell,row.resref,level,row.list=='innate')
+            if o then out[#out+1]=o end
+        end
+    end
+    return out
+end
+
+-- The teleport that takes the creature toward p, walk world units away, or nil: an innate one from
+-- jumpMin on, a memorized one from jumpSlotMin on for a tactical creature; none within its gap of
+-- the creature's last teleport (input.jumped). The innate first, then the lowest level, then the
+-- name. Returns the option and where it lands: p, or as far toward p as it reaches.
+function M.jump(input,p,walk,tactical)
+    local self=input.frame.self
+    local chosen,chosenKey
+    for _,o in ipairs(list(input.teleports)) do
+        if type(o)=='table' and type(o.resref)=='string' and number(o.range) and o.range>0 then
+            local gap=(o.innate and M.jumpGap or M.jumpSlotGap)*M.ticksPerSecond
+            if walk>=(o.innate and M.jumpMin or M.jumpSlotMin) and (o.innate or tactical) and
+                not (number(input.jumped) and input.tick-input.jumped<gap) then
+                local k={o.innate and 1 or 0,-(number(o.level) and o.level or 9)}
+                local better=chosen==nil
+                if not better then
+                    for i=1,#k do
+                        if k[i]~=chosenKey[i] then better=k[i]>chosenKey[i];break end
+                    end
+                    if not better and k[1]==chosenKey[1] and k[2]==chosenKey[2] and o.resref<chosen.resref then better=true end
+                end
+                if better then chosen,chosenKey=o,k end
+            end
+        end
+    end
+    if not chosen then return nil end
+    local at={x=p.x,y=p.y}
+    if walk>chosen.range then
+        local k=chosen.range/walk
+        at={x=self.x+(p.x-self.x)*k,y=self.y+(p.y-self.y)*k}
+    end
+    return chosen,whole(at)
 end
 
 -- The key a clue is searched under: its enemy (or its spot) and when it was seen.
@@ -316,14 +391,16 @@ end
 -- What the creature does while it sees no enemy, or nil and why not:
 -- {kind='detect', resref, self=true or point, level, item, slot, speed, clue, target, key},
 -- {kind='modal', clue, target, key} (Detect Illusion), {kind='search', point, clue, target, key},
--- {kind='look', key} (on a searched spot, or kept at its post or rooted), {kind='return', point}
--- (given up, or kept near its post: back there).
+-- {kind='teleport', resref, point, toward, level, speed, innate, clue, target, key} (a jump: point
+-- where it lands, toward the spot a walk would go to), {kind='look', key} (on a searched spot, or
+-- kept at its post or rooted),
+-- {kind='return', point} (given up, or kept near its post: back there).
 -- input: tick; frame (self: x, y, hp, maxHp, moraleBreak, seeInvisible, rooted; enemies empty);
 -- mind (wit, tactics, searchPatience); family; clues; post; since (the tick its search began, if
 -- it searches); searched (keys of searched spots); gaveUp (the tick the creature gave up, if it
--- did); detected (the tick of its last detection);
--- group (other members: {id, family, point}); guard; detects (see M.detection); illusion (its
--- Detect Illusion skill); tactical (M.draw's, once a search).
+-- did); detected (the tick of its last detection); jumped (the tick of its last teleport);
+-- group (other members: {id, family, point}); guard; detects (see M.detection); teleports (see
+-- M.jump); illusion (its Detect Illusion skill); tactical (M.draw's, once a search).
 -- The decision says what the adapter keeps: searched (a key now searched), gaveUp (true when the
 -- creature gives up now).
 function M.decide(input)
@@ -377,7 +454,13 @@ function M.decide(input)
     end
     if self.rooted then return {kind='look',key=key,rooted=true} end
     local p=M.aim(input,clue,tactical)
-    if targeting.distance(self,p)<=M.arrive then return {kind='look',key=key,searched=key} end
+    local walk=targeting.distance(self,p)
+    if walk<=M.arrive then return {kind='look',key=key,searched=key} end
+    local o,at=M.jump(input,p,walk,tactical)
+    if o then
+        return {kind='teleport',resref=o.resref,point=at,toward=p,level=o.level,speed=o.speed,innate=o.innate,
+            clue=clue.kind,target=clue.id,key=key}
+    end
     return {kind='search',point=p,clue=clue.kind,target=clue.id,key=key}
 end
 return M

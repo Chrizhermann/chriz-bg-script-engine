@@ -209,6 +209,19 @@ The engine searches with what the creature and its group perceived instead
   (at most twice the straight walk plus 2 seconds) and ended at once when an enemy shows or the
   creature is hurt. A spot inside a danger zone counts as searched. On a searched spot the creature
   looks around for a second and takes the next clue.
+- **The jump** (2026-10-26). A long walk goes by a teleport the creature has: any spell or innate
+  ability cast at a point that moves the caster there (opcode 124 or 274 on the caster: a phase
+  spider's teleport, a mind flayer's astral travel, Dimension Door, Ascension's Dimension Door),
+  cast like the engine's other spells (`SpellPointRES` at the open spot nearest the walk's point,
+  held while it runs). SCS teleports its phase spiders and mind flayers to the party member they do
+  not see and its mages after the one they chase; here the spot is the clue's. An innate power goes
+  for a walk of 200 or more, by anyone (it is how such a creature moves); a memorized spell, which
+  spends its slot, for 600 or more and only by a creature that sees its tactics this search. No
+  innate teleport within 6 seconds of the last, no memorized one within 18 (SCS's pause between
+  its mages' Dimension Door pursuits); the innate first, then the lowest level; beyond its range
+  as far toward the spot as it reaches, and the creature walks when that would land it in a danger
+  zone short of the spot. The log judges each by where the creature stands after it
+  (`landed` rows with the distance off its spot, `landed` and `unlanded` counts).
 - **Detection.** Only when a clue says the enemy is likely invisible near the creature: a hit from a
   spot it sees with no one there tells anyone; an enemy that vanished on such a spot, or that
   another member sees there, tells a creature that sees its tactics this search. The creature uses
@@ -248,13 +261,16 @@ The engine searches with what the creature and its group perceived instead
   now that means mages and priests on the engine's side; fighters and monsters follow with F1e, and
   a neutral or charmed creature keeps SCS's own hunt.
 - **Log.** Rows `hunt` (a search begins: clues, tactics, patience, guard, wit), `clue` (a hit),
-  `search` and `return` (walks), `detect`, `reveal`, `gave-up` (why: patience, no clue, stuck) and
-  `stuck`; `inspect()` has the search's counts.
+  `search` and `return` (walks), `teleport` and `landed`, `detect`, `reveal`, `gave-up` (why:
+  patience, no clue, stuck) and `stuck`; `inspect()` has the search's counts.
 
-Not built yet: opening doors, teleporting toward a clue (SCS's Dimension Door pursuit and fiend
-teleport), buffing at the post after giving up, barks, and an ordered target's clues coming first.
-To see in a lab: searches in real fights, whether spell damage sets `m_lHitter` as weapon hits do,
-and what Detect Illusion reveals.
+Not built yet: opening doors, buffing at the post after giving up, barks, and an ordered target's
+clues coming first. SCS's scripted teleports (the fiends' and Melissan's `dw#fitel`, cast with
+`ReallyForceSpellRES` without a memorized copy) are no ability the engine sees, so a fiend it drives
+walks its searches for now; giving the engine such scripted powers is open (before F1e). To see in
+a lab: searches in real fights, whether spell damage sets `m_lHitter` as weapon hits do, what
+Detect Illusion reveals, and whether a teleport at a spot the caster does not see goes off or first
+walks until it does.
 
 ## Agreed (Christopher, 2026-10-25)
 

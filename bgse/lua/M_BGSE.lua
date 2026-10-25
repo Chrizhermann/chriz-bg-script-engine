@@ -6593,6 +6593,11 @@ factories["combat-intent.search"]=function(require)
 -- - the walk: to the best clue's point. A tactical creature leads a moving enemy along its last
 --   heading, spreads out from members that search the same spot and, as a caster, stays behind a
 --   fighter that searches it too;
+-- - the jump: a long walk goes by a teleport the creature has, cast at the spot like any spell (SCS's
+--   phase spiders and mind flayers teleport to the party member they do not see, its mages Dimension
+--   Door after the one they chase; here the spot is the clue's, not where the party member really
+--   is). An innate power anyone uses; a memorized spell, which spends its slot, only a creature that
+--   sees its tactics, and only for a longer walk;
 -- - patience: by wit, counted from the newest clue, halved for the wounded and the cowardly; then it
 --   gives up: back to its post (where its fight began), where the engine heals as it does in a fight.
 --   One that guards (a boss, or by its orders) searches only near its post;
@@ -6645,6 +6650,14 @@ M.sightedTicks=16
 M.vanishTicks=30
 -- An item that detects is used after every spell (M.options): its level for the ranking.
 M.itemLevel=10
+-- A search walk at least jumpMin long goes by an innate teleport, one at least jumpSlotMin long by
+-- a memorized one (M.jump); no innate teleport within jumpGap seconds of the creature's last, no
+-- memorized one within jumpSlotGap (SCS's mages wait 18 seconds between their Dimension Door
+-- pursuits).
+M.jumpMin=200
+M.jumpSlotMin=600
+M.jumpGap=6
+M.jumpSlotGap=18
 -- A group's boss guards its post (M.boss): it has at least bossOthers other members, each at least
 -- bossLead levels below it.
 M.bossOthers=2
@@ -6750,6 +6763,68 @@ function M.options(rows,carried)
         end
     end
     return out
+end
+
+-- One teleport from a classified spell c (combat-intent/spells.lua), or nil: cast at a point, it
+-- moves the caster there (opcode 124 or 274 on the caster: a phase spider's teleport, a mind
+-- flayer's astral travel, Dimension Door). Its range in world units.
+local function teleport(c,resref,level,innate)
+    if type(c)~='table' or type(c.roles)~='table' or c.target~='point' or not number(c.range) or c.range<=0 then
+        return nil
+    end
+    local move=c.roles.move
+    if type(move)~='table' or type(move.kinds)~='table' or not move.kinds.teleport or type(move.who)~='table' or
+        not move.who.self then return nil end
+    return {resref=resref,level=level,range=c.range*targeting.rangeUnit,speed=number(c.speed) and c.speed or 0,
+        innate=innate or nil}
+end
+-- The teleports a creature has ready (M.jump's options): its spells ready to cast (rows, as for
+-- M.options), innate when they come from its innate abilities (list 'innate'). Whatever moves the
+-- caster to a point counts, with or without Spell Revisions.
+function M.teleports(rows)
+    local out={}
+    for _,row in ipairs(list(rows)) do
+        if type(row)=='table' and type(row.resref)=='string' and number(row.ready) and row.ready>0 and row.usable then
+            local level=number(row.level) and row.level or (type(row.spell)=='table' and number(row.spell.level) and
+                row.spell.level) or 9
+            local o=teleport(row.spell,row.resref,level,row.list=='innate')
+            if o then out[#out+1]=o end
+        end
+    end
+    return out
+end
+
+-- The teleport that takes the creature toward p, walk world units away, or nil: an innate one from
+-- jumpMin on, a memorized one from jumpSlotMin on for a tactical creature; none within its gap of
+-- the creature's last teleport (input.jumped). The innate first, then the lowest level, then the
+-- name. Returns the option and where it lands: p, or as far toward p as it reaches.
+function M.jump(input,p,walk,tactical)
+    local self=input.frame.self
+    local chosen,chosenKey
+    for _,o in ipairs(list(input.teleports)) do
+        if type(o)=='table' and type(o.resref)=='string' and number(o.range) and o.range>0 then
+            local gap=(o.innate and M.jumpGap or M.jumpSlotGap)*M.ticksPerSecond
+            if walk>=(o.innate and M.jumpMin or M.jumpSlotMin) and (o.innate or tactical) and
+                not (number(input.jumped) and input.tick-input.jumped<gap) then
+                local k={o.innate and 1 or 0,-(number(o.level) and o.level or 9)}
+                local better=chosen==nil
+                if not better then
+                    for i=1,#k do
+                        if k[i]~=chosenKey[i] then better=k[i]>chosenKey[i];break end
+                    end
+                    if not better and k[1]==chosenKey[1] and k[2]==chosenKey[2] and o.resref<chosen.resref then better=true end
+                end
+                if better then chosen,chosenKey=o,k end
+            end
+        end
+    end
+    if not chosen then return nil end
+    local at={x=p.x,y=p.y}
+    if walk>chosen.range then
+        local k=chosen.range/walk
+        at={x=self.x+(p.x-self.x)*k,y=self.y+(p.y-self.y)*k}
+    end
+    return chosen,whole(at)
 end
 
 -- The key a clue is searched under: its enemy (or its spot) and when it was seen.
@@ -6891,14 +6966,16 @@ end
 -- What the creature does while it sees no enemy, or nil and why not:
 -- {kind='detect', resref, self=true or point, level, item, slot, speed, clue, target, key},
 -- {kind='modal', clue, target, key} (Detect Illusion), {kind='search', point, clue, target, key},
--- {kind='look', key} (on a searched spot, or kept at its post or rooted), {kind='return', point}
--- (given up, or kept near its post: back there).
+-- {kind='teleport', resref, point, toward, level, speed, innate, clue, target, key} (a jump: point
+-- where it lands, toward the spot a walk would go to), {kind='look', key} (on a searched spot, or
+-- kept at its post or rooted),
+-- {kind='return', point} (given up, or kept near its post: back there).
 -- input: tick; frame (self: x, y, hp, maxHp, moraleBreak, seeInvisible, rooted; enemies empty);
 -- mind (wit, tactics, searchPatience); family; clues; post; since (the tick its search began, if
 -- it searches); searched (keys of searched spots); gaveUp (the tick the creature gave up, if it
--- did); detected (the tick of its last detection);
--- group (other members: {id, family, point}); guard; detects (see M.detection); illusion (its
--- Detect Illusion skill); tactical (M.draw's, once a search).
+-- did); detected (the tick of its last detection); jumped (the tick of its last teleport);
+-- group (other members: {id, family, point}); guard; detects (see M.detection); teleports (see
+-- M.jump); illusion (its Detect Illusion skill); tactical (M.draw's, once a search).
 -- The decision says what the adapter keeps: searched (a key now searched), gaveUp (true when the
 -- creature gives up now).
 function M.decide(input)
@@ -6952,7 +7029,13 @@ function M.decide(input)
     end
     if self.rooted then return {kind='look',key=key,rooted=true} end
     local p=M.aim(input,clue,tactical)
-    if targeting.distance(self,p)<=M.arrive then return {kind='look',key=key,searched=key} end
+    local walk=targeting.distance(self,p)
+    if walk<=M.arrive then return {kind='look',key=key,searched=key} end
+    local o,at=M.jump(input,p,walk,tactical)
+    if o then
+        return {kind='teleport',resref=o.resref,point=at,toward=p,level=o.level,speed=o.speed,innate=o.innate,
+            clue=clue.kind,target=clue.id,key=key}
+    end
     return {kind='search',point=p,clue=clue.kind,target=clue.id,key=key}
 end
 return M
@@ -8200,9 +8283,10 @@ factories["adapters.eeex.search"]=function(require)
 -- spot where the enemy would be now included; or seen before), and a hit from an attacker it does
 -- not see (its hit points dropped and the game names an enemy as the last to hit it: where that
 -- enemy stands). What it can detect with comes from its ready spells and items, and a rogue's
--- Detect Illusion skill (STATS.IDS DETECTILLUSIONS). Each creature keeps where its fight began (its
--- post, where it goes back when it gives up), whether its search draws its tactics, the spots it has
--- searched, when it gave up and when it last detected; its group's boss, or one whose orders say so,
+-- Detect Illusion skill (STATS.IDS DETECTILLUSIONS); what it can teleport with from its ready spells
+-- and innate abilities. Each creature keeps where its fight began (its post, where it goes back when
+-- it gives up), whether its search draws its tactics, the spots it has searched, when it gave up,
+-- when it last detected and when it last teleported; its group's boss, or one whose orders say so,
 -- guards its post. A walk is held while the creature walks it, a look and the rogue's detection mode
 -- briefly; each ends early when an enemy shows or the creature is hurt. Session-local; a load
 -- forgets it all.
@@ -8241,8 +8325,8 @@ function M.new(g,options)
     local record=type(options.record)=='function' and options.record or function() end
     local rng=options.rng
     local states,stateCount={},0
-    local counts={hunts=0,walks=0,looks=0,returns=0,gaveUp=0,detects=0,modals=0,hitClues=0,guards=0,stuck=0,
-        guardFailures=0}
+    local counts={hunts=0,walks=0,looks=0,returns=0,gaveUp=0,detects=0,modals=0,teleports=0,hitClues=0,guards=0,
+        stuck=0,guardFailures=0}
     local seeker={}
     local function state(id)
         local s=states[id]
@@ -8371,7 +8455,7 @@ function M.new(g,options)
     -- With no enemy in sight: what the creature does now (combat-intent/search.lua's decision; a look
     -- is held from here), or nil and why its own life goes on ('no-clue', 'given-up'). m: its profile;
     -- rows and carried: what it has ready (adapters/eeex/choice.lua's book); zoneAt(p): whether a spot
-    -- lies in a danger zone, where no search walks; orders: its designer's orders.
+    -- lies in a danger zone, where no search walks or jumps; orders: its designer's orders.
     function seeker:decide(sprite,frame,tick,family,m,rows,carried,zoneAt,orders)
         local self=frame.self
         local id=self.id
@@ -8393,8 +8477,9 @@ function M.new(g,options)
                 guard=s.guard or nil,wit=m.wit})
         end
         local d,why=search.decide({tick=tick,frame=frame,mind=m,family=family,clues=list,post=s.post,since=s.since,
-            searched=s.searched,gaveUp=s.gaveUp,detected=s.detected,group=group(id,frame.area,tick),guard=s.guard,
-            detects=search.options(rows,carried),illusion=illusion(sprite),tactical=s.tactical})
+            searched=s.searched,gaveUp=s.gaveUp,detected=s.detected,jumped=s.jumped,group=group(id,frame.area,tick),
+            guard=s.guard,detects=search.options(rows,carried),teleports=search.teleports(rows),illusion=illusion(sprite),
+            tactical=s.tactical})
         if not d then
             if why=='given-up' then
                 giveUp(s,id,tick,newest and 'patience' or 'no-clue')
@@ -8405,8 +8490,13 @@ function M.new(g,options)
             return nil,why
         end
         if d.gaveUp then giveUp(s,id,tick,newest and 'patience' or 'no-clue') end
-        if d.kind=='search' and type(zoneAt)=='function' and zoneAt(d.point) then
-            d={kind='look',key=d.key,searched=d.key,zone=true}
+        if (d.kind=='search' or d.kind=='teleport') and type(zoneAt)=='function' then
+            if zoneAt(d.toward or d.point) then
+                d={kind='look',key=d.key,searched=d.key,zone=true}
+            elseif d.kind=='teleport' and zoneAt(d.point) then
+                -- A jump that would land in a danger zone short of its spot: the creature walks there.
+                d={kind='search',point=d.toward,clue=d.clue,target=d.target,key=d.key}
+            end
         end
         if d.searched then s.searched[d.searched]=true end
         if d.kind=='return' then
@@ -8451,6 +8541,17 @@ function M.new(g,options)
         end
         record({kind=decision.kind,tick=tick,member=id,from=from,to=point,clue=decision.clue,target=decision.target,
             gaveUp=decision.gaveUp,guard=decision.guard})
+    end
+    -- The teleport prepared for a search (decision: its spell, clue and target), to point, an open
+    -- spot: cast like the engine's other casts, which hold it; the members spread out from its spot.
+    function seeker:jump(sprite,decision,point,tick)
+        local id=sprite.m_id
+        local s=state(id)
+        s.jumped=tick
+        s.aim,s.aimTick=point,tick
+        counts.teleports=counts.teleports+1
+        record({kind='teleport',tick=tick,member=id,from={x=sprite.m_pos.x,y=sprite.m_pos.y},to=point,spell=decision.spell,
+            clue=decision.clue,target=decision.aim,innate=decision.innate,tactical=s.tactical})
     end
     -- The rogue's detection mode, started: held briefly before the search goes on.
     function seeker:mode(sprite,tick)
@@ -8628,6 +8729,9 @@ M.families={mage=true,priest=true}
 -- resumes if a Time Stop froze the target, its effect on the target is judged.
 M.pendingTicks=45
 M.outcomeTicks=30
+-- A search teleport landed when its caster stands within landSlack of its spot (combat-intent/
+-- search.lua's arrive).
+M.landSlack=48
 -- A started cast that ends this much before its casting time, counted from when its casting began
 -- (M.castBegan), was interrupted. A speed point of casting time is speedTicks (ACT-05: the casting
 -- action ended 10, 40 and 60 ticks after it began at speeds 1, 4 and 6).
@@ -8842,7 +8946,7 @@ function M.new(g,options)
         hits=0,misses=0,errors=0,holds=0,frozen=0,marks=0,markFailures=0,defences=0,guarded=0,unguarded=0,
         guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0,arms=0,attacks=0,attackHits=0,
         weaponFailures=0,releases=0,heals=0,cures=0,potions=0,cared=0,uncared=0,summons=0,conjured=0,
-        unconjured=0,removals=0,stripped=0,unstripped=0,wardFailures=0,revealed=0,unrevealed=0}
+        unconjured=0,removals=0,stripped=0,unstripped=0,wardFailures=0,revealed=0,unrevealed=0,landed=0,unlanded=0}
     local reasons={}
     local log,nextRow,size={},1,0
     local root,sink,lastError,markError,guardError,weaponError,wardError,zoneError,witError
@@ -9290,6 +9394,15 @@ function M.new(g,options)
             local seen=frame and #frame.enemies or 0
             if seen>0 then counts.revealed=counts.revealed+1 else counts.unrevealed=counts.unrevealed+1 end
             record({kind='reveal',tick=a.ended,member=a.caster,spell=a.resref,mode=a.mode,seen=seen})
+            return
+        end
+        if a.kind=='teleport' then
+            -- A teleport (the engine's search): how far from its spot the caster stands now.
+            local caster=get(a.caster)
+            if not caster or type(a.point)~='table' then return end
+            local off=math.floor(targeting.distance({x=caster.m_pos.x,y=caster.m_pos.y},a.point)+0.5)
+            if off<=M.landSlack then counts.landed=counts.landed+1 else counts.unlanded=counts.unlanded+1 end
+            record({kind='landed',tick=a.ended,member=a.caster,spell=a.resref,point=a.point,off=off})
             return
         end
         if not defending and (not a.target or a.mode~='creature') then return end
@@ -9767,8 +9880,8 @@ function M.new(g,options)
 
     -- With no enemy in sight: the engine's search (adapters/eeex/search.lua) as the gate's decision,
     -- or nil, and the creature's own life goes on ('no-enemy' without a clue, 'given-up'). A
-    -- detection is cast or used like the engine's other casts; a walk goes to the nearest open spot
-    -- (prepare); a look holds.
+    -- detection is cast or used like the engine's other casts, and so is a teleport, to the nearest
+    -- open spot (prepare); a walk goes to the nearest open spot (prepare); a look holds.
     local function seek(sprite,frame,id,tick,family,rows,carried,m)
         local raw=zoneList(sprite,tick)
         local d,why=seeker:decide(sprite,frame,tick,family,m,rows,carried,function(p) return inZone(raw,p.x,p.y) end,
@@ -9786,6 +9899,15 @@ function M.new(g,options)
             return {own=true,response=response,spell=d.resref,kind='detect',mode=d.self and 'self' or 'point',point=d.point,
                 self=d.self,hits={},castTicks=spell and type(spell.speed)=='number' and spell.speed*M.speedTicks or nil,
                 use=d.item,cover=(type(d.speed)=='number' and d.speed>0 and d.speed or 0)*M.speedTicks+M.coverSlack}
+        end
+        if d.kind=='teleport' then
+            local response=M.response({resref=d.resref,point=d.point})
+            if not response then return decline('bad-response') end
+            counts.claims=counts.claims+1
+            return {own=true,response=response,spell=d.resref,kind='teleport',mode='point',point=d.point,hits={},
+                castTicks=type(d.speed)=='number' and d.speed*M.speedTicks or nil,
+                cover=(type(d.speed)=='number' and d.speed>0 and d.speed or 0)*M.speedTicks+M.coverSlack,
+                clue=d.clue,aim=d.target,innate=d.innate}
         end
         return {own=true,response='MoveToPoint(['..d.point.x..'.'..d.point.y..'])',kind=d.kind,point=d.point,
             clue=d.clue,target=d.target,gaveUp=d.gaveUp,guard=d.guard}
@@ -10082,6 +10204,14 @@ function M.new(g,options)
         elseif decision.kind=='modal' then
             seeker:mode(object,tick)
         else
+            if decision.kind=='teleport' then
+                -- A teleport toward a clue: to the nearest open spot where the creature fits.
+                local point=walkable(object,{point=decision.point})
+                local response=point and M.response({resref=decision.spell,point=point})
+                if not response then return 'skipped' end
+                decision.point,decision.response=point,response
+                seeker:jump(object,decision,point,tick)
+            end
             pending[object.m_id]={caster=object.m_id,resref=decision.spell,kind=decision.kind,mode=decision.mode,
                 target=decision.target,point=decision.point,hits=decision.hits,tick=tick,hp=hp,
                 castTicks=decision.castTicks,sources=decision.sources,expected=decision.expected,before=decision.before,

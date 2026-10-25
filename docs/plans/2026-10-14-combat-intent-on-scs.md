@@ -672,8 +672,13 @@ detect, the walk to the nearest enemy on an ally's shout, the walk at the party 
 and the random walk when an unseen attacker hits, which the engine's search answers with the
 attacker's spot as a clue.
 
-Next: the search teleports toward a clue with the creature's own teleports (fair: to the spot, not
-to the party member), then F1e (switching fighters and monsters on) with a lab, then F2.
+The search now also teleports toward a clue with the creature's own teleports
+([FIGHT-01](../research/FIGHT-01-fighter-and-monster-rounds.md), "The jump"): to the spot, not to
+the party member; innate powers by anyone, a memorized Dimension Door only by a creature that sees
+its tactics and only for a long walk.
+
+Next: SCS's scripted powers without a memorized copy (the fiends' and Melissan's teleport) for the
+engine, then F1e (switching fighters and monsters on) with a lab, then F2.
 
 ## To design with Christopher
 
