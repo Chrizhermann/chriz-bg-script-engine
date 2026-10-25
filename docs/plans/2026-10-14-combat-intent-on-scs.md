@@ -808,10 +808,14 @@ Christopher's ideas so far (living list; more will follow):
   once that character runs around a corner. Not yet reproduced in a lab. A likely
   approach: aim area spells at the spot instead of the creature, so they still land.
   Status (asked again 2026-10-25): since the second slice the engine casts area spells that
-  can go to a spot at a point (`SpellPointRES`), so those are not tied to the target. Casts
-  at a single creature still break off; the engine no longer takes such a break for an
-  immunity. To do: reproduce in a lab (is the spell lost?), then let clever casters avoid
-  starting a slow single-target cast at an enemy about to leave their sight.
+  can go to a spot at a point (`SpellPointRES`), so those are not tied to the target. For
+  casts at a single creature the game's rule is unknown: IESDP says nothing, and in our one
+  lab case (ACT-04) a target that walked away still got the spell. Christopher: invisibility
+  breaking a cast makes sense, a target that merely steps out of sight range should not ("Ist
+  das nicht falsch? Wie ist das denn umgekehrt…?"). To do: a lab probe in both directions (an
+  enemy casting at the party, the party at an enemy; out of sight range, behind a wall,
+  invisible). If enemies only count their own eyes while the party shares its vision, fix the
+  cause so one rule holds for both; avoiding such casts is no substitute.
 - **Area spells at a creature or at a spot** (2026-10-25): "In seltenen Fällen ist das vielleicht
   besser … einem Spell auszuweichen wäre ja auch Skill." SCS aims at creatures; Tactics Remix
   aims at spots and guesses where the player is running. The engine already aims at a spot,
