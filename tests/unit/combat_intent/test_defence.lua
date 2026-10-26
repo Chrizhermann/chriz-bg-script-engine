@@ -299,6 +299,16 @@ assert(near(o.worth,2*(0.95-0.85)*12*3/60))
 i.frame.allies={far}
 rejected={}
 assert(#defence.options(i,rejected)==0 and rejected['no-worth']==1)
+-- Its curse counts too (F2b): two worse to hit takes an eighth of a free enemy's round (two swings
+-- for 10 at armour class 5, the mean of the caster's side: 0.8 to 0.7 each); not again on an enemy
+-- that carries it.
+i=input({fighter(11,200,{actee=2})},{row('TESTRECI',recitation,4)})
+i.frame.allies={ally}
+o=find(defence.options(i,{}),'TESTRECI')
+assert(o and near(o.worth,2*(0.95-0.85)*12*3/60+(1-14/16)))
+i.frame.enemies[1].wards={{source='TESTRECB',opcode=54}}
+o=find(defence.options(i,{}),'TESTRECI')
+assert(o and near(o.worth,2*(0.95-0.85)*12*3/60))
 rejected={}
 assert(#defence.options(input({fighter(11,130)},{row('TESTBLAD',blades,6)}),rejected)==0 and rejected['harms-friends']==1)
 local given=defence.defence(haste)

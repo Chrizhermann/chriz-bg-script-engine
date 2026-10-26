@@ -701,9 +701,16 @@ classifier ignored level limits in EFF files and deliveries and merged a spell's
 creature sees what reaches its level (SPELLS-01, "Levels"): Holy Word kills only up to level 4
 and stuns up to 9, Cloudkill kills only up to level 6.
 
+F2b made debuffs attacks (FIGHT-01, "F2b"): Slow, Doom, blindness, Miscast Magic and level drains
+count by the share of an enemy's fight they take, beside damage and disables too (Holy Smite
+blinds). A clever creature also counts what a debuff opens for the attacks after it (Greater
+Malison before Hold Person), a normal one when it notices, a dull one never. One member of the
+group casts each debuff spell at an enemy, and nobody casts one at an enemy that carries it
+already. Prayer, Recitation and Chant count what they take from enemies too.
+
 Next: the teleport lab's second run (an engine jump, SCS's ReallyForceSpellRES form, a cast from
-out of sight) and a lab of mixed fights with fighters and monsters, then F2. Melissan's own fight
-is designed with Christopher.
+out of sight) and a lab of mixed fights with fighters and monsters, then the rest of F2 (archers,
+thieves). Melissan's own fight is designed with Christopher.
 
 ## To design with Christopher
 

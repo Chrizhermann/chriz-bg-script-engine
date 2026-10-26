@@ -1,7 +1,10 @@
 -- The fight director of one hostile group (for now: the hooked creatures of one area).
 -- Members check in with what they perceive (frames from adapters/eeex/sense.lua); the director
 -- keeps the shared picture (where the enemies are, how wounded, who is disabled), picks a focus
--- target and keeps one disabler per target with short reservations. It never acts. When a
+-- target and keeps one disabler per target with short reservations, and one caster of each
+-- debuff per target (F2b: two priests do not cast Doom at one enemy together; SCS keeps its
+-- priests' Greater Malison apart with a timer for the whole area, [src] priest/ssl/combatblocks/
+-- curse_malison.ssl). It never acts. When a
 -- member's own cast starts, it advises keeping the target or taking another one, and the
 -- adapter re-checks before it changes anything. Plain values only; nothing survives a load.
 local targeting=require('combat-intent.targeting')
@@ -30,7 +33,7 @@ function M.new(config)
     for k,v in pairs(M.defaults) do if config[k]==nil then o[k]=v else o[k]=config[k] end end
     local area=type(config.area)=='string' and config.area or ''
     local sink=type(config.sink)=='function' and config.sink or nil
-    local members,enemies,reservations,attempts={},{},{},{}
+    local members,enemies,reservations,attempts,curses={},{},{},{},{}
     local focus,lastTick=nil,nil
     local log,nextRow,size={},1,0
     local counts={checkIns=0,advice=0,redirects=0,keeps=0,focusChanges=0,focusLost=0,attempts=0,ended=0,
@@ -61,11 +64,32 @@ function M.new(config)
         reservations[target]={owner=member,from=tick,untilTick=tick+ticks,claim=claim}
         return true
     end
+    -- Who casts debuff spell at target at tick, as reservations do for disables.
+    local function cursing(target,spell,tick)
+        local r=curses[target] and curses[target][spell]
+        if r and r.untilTick>tick and members[r.owner] then return r.owner end
+    end
+    -- Claim debuff spell at target for member for ticks, as take does.
+    local function curse(member,target,spell,tick,ticks,claim)
+        if not id(target) or target==member or type(spell)~='string' then return false end
+        local owner=cursing(target,spell,tick)
+        if owner~=nil and owner~=member then return false end
+        local held=curses[target] or {}
+        if claim and owner==member and not held[spell].claim then return true end
+        held[spell]={owner=member,from=tick,untilTick=tick+ticks,claim=claim}
+        curses[target]=held
+        return true
+    end
     -- Drop member's claims.
     local function drop(member)
         local n=0
         for target,r in pairs(reservations) do
             if r.owner==member and r.claim then reservations[target]=nil;n=n+1 end
+        end
+        for _,held in pairs(curses) do
+            for spell,r in pairs(held) do
+                if r.owner==member and r.claim then held[spell]=nil;n=n+1 end
+            end
         end
         return n
     end
@@ -75,6 +99,10 @@ function M.new(config)
         a.ended=tick;counts.ended=counts.ended+1
         for _,target in ipairs(a.reserved) do
             local r=reservations[target]
+            if r and r.owner==member then r.untilTick=math.min(r.untilTick,tick+o.graceTicks) end
+        end
+        for _,target in ipairs(a.cursed or {}) do
+            local r=curses[target] and curses[target][a.spell]
             if r and r.owner==member then r.untilTick=math.min(r.untilTick,tick+o.graceTicks) end
         end
         local e=enemies[a.target]
@@ -212,36 +240,47 @@ function M.new(config)
         return result
     end
 
-    -- The group's plan as its members use it at tick: the focus target and who holds which
-    -- disable reservation.
+    -- The group's plan as its members use it at tick: the focus target, who holds which disable
+    -- reservation, and who casts which debuff at which enemy (cursed[target][spell]).
     function api:plan(tick)
         clock(tick)
-        local reserved={}
+        local reserved,cursed={},{}
         for target,r in pairs(reservations) do
             if r.untilTick>tick and members[r.owner] then reserved[target]=r.owner end
         end
-        return {focus=api:focus(tick),reserved=reserved}
+        for target,held in pairs(curses) do
+            for spell in pairs(held) do
+                local owner=cursing(target,spell,tick)
+                if owner then cursed[target]=cursed[target] or {};cursed[target][spell]=owner end
+            end
+        end
+        return {focus=api:focus(tick),reserved=reserved,cursed=cursed}
     end
 
     -- A member's cast has started at target (after any redirect). Any cast counts for the
     -- picture and replaces the member's claims. A disable reserves its target, or every enemy
     -- its area hits (cast.hits, known for the engine's own casts), except those another member
-    -- holds; the engine's own heal or cure (D3a, D3b) reserves the allies it helps the same way.
+    -- holds; the engine's own heal or cure (D3a, D3b) reserves the allies it helps the same way,
+    -- and its own debuff (F2b) the enemies it weakens, for that spell only.
     -- own: the engine chose the cast itself.
     function api:started(member,cast,tick)
         clock(tick)
         finish(member.id,tick,'replaced')
         drop(member.id)
         local role=cast.role
-        local reserved={}
+        local reserved,cursed={},{}
+        local list=type(cast.hits)=='table' and #cast.hits>0 and cast.hits or {cast.target}
         if role=='disable' or role=='heal' or role=='cure' then
-            local list=type(cast.hits)=='table' and #cast.hits>0 and cast.hits or {cast.target}
             for _,target in ipairs(list) do
                 if take(member.id,target,tick,o.reserveTicks,nil) then reserved[#reserved+1]=target end
             end
+        elseif role=='debuff' then
+            for _,target in ipairs(list) do
+                if curse(member.id,target,cast.spell,tick,o.reserveTicks,nil) then cursed[#cursed+1]=target end
+            end
         end
         attempts[member.id]={spell=cast.spell,role=role,target=cast.target,action=cast.action or 31,
-            startedAt=tick,reserved=reserved}
+            startedAt=tick,reserved=reserved,cursed=cursed}
         counts.attempts=counts.attempts+1
         record({kind='start',tick=tick,member=member.id,family=member.family,spell=cast.spell,
             role=role,target=cast.target,original=cast.original,redirected=cast.redirected or nil,
@@ -288,6 +327,20 @@ function M.new(config)
         if #held>0 then record({kind='reserve',tick=tick,member=member.id,family=member.family,targets=held}) end
         return #held
     end
+    -- The engine's own debuff spell for member, just chosen and not yet queued, claims the enemies
+    -- it weakens for that spell, as reserve does for a disable. Returns how many it holds.
+    function api:curse(member,targets,spell,tick)
+        if type(member)~='table' or not id(member.id) or type(targets)~='table' or type(spell)~='string' or
+            not number(tick) then return 0 end
+        clock(tick)
+        drop(member.id)
+        local held={}
+        for _,target in ipairs(targets) do
+            if curse(member.id,target,spell,tick,o.claimTicks,true) then held[#held+1]=target end
+        end
+        if #held>0 then record({kind='curse',tick=tick,member=member.id,family=member.family,spell=spell,targets=held}) end
+        return #held
+    end
     -- The member's decision was given up before its cast started: its claims go. member: the
     -- member or its id.
     function api:release(member,tick)
@@ -310,6 +363,12 @@ function M.new(config)
         for key,r in pairs(reservations) do
             if r.untilTick<=tick or not members[r.owner] then reservations[key]=nil;counts.released=counts.released+1 end
         end
+        for key,held in pairs(curses) do
+            for spell,r in pairs(held) do
+                if r.untilTick<=tick or not members[r.owner] then held[spell]=nil;counts.released=counts.released+1 end
+            end
+            if next(held)==nil then curses[key]=nil end
+        end
         if focus and not fresh(enemies[focus],tick) then
             local e=enemies[focus]
             counts.focusLost=counts.focusLost+1
@@ -318,7 +377,7 @@ function M.new(config)
         end
     end
     function api:invalidate(reason)
-        members,enemies,reservations,attempts,focus,lastTick={},{},{},{},nil,nil
+        members,enemies,reservations,attempts,curses,focus,lastTick={},{},{},{},{},nil,nil
         record({kind='invalidated',reason=reason})
     end
     function api:inspect()
@@ -327,6 +386,13 @@ function M.new(config)
             held[#held+1]={target=target,owner=r.owner,untilTick=r.untilTick,claim=r.claim}
         end
         table.sort(held,function(a,b) return a.target<b.target end)
+        local cursed={}
+        for target,list in pairs(curses) do
+            for spell,r in pairs(list) do
+                cursed[#cursed+1]={target=target,spell=spell,owner=r.owner,untilTick=r.untilTick,claim=r.claim}
+            end
+        end
+        table.sort(cursed,function(a,b) if a.target~=b.target then return a.target<b.target end return a.spell<b.spell end)
         local count=function(t) local n=0;for _ in pairs(t) do n=n+1 end;return n end
         -- The group's picture of each enemy: when it was last seen, by how many members within
         -- enemyTicks of that, and whether it was disabled then.
@@ -340,7 +406,7 @@ function M.new(config)
         local rows,first={},(nextRow-size-1)%o.logCapacity+1
         for i=0,size-1 do rows[#rows+1]=values.copy(log[(first+i-1)%o.logCapacity+1]) end
         return {area=area,members=count(members),enemies=count(enemies),focus=focus,reservations=held,
-            known=known,counts=values.copy(counts),log=rows}
+            curses=cursed,known=known,counts=values.copy(counts),log=rows}
     end
     return api
 end

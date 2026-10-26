@@ -88,11 +88,15 @@ do
     local deadly=zones.hit(low,zone(kill),low.frame.self)
     local mild=zones.hit(high,zone(kill),high.frame.self)
     assert(deadly>mild and mild>0)
-    -- Stinking Cloud's spell failure: a caster loses more than a fighter.
+    -- Stinking Cloud's spell failure: a caster loses the spells it can no longer cast (all of its
+    -- wizard spells: 18 a round at its 15th level, beside 6.65 from a weapon it is not known to
+    -- hold, one attack at THAC0 12 for 7 that hits 19 times in 20 when no enemy shows its armour),
+    -- for 7 of 18 seconds, at full health, when it fails its save; a fighter loses nothing.
     local mage=zones.hit(i,zone(stink),me)
+    local fails=1-targeting.saveChance(stink.roles.debuff,me)
+    assert(near(mage,18/(18+6.65)*7/18*fails))
     local warrior=input({}, {ids={ea=255,general=1,race=1,class=2,specific=0,gender=1,alignment=0x11}})
-    local fighter=zones.hit(warrior,zone(stink),warrior.frame.self)
-    assert(mage>0 and fighter>0 and near(fighter,mage*0.2))
+    assert(zones.hit(warrior,zone(stink),warrior.frame.self)==0)
     -- A zone for its caster's enemies, cast by a friend, spares the friend's side.
     assert(zones.hit(i,zone(fire,{filter='enemies',side='friend'}),me)==0)
     assert(zones.hit(i,zone(fire,{filter='enemies',side='enemy'}),me)>0)

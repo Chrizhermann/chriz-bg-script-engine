@@ -218,6 +218,13 @@ An area buff is worth what it adds to every ally it reaches, including their ext
 as a share of an enemy. Single-target spells on allies come only from the profile's `allySpells`,
 empty until Christopher agrees exceptions.
 
+Since F2b (2026-10-26) an area defence that also weakens the enemies it reaches counts that too:
+Prayer and Recitation give the caster's side luck and to-hit and take the same from enemies, as
+Chant does. What it takes from each enemy in its area that its spell protections let it reach and
+that does not carry it yet is worth what a debuff is (`harm.debuff`,
+[FIGHT-01](FIGHT-01-fighter-and-monster-rounds.md)); `caution` weights only what it gives the
+side. The aim is where both parts together are worth most.
+
 **Costs and the decision:**
 
 - Defence options join the attack options in one ranking, with the same random pick near the

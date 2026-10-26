@@ -287,4 +287,36 @@ assert(#members==2 and members[1].id==1 and members[1].family=='mage' and member
 assert(#sd:members(400)==0)
 groups=groups+1
 
+-- 11. Debuffs (F2b): the engine's own debuff claims the enemies it weakens for its spell, so that
+-- another member leaves that spell off them, not other ones; claims lapse after claimTicks and a
+-- member's new decision replaces its earlier claims. Its cast's start holds them until it ends and
+-- graceTicks after; a decision given up releases them. A disable and a debuff never block each
+-- other.
+local kd=director.new({})
+kd:checkIn(mage,frame(10,nil,three()))
+kd:checkIn(priest,frame(10,{x=300},three()))
+assert(kd:curse(priest,{11,12},'TESTDOOM',10)==2)
+plan=kd:plan(10)
+assert(plan.cursed[11].TESTDOOM==2 and plan.cursed[12].TESTDOOM==2 and plan.cursed[13]==nil and next(plan.reserved)==nil)
+local cursed
+for _,row in ipairs(kd:inspect().log) do if row.kind=='curse' then cursed=row end end
+assert(cursed.member==2 and cursed.spell=='TESTDOOM' and #cursed.targets==2)
+assert(kd:curse(mage,{11,13},'TESTDOOM',11)==1 and kd:plan(11).cursed[13].TESTDOOM==1)
+assert(kd:curse(mage,{11},'TESTSLOW',12)==1)
+plan=kd:plan(12)
+assert(plan.cursed[11].TESTSLOW==1 and plan.cursed[11].TESTDOOM==2 and plan.cursed[13]==nil)
+assert(kd:reserve(mage,{11},13)==1)
+plan=kd:plan(13)
+assert(plan.reserved[11]==1 and plan.cursed[11].TESTDOOM==2 and plan.cursed[11].TESTSLOW==nil)
+assert(kd:plan(69).cursed[11].TESTDOOM==2 and kd:plan(70).cursed[11]==nil)
+kd:started(priest,{spell='TESTDOOM',role='debuff',target=11,hits={11},original=11,own=true},80)
+assert(kd:plan(80).cursed[11].TESTDOOM==2)
+local held=kd:inspect().curses
+assert(#held==1 and held[1].target==11 and held[1].claim==nil and held[1].untilTick==80+225)
+kd:action(2,100)
+assert(kd:plan(129).cursed[11].TESTDOOM==2 and kd:plan(130).cursed[11]==nil)
+assert(kd:curse(priest,{12},'TESTDOOM',140)==1 and kd:release(priest,141)==1 and kd:plan(141).cursed[12]==nil)
+assert(kd:curse(mage,{11},nil,150)==0 and kd:curse({id=-1},{11},'TESTDOOM',150)==0 and kd:curse(mage,nil,'TESTDOOM',150)==0)
+groups=groups+1
+
 return groups

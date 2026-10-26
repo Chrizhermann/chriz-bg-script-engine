@@ -585,14 +585,16 @@ local function set(r,field) r[field]=r[field] or {};return r[field] end
 -- creature's own spell off it only then (IESDP).
 local function hostile(flags) return number(flags) and math.floor(flags/1024)%2==1 or false end
 
--- A stat change helps or hurts by its sign; percentage modes compare against 100.
+-- A stat change helps or hurts by its sign; percentage modes compare against 100. Returns the role
+-- and the change, nil when there is none.
 local function modifier(c,e,who,p,label,good,bad,amount)
     local mode=e.p2%65536
     local delta=e.p1
     if mode==2 then delta=e.p1-100 end
-    if delta==0 then return end
+    if delta==0 then return nil end
     local r=kind(c,delta>0 and good or bad,label,who,e,p)
     tally(set(r,'amounts'),label,math.abs(amount or delta)*p)
+    return r,delta
 end
 
 -- A bonus or penalty by sign, for opcodes whose parameter 2 is not a modifier type.
@@ -618,8 +620,11 @@ H[12]=function(c,e,who,p)
         local r=add(c,'damage',who,e,p);r.kinds[label]=true;r.percent=math.max(r.percent or 0,e.p1)
     end
 end
+-- Damage over time counts its first minute: a fight is over sooner (threat.rest caps it there), and
+-- a disease that runs for hours would otherwise seem to kill anyone.
+M.overTime=60
 H[25]=function(c,e,who,p)
-    local s=seconds(e);local span=number(s) and s or 0
+    local s=seconds(e);local span=number(s) and math.min(s,M.overTime) or 0
     local mode=e.p2%65536
     local rate=({[0]=1,[1]=e.p1,[2]=e.p1>0 and 1/e.p1 or 0,[3]=e.p1})[mode] or 1
     damage(c,e,who,p,rate*span,'poison')
@@ -699,10 +704,52 @@ local function berserk(c,e,who,p)
 end
 H[3]=berserk;H[246]=berserk
 
-local DEBUFFS={[40]='slow',[60]='miscast',[74]='blind',[78]='disease',[80]='deaf',[137]='chant',
-    [158]='grease',[235]='knockback'}
+local DEBUFFS={[40]='slow',[74]='blind',[80]='deaf',[158]='grease',[235]='knockback'}
 for op,label in pairs(DEBUFFS) do H[op]=function(c,e,who,p) kind(c,'debuff',label,who,e,p) end end
 H[216]=function(c,e,who,p) local r=kind(c,'debuff','drain',who,e,p);tally(set(r,'amounts'),'drain',math.abs(e.p1)*p) end
+-- Casting failure (IESDP opcode 60): parameter 1 is the per cent, parameter 2 the spells it hits,
+-- 0 and 3 wizard spells, 1 and 4 priest spells, 2 and 5 innate abilities (3 to 5 as dead magic).
+-- miscastBy tallies the per cent by kind of spell; it adds up with itself and with deafness.
+local MISCAST={[0]='arcane',[1]='divine',[2]='innate',[3]='arcane',[4]='divine',[5]='innate'}
+H[60]=function(c,e,who,p)
+    if e.p1<=0 then return end
+    local r=kind(c,'debuff','miscast',who,e,p)
+    local label=MISCAST[e.p2%65536]
+    if label then tally(set(r,'miscastBy'),label,math.min(e.p1,100)*p) end
+end
+-- Negative chant (IESDP opcode 137) lowers luck by the first byte of parameter 1 (below 0 it
+-- raises it); chants do not add up.
+H[137]=function(c,e,who,p)
+    local v=e.p1%256
+    if v>=128 then v=v-256 end
+    if v<0 then kind(c,'buff','chant',who,e,p);return end
+    local r=kind(c,'debuff','chant',who,e,p)
+    if v>0 then tally(set(r,'amounts'),'luck',v*p) end
+end
+-- Disease (IESDP opcode 78) by its type in parameter 2: 0 and 1 take a hit point a second, 2
+-- parameter 1 a second, 3 one every parameter 1 seconds (poison damage, as opcode 25 counts it); 4
+-- to 9 lower strength, dexterity, constitution, intelligence, wisdom or charisma by parameter 1
+-- (below 0 they raise it); 10 slows; 11 and 12 are Mold Touch, magic damage of 1d6, or of parameter
+-- 1 d6 losing a die a round; 13 is Contagion, strength, dexterity and charisma lower by parameter 1
+-- and slowed. Each keeps the disease label, which Cure Disease takes away.
+local DISEASE_STATS={[4]={'strength'},[5]={'dexterity'},[6]={'constitution'},[7]={'intelligence'},
+    [8]={'wisdom'},[9]={'charisma'},[13]={'strength','dexterity','charisma'}}
+H[78]=function(c,e,who,p)
+    local t=e.p2%65536
+    kind(c,'debuff','disease',who,e,p)
+    if t<=3 then
+        local s=seconds(e)
+        local span=number(s) and math.min(s,M.overTime) or 0
+        local rate=({[0]=1,[1]=1,[2]=e.p1,[3]=e.p1>0 and 1/e.p1 or 0})[t] or 0
+        if rate>0 and span>0 then damage(c,e,who,p,rate*span,'poison') end
+    elseif t==11 then damage(c,e,who,p,3.5,'magic')
+    elseif t==12 then local n=math.max(0,e.p1);damage(c,e,who,p,3.5*n*(n+1)/2,'magic') end
+    if t==10 or t==13 then kind(c,'debuff','slow',who,e,p) end
+    for _,label in ipairs(DISEASE_STATS[t] or {}) do
+        if e.p1>0 then local r=kind(c,'debuff',label,who,e,p);tally(set(r,'amounts'),label,e.p1*p)
+        elseif e.p1<0 then kind(c,'buff',label,who,e,p) end
+    end
+end
 
 for op,label in pairs(STATS) do
     H[op]=function(c,e,who,p)
@@ -825,7 +872,18 @@ for op,label in pairs(RESIST) do
         elseif e.p1<0 then local r=kind(c,'debuff','resist',who,e,p);tally(set(r,'resist'),label,-e.p1*p) end
     end
 end
-for op in pairs(SAVE_MODS) do H[op]=function(c,e,who,p) modifier(c,e,who,p,'saves','protection','debuff') end end
+-- Saving throw changes (IESDP: 33 death, 34 wands, 35 polymorph, 36 breath, 37 spells, 325 all
+-- five, 346 the spells of one school): saveBy tallies the points by save, which a spell's own saves
+-- meet; saves keeps their sum.
+local SAVE_BY={[33]={'death'},[34]={'wand'},[35]={'poly'},[36]={'breath'},[37]={'spell'},
+    [325]={'death','wand','poly','breath','spell'}}
+for op in pairs(SAVE_MODS) do
+    H[op]=function(c,e,who,p)
+        local r,delta=modifier(c,e,who,p,'saves','protection','debuff')
+        if not r then return end
+        for _,name in ipairs(SAVE_BY[op] or {}) do tally(set(r,'saveBy'),name,math.abs(delta)*p) end
+    end
+end
 H[166]=function(c,e,who,p) modifier(c,e,who,p,'magicResistance','protection','debuff') end
 H[0]=function(c,e,who,p)
     if e.p2==16 then kind(c,'protection','armor',who,e,p);return end
@@ -1605,7 +1663,8 @@ local M={}
 
 -- STATE.IDS bits (engine constants).
 M.STATE={sleeping=0x1,panic=0x4,stunned=0x8,invisible=0x10,helpless=0x20,reallyDead=0xFC0,
-    charmed=0x2000,feebleminded=0x100000,improvedInvisible=0x400000,confused=0x80000000}
+    charmed=0x2000,slowed=0x10000,blind=0x40000,feebleminded=0x100000,improvedInvisible=0x400000,
+    confused=0x80000000}
 -- STATE_DISABLED as the installed STATE.IDS defines it: sleeping, panic, stunned, helpless,
 -- charmed, feebleminded, confused. Holds set the HELD stat instead (see sense.lua).
 M.DISABLED=0x8010202D
@@ -1904,9 +1963,13 @@ M.CLASS_ALL={
     [209]={12,18},               -- RANGER_ALL
 }
 -- Classes that cast spells (CLASS.IDS): mage, cleric, bard, paladin, the multiclasses with a
--- caster class, druid, ranger, sorcerer, shaman.
-M.CASTERS={}
+-- caster class, druid, ranger, sorcerer, shaman. Of them, those that cast wizard spells (mages,
+-- bards, sorcerers and the multiclasses with a mage) and those that cast priest spells (clerics,
+-- druids, paladins, rangers, shamans and the multiclasses with a cleric or druid).
+M.CASTERS,M.ARCANE,M.DIVINE={},{},{}
 for _,n in ipairs({1,3,5,6,7,8,10,11,12,13,14,15,16,17,18,19,21}) do M.CASTERS[n]=true end
+for _,n in ipairs({1,5,7,10,13,14,17,19}) do M.ARCANE[n]=true end
+for _,n in ipairs({3,6,8,11,12,14,15,16,17,18,21}) do M.DIVINE[n]=true end
 
 local function number(v) return type(v)=='number' and v==v and v%1==0 end
 
@@ -1959,17 +2022,26 @@ end
 function M.caster(creature)
     return type(creature)=='table' and type(creature.ids)=='table' and M.CASTERS[creature.ids.class]==true
 end
+-- Whether it casts wizard spells, and whether it casts priest spells, by its class.
+function M.arcane(creature)
+    return type(creature)=='table' and type(creature.ids)=='table' and M.ARCANE[creature.ids.class]==true
+end
+function M.divine(creature)
+    return type(creature)=='table' and type(creature.ids)=='table' and M.DIVINE[creature.ids.class]==true
+end
 return M
 end
 factories["combat-intent.harm"]=function(require)
--- What an attack's damage or disable does to one creature, on the attack's scale (shares of a
--- creature taken out of the fight), as plain numbers. The engine's own attacks weigh their enemies
+-- What an attack's damage, disable or debuff does to one creature, on the attack's scale (shares
+-- of a creature taken out of the fight), as plain numbers. The engine's own attacks weigh their enemies
 -- with it (combat-intent/choice.lua, which adds its focus and what it remembers of misses), and
 -- danger zones weigh the caster with it (combat-intent/zones.lua): what a cloud does to a creature
 -- counts as much as the same spell on an enemy. Nothing here touches the engine or raises on odd
 -- data.
 local targeting=require('combat-intent.targeting')
 local ids=require('combat-intent.ids')
+local threat=require('combat-intent.threat')
+local weapons=require('combat-intent.weapons')
 local M={}
 -- A disable lasting this long counts in full (three rounds).
 M.fullSeconds=18
@@ -2044,6 +2116,29 @@ function M.damage(role,e,killBonus,floor)
     return worth,math.min(expected,hp)
 end
 
+-- Whether e's level lies within the role's levels (any level when e's is unknown).
+function M.within(role,e)
+    local level=type(e)=='table' and e.level
+    return not (number(level) and ((number(role.maxLevel) and level>role.maxLevel) or
+        (number(role.minLevel) and level<role.minLevel)))
+end
+-- The chance a role lands on e and holds: magic resistance, the saving throw and the effect's own
+-- chance.
+function M.chance(role,e)
+    return targeting.landing(role,e)*(1-targeting.saveChance(role,e))*clamp(number(role.chance) and role.chance or 1,0,1)
+end
+-- How long a role holds on e, as a share of fullSeconds: its duration, or what e keeps of it where
+-- it breaks free; all of it when it lasts, half when its duration is unknown.
+local function length(role,e)
+    if role.duration=='permanent' then return 1 end
+    if number(role.duration) and role.duration>0 then
+        local span=role.duration
+        if type(role.breakFree)=='table' then span=M.brokenFree(span,role.breakFree,e) end
+        return clamp(span/M.fullSeconds,0,1)
+    end
+    return 0.5
+end
+
 -- The worth of a disable role on e: what its strongest kind is worth for as long as it holds
 -- (taking a nearly dead creature out is worth less than taking out a healthy one; taking one out
 -- for good is worth what killing it is), times the chance it lands: magic resistance, the saving
@@ -2051,11 +2146,7 @@ end
 -- levels or at or above its hit point limit. While a minimum holds on e (floor above 0, as for
 -- M.damage), only a death that slays (role.slays, combat-intent/spells.lua) kills it.
 function M.disable(role,e,killBonus,floor)
-    if targeting.disabled(e) then return 0 end
-    local level=e.level
-    if number(level) and ((number(role.maxLevel) and level>role.maxLevel) or (number(role.minLevel) and level<role.minLevel)) then
-        return 0
-    end
+    if targeting.disabled(e) or not M.within(role,e) then return 0 end
     -- A power word works by the hit points e has now: in a Time Stop, not counting what lands
     -- when time resumes (hpNow).
     local now=number(e.hpNow) and e.hpNow or e.hp
@@ -2071,18 +2162,144 @@ function M.disable(role,e,killBonus,floor)
     end
     if factor<=0 then return 0 end
     local health=targeting.health(e)
-    local length
-    if forGood then length=1
-    elseif role.duration=='permanent' then length=1
-    elseif number(role.duration) and role.duration>0 then
-        local span=role.duration
-        if type(role.breakFree)=='table' then span=M.brokenFree(span,role.breakFree,e) end
-        length=clamp(span/M.fullSeconds,0,1)
-    else length=0.5 end
     local bonus=number(killBonus) and killBonus or 0
-    local worth=forGood and factor*(health+bonus) or factor*length*(0.5+0.5*health)
-    local chance=targeting.landing(role,e)*(1-targeting.saveChance(role,e))*clamp(number(role.chance) and role.chance or 1,0,1)
-    return worth*chance
+    local worth=forGood and factor*(health+bonus) or factor*length(role,e)*(0.5+0.5*health)
+    return worth*M.chance(role,e)
+end
+
+-- Weakening (F2b; IESDP): what a debuff takes from a creature's own fight while it holds, as a
+-- share of the harm it deals as combat-intent/threat.lua counts it: its weapon's hits a round
+-- (attacks, the chance to hit the armour class it meets, the damage of a hit) and its spells (how
+-- much of its class casts, times its level). Slow halves all a creature does: it acts every second
+-- tick, so it makes half its attacks and casts in twice the time (ie-duration.md). On EE blindness
+-- costs 4 to hit, and two blindnesses no more. Luck counts on attack rolls point for point, a
+-- negative chant's too, and fatigue above fatigueFree costs a point of luck each (FATIGMOD.2DA, as
+-- for a rested creature). Casting failure counts by kind of spell (wizard, priest, innate), and
+-- deafness fails half of wizard and priest spells besides. A lower casting level weakens a
+-- creature's spells by the levels it takes, and drained levels weaken its weapon and its spells by
+-- theirs. A creature already slowed or blind gets nothing more from another slow or blindness.
+-- Lower strength, dexterity and constitution do not count yet: the engine reads neither the stats
+-- nor their tables.
+M.blindHit=4
+M.blindArmor=4
+M.deafFailure=50
+M.fatigueFree=6
+-- The damage types opcode 332 lowers (its parameter 2) for each kind of weapon damage; 0 lowers all.
+local PERCENT_TYPES={slashing=7,piercing=8,crushing=9,missile=10}
+local function amount(role,label)
+    local a=type(role)=='table' and role.amounts
+    local v=type(a)=='table' and a[label]
+    return number(v) and v or 0
+end
+-- The share of e's spells that fail under role: by the kinds of spell its classes cast, half each
+-- for one that casts both; one of no casting class casts innate abilities.
+local function failing(role,e)
+    local by=type(role.miscastBy)=='table' and role.miscastBy or {}
+    local deaf=type(role.kinds)=='table' and role.kinds.deaf and M.deafFailure or 0
+    local total,n=0,0
+    for _,kind in ipairs({'arcane','divine'}) do
+        if ids[kind](e) then
+            total,n=total+math.min(100,(number(by[kind]) and by[kind] or 0)+deaf),n+1
+        end
+    end
+    if n==0 then return clamp((number(by.innate) and by.innate or 0)/100,0,1) end
+    return total/n/100
+end
+-- What role takes from e's fight while it holds, a share from 0 to 1. ac: the armour class e's
+-- weapon meets (threat.hitChance's default when nil). The caster itself carries the weapon in its
+-- hand (weapon) rather than attack data.
+function M.weaken(role,e,ac)
+    if type(role)~='table' or type(e)~='table' then return 0 end
+    local k=type(role.kinds)=='table' and role.kinds or {}
+    local held=e.attack
+    if held==nil and type(e.weapon)=='table' then held=threat.wielded(e) end
+    local a=threat.attack({attack=held})
+    local level=number(e.level) and e.level>0 and e.level or 1
+    local armed=held~=false
+    local weapon=armed and a.apr*threat.hitChance(a.thac0,ac)*a.damage or 0
+    local spell=threat.casting(e)*threat.spellPerLevel*level
+    if weapon+spell<=0 then return 0 end
+    local slow=(k.slow and not targeting.has(e.state,targeting.STATE.slowed)) and 0.5 or 1
+    local kept=math.max(0,level-amount(role,'drain'))/level
+    local worse=amount(role,'thac0')+amount(role,'luck')+math.max(0,amount(role,'fatigue')-M.fatigueFree)+
+        math.max(0,a.thac0)*amount(role,'thac0Percent')/100
+    if number(role.thac0Set) then worse=worse+math.max(0,role.thac0Set-a.thac0) end
+    if k.blind and not targeting.has(e.state,targeting.STATE.blind) then worse=worse+M.blindHit end
+    local by=type(role.damagePercentBy)=='table' and role.damagePercentBy or {}
+    local label=weapons.DAMAGE[a.damageType]
+    local typed=label and by[PERCENT_TYPES[label]]
+    local percent=(number(by[0]) and by[0] or 0)+(number(typed) and typed or 0)
+    local apr=math.max(0,a.apr-threat.attacks(amount(role,'attacks')))*slow
+    local damage=math.max(0,a.damage-amount(role,'damage'))*math.max(0,1-percent/100)
+    local after=armed and apr*threat.hitChance(a.thac0+worse,ac)*damage*kept or 0
+    local power=math.max(0,level-amount(role,'castingLevel'))/level
+    local cast=spell*slow*kept*power*(1-failing(role,e))
+    return clamp(1-(after+cast)/(weapon+spell),0,1)
+end
+
+-- Whether e carries a spell's effects already: one of its active effects (e.wards,
+-- adapters/eeex/sense.lua) comes from the spell or from what it delivers (spell.sources, the
+-- spell's own resref among them; resref when the spell names none), or the spell is among those
+-- that land on e when time resumes (e.carried, combat-intent/choice.lua's frozen). Without wards
+-- read, only those.
+function M.carries(e,spell,resref)
+    if type(e)~='table' or (type(e.wards)~='table' and type(e.carried)~='table') then return false end
+    local from={}
+    for res in pairs(type(spell)=='table' and type(spell.sources)=='table' and spell.sources or {}) do
+        if type(res)=='string' and res~='' then from[res:upper()]=true end
+    end
+    if type(resref)=='string' and resref~='' then from[resref:upper()]=true end
+    for res in pairs(type(e.carried)=='table' and e.carried or {}) do
+        if type(res)=='string' and from[res:upper()] then return true end
+    end
+    for _,w in ipairs(type(e.wards)=='table' and e.wards or {}) do
+        if type(w)=='table' and type(w.source)=='string' and from[w.source:upper()] then return true end
+    end
+    return false
+end
+
+-- The worth of a debuff role on e: the share of e's fight it takes (M.weaken, with ac as there)
+-- for as long as it holds, as a disable counts its kind (a hold that takes all of a healthy
+-- creature's fight for the full time is worth 1), times the chance it lands. Nothing on a creature
+-- already disabled or outside the role's levels.
+function M.debuff(role,e,ac)
+    if type(role)~='table' or type(e)~='table' or targeting.disabled(e) or not M.within(role,e) then return 0 end
+    local share=M.weaken(role,e,ac)
+    if share<=0 then return 0 end
+    return share*length(role,e)*(0.5+0.5*targeting.health(e))*M.chance(role,e)
+end
+
+-- e as it stands under role's lower defences, for what other attacks gain from them: a copy with
+-- its saving throws worse by the role's points per save, its magic resistance and resistances
+-- lower and its armour class worse by the role's points and blindness's 4 (once, on EE); nil when
+-- the role lowers none of them.
+function M.weakened(role,e)
+    if type(role)~='table' or type(e)~='table' then return nil end
+    local by=type(role.saveBy)=='table' and role.saveBy or {}
+    local resist=type(role.resist)=='table' and role.resist or {}
+    local k=type(role.kinds)=='table' and role.kinds or {}
+    local armor=number(e.ac) and amount(role,'armor') or 0
+    if number(e.ac) and k.blind and not targeting.has(e.state,targeting.STATE.blind) then armor=armor+M.blindArmor end
+    local mr=amount(role,'magicResistance')
+    local saves=next(by)~=nil and type(e.saves)=='table'
+    if not saves and next(resist)==nil and armor<=0 and mr<=0 then return nil end
+    local c={}
+    for key,v in pairs(e) do c[key]=v end
+    if saves then
+        c.saves={}
+        for name,v in pairs(e.saves) do c.saves[name]=number(v) and number(by[name]) and v+by[name] or v end
+    end
+    if next(resist)~=nil then
+        c.resist={}
+        for name,v in pairs(type(e.resist)=='table' and e.resist or {}) do c.resist[name]=v end
+        for label,v in pairs(resist) do
+            local key=M.RESIST[label] or label
+            if number(v) then c.resist[key]=(number(c.resist[key]) and c.resist[key] or 0)-v end
+        end
+    end
+    if armor>0 then c.ac=e.ac+armor end
+    if mr>0 then c.mr=math.max(0,(number(e.mr) and e.mr or 0)-mr) end
+    return c
 end
 return M
 end
@@ -2415,6 +2632,24 @@ function M.hitChance(thac0,ac)
     if not number(thac0) then thac0=M.unknownAttack.thac0 end
     if not number(ac) then ac=10 end
     return clamp((21-(thac0-ac))/20,0.05,0.95)
+end
+
+-- Attacks a round as opcode 1 and the creature's stats count them: from 6 on half attacks, 6 is
+-- a half, 7 one and a half, up to 10.
+function M.attacks(v)
+    if not number(v) or v<=0 then return 0 end
+    if v>5 and v<=10 then return v-5.5 end
+    return v
+end
+
+-- The mean armour class of the living creatures in list, nil without one.
+function M.armour(list)
+    local ac,n=0,0
+    for _,c in ipairs(type(list)=='table' and list or {}) do
+        if targeting.alive(c) and number(c.ac) then ac,n=ac+c.ac,n+1 end
+    end
+    if n==0 then return nil end
+    return ac/n
 end
 
 -- An enemy's attack data with the defaults filled in.
@@ -3021,11 +3256,7 @@ local function amount(role,label)
     return number(v) and v or 0
 end
 -- Opcode 1 counts half attacks from 6 on: 6 is a half, 7 one and a half, up to 10.
-function M.attacks(v)
-    if not number(v) or v<=0 then return 0 end
-    if v>5 and v<=10 then return v-5.5 end
-    return v
-end
+M.attacks=threat.attacks
 
 -- What a set of roles (a spell's, or the effects a friend carries) protects against, as plain
 -- numbers. Sets of spell levels: all (globes keep out every spell of the level) and personal
@@ -3455,13 +3686,37 @@ function M.through(input,t,cast)
     return math.exp(-hits-t.spell.casters*threat.personal*(1-b.personal)*part)
 end
 
+-- What a defence weakens of the enemies its area reaches as cast at aim (F2b: Prayer, Recitation
+-- and Chant curse the enemies around the priest while they bless its side): each enemy's debuff
+-- (combat-intent/harm.lua) against the armour class ac of the caster's side, on the attack's
+-- scale; none on an enemy its spell protections keep the spell off or that carries the spell's
+-- effects already.
+local function weakens(input,row,spell,aim,ac)
+    local area=spell.area
+    if not aim.point or type(area)~='table' or not number(area.radius) then return 0 end
+    local worth=0
+    for _,e in ipairs(type(input.frame.enemies)=='table' and input.frame.enemies or {}) do
+        if type(e)=='table' and targeting.alive(e) and targeting.distance(aim.point,e)<=area.radius and
+            not targeting.protected(e,spell) and not harm.carries(e,spell,row.resref) then
+            local roles=spells.view(spell,targeting.holds(e))
+            local d=type(roles)=='table' and roles.debuff
+            if type(d)=='table' and type(d.who)=='table' and d.who.area and
+                (type(d.filters)~='table' or d.filters.enemies or d.filters.all) then
+                worth=worth+harm.debuff(d,e,ac)
+            end
+        end
+    end
+    return worth
+end
+
 -- Every defence option the caster has: {resref, kind='defence', mode, worth, cost, score, hits
 -- (the friends it reaches), slack=0, and self, point or target as the cast is aimed; use=true for
 -- an item it drinks}. rejected (optional) counts why ready defensive spells and carried items gave
 -- none. A friend's guard false means it could not be read. A defence that follows the last one
 -- within mind.redefend seconds waits, as SCS's does, unless the caster is in acute danger. An item
 -- (the protection and buff potions SCS's fighters drink) works on the caster itself while it has
--- uses left, costs as a first-level spell and is not interrupted (as care.lua's potions).
+-- uses left, costs as a first-level spell and is not interrupted (as care.lua's potions). What a
+-- spell's area weakens of enemies (weakens) adds to what it gives its side, which caution weighs.
 function M.options(input,rejected)
     local out={}
     local function reject(why) if rejected then rejected[why]=(rejected[why] or 0)+1 end end
@@ -3481,6 +3736,8 @@ function M.options(input,rejected)
     local ct=pictures[caster.id]
     -- The weapon the caster swings when its profile fights with it.
     local wielded=mind.ownWeapon==true and threat.wielded(caster) or nil
+    local caution=number(mind.caution) and mind.caution or 1
+    local ac=threat.armour(threat.friends(frame))
     -- The option of one ready spell (row) or carried item (row.item), or false and why it gives
     -- none: no defence at all is false and nil.
     local function consider(row,spell)
@@ -3515,7 +3772,12 @@ function M.options(input,rejected)
                     if gain>0 then worth=worth+gain;hits[#hits+1]=f.id end
                 end
             end
-            if worth>0 and (not best or worth>best.worth) then best={aim=aim,worth=worth,hits=hits} end
+            -- Caution weighs what it gives the side; a profile without any (labs) still sees it.
+            local weak=row.item and 0 or weakens(input,row,spell,aim,ac)
+            local total=worth*caution+weak
+            if worth+weak>0 and (not best or total>best.total or (total==best.total and worth>best.worth)) then
+                best={aim=aim,total=total,worth=worth,hits=hits}
+            end
         end
         if not best then return false,unknown and 'unknown-guard' or 'no-worth' end
         -- Casting time: harm while casting can interrupt a cast (not a drink); long casts also cost.
@@ -3525,7 +3787,7 @@ function M.options(input,rejected)
             number(spell.level) and spell.level or 1)
         local cost=(number(mind.economy) and mind.economy or 1)*M.costPerLevel*level+
             (number(mind.castCost) and mind.castCost or 0)*cast
-        local worth=best.worth*through*(number(mind.caution) and mind.caution or 1)
+        local worth=best.total*through
         local option={resref=row.resref,kind='defence',worth=worth,cost=cost,score=worth-cost,
             hits=best.hits,slack=0,speed=number(spell.speed) and spell.speed or 0,release=spell.release or nil,
             use=row.item or nil}
@@ -4865,7 +5127,7 @@ factories["combat-intent.zones"]=function(require)
 local targeting=require('combat-intent.targeting')
 local harm=require('combat-intent.harm')
 local spells=require('combat-intent.spells')
-local ids=require('combat-intent.ids')
+local threat=require('combat-intent.threat')
 local openers=require('combat-intent.openers')
 local M={}
 M.ROUND=6
@@ -4878,11 +5140,6 @@ M.directions=16
 M.maxWalk=600
 -- A speed point of casting time is 10 game ticks (as for defences).
 M.speedSeconds=10/15
--- What conditions that hinder without taking a creature out are worth for the full time
--- (harm.fullSeconds), as care.CONDITION counts blindness, deafness and disease; Stinking Cloud's
--- spell failure counts as a silence. Those for casters count a fifth on others.
-M.DEBUFF={miscast=0.7,blind=0.3,deaf=0.2,disease=0.1}
-M.CASTERS_ONLY={miscast=true,deaf=true}
 -- Wit: a dull creature's chance to leave after an explosion hurt it is painScale times the share
 -- of hit points it has lost, times its danger weight. STATE_BERSERK; a berserk or raging creature
 -- stays while its share of hit points is above rageHealth.
@@ -4934,21 +5191,16 @@ function M.reachesSide(z,theirs)
     return true
 end
 
--- What a debuff role's conditions take from f for as long as they hold, times the chance they
--- land.
-function M.debuff(role,f)
-    local factor=0
-    for label in pairs(type(role.kinds)=='table' and role.kinds or {}) do
-        local v=M.DEBUFF[label] or 0
-        if M.CASTERS_ONLY[label] and not ids.caster(f) then v=v*0.2 end
-        if v>factor then factor=v end
-    end
-    if factor<=0 then return 0 end
-    local length=0.5
-    if role.duration=='permanent' then length=1
-    elseif number(role.duration) and role.duration>0 then length=clamp(role.duration/harm.fullSeconds,0,1) end
-    local chance=targeting.landing(role,f)*(1-targeting.saveChance(role,f))
-    return factor*length*(0.5+0.5*targeting.health(f))*chance
+-- What a debuff role takes from f's fight for as long as it holds, times the chance it lands, as
+-- the engine's own debuffs count it on an enemy (harm.debuff: Stinking Cloud's spell failure on a
+-- caster, a blindness on a fighter). ac: the armour class f's weapon meets.
+function M.debuff(role,f,ac) return harm.debuff(role,f,ac) end
+-- The mean armour class f's weapon meets: its enemies', with theirs (f one of the caster's
+-- enemies) the caster's side's.
+local function facing(input,theirs)
+    local frame=type(input)=='table' and input.frame
+    if type(frame)~='table' then return nil end
+    return threat.armour(theirs and threat.friends(frame) or frame.enemies)
 end
 
 -- How many of z's next explosions f's spell protections stop (targeting.stopped): math.huge
@@ -4975,7 +5227,7 @@ function M.hit(input,z,f,theirs)
     local worth=0
     if reaches(roles.damage) then worth=worth+(harm.damage(roles.damage,f,killBonus,floor)) end
     if reaches(roles.disable) then worth=worth+harm.disable(roles.disable,f,killBonus,floor) end
-    if reaches(roles.debuff) then worth=worth+M.debuff(roles.debuff,f) end
+    if reaches(roles.debuff) then worth=worth+M.debuff(roles.debuff,f,facing(input,theirs)) end
     return worth,first,floor
 end
 
@@ -5428,6 +5680,29 @@ factories["combat-intent.choice"]=function(require)
 -- and what standing next to the enemy costs. As it ends next to the enemy like the walk, a creature
 -- that always attacks takes it over the walk whenever it is worth more. A tactic (M.tactical): a
 -- clever creature always, a normal one when it notices, a dull one never.
+--
+-- Debuffs (F2b; SCS's priests curse with Doom and Greater Malison an enemy not doomed or malisoned
+-- yet, its mages slow the strongest enemy not slowed yet, [src] priest/ssl/combatblocks/doom.ssl,
+-- curse_malison.ssl, mage/ssl/combatblocks/slow.ssl): a spell that weakens enemies (Slow, Doom,
+-- blindness, Miscast Magic, a level drain) is an attack worth the share of each enemy's fight it
+-- takes while it holds (combat-intent/harm.lua: its weapon against the mean armour class of the
+-- caster's side, and its spells), as a disable is worth the share it takes out. A debuff that comes
+-- with damage or a disable (Holy Smite blinds, Unholy Blight curses) adds its worth on each enemy,
+-- beside a disable only as likely as the disable fails: a creature held has no fight to weaken. An
+-- enemy that only the debuff of a spell reaches (Holy Word deafens those too strong for its death
+-- and confusion) counts for the debuff. Nothing on an enemy that carries the spell's effects already
+-- (its wards come from the spell, harm.carries), nor for slowing the slowed or blinding the blind.
+-- Removal that comes with a debuff (Spell Revisions' Slow takes haste, Glitterdust and Faerie Fire
+-- take invisibility) makes the spell an attack that adds what its removal is worth, as for damage.
+-- Every creature casts debuffs; seeing what they open is a tactic (below).
+--
+-- Openings (F2b; Christopher, 2026-10-26: every new tactic by wit): a debuff that lowers an enemy's
+-- saving throws, magic resistance, resistances or armour class (Greater Malison, Lower Resistance,
+-- Faerie Fire, blindness) also counts what it opens for the attacks after it: the most one of the
+-- caster's other ready attack spells gains on the weakened enemy (harm.weakened), and what the
+-- weapons of its friends gain on it over the rounds the debuff holds (those next to the enemy, and
+-- those with missiles when it is the group's focus), both as likely as the debuff lands. A tactic
+-- (M.tactical): a clever creature always, a normal one when it notices, a dull one never.
 local targeting=require('combat-intent.targeting')
 local harm=require('combat-intent.harm')
 local defence=require('combat-intent.defence')
@@ -5516,12 +5791,13 @@ function M.slotShare(input)
 end
 local function slots(input) return number(input.slots) and input.slots or 1 end
 
--- 'damage' or 'disable' and how the spell is aimed, or nil and why the engine leaves it out.
+-- 'damage', 'disable' or 'debuff' and how the spell is aimed, or nil and why the engine leaves it
+-- out.
 function M.attack(spell)
     if type(spell)~='table' or type(spell.roles)~='table' then return nil,'unclassified' end
     if spell.partial then return nil,'partial' end
     local roles=targeting.kindRoles(spell)
-    local attacks=reaches(roles.disable) or reaches(roles.damage)
+    local attacks=reaches(roles.disable) or reaches(roles.damage) or reaches(roles.debuff)
     for _,name in ipairs(OTHER) do
         if benefits(spell.roles[name]) and not (name=='removal' and attacks) then return nil,'role-'..name end
     end
@@ -5535,7 +5811,8 @@ function M.attack(spell)
     if type(spell.roles.disable)=='table' and spell.roles.disable.kinds and spell.roles.disable.kinds.timestop then
         return nil,'time-stop'
     end
-    local kind=reaches(roles.disable) and 'disable' or reaches(roles.damage) and 'damage' or nil
+    local kind=reaches(roles.disable) and 'disable' or reaches(roles.damage) and 'damage' or
+        reaches(roles.debuff) and 'debuff' or nil
     if not kind then return nil,'no-attack' end
     local a=spell.area
     if spell.projectileUnknown and not targeting.builtinSingle[spell.projectile] then return nil,'unknown-projectile' end
@@ -5582,11 +5859,12 @@ local function aimable(caster,e,spell)
     return true,nil,walk
 end
 -- What the spell does to e, or nil and why it does not work on e: its roles for e's kind of
--- creature (spells.view) must hold the attack, and e's spell protections must not stop it. A
--- lasting area gets through once the turnings, deflections and traps that count down are spent.
+-- creature (spells.view) must hold the attack or a debuff, and e's spell protections must not stop
+-- it. A lasting area gets through once the turnings, deflections and traps that count down are
+-- spent.
 local function affects(spell,e,kind,lasting)
     local roles,key=spells.view(spell,targeting.holds(e))
-    if type(roles)~='table' or not reaches(roles[kind]) then
+    if type(roles)~='table' or not (reaches(roles[kind]) or reaches(roles.debuff)) then
         return nil,type(key)=='string' and key:find('?',1,true) and 'unknown-filter' or 'filter'
     end
     if lasting then
@@ -5663,14 +5941,6 @@ local function shape(spell,caster,center,aim)
         function(p) return targeting.distance(center,p)<=a.radius+M.allyMargin end
 end
 
--- The worth of the spell's kind of attack on e, and for damage the hit points it is expected to
--- take.
-local function worthOn(input,row,kind,roles,e)
-    local floor=targeting.floor(e,roles)
-    if kind=='damage' then return damageOn(input,row,roles.damage,e,floor) end
-    return disableOn(input,row,roles.disable,e,floor),0
-end
-
 -- What an attack's removal (combat-intent/removal.lua) adds on e, over the rounds left after the
 -- cast: below zero when it frees e of more than it opens.
 local function stripped(input,spell,e)
@@ -5726,6 +5996,121 @@ end
 local function sticks(role,e)
     return landing(role,e)*(1-M.saveChance(role,e))*clamp(number(role.chance) and role.chance or 1,0,1)
 end
+-- What a worth that counts role landing once on e becomes over n tries (one for a cast): as likely
+-- as it lands at least once.
+local function tries(role,e,n)
+    local c=math.min(1,sticks(role,e))
+    if c<=0 then return 0 end
+    return (1-(1-c)^n)/c
+end
+
+-- The armour class the enemies' weapons meet: the mean of the caster's side (threat.armour), once
+-- a choice (ctx).
+local function facing(input,ctx)
+    if ctx and ctx.armour~=nil then return ctx.armour or nil end
+    local ac=threat.armour(threat.friends(input.frame))
+    if ctx then ctx.armour=ac or false end
+    return ac
+end
+-- Whether a debuff role lowers an enemy's defences for the attacks after it (harm.weakened): its
+-- saving throws, magic resistance, resistances or armour class, or blindness.
+local function opens(role)
+    if type(role)~='table' then return false end
+    local a=type(role.amounts)=='table' and role.amounts or {}
+    return (type(role.saveBy)=='table' and next(role.saveBy)~=nil) or
+        (type(role.resist)=='table' and next(role.resist)~=nil) or (number(a.armor) and a.armor>0) or
+        (number(a.magicResistance) and a.magicResistance>0) or (type(role.kinds)=='table' and role.kinds.blind==true) or false
+end
+local worthOn
+-- Openings (see the top): what a debuff role that lowers e's defences opens for the attacks after
+-- it, as likely as it lands. The most one of the caster's other ready attack spells gains on e
+-- weakened (harm.weakened) over e as it is, when the debuff lasts into the next round; and what
+-- the weapons of the caster's allies gain on e's worse armour class and resistances over the
+-- rounds it holds within the horizon (allies within a weapon's reach of e, and those with missiles
+-- when e is the group's focus), no more than e has left. Nothing when the creature does not see it
+-- (M.tactical). ctx keeps it for one choice.
+local function opening(input,row,role,e,ctx)
+    if not opens(role) or not M.tactical(input) then return 0 end
+    local key=tostring(row.resref)..':'..tostring(e.id)
+    if ctx and ctx.openings and ctx.openings[key] then return ctx.openings[key] end
+    local w=harm.weakened(role,e)
+    local gain=0
+    if w then
+        local horizon=number(input.mind.horizon) and input.mind.horizon or 18
+        local span=role.duration=='permanent' and horizon or
+            number(role.duration) and math.min(role.duration,horizon) or horizon/2
+        if span>=M.ROUND then
+            for _,other in ipairs(type(input.spells)=='table' and input.spells or {}) do
+                if type(other)=='table' and other~=row and other.resref~=row.resref and number(other.ready) and other.ready>0 and
+                    other.usable then
+                    local kind=M.attack(other.spell)
+                    local roles=kind and affects(other.spell,e,kind)
+                    if roles then
+                        gain=math.max(gain,worthOn(input,other,kind,roles,w,ctx,true)-worthOn(input,other,kind,roles,e,ctx,true))
+                    end
+                end
+            end
+        end
+        local hp,maxHp=e.hp,e.maxHp
+        if number(hp) and number(maxHp) and maxHp>0 and hp>0 then
+            local plan=input.plan
+            local focus=type(plan)=='table' and plan.focus==e.id
+            local more=0
+            for _,f in ipairs(type(input.frame.allies)=='table' and input.frame.allies or {}) do
+                if type(f)=='table' and type(f.attack)=='table' and targeting.alive(f) and not targeting.disabled(f) then
+                    local a=threat.attack(f)
+                    if (a.ranged and focus) or (not a.ranged and targeting.distance(f,e)<=threat.reach) then
+                        local label=weapons.DAMAGE[a.damageType] or ''
+                        more=more+a.apr*a.damage*(threat.hitChance(a.thac0,w.ac)*resisted(w,label)-
+                            threat.hitChance(a.thac0,e.ac)*resisted(e,label))
+                    end
+                end
+            end
+            gain=gain+math.min(math.max(0,more)*span/M.ROUND,hp)/maxHp
+        end
+        gain=gain*harm.chance(role,e)
+    end
+    if ctx then ctx.openings=ctx.openings or {};ctx.openings[key]=gain end
+    return gain
+end
+-- The worth of a debuff role on e (combat-intent/harm.lua) against the armour class of the
+-- caster's side, more on an enemy the creature's orders name, with what it opens unless plain:
+-- none on an enemy that carries the spell's effects already (harm.carries), nor on one another
+-- member casts the same spell at (the director's plan, cursed).
+local function debuffOn(input,row,role,e,ctx,plain)
+    if harm.carries(e,row.spell,row.resref) then return 0 end
+    local plan=input.plan
+    local cursed=type(plan)=='table' and type(plan.cursed)=='table' and plan.cursed[e.id]
+    local owner=type(cursed)=='table' and cursed[row.resref]
+    if owner and owner~=input.frame.self.id and input.mind.coordination>=0.5 then return 0 end
+    local worth=harm.debuff(role,e,facing(input,ctx))
+    if not plain then worth=worth+opening(input,row,role,e,ctx) end
+    return worth*remembered(input,row.resref,e,role)*orders.favour(input,e)
+end
+-- The worth on e of the spell's kind of attack and the debuff beside it over n explosions (one
+-- for a cast), and the hit points it is expected to take: damage n times over; a disable or a
+-- debuff as likely as it lands at least once; a debuff beside damage in full, beside a disable as
+-- likely as the disable never lands. Only what e's roles hold counts: an enemy only the debuff
+-- reaches gets the debuff alone. plain: without openings.
+local function attackOn(input,row,kind,roles,e,ctx,n,plain)
+    local floor=targeting.floor(e,roles)
+    local worth,hp=0,0
+    local main=roles[kind]
+    if reaches(main) then
+        if kind=='damage' then worth,hp=damageOn(input,row,n>1 and times(main,n) or main,e,floor)
+        elseif kind=='disable' then worth=disableOn(input,row,main,e,floor)*tries(main,e,n)
+        else worth=debuffOn(input,row,main,e,ctx,plain)*tries(main,e,n) end
+    end
+    if kind~='debuff' and reaches(roles.debuff) then
+        local d=debuffOn(input,row,roles.debuff,e,ctx,plain)*tries(roles.debuff,e,n)
+        if kind=='disable' and reaches(main) and harm.within(main,e) then d=d*(1-math.min(1,sticks(main,e)))^n end
+        worth=worth+d
+    end
+    return worth,hp
+end
+-- The worth of the spell's kind of attack on e with the debuff beside it, and for damage the hit
+-- points it is expected to take.
+worthOn=function(input,row,kind,roles,e,ctx,plain) return attackOn(input,row,kind,roles,e,ctx,1,plain) end
 -- What a lasting area is worth on e inside it at center: the worth of its kind of attack over the
 -- explosions e is expected to sit through, the hit points it is expected to take, and for the log
 -- how many it would sit through staying and walking out and the chance it stays. ctx keeps the
@@ -5749,14 +6134,10 @@ local function lastingOn(input,row,spell,kind,roles,e,center,ctx,walk)
         leave=hitsIn(first,step,last,0,math.min(upto,M.react+walk))
     end
     local stopped=targeting.stopped(e,spell)
-    local floor=targeting.floor(e,roles)
     local function over(n)
         n=n-stopped
         if n<=0 then return 0,0 end
-        if kind=='damage' then return damageOn(input,row,times(roles.damage,n),e,floor) end
-        local c=math.min(1,sticks(roles.disable,e))
-        if c<=0 then return 0,0 end
-        return disableOn(input,row,roles.disable,e,floor)*(1-(1-c)^n)/c,0
+        return attackOn(input,row,kind,roles,e,ctx,n)
     end
     local ws,hs=over(stay)
     local wl,hl=over(leave)
@@ -5816,9 +6197,18 @@ local function leaping(input)
     end
     return false
 end
+-- Whether an opening is there to notice: a ready attack spell's debuff lowers an enemy's defences.
+local function opener(input)
+    for _,row in ipairs(type(input.spells)=='table' and input.spells or {}) do
+        if type(row)=='table' and number(row.ready) and row.ready>0 and row.usable and type(row.spell)=='table' and
+            type(row.spell.roles)=='table' and opens(row.spell.roles.debuff) and M.attack(row.spell) then return true end
+    end
+    return false
+end
 -- Draws once a decision whether the creature sees a tactic's chance (mind.tactics), and only when
--- there is one to see (an enemy casts, or a jump into the fight is there), so that other decisions
--- draw nothing. Without input.rng: when its chance is a half or more.
+-- there is one to see (an enemy casts, a jump into the fight is there, or a debuff opens an enemy's
+-- defences), so that other decisions draw nothing. Without input.rng: when its chance is a half or
+-- more.
 function M.notices(input)
     local p=number(input.mind.tactics) and input.mind.tactics or 1
     if p>=1 then return true end
@@ -5827,7 +6217,7 @@ function M.notices(input)
     for _,e in ipairs(input.frame.enemies) do
         if type(e)=='table' and type(e.cast)=='table' then any=true;break end
     end
-    if not any and not leaping(input) then return false end
+    if not any and not leaping(input) and not opener(input) then return false end
     local rng=input.rng
     if not rng then return p>=0.5 end
     return rng:nextInt(1,1000)<=math.floor(p*1000+0.5)
@@ -5892,7 +6282,7 @@ local function evaluate(input,row,spell,kind,mode,aim,ctx)
         local roles,why=affects(spell,e,kind)
         if not roles then return nil,why end
         if kind=='disable' and targeting.disabled(e) then return nil,'disabled' end
-        worth,expected[e.id]=worthOn(input,row,kind,roles,e)
+        worth,expected[e.id]=worthOn(input,row,kind,roles,e,ctx)
         worth=worth+stripped(input,spell,e)
         breaks(roles,e,expected[e.id])
         hits[1]=e.id
@@ -5903,7 +6293,7 @@ local function evaluate(input,row,spell,kind,mode,aim,ctx)
             local e=aim.enemy
             local roles=e and affects(spell,e,kind)
             if not roles then return nil,'shape' end
-            worth,expected[e.id]=worthOn(input,row,kind,roles,e)
+            worth,expected[e.id]=worthOn(input,row,kind,roles,e,ctx)
             worth=worth+stripped(input,spell,e)
             breaks(roles,e,expected[e.id])
             hits[1]=e.id
@@ -5932,7 +6322,7 @@ local function evaluate(input,row,spell,kind,mode,aim,ctx)
                 if roles then
                     local w,hp,seen
                     if lasting then w,hp,seen=lastingOn(input,row,spell,kind,roles,e,center,ctx,walk)
-                    else w,hp=worthOn(input,row,kind,roles,e) end
+                    else w,hp=worthOn(input,row,kind,roles,e,ctx) end
                     w=w+stripped(input,spell,e)
                     if w>0 then
                         worth=worth+w;hits[#hits+1]=e.id;expected[e.id]=hp
@@ -6361,12 +6751,13 @@ function M.unreleased(input)
 end
 
 -- The input as the caster sees it in its own Time Stop: what it cast in the stop
--- (input.stopCasts: {kind, hits, expected}) lands when time resumes, so the enemies it disabled
--- count as held and the hit points it is expected to have taken come off (hpNow keeps the hit
--- points they have now). The same input outside its own stop.
+-- (input.stopCasts: {kind, hits, expected, spell}) lands when time resumes, so the enemies it
+-- disabled count as held, the hit points it is expected to have taken come off (hpNow keeps the
+-- hit points they have now) and the enemies its spells reach carry them (carried: a debuff is not
+-- cast twice). The same input outside its own stop.
 function M.frozen(input)
     if not openers.ownStop(input) or type(input.stopCasts)~='table' or #input.stopCasts==0 then return input end
-    local held,lost={},{}
+    local held,lost,carried={},{},{}
     for _,cast in ipairs(input.stopCasts) do
         if type(cast)=='table' then
             if cast.kind=='disable' and type(cast.hits)=='table' then
@@ -6375,15 +6766,23 @@ function M.frozen(input)
             if type(cast.expected)=='table' then
                 for id,hp in pairs(cast.expected) do if number(hp) then lost[id]=(lost[id] or 0)+hp end end
             end
+            if type(cast.spell)=='string' and type(cast.hits)=='table' then
+                for _,id in ipairs(cast.hits) do carried[id]=carried[id] or {};carried[id][cast.spell]=true end
+            end
         end
     end
     local enemies={}
     for n,e in ipairs(input.frame.enemies) do
-        if type(e)=='table' and (held[e.id] or lost[e.id]) then
+        if type(e)=='table' and (held[e.id] or lost[e.id] or carried[e.id]) then
             local c={}
             for k,v in pairs(e) do c[k]=v end
             if held[e.id] then c.held=math.max(number(c.held) and c.held or 0,1);c.taken=true end
             if lost[e.id] and number(c.hp) then c.hpNow=c.hp;c.hp=c.hp-lost[e.id] end
+            if carried[e.id] then
+                c.carried={}
+                for res in pairs(type(e.carried)=='table' and e.carried or {}) do c.carried[res]=true end
+                for res in pairs(carried[e.id]) do c.carried[res]=true end
+            end
             enemies[n]=c
         else enemies[n]=e end
     end
@@ -6547,7 +6946,10 @@ factories["combat-intent.director"]=function(require)
 -- The fight director of one hostile group (for now: the hooked creatures of one area).
 -- Members check in with what they perceive (frames from adapters/eeex/sense.lua); the director
 -- keeps the shared picture (where the enemies are, how wounded, who is disabled), picks a focus
--- target and keeps one disabler per target with short reservations. It never acts. When a
+-- target and keeps one disabler per target with short reservations, and one caster of each
+-- debuff per target (F2b: two priests do not cast Doom at one enemy together; SCS keeps its
+-- priests' Greater Malison apart with a timer for the whole area, [src] priest/ssl/combatblocks/
+-- curse_malison.ssl). It never acts. When a
 -- member's own cast starts, it advises keeping the target or taking another one, and the
 -- adapter re-checks before it changes anything. Plain values only; nothing survives a load.
 local targeting=require('combat-intent.targeting')
@@ -6576,7 +6978,7 @@ function M.new(config)
     for k,v in pairs(M.defaults) do if config[k]==nil then o[k]=v else o[k]=config[k] end end
     local area=type(config.area)=='string' and config.area or ''
     local sink=type(config.sink)=='function' and config.sink or nil
-    local members,enemies,reservations,attempts={},{},{},{}
+    local members,enemies,reservations,attempts,curses={},{},{},{},{}
     local focus,lastTick=nil,nil
     local log,nextRow,size={},1,0
     local counts={checkIns=0,advice=0,redirects=0,keeps=0,focusChanges=0,focusLost=0,attempts=0,ended=0,
@@ -6607,11 +7009,32 @@ function M.new(config)
         reservations[target]={owner=member,from=tick,untilTick=tick+ticks,claim=claim}
         return true
     end
+    -- Who casts debuff spell at target at tick, as reservations do for disables.
+    local function cursing(target,spell,tick)
+        local r=curses[target] and curses[target][spell]
+        if r and r.untilTick>tick and members[r.owner] then return r.owner end
+    end
+    -- Claim debuff spell at target for member for ticks, as take does.
+    local function curse(member,target,spell,tick,ticks,claim)
+        if not id(target) or target==member or type(spell)~='string' then return false end
+        local owner=cursing(target,spell,tick)
+        if owner~=nil and owner~=member then return false end
+        local held=curses[target] or {}
+        if claim and owner==member and not held[spell].claim then return true end
+        held[spell]={owner=member,from=tick,untilTick=tick+ticks,claim=claim}
+        curses[target]=held
+        return true
+    end
     -- Drop member's claims.
     local function drop(member)
         local n=0
         for target,r in pairs(reservations) do
             if r.owner==member and r.claim then reservations[target]=nil;n=n+1 end
+        end
+        for _,held in pairs(curses) do
+            for spell,r in pairs(held) do
+                if r.owner==member and r.claim then held[spell]=nil;n=n+1 end
+            end
         end
         return n
     end
@@ -6621,6 +7044,10 @@ function M.new(config)
         a.ended=tick;counts.ended=counts.ended+1
         for _,target in ipairs(a.reserved) do
             local r=reservations[target]
+            if r and r.owner==member then r.untilTick=math.min(r.untilTick,tick+o.graceTicks) end
+        end
+        for _,target in ipairs(a.cursed or {}) do
+            local r=curses[target] and curses[target][a.spell]
             if r and r.owner==member then r.untilTick=math.min(r.untilTick,tick+o.graceTicks) end
         end
         local e=enemies[a.target]
@@ -6758,36 +7185,47 @@ function M.new(config)
         return result
     end
 
-    -- The group's plan as its members use it at tick: the focus target and who holds which
-    -- disable reservation.
+    -- The group's plan as its members use it at tick: the focus target, who holds which disable
+    -- reservation, and who casts which debuff at which enemy (cursed[target][spell]).
     function api:plan(tick)
         clock(tick)
-        local reserved={}
+        local reserved,cursed={},{}
         for target,r in pairs(reservations) do
             if r.untilTick>tick and members[r.owner] then reserved[target]=r.owner end
         end
-        return {focus=api:focus(tick),reserved=reserved}
+        for target,held in pairs(curses) do
+            for spell in pairs(held) do
+                local owner=cursing(target,spell,tick)
+                if owner then cursed[target]=cursed[target] or {};cursed[target][spell]=owner end
+            end
+        end
+        return {focus=api:focus(tick),reserved=reserved,cursed=cursed}
     end
 
     -- A member's cast has started at target (after any redirect). Any cast counts for the
     -- picture and replaces the member's claims. A disable reserves its target, or every enemy
     -- its area hits (cast.hits, known for the engine's own casts), except those another member
-    -- holds; the engine's own heal or cure (D3a, D3b) reserves the allies it helps the same way.
+    -- holds; the engine's own heal or cure (D3a, D3b) reserves the allies it helps the same way,
+    -- and its own debuff (F2b) the enemies it weakens, for that spell only.
     -- own: the engine chose the cast itself.
     function api:started(member,cast,tick)
         clock(tick)
         finish(member.id,tick,'replaced')
         drop(member.id)
         local role=cast.role
-        local reserved={}
+        local reserved,cursed={},{}
+        local list=type(cast.hits)=='table' and #cast.hits>0 and cast.hits or {cast.target}
         if role=='disable' or role=='heal' or role=='cure' then
-            local list=type(cast.hits)=='table' and #cast.hits>0 and cast.hits or {cast.target}
             for _,target in ipairs(list) do
                 if take(member.id,target,tick,o.reserveTicks,nil) then reserved[#reserved+1]=target end
             end
+        elseif role=='debuff' then
+            for _,target in ipairs(list) do
+                if curse(member.id,target,cast.spell,tick,o.reserveTicks,nil) then cursed[#cursed+1]=target end
+            end
         end
         attempts[member.id]={spell=cast.spell,role=role,target=cast.target,action=cast.action or 31,
-            startedAt=tick,reserved=reserved}
+            startedAt=tick,reserved=reserved,cursed=cursed}
         counts.attempts=counts.attempts+1
         record({kind='start',tick=tick,member=member.id,family=member.family,spell=cast.spell,
             role=role,target=cast.target,original=cast.original,redirected=cast.redirected or nil,
@@ -6834,6 +7272,20 @@ function M.new(config)
         if #held>0 then record({kind='reserve',tick=tick,member=member.id,family=member.family,targets=held}) end
         return #held
     end
+    -- The engine's own debuff spell for member, just chosen and not yet queued, claims the enemies
+    -- it weakens for that spell, as reserve does for a disable. Returns how many it holds.
+    function api:curse(member,targets,spell,tick)
+        if type(member)~='table' or not id(member.id) or type(targets)~='table' or type(spell)~='string' or
+            not number(tick) then return 0 end
+        clock(tick)
+        drop(member.id)
+        local held={}
+        for _,target in ipairs(targets) do
+            if curse(member.id,target,spell,tick,o.claimTicks,true) then held[#held+1]=target end
+        end
+        if #held>0 then record({kind='curse',tick=tick,member=member.id,family=member.family,spell=spell,targets=held}) end
+        return #held
+    end
     -- The member's decision was given up before its cast started: its claims go. member: the
     -- member or its id.
     function api:release(member,tick)
@@ -6856,6 +7308,12 @@ function M.new(config)
         for key,r in pairs(reservations) do
             if r.untilTick<=tick or not members[r.owner] then reservations[key]=nil;counts.released=counts.released+1 end
         end
+        for key,held in pairs(curses) do
+            for spell,r in pairs(held) do
+                if r.untilTick<=tick or not members[r.owner] then held[spell]=nil;counts.released=counts.released+1 end
+            end
+            if next(held)==nil then curses[key]=nil end
+        end
         if focus and not fresh(enemies[focus],tick) then
             local e=enemies[focus]
             counts.focusLost=counts.focusLost+1
@@ -6864,7 +7322,7 @@ function M.new(config)
         end
     end
     function api:invalidate(reason)
-        members,enemies,reservations,attempts,focus,lastTick={},{},{},{},nil,nil
+        members,enemies,reservations,attempts,curses,focus,lastTick={},{},{},{},{},nil,nil
         record({kind='invalidated',reason=reason})
     end
     function api:inspect()
@@ -6873,6 +7331,13 @@ function M.new(config)
             held[#held+1]={target=target,owner=r.owner,untilTick=r.untilTick,claim=r.claim}
         end
         table.sort(held,function(a,b) return a.target<b.target end)
+        local cursed={}
+        for target,list in pairs(curses) do
+            for spell,r in pairs(list) do
+                cursed[#cursed+1]={target=target,spell=spell,owner=r.owner,untilTick=r.untilTick,claim=r.claim}
+            end
+        end
+        table.sort(cursed,function(a,b) if a.target~=b.target then return a.target<b.target end return a.spell<b.spell end)
         local count=function(t) local n=0;for _ in pairs(t) do n=n+1 end;return n end
         -- The group's picture of each enemy: when it was last seen, by how many members within
         -- enemyTicks of that, and whether it was disabled then.
@@ -6886,7 +7351,7 @@ function M.new(config)
         local rows,first={},(nextRow-size-1)%o.logCapacity+1
         for i=0,size-1 do rows[#rows+1]=values.copy(log[(first+i-1)%o.logCapacity+1]) end
         return {area=area,members=count(members),enemies=count(enemies),focus=focus,reservations=held,
-            known=known,counts=values.copy(counts),log=rows}
+            curses=cursed,known=known,counts=values.copy(counts),log=rows}
     end
     return api
 end
@@ -8558,6 +9023,17 @@ function M.new(g,options)
         failed('reserve',n)
         return 0
     end
+    -- The engine's own debuff for member id claims the enemies it weakens for its spell, as reserve
+    -- does for a disable (F2b).
+    function adapter:curse(id,targets,spell,tick)
+        local area=memberArea[id]
+        local d=area and directors[area]
+        if not d or not d:isMember(id) then return 0 end
+        local ok,n=pcall(d.curse,d,{id=id,family=memberFamily[id]},targets,spell,tick)
+        if ok then return n end
+        failed('curse',n)
+        return 0
+    end
     function adapter:release(id,tick)
         local area=memberArea[id]
         local d=area and directors[area]
@@ -9047,6 +9523,14 @@ factories["adapters.eeex.choice"]=function(require)
 -- on. A detection is judged by whether the creature sees an enemy afterwards. BGSE_Search
 -- (api:searches) tells SCS's own hunting blocks to stand aside for every creature the engine drives.
 --
+-- Debuffs (F2b, combat-intent/choice.lua): when a ready spell weakens enemies, the choice also
+-- gets each enemy's active effects (sense.wards, as for removal), so that an enemy that carries a
+-- spell's effects gets it no second time. A debuff is cast like an attack and claims the enemies
+-- it weakens in the group for its spell (the director's curses); one at a creature is judged as an
+-- attack is, by whether its target carries an effect of the spell afterwards. In the caster's own
+-- Time Stop its casts are kept with their spell, so that the enemies they reach count as carrying
+-- it until time resumes.
+--
 -- Jumps into the fight (combat-intent/choice.lua): the choice also gets the teleports among the
 -- creature's ready spells and innate abilities (combat-intent/search.lua) and when it last
 -- teleported, for a search or into the fight (adapters/eeex/search.lua), so one gap counts for
@@ -9302,7 +9786,7 @@ function M.new(g,options)
         guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0,arms=0,attacks=0,attackHits=0,
         weaponFailures=0,releases=0,heals=0,cures=0,potions=0,cared=0,uncared=0,summons=0,conjured=0,
         unconjured=0,removals=0,stripped=0,unstripped=0,wardFailures=0,revealed=0,unrevealed=0,landed=0,unlanded=0,
-        jumps=0}
+        jumps=0,debuffs=0}
     local reasons={}
     local log,nextRow,size={},1,0
     local root,sink,lastError,markError,guardError,weaponError,wardError,zoneError,witError
@@ -9447,12 +9931,16 @@ function M.new(g,options)
             end
         end
     end
-    -- Whether a ready spell removes something from enemies.
+    -- Whether a ready spell removes something from enemies or weakens them (F2b: what an enemy
+    -- carries already it gets no second time).
     local function strips(rows)
         for _,row in ipairs(rows) do
-            local r=type(row.spell)=='table' and type(row.spell.roles)=='table' and row.spell.roles.removal
-            if type(r)=='table' and type(r.who)=='table' and (r.who.target or r.who.area) and
-                type(row.ready)=='number' and row.ready>0 and row.usable then return true end
+            local roles=type(row.spell)=='table' and type(row.spell.roles)=='table' and row.spell.roles or {}
+            for _,name in ipairs({'removal','debuff'}) do
+                local r=roles[name]
+                if type(r)=='table' and type(r.who)=='table' and (r.who.target or r.who.area) and
+                    type(row.ready)=='number' and row.ready>0 and row.usable then return true end
+            end
         end
         return false
     end
@@ -10205,8 +10693,9 @@ function M.new(g,options)
                 record({kind='error',where='guard',error=guardError})
             end
         end
-        -- What a removal could take from each enemy, read only when a ready spell removes; an enemy
-        -- whose effects cannot be read keeps none (its removal is worth nothing).
+        -- What a removal could take from each enemy and what it carries, read only when a ready
+        -- spell removes or weakens; an enemy whose effects cannot be read keeps none (its removal
+        -- is worth nothing, a debuff counts on it in full).
         if strips(rows) then
             for _,e in ipairs(frame.enemies) do
                 local object=get(e.id)
@@ -10451,6 +10940,7 @@ function M.new(g,options)
         if d.kind=='summon' then counts.summons=counts.summons+1 end
         if d.kind=='removal' then counts.removals=counts.removals+1 end
         if d.kind=='teleport' then counts.jumps=counts.jumps+1 end
+        if d.kind=='debuff' then counts.debuffs=counts.debuffs+1 end
         if d.release then counts.releases=counts.releases+1 end
         record({kind='choice',tick=tick,member=id,family=family,spell=d.resref,castKind=d.kind,mode=d.mode,
             target=d.target,point=d.point,score=d.score,worth=d.worth,hits=d.hits,how=why,top=top,
@@ -10460,9 +10950,12 @@ function M.new(g,options)
             inZones=zoneView(input,d),lasting=d.lasting,wit=input.mind.wit,walk=d.walk,interrupt=d.interrupt,
             ordered=d.ordered})
         -- A disable claims its targets in the group at once, so that another member deciding
-        -- before this cast starts leaves them alone; any other decision gives earlier claims back.
+        -- before this cast starts leaves them alone, and a debuff the enemies it weakens for its
+        -- spell; any other decision gives earlier claims back.
         if director then
-            if d.kind=='disable' or M.CARE[d.kind] then director:reserve(id,d.hits,tick) else director:release(id,tick) end
+            if d.kind=='disable' or M.CARE[d.kind] then director:reserve(id,d.hits,tick)
+            elseif d.kind=='debuff' then director:curse(id,d.hits,d.resref,tick)
+            else director:release(id,tick) end
         end
         local spell
         for _,row in ipairs(rows) do if row.resref==d.resref then spell=row.spell end end
@@ -10652,10 +11145,10 @@ function M.new(g,options)
             counts.started=counts.started+1
             -- A cast started in the caster's own Time Stop lands when time resumes.
             watch(tick)
-            if stop==id and (p.kind=='damage' or p.kind=='disable') then
+            if stop==id and (p.kind=='damage' or p.kind=='disable' or p.kind=='debuff') then
                 local mine=stopCasts[id] or {}
                 stopCasts[id]=mine
-                if #mine<M.stopCastLimit then mine[#mine+1]={kind=p.kind,hits=p.hits,expected=p.expected} end
+                if #mine<M.stopCastLimit then mine[#mine+1]={kind=p.kind,hits=p.hits,expected=p.expected,spell=p.resref} end
             end
             record({kind='start',tick=tick,member=id,spell=p.resref,target=p.target,point=p.point,
                 waited=tick-p.tick})

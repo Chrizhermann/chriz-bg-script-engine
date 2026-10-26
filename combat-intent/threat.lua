@@ -47,6 +47,24 @@ function M.hitChance(thac0,ac)
     return clamp((21-(thac0-ac))/20,0.05,0.95)
 end
 
+-- Attacks a round as opcode 1 and the creature's stats count them: from 6 on half attacks, 6 is
+-- a half, 7 one and a half, up to 10.
+function M.attacks(v)
+    if not number(v) or v<=0 then return 0 end
+    if v>5 and v<=10 then return v-5.5 end
+    return v
+end
+
+-- The mean armour class of the living creatures in list, nil without one.
+function M.armour(list)
+    local ac,n=0,0
+    for _,c in ipairs(type(list)=='table' and list or {}) do
+        if targeting.alive(c) and number(c.ac) then ac,n=ac+c.ac,n+1 end
+    end
+    if n==0 then return nil end
+    return ac/n
+end
+
 -- An enemy's attack data with the defaults filled in.
 function M.attack(e)
     local a=type(e)=='table' and type(e.attack)=='table' and e.attack or {}

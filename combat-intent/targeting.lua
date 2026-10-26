@@ -9,7 +9,8 @@ local M={}
 
 -- STATE.IDS bits (engine constants).
 M.STATE={sleeping=0x1,panic=0x4,stunned=0x8,invisible=0x10,helpless=0x20,reallyDead=0xFC0,
-    charmed=0x2000,feebleminded=0x100000,improvedInvisible=0x400000,confused=0x80000000}
+    charmed=0x2000,slowed=0x10000,blind=0x40000,feebleminded=0x100000,improvedInvisible=0x400000,
+    confused=0x80000000}
 -- STATE_DISABLED as the installed STATE.IDS defines it: sleeping, panic, stunned, helpless,
 -- charmed, feebleminded, confused. Holds set the HELD stat instead (see sense.lua).
 M.DISABLED=0x8010202D

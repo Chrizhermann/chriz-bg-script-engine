@@ -233,9 +233,10 @@ census, nothing ran). Cures with a removal (Break Enchantment takes the Disablin
 less than nothing on an enemy and stay cures.
 
 Not yet: invisible enemies the caster does not see are not in its frame, so an invisibility purge
-or True Seeing has no worth unless the caster sees them (they would need to be remembered), and
-debuff spells (Slow, Malison) are not cast for their debuff. A removal claims nothing in the group:
-two casters may breach the same enemy while the first cast is under way.
+or True Seeing has no worth unless the caster sees them (they would need to be remembered). A
+removal claims nothing in the group: two casters may breach the same enemy while the first cast is
+under way. Debuff spells (Slow, Malison) are cast for their debuff since F2b (FIGHT-01), and a
+removal with a debuff (Spell Revisions' Slow) adds both.
 
 ### Danger zones (D3e; built 2026-10-20)
 
@@ -250,9 +251,11 @@ markers, so it knows every zone, also those SCS marks not, and judges each by th
   spares (the projectile's area flags) and the effects one explosion delivers, classified as a
   spell at the zone's caster level, with the spells it casts on each creature (opcode 146).
 - **Harm of one explosion** on the creature: damage through its resistances, magic resistance and
-  saves; disables it does not shrug off (Cloudkill's death only up to its levels); conditions
-  (Stinking Cloud's spell failure counts as a silence, 0.7, blindness 0.3, deafness 0.2, disease
-  0.1, casters' conditions a fifth on others); nothing when its spell protections keep the zone
+  saves; disables it does not shrug off (Cloudkill's death only up to its levels); conditions that
+  weaken, by the share of the creature's fight they take (`harm.debuff`, since F2b: Stinking
+  Cloud's spell failure takes most of a mage's fight and little of a fighter's; until then fixed
+  values, a silence's 0.7 for spell failure, blindness 0.3, deafness 0.2, disease 0.1); nothing when
+  its spell protections keep the zone
   out or the zone spares its side. Turnings, deflections and traps that count down keep it out
   only for as many explosions as their levels last: each explosion that reaches the creature takes
   its sub-spell's power from them, and they stop the last one even with fewer levels left

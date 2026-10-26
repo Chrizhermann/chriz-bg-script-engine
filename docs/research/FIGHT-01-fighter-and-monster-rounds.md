@@ -371,6 +371,79 @@ save; Deathblow (`SPCL902`) a slay up to level 10, Greater Deathblow up to 12 (t
 its levels, SPELLS-01). An on-hit EFF that cannot be read leaves the spell approximate, with its
 reason, and the rest of it whole.
 
+### F2b: debuffs (2026-10-26)
+
+Spells and abilities that weaken enemies are attacks now (`combat-intent/harm.lua`,
+`combat-intent/choice.lua`). SCS's blueprint (credit: DavidW; read in its source): its priests
+cast Doom at an enemy not doomed yet, each priest at most every 18 seconds
+(`priest/ssl/combatblocks/doom.ssl`), and Greater Malison at enemies not malisoned yet, once a
+minute in the whole area (`curse_malison.ssl`); its mages slow the strongest enemies not slowed yet
+whose save can still fail (`mage/ssl/combatblocks/slow.ssl`), throw Glitterdust at enemies whose
+save can fail and that are not dusted yet (`glitterdust.ssl`), and fire sequencers that pair
+Dispel Magic with Greater Malison (`attacks_on_pc_defences.ssl`).
+
+- **Worth** (`harm.weaken`, `harm.debuff`): the share of an enemy's fight a debuff takes while it
+  holds, on the scale where a hold that takes all of a healthy enemy's fight for three rounds is
+  worth 1. An enemy's fight is its weapon's harm in a round (attacks, the chance to hit the mean
+  armour class of the caster's side, the damage of a hit) and its spells (by casting class and
+  level, as `threat.lua` counts them). That share counts for the part of three rounds the debuff
+  holds, by the enemy's health as a disable does, and as likely as it lands (magic resistance,
+  save, its own chance). What takes a share (IESDP):
+  - Slow halves all a creature does: it acts every second tick, so it makes half its attacks and
+    casts in twice the time.
+  - Blindness costs 4 to hit (on EE); a second blindness adds nothing.
+  - To-hit penalties, luck and a negative chant (Doom, an enemy's Chant) count on the attack roll
+    point for point; fatigue above 6 costs a point of luck each (FATIGMOD.2DA, for a rested
+    creature).
+  - Fewer attacks, less damage, less damage in per cent for the weapon's kind (opcode 332) and a
+    THAC0 set or scaled (opcode 54).
+  - Casting failure by kind of spell (wizard, priest, innate), and deafness's 50 % on wizard and
+    priest spells: Miscast Magic on a mage takes most of its fight, little of a fighter's.
+  - A lower casting level weakens the creature's spells by the levels it takes; drained levels
+    weaken its weapon and its spells by theirs.
+
+  Slow on a fighter who would deal 6.65 a round (one attack at THAC0 12 for 7, against armour class
+  10) takes half its fight for the full time: worth 0.5, as much as holding it for half the time. A
+  creature already slowed or blind gets nothing more from another slow or blindness.
+- **As attacks** (`choice.attack`): a spell that only weakens is an attack of its own kind
+  (`debuff`). A debuff beside damage counts in full (Holy Smite blinds), beside a disable only as
+  likely as the disable fails: a creature held has no fight to weaken. An enemy that only the
+  debuff of a spell reaches counts for the debuff (Holy Word's weaker tiers for those too strong
+  for its stronger ones, SPELLS-01). A removal with a debuff makes an attack too: Spell Revisions'
+  Slow takes haste, Glitterdust and Faerie Fire take invisibility.
+- **Openings,** a tactic by wit (Christopher, 2026-10-26: every new tactic varies by wit): a debuff
+  that lowers saving throws, magic resistance, resistances or armour class (Greater Malison, Lower
+  Resistance, Faerie Fire, blindness's 4 points of armour class) also counts what it opens. That is
+  the most one of the caster's other ready attack spells gains on the weakened enemy (Greater
+  Malison before Hold Person makes the hold land more often), and what its friends' weapons gain on
+  it over the rounds the debuff holds (those next to the enemy, and archers when it is the group's
+  focus), no more than the enemy has left, as likely as the debuff lands. A clever creature always
+  counts it, a normal one when it notices (a ready attack spell whose debuff opens defences
+  counts toward noticing), a dull one never. Plain debuffs every creature casts.
+- **No double curses.** An enemy that carries the spell's effects already gets it no second time:
+  one of its active effects comes from the spell or from what the spell delivers (`harm.carries`),
+  or, in the caster's own Time Stop, the spell is among the casts that land when time resumes. In
+  the group, one member casts each debuff spell at an enemy (the director's curses,
+  `combat-intent/director.lua`). The choice claims the enemies it weakens for its spell, and the
+  cast's start holds them while it runs and 2 seconds after (`graceTicks`), as a disable holds its
+  targets. So two priests with Doom curse two enemies, or one priest casts Doom and the other
+  Greater Malison on the same enemy. A creature that does not coordinate (coordination below 0.5)
+  pays the claims no heed.
+- **Prayer, Recitation and Chant** count for both sides: what they give the caster's side, weighted
+  by caution, and what they take from each enemy in their area that does not carry them yet
+  (DEFENCE-01).
+- **Danger zones** weigh the conditions of a cloud the same way on the creature in it
+  (`zones.debuff` is `harm.debuff`): Stinking Cloud's spell failure takes most of a mage's fight
+  and little of a fighter's (SUPPORT-01).
+- **In game** (`adapters/eeex/choice.lua`): when a ready spell weakens enemies, the adapter reads
+  each enemy's active effects (`sense.wards`, as for removals). A debuff at a creature is judged as
+  an attack: a hit when the target carries an effect of the spell afterwards, a miss otherwise,
+  remembered as other misses are. The choice adapter counts `debuffs`; the director logs `curse`
+  rows and shows its `curses` in `inspect`.
+
+Tests: `harm` (5 groups), the choice's group 23, defence group 6, director group 11 and the choice
+adapter's group 34.
+
 ## Agreed (Christopher, 2026-10-25)
 
 1. **Target choice by worth, with overrides.** Not SCS's fixed list ("Ich würde es nicht eins zu
@@ -408,6 +481,17 @@ Known gaps, for later:
 
 - Critical hit effects (opcode 341) and on-hit effects that only weaken (debuffs) count nothing
   yet; on-hit damage and disables do (F2a).
+- Debuffs (F2b): lower strength, dexterity and constitution count nothing (the engine reads
+  neither the stats nor their tables), and neither do lower maximum hit points, movement, casting
+  speed, critical hit chances, bonuses against kinds of creature, Grease, knockback, wild surges or
+  fields that block teleports. Fatigue counts FATIGMOD.2DA's free points for a rested creature
+  without reading the table. A debuff beside damage counts in full even when the damage kills.
+  Openings count neither the debuffs of defences (Prayer) nor allies' spells. Buffs count a point
+  of luck half a point to hit (`defence.lua`), debuffs a full point; and defences sum saving throw
+  changes, so a spell that raises each of the five saves with an effect of its own counts five
+  times what one effect raising all five (opcode 325) counts. Cures still count blindness,
+  deafness and disease on a friend at fixed values (`care.lua`), not by the share of its fight
+  they take.
 - Barbarian Rage's armour class penalty does not count against what it protects; per-cent maximum
   hit points (opcode 18, mode 2) give no hit points; helmets are not read.
 - Movement speed is not read (haste, slow, boots of speed), only the default.

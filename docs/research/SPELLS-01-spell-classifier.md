@@ -31,7 +31,7 @@ files alone, whatever Spell Revisions, SCS or other mods changed?
   partial, a spell choice for the player, unknown projectile) and unknown opcodes.
 - It never raises. Missing or odd data is reported (partial with a reason), and the caller
   skips what it cannot use; the creature's other abilities stay usable.
-- Host tests: `tests/unit/combat_intent/test_spells.lua`, 35 groups on Lua 5.1 and LuaJIT,
+- Host tests: `tests/unit/combat_intent/test_spells.lua`, 36 groups on Lua 5.1 and LuaJIT,
   all synthetic records.
 
 ## Census over every SPL
@@ -118,6 +118,17 @@ files alone, whatever Spell Revisions, SCS or other mods changed?
   creatures by level and 35 of them reach levels differently: Color Spray, Holy Word, Unholy
   Word, Cloudkill, Prismatic Spray, Sleep, Artisan's Kitpack's Deathless Master's Touch and Bardic
   Wonders' Legionnaire's March among them.
+- Debuff amounts (2026-10-26, for F2b in FIGHT-01; IESDP). Saving throw changes are tallied per
+  save as well (`saveBy`: 33 death, 34 wands, 35 polymorph, 36 breath, 37 spells, 325 all five),
+  for the spells whose saves they meet; `saves` keeps their sum. Casting failure (60) counts by
+  kind of spell (`miscastBy`; parameter 2 0 and 3 wizard, 1 and 4 priest, 2 and 5 innate, 3 to 5
+  as dead magic). Negative chant (137) lowers luck by the first byte of parameter 1; a value
+  below 0 raises it and is a buff. Disease (78) counts by its type in parameter 2: damage over
+  time (0 to 3, poison as opcode 25 counts it), lower strength, dexterity, constitution,
+  intelligence, wisdom or charisma (4 to 9), a slow (10), Mold Touch's magic damage (11, and 12
+  losing a die a round) and Contagion (13: strength, dexterity and charisma, and a slow). Damage
+  over time counts its first minute at most (`overTime`): a fight is over sooner, and a disease
+  that runs for hours would otherwise seem to kill anyone.
 - An empty item reference in opcode 111 creates no weapon and is no missing file
   (2026-10-20); IESDP warns that the game can crash on it. A kit mod in the SR lab gives one kit
   (SPLPROT row 418, the kit check) the charge of a touch spell in the fist instead, through a

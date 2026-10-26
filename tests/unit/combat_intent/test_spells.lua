@@ -790,4 +790,43 @@ whirl.abilities[1].effects[1].target=1
 assert(classify(whirl,world({}),{level=6}).roles.buff.amounts.attacks==1)
 groups=groups+1
 
+-- Debuff amounts (F2b): saving throw points by save (the five saves one by one, or all five at
+-- once), casting failure by kind of spell, disease by its type (poison damage over its first
+-- minute, a lower stat, slow, Contagion, Mold Touch), the luck a negative chant takes.
+c=classify(spl('TESTMAL',{ability({fx(33,{p1=-2,duration=120}),fx(34,{p1=-2,duration=120}),
+    fx(35,{p1=-2,duration=120}),fx(36,{p1=-2,duration=120}),fx(37,{p1=-2,duration=120}),
+    fx(22,{p1=-1,duration=120})})}),world({}))
+local d=c.roles.debuff
+assert(d.amounts.saves==10 and d.saveBy.spell==2 and d.saveBy.death==2 and d.saveBy.poly==2 and d.amounts.luck==1)
+d=one(fx(325,{p1=-1,duration=60})).roles.debuff
+assert(d.amounts.saves==1 and d.saveBy.spell==1 and d.saveBy.breath==1 and d.saveBy.wand==1)
+assert(one(fx(37,{p1=2,target=1}),{target=5}).roles.protection.saveBy.spell==2)
+assert(one(fx(346,{p1=-2})).roles.debuff.saveBy==nil)
+-- Miscast Magic: 80 per cent for wizard and priest spells; a negative per cent harms no one.
+c=classify(spl('TESTMIS',{ability({fx(60,{p1=80,duration=60}),fx(60,{p1=80,p2=1,duration=60})})}),world({}))
+d=c.roles.debuff
+assert(d.kinds.miscast and d.miscastBy.arcane==80 and d.miscastBy.divine==80 and d.miscastBy.innate==nil)
+assert(one(fx(60,{p1=30,p2=5})).roles.debuff.miscastBy.innate==30)
+assert(next(one(fx(60,{p1=-20})).roles)==nil)
+-- Disease: a hit point a second for its first minute (an hour-long one too), 3 a second for 10
+-- seconds, one every 4 seconds; strength 2 lower; slowed; Contagion; Mold Touch.
+d=one(fx(78,{p1=1,duration=3600})).roles
+assert(d.debuff.kinds.disease and d.damage.types.poison==60)
+assert(one(fx(78,{p1=3,p2=2,duration=10})).roles.damage.types.poison==30)
+assert(near(one(fx(78,{p1=4,p2=3,duration=60})).roles.damage.types.poison,15))
+d=one(fx(78,{p1=2,p2=4,duration=60})).roles
+assert(d.damage==nil and d.debuff.kinds.strength and d.debuff.amounts.strength==2 and d.debuff.kinds.disease)
+assert(one(fx(78,{p2=10,duration=60})).roles.debuff.kinds.slow)
+d=one(fx(78,{p1=2,p2=13,duration=60})).roles.debuff
+assert(d.kinds.slow and d.amounts.strength==2 and d.amounts.dexterity==2 and d.amounts.charisma==2 and d.kinds.disease)
+assert(one(fx(78,{p2=11})).roles.damage.types.magic==3.5)
+assert(one(fx(78,{p1=3,p2=12})).roles.damage.types.magic==21)
+-- Poison counts its first minute too.
+assert(one(fx(25,{p1=1,duration=600})).roles.damage.types.poison==60)
+-- A negative chant lowers luck by its parameter; below 0 it helps.
+d=one(fx(137,{p1=1,duration=60})).roles.debuff
+assert(d.kinds.chant and d.amounts.luck==1)
+assert(one(fx(137,{p1=255,duration=60})).roles.buff.kinds.chant)
+groups=groups+1
+
 return groups

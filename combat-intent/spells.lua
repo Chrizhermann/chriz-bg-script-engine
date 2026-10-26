@@ -164,14 +164,16 @@ local function set(r,field) r[field]=r[field] or {};return r[field] end
 -- creature's own spell off it only then (IESDP).
 local function hostile(flags) return number(flags) and math.floor(flags/1024)%2==1 or false end
 
--- A stat change helps or hurts by its sign; percentage modes compare against 100.
+-- A stat change helps or hurts by its sign; percentage modes compare against 100. Returns the role
+-- and the change, nil when there is none.
 local function modifier(c,e,who,p,label,good,bad,amount)
     local mode=e.p2%65536
     local delta=e.p1
     if mode==2 then delta=e.p1-100 end
-    if delta==0 then return end
+    if delta==0 then return nil end
     local r=kind(c,delta>0 and good or bad,label,who,e,p)
     tally(set(r,'amounts'),label,math.abs(amount or delta)*p)
+    return r,delta
 end
 
 -- A bonus or penalty by sign, for opcodes whose parameter 2 is not a modifier type.
@@ -197,8 +199,11 @@ H[12]=function(c,e,who,p)
         local r=add(c,'damage',who,e,p);r.kinds[label]=true;r.percent=math.max(r.percent or 0,e.p1)
     end
 end
+-- Damage over time counts its first minute: a fight is over sooner (threat.rest caps it there), and
+-- a disease that runs for hours would otherwise seem to kill anyone.
+M.overTime=60
 H[25]=function(c,e,who,p)
-    local s=seconds(e);local span=number(s) and s or 0
+    local s=seconds(e);local span=number(s) and math.min(s,M.overTime) or 0
     local mode=e.p2%65536
     local rate=({[0]=1,[1]=e.p1,[2]=e.p1>0 and 1/e.p1 or 0,[3]=e.p1})[mode] or 1
     damage(c,e,who,p,rate*span,'poison')
@@ -278,10 +283,52 @@ local function berserk(c,e,who,p)
 end
 H[3]=berserk;H[246]=berserk
 
-local DEBUFFS={[40]='slow',[60]='miscast',[74]='blind',[78]='disease',[80]='deaf',[137]='chant',
-    [158]='grease',[235]='knockback'}
+local DEBUFFS={[40]='slow',[74]='blind',[80]='deaf',[158]='grease',[235]='knockback'}
 for op,label in pairs(DEBUFFS) do H[op]=function(c,e,who,p) kind(c,'debuff',label,who,e,p) end end
 H[216]=function(c,e,who,p) local r=kind(c,'debuff','drain',who,e,p);tally(set(r,'amounts'),'drain',math.abs(e.p1)*p) end
+-- Casting failure (IESDP opcode 60): parameter 1 is the per cent, parameter 2 the spells it hits,
+-- 0 and 3 wizard spells, 1 and 4 priest spells, 2 and 5 innate abilities (3 to 5 as dead magic).
+-- miscastBy tallies the per cent by kind of spell; it adds up with itself and with deafness.
+local MISCAST={[0]='arcane',[1]='divine',[2]='innate',[3]='arcane',[4]='divine',[5]='innate'}
+H[60]=function(c,e,who,p)
+    if e.p1<=0 then return end
+    local r=kind(c,'debuff','miscast',who,e,p)
+    local label=MISCAST[e.p2%65536]
+    if label then tally(set(r,'miscastBy'),label,math.min(e.p1,100)*p) end
+end
+-- Negative chant (IESDP opcode 137) lowers luck by the first byte of parameter 1 (below 0 it
+-- raises it); chants do not add up.
+H[137]=function(c,e,who,p)
+    local v=e.p1%256
+    if v>=128 then v=v-256 end
+    if v<0 then kind(c,'buff','chant',who,e,p);return end
+    local r=kind(c,'debuff','chant',who,e,p)
+    if v>0 then tally(set(r,'amounts'),'luck',v*p) end
+end
+-- Disease (IESDP opcode 78) by its type in parameter 2: 0 and 1 take a hit point a second, 2
+-- parameter 1 a second, 3 one every parameter 1 seconds (poison damage, as opcode 25 counts it); 4
+-- to 9 lower strength, dexterity, constitution, intelligence, wisdom or charisma by parameter 1
+-- (below 0 they raise it); 10 slows; 11 and 12 are Mold Touch, magic damage of 1d6, or of parameter
+-- 1 d6 losing a die a round; 13 is Contagion, strength, dexterity and charisma lower by parameter 1
+-- and slowed. Each keeps the disease label, which Cure Disease takes away.
+local DISEASE_STATS={[4]={'strength'},[5]={'dexterity'},[6]={'constitution'},[7]={'intelligence'},
+    [8]={'wisdom'},[9]={'charisma'},[13]={'strength','dexterity','charisma'}}
+H[78]=function(c,e,who,p)
+    local t=e.p2%65536
+    kind(c,'debuff','disease',who,e,p)
+    if t<=3 then
+        local s=seconds(e)
+        local span=number(s) and math.min(s,M.overTime) or 0
+        local rate=({[0]=1,[1]=1,[2]=e.p1,[3]=e.p1>0 and 1/e.p1 or 0})[t] or 0
+        if rate>0 and span>0 then damage(c,e,who,p,rate*span,'poison') end
+    elseif t==11 then damage(c,e,who,p,3.5,'magic')
+    elseif t==12 then local n=math.max(0,e.p1);damage(c,e,who,p,3.5*n*(n+1)/2,'magic') end
+    if t==10 or t==13 then kind(c,'debuff','slow',who,e,p) end
+    for _,label in ipairs(DISEASE_STATS[t] or {}) do
+        if e.p1>0 then local r=kind(c,'debuff',label,who,e,p);tally(set(r,'amounts'),label,e.p1*p)
+        elseif e.p1<0 then kind(c,'buff',label,who,e,p) end
+    end
+end
 
 for op,label in pairs(STATS) do
     H[op]=function(c,e,who,p)
@@ -404,7 +451,18 @@ for op,label in pairs(RESIST) do
         elseif e.p1<0 then local r=kind(c,'debuff','resist',who,e,p);tally(set(r,'resist'),label,-e.p1*p) end
     end
 end
-for op in pairs(SAVE_MODS) do H[op]=function(c,e,who,p) modifier(c,e,who,p,'saves','protection','debuff') end end
+-- Saving throw changes (IESDP: 33 death, 34 wands, 35 polymorph, 36 breath, 37 spells, 325 all
+-- five, 346 the spells of one school): saveBy tallies the points by save, which a spell's own saves
+-- meet; saves keeps their sum.
+local SAVE_BY={[33]={'death'},[34]={'wand'},[35]={'poly'},[36]={'breath'},[37]={'spell'},
+    [325]={'death','wand','poly','breath','spell'}}
+for op in pairs(SAVE_MODS) do
+    H[op]=function(c,e,who,p)
+        local r,delta=modifier(c,e,who,p,'saves','protection','debuff')
+        if not r then return end
+        for _,name in ipairs(SAVE_BY[op] or {}) do tally(set(r,'saveBy'),name,math.abs(delta)*p) end
+    end
+end
 H[166]=function(c,e,who,p) modifier(c,e,who,p,'magicResistance','protection','debuff') end
 H[0]=function(c,e,who,p)
     if e.p2==16 then kind(c,'protection','armor',who,e,p);return end

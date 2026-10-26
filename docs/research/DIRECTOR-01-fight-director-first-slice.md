@@ -84,6 +84,15 @@ same place where EEex's own SpellToPoint listener changes a starting cast.
   there is none, keep the cast.
 - **Reservations:** a started disable reserves its target for up to 15 seconds, and for two
   more seconds after its cast ends, so the effect can show before another disable is allowed.
+- **Curses** (F2b, 2026-10-26; [FIGHT-01](FIGHT-01-fighter-and-monster-rounds.md)): the engine's
+  own debuff claims the enemies it weakens for its spell alone, as SCS's priests cast Doom only at
+  an enemy not doomed yet and Greater Malison once a minute in an area (`doom.ssl`,
+  `curse_malison.ssl`). Another
+  member leaves that spell off those enemies, not its other spells: Doom from one priest and Greater
+  Malison from the other may meet on one enemy, two Dooms do not. The claim lapses after 4 seconds
+  unless the cast starts; the start holds it as a reservation, for up to 15 seconds and two after
+  the cast ends. A disable and a curse never block each other. The log has `curse` rows, and
+  `inspect` lists the curses with spell, owner and end.
 
 ### Casts at a kind of creature
 

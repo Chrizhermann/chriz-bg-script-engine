@@ -437,7 +437,9 @@ with special 1, as Spell Revisions does. Cleanup was clean both times.
 ## Limits and next steps
 
 - **One kind per spell.** A spell that damages and disables counts as a disable only. Debuffs
-  (slow, blindness) and dispels are no attacks yet; they come with later slices.
+  (slow, blindness) are attacks of their own since F2b and add to damage and disables
+  ([FIGHT-01](FIGHT-01-fighter-and-monster-rounds.md)); dispels and breaches are removals
+  ([SUPPORT-01](SUPPORT-01-healing-curing-summons-removal-zones.md)).
 - **Area casts teach nothing.** Only single-target casts are judged.
 - **Dummies.** All fights so far are against dummies that do not fight back. Single-target
   spells rarely reach the minimum worth (0.2 of an enemy) against their 250 hit points.

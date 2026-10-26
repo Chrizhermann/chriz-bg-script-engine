@@ -2170,4 +2170,70 @@ assert(c.castKind=='teleport' and c.target==11 and c.point.x==732 and ch:inspect
 end)()
 groups=groups+1
 
+-- 34. Debuffs (F2b). A mage whose only spell is Slow (a debuff: it halves what an enemy does in a
+-- round) facing a fighter: the engine reads the enemy's effects, casts Slow at it with SpellRES at
+-- EEex_Target and claims it in the group for that spell, so that a second mage with Slow, deciding
+-- before the first one's cast is even queued, leaves it alone; the cast's start holds the claim.
+-- Once the cast is over the Slow took when the enemy carries an effect of it (its state is left
+-- alone here, so only its effects tell), and an enemy that carries it gets no second Slow; one
+-- that carries none afterwards was missed.
+;(function()
+records.TESTSLOW=spl('TESTSLOW',3,{fx(40,{duration=60})})
+local g=world()
+local slower=g.add(sprite(1,0,0,255))
+learn(slower,2,'TESTSLOW',2)
+local other=g.add(sprite(2,0,40,255))
+learn(other,2,'TESTSLOW')
+local foe=g.add(sprite(11,100,0,2))
+local dir=directors.new(g,{reader=reader})
+local ch=choices.new(g,{reader=reader,director=dir,seed=43})
+local rows={}
+ch:setSink(function(row) rows[#rows+1]=row end)
+local root=runtime.install(g,{director=dir,choice=ch,version='test'})
+local function last(kind,member)
+    for n=#rows,1,-1 do
+        if rows[n].kind==kind and (member==nil or rows[n].member==member) then return rows[n] end
+    end
+end
+local function claim(s,tick) g.ticks=tick;return g.BGSE_Claim(s,'mage','s1') end
+local function curses() return root.inspect().director.areas.AR0001.curses end
+assert(claim(slower,100)==true)
+local c=last('choice',1)
+assert(c.castKind=='debuff' and c.spell=='TESTSLOW' and c.mode=='creature' and c.target==11 and c.hits[1]==11)
+local held=curses()
+assert(#held==1 and held[1].target==11 and held[1].spell=='TESTSLOW' and held[1].owner==1 and held[1].claim==true)
+assert(claim(other,102)==true and last('choice',2)==nil and last('wait',2).reason=='no-option')
+g.BGSE_Act(slower)
+assert(g.queued[#g.queued].text=='SpellRES("TESTSLOW",EEex_Target("BGSE"))' and slower.aux.EEex_Target.BGSE==11)
+g.ticks=103
+g.listeners.started[1](slower,action(31,'TESTSLOW',-1))
+slower.m_curAction=action(31,'TESTSLOW',11)
+held=curses()
+assert(#held==1 and held[1].owner==1 and held[1].claim==nil)
+assert(claim(slower,120)==true and ch:inspect().running==1)
+-- The cast is over and the enemy carries its effect.
+slower.m_curAction={m_actionID=0};slower.book[2][1].m_flags=0
+foe.m_timedEffectList={{m_effectId=40,m_durationType=4096,m_duration=135+900,m_effectAmount=0,m_dWFlags=0,
+    m_res=str(''),m_sourceRes=str('TESTSLOW'),m_school=0,m_secondaryType=0,m_spellLevel=3,m_casterLevel=10,
+    m_flags=1,m_numDice=0,m_diceSize=0,m_special=0}}
+assert(claim(slower,135)==true and ch:inspect().judging==1 and last('wait',1).reason=='no-option')
+assert(claim(slower,170)==true)
+local o=last('outcome')
+assert(o.hit==true and o.spell=='TESTSLOW' and o.target==11 and ch:inspect().counts.hits==1)
+-- The Slow wears off; the second one leaves the enemy without its effect.
+foe.m_timedEffectList={}
+assert(claim(slower,200)==true and last('choice',1).tick==200 and last('choice',1).castKind=='debuff')
+g.BGSE_Act(slower)
+g.ticks=201
+g.listeners.started[1](slower,action(31,'TESTSLOW',-1))
+slower.m_curAction=action(31,'TESTSLOW',11)
+assert(claim(slower,220)==true)
+slower.m_curAction={m_actionID=0};slower.book[2][2].m_flags=0
+assert(claim(slower,240)==true and claim(slower,275)==true)
+o=last('outcome')
+assert(o.hit==false and o.misses==1 and ch:inspect().counts.misses==1)
+assert(ch:inspect().counts.debuffs==2 and ch:inspect().counts.wardFailures==0)
+end)()
+groups=groups+1
+
 return groups

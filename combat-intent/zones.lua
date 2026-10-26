@@ -43,7 +43,7 @@
 local targeting=require('combat-intent.targeting')
 local harm=require('combat-intent.harm')
 local spells=require('combat-intent.spells')
-local ids=require('combat-intent.ids')
+local threat=require('combat-intent.threat')
 local openers=require('combat-intent.openers')
 local M={}
 M.ROUND=6
@@ -56,11 +56,6 @@ M.directions=16
 M.maxWalk=600
 -- A speed point of casting time is 10 game ticks (as for defences).
 M.speedSeconds=10/15
--- What conditions that hinder without taking a creature out are worth for the full time
--- (harm.fullSeconds), as care.CONDITION counts blindness, deafness and disease; Stinking Cloud's
--- spell failure counts as a silence. Those for casters count a fifth on others.
-M.DEBUFF={miscast=0.7,blind=0.3,deaf=0.2,disease=0.1}
-M.CASTERS_ONLY={miscast=true,deaf=true}
 -- Wit: a dull creature's chance to leave after an explosion hurt it is painScale times the share
 -- of hit points it has lost, times its danger weight. STATE_BERSERK; a berserk or raging creature
 -- stays while its share of hit points is above rageHealth.
@@ -112,21 +107,16 @@ function M.reachesSide(z,theirs)
     return true
 end
 
--- What a debuff role's conditions take from f for as long as they hold, times the chance they
--- land.
-function M.debuff(role,f)
-    local factor=0
-    for label in pairs(type(role.kinds)=='table' and role.kinds or {}) do
-        local v=M.DEBUFF[label] or 0
-        if M.CASTERS_ONLY[label] and not ids.caster(f) then v=v*0.2 end
-        if v>factor then factor=v end
-    end
-    if factor<=0 then return 0 end
-    local length=0.5
-    if role.duration=='permanent' then length=1
-    elseif number(role.duration) and role.duration>0 then length=clamp(role.duration/harm.fullSeconds,0,1) end
-    local chance=targeting.landing(role,f)*(1-targeting.saveChance(role,f))
-    return factor*length*(0.5+0.5*targeting.health(f))*chance
+-- What a debuff role takes from f's fight for as long as it holds, times the chance it lands, as
+-- the engine's own debuffs count it on an enemy (harm.debuff: Stinking Cloud's spell failure on a
+-- caster, a blindness on a fighter). ac: the armour class f's weapon meets.
+function M.debuff(role,f,ac) return harm.debuff(role,f,ac) end
+-- The mean armour class f's weapon meets: its enemies', with theirs (f one of the caster's
+-- enemies) the caster's side's.
+local function facing(input,theirs)
+    local frame=type(input)=='table' and input.frame
+    if type(frame)~='table' then return nil end
+    return threat.armour(theirs and threat.friends(frame) or frame.enemies)
 end
 
 -- How many of z's next explosions f's spell protections stop (targeting.stopped): math.huge
@@ -153,7 +143,7 @@ function M.hit(input,z,f,theirs)
     local worth=0
     if reaches(roles.damage) then worth=worth+(harm.damage(roles.damage,f,killBonus,floor)) end
     if reaches(roles.disable) then worth=worth+harm.disable(roles.disable,f,killBonus,floor) end
-    if reaches(roles.debuff) then worth=worth+M.debuff(roles.debuff,f) end
+    if reaches(roles.debuff) then worth=worth+M.debuff(roles.debuff,f,facing(input,theirs)) end
     return worth,first,floor
 end
 

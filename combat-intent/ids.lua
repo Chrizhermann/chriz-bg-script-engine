@@ -19,9 +19,13 @@ M.CLASS_ALL={
     [209]={12,18},               -- RANGER_ALL
 }
 -- Classes that cast spells (CLASS.IDS): mage, cleric, bard, paladin, the multiclasses with a
--- caster class, druid, ranger, sorcerer, shaman.
-M.CASTERS={}
+-- caster class, druid, ranger, sorcerer, shaman. Of them, those that cast wizard spells (mages,
+-- bards, sorcerers and the multiclasses with a mage) and those that cast priest spells (clerics,
+-- druids, paladins, rangers, shamans and the multiclasses with a cleric or druid).
+M.CASTERS,M.ARCANE,M.DIVINE={},{},{}
 for _,n in ipairs({1,3,5,6,7,8,10,11,12,13,14,15,16,17,18,19,21}) do M.CASTERS[n]=true end
+for _,n in ipairs({1,5,7,10,13,14,17,19}) do M.ARCANE[n]=true end
+for _,n in ipairs({3,6,8,11,12,14,15,16,17,18,21}) do M.DIVINE[n]=true end
 
 local function number(v) return type(v)=='number' and v==v and v%1==0 end
 
@@ -73,5 +77,12 @@ end
 -- Whether the creature casts spells, by its class.
 function M.caster(creature)
     return type(creature)=='table' and type(creature.ids)=='table' and M.CASTERS[creature.ids.class]==true
+end
+-- Whether it casts wizard spells, and whether it casts priest spells, by its class.
+function M.arcane(creature)
+    return type(creature)=='table' and type(creature.ids)=='table' and M.ARCANE[creature.ids.class]==true
+end
+function M.divine(creature)
+    return type(creature)=='table' and type(creature.ids)=='table' and M.DIVINE[creature.ids.class]==true
 end
 return M

@@ -80,11 +80,7 @@ local function amount(role,label)
     return number(v) and v or 0
 end
 -- Opcode 1 counts half attacks from 6 on: 6 is a half, 7 one and a half, up to 10.
-function M.attacks(v)
-    if not number(v) or v<=0 then return 0 end
-    if v>5 and v<=10 then return v-5.5 end
-    return v
-end
+M.attacks=threat.attacks
 
 -- What a set of roles (a spell's, or the effects a friend carries) protects against, as plain
 -- numbers. Sets of spell levels: all (globes keep out every spell of the level) and personal
@@ -514,13 +510,37 @@ function M.through(input,t,cast)
     return math.exp(-hits-t.spell.casters*threat.personal*(1-b.personal)*part)
 end
 
+-- What a defence weakens of the enemies its area reaches as cast at aim (F2b: Prayer, Recitation
+-- and Chant curse the enemies around the priest while they bless its side): each enemy's debuff
+-- (combat-intent/harm.lua) against the armour class ac of the caster's side, on the attack's
+-- scale; none on an enemy its spell protections keep the spell off or that carries the spell's
+-- effects already.
+local function weakens(input,row,spell,aim,ac)
+    local area=spell.area
+    if not aim.point or type(area)~='table' or not number(area.radius) then return 0 end
+    local worth=0
+    for _,e in ipairs(type(input.frame.enemies)=='table' and input.frame.enemies or {}) do
+        if type(e)=='table' and targeting.alive(e) and targeting.distance(aim.point,e)<=area.radius and
+            not targeting.protected(e,spell) and not harm.carries(e,spell,row.resref) then
+            local roles=spells.view(spell,targeting.holds(e))
+            local d=type(roles)=='table' and roles.debuff
+            if type(d)=='table' and type(d.who)=='table' and d.who.area and
+                (type(d.filters)~='table' or d.filters.enemies or d.filters.all) then
+                worth=worth+harm.debuff(d,e,ac)
+            end
+        end
+    end
+    return worth
+end
+
 -- Every defence option the caster has: {resref, kind='defence', mode, worth, cost, score, hits
 -- (the friends it reaches), slack=0, and self, point or target as the cast is aimed; use=true for
 -- an item it drinks}. rejected (optional) counts why ready defensive spells and carried items gave
 -- none. A friend's guard false means it could not be read. A defence that follows the last one
 -- within mind.redefend seconds waits, as SCS's does, unless the caster is in acute danger. An item
 -- (the protection and buff potions SCS's fighters drink) works on the caster itself while it has
--- uses left, costs as a first-level spell and is not interrupted (as care.lua's potions).
+-- uses left, costs as a first-level spell and is not interrupted (as care.lua's potions). What a
+-- spell's area weakens of enemies (weakens) adds to what it gives its side, which caution weighs.
 function M.options(input,rejected)
     local out={}
     local function reject(why) if rejected then rejected[why]=(rejected[why] or 0)+1 end end
@@ -540,6 +560,8 @@ function M.options(input,rejected)
     local ct=pictures[caster.id]
     -- The weapon the caster swings when its profile fights with it.
     local wielded=mind.ownWeapon==true and threat.wielded(caster) or nil
+    local caution=number(mind.caution) and mind.caution or 1
+    local ac=threat.armour(threat.friends(frame))
     -- The option of one ready spell (row) or carried item (row.item), or false and why it gives
     -- none: no defence at all is false and nil.
     local function consider(row,spell)
@@ -574,7 +596,12 @@ function M.options(input,rejected)
                     if gain>0 then worth=worth+gain;hits[#hits+1]=f.id end
                 end
             end
-            if worth>0 and (not best or worth>best.worth) then best={aim=aim,worth=worth,hits=hits} end
+            -- Caution weighs what it gives the side; a profile without any (labs) still sees it.
+            local weak=row.item and 0 or weakens(input,row,spell,aim,ac)
+            local total=worth*caution+weak
+            if worth+weak>0 and (not best or total>best.total or (total==best.total and worth>best.worth)) then
+                best={aim=aim,total=total,worth=worth,hits=hits}
+            end
         end
         if not best then return false,unknown and 'unknown-guard' or 'no-worth' end
         -- Casting time: harm while casting can interrupt a cast (not a drink); long casts also cost.
@@ -584,7 +611,7 @@ function M.options(input,rejected)
             number(spell.level) and spell.level or 1)
         local cost=(number(mind.economy) and mind.economy or 1)*M.costPerLevel*level+
             (number(mind.castCost) and mind.castCost or 0)*cast
-        local worth=best.worth*through*(number(mind.caution) and mind.caution or 1)
+        local worth=best.total*through
         local option={resref=row.resref,kind='defence',worth=worth,cost=cost,score=worth-cost,
             hits=best.hits,slack=0,speed=number(spell.speed) and spell.speed or 0,release=spell.release or nil,
             use=row.item or nil}

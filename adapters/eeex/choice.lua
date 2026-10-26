@@ -115,6 +115,14 @@
 -- on. A detection is judged by whether the creature sees an enemy afterwards. BGSE_Search
 -- (api:searches) tells SCS's own hunting blocks to stand aside for every creature the engine drives.
 --
+-- Debuffs (F2b, combat-intent/choice.lua): when a ready spell weakens enemies, the choice also
+-- gets each enemy's active effects (sense.wards, as for removal), so that an enemy that carries a
+-- spell's effects gets it no second time. A debuff is cast like an attack and claims the enemies
+-- it weakens in the group for its spell (the director's curses); one at a creature is judged as an
+-- attack is, by whether its target carries an effect of the spell afterwards. In the caster's own
+-- Time Stop its casts are kept with their spell, so that the enemies they reach count as carrying
+-- it until time resumes.
+--
 -- Jumps into the fight (combat-intent/choice.lua): the choice also gets the teleports among the
 -- creature's ready spells and innate abilities (combat-intent/search.lua) and when it last
 -- teleported, for a search or into the fight (adapters/eeex/search.lua), so one gap counts for
@@ -370,7 +378,7 @@ function M.new(g,options)
         guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0,arms=0,attacks=0,attackHits=0,
         weaponFailures=0,releases=0,heals=0,cures=0,potions=0,cared=0,uncared=0,summons=0,conjured=0,
         unconjured=0,removals=0,stripped=0,unstripped=0,wardFailures=0,revealed=0,unrevealed=0,landed=0,unlanded=0,
-        jumps=0}
+        jumps=0,debuffs=0}
     local reasons={}
     local log,nextRow,size={},1,0
     local root,sink,lastError,markError,guardError,weaponError,wardError,zoneError,witError
@@ -515,12 +523,16 @@ function M.new(g,options)
             end
         end
     end
-    -- Whether a ready spell removes something from enemies.
+    -- Whether a ready spell removes something from enemies or weakens them (F2b: what an enemy
+    -- carries already it gets no second time).
     local function strips(rows)
         for _,row in ipairs(rows) do
-            local r=type(row.spell)=='table' and type(row.spell.roles)=='table' and row.spell.roles.removal
-            if type(r)=='table' and type(r.who)=='table' and (r.who.target or r.who.area) and
-                type(row.ready)=='number' and row.ready>0 and row.usable then return true end
+            local roles=type(row.spell)=='table' and type(row.spell.roles)=='table' and row.spell.roles or {}
+            for _,name in ipairs({'removal','debuff'}) do
+                local r=roles[name]
+                if type(r)=='table' and type(r.who)=='table' and (r.who.target or r.who.area) and
+                    type(row.ready)=='number' and row.ready>0 and row.usable then return true end
+            end
         end
         return false
     end
@@ -1273,8 +1285,9 @@ function M.new(g,options)
                 record({kind='error',where='guard',error=guardError})
             end
         end
-        -- What a removal could take from each enemy, read only when a ready spell removes; an enemy
-        -- whose effects cannot be read keeps none (its removal is worth nothing).
+        -- What a removal could take from each enemy and what it carries, read only when a ready
+        -- spell removes or weakens; an enemy whose effects cannot be read keeps none (its removal
+        -- is worth nothing, a debuff counts on it in full).
         if strips(rows) then
             for _,e in ipairs(frame.enemies) do
                 local object=get(e.id)
@@ -1519,6 +1532,7 @@ function M.new(g,options)
         if d.kind=='summon' then counts.summons=counts.summons+1 end
         if d.kind=='removal' then counts.removals=counts.removals+1 end
         if d.kind=='teleport' then counts.jumps=counts.jumps+1 end
+        if d.kind=='debuff' then counts.debuffs=counts.debuffs+1 end
         if d.release then counts.releases=counts.releases+1 end
         record({kind='choice',tick=tick,member=id,family=family,spell=d.resref,castKind=d.kind,mode=d.mode,
             target=d.target,point=d.point,score=d.score,worth=d.worth,hits=d.hits,how=why,top=top,
@@ -1528,9 +1542,12 @@ function M.new(g,options)
             inZones=zoneView(input,d),lasting=d.lasting,wit=input.mind.wit,walk=d.walk,interrupt=d.interrupt,
             ordered=d.ordered})
         -- A disable claims its targets in the group at once, so that another member deciding
-        -- before this cast starts leaves them alone; any other decision gives earlier claims back.
+        -- before this cast starts leaves them alone, and a debuff the enemies it weakens for its
+        -- spell; any other decision gives earlier claims back.
         if director then
-            if d.kind=='disable' or M.CARE[d.kind] then director:reserve(id,d.hits,tick) else director:release(id,tick) end
+            if d.kind=='disable' or M.CARE[d.kind] then director:reserve(id,d.hits,tick)
+            elseif d.kind=='debuff' then director:curse(id,d.hits,d.resref,tick)
+            else director:release(id,tick) end
         end
         local spell
         for _,row in ipairs(rows) do if row.resref==d.resref then spell=row.spell end end
@@ -1720,10 +1737,10 @@ function M.new(g,options)
             counts.started=counts.started+1
             -- A cast started in the caster's own Time Stop lands when time resumes.
             watch(tick)
-            if stop==id and (p.kind=='damage' or p.kind=='disable') then
+            if stop==id and (p.kind=='damage' or p.kind=='disable' or p.kind=='debuff') then
                 local mine=stopCasts[id] or {}
                 stopCasts[id]=mine
-                if #mine<M.stopCastLimit then mine[#mine+1]={kind=p.kind,hits=p.hits,expected=p.expected} end
+                if #mine<M.stopCastLimit then mine[#mine+1]={kind=p.kind,hits=p.hits,expected=p.expected,spell=p.resref} end
             end
             record({kind='start',tick=tick,member=id,spell=p.resref,target=p.target,point=p.point,
                 waited=tick-p.tick})

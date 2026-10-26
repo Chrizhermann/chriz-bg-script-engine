@@ -180,6 +180,17 @@ function M.new(g,options)
         failed('reserve',n)
         return 0
     end
+    -- The engine's own debuff for member id claims the enemies it weakens for its spell, as reserve
+    -- does for a disable (F2b).
+    function adapter:curse(id,targets,spell,tick)
+        local area=memberArea[id]
+        local d=area and directors[area]
+        if not d or not d:isMember(id) then return 0 end
+        local ok,n=pcall(d.curse,d,{id=id,family=memberFamily[id]},targets,spell,tick)
+        if ok then return n end
+        failed('curse',n)
+        return 0
+    end
     function adapter:release(id,tick)
         local area=memberArea[id]
         local d=area and directors[area]

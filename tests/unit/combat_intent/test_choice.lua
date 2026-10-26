@@ -661,4 +661,81 @@ i.frame.self.aura=1
 for _,o in ipairs(choice.options(i)) do assert(o.interrupt==nil) end
 groups=groups+1
 
+-- 23. Debuffs (F2b): a spell that weakens enemies is an attack worth the share of each enemy's
+-- fight it takes (combat-intent/harm.lua). The enemy here fights as an unknown fighter does (one
+-- attack at THAC0 12 for 7 against armour class 10: 6.65 a round): Slow halves that for the full
+-- time; nothing on one slowed already or carrying the spell. Removal with a debuff (Spell
+-- Revisions' Slow takes haste) is an attack.
+do
+    local slow=spell('TESTSLOW',3,{fx(40,{duration=60})})
+    local kind,how=choice.attack(slow);assert(kind=='debuff' and how=='creature')
+    local unhaste=spell('TESTSLW2',3,{fx(221,{p2=12,p1=3}),fx(40,{duration=60})},{target=4},area(64))
+    kind,how=choice.attack(unhaste);assert(kind=='debuff' and how=='point-area')
+    local t=enemies(input({spells={row('TESTSLOW',slow,3)}}),{enemy(11,{x=150})})
+    local o=choice.decide(t)
+    assert(o.kind=='debuff' and o.target==11 and near(o.worth,0.5))
+    t.frame.enemies[1].state=0x10000
+    assert(choice.decide(t).kind=='wait')
+    t.frame.enemies[1].state=0
+    t.frame.enemies[1].wards={{source='TESTSLOW',opcode=40}}
+    assert(choice.decide(t).kind=='wait')
+    -- Holy Smite's blindness beside its damage counts in full (four to hit: the fighter hits 0.75
+    -- instead of 0.95); beside a hold only as likely as the hold fails (one in twenty at save 20).
+    local blind=1-0.75/0.95
+    local smite=spell('TESTSMIT',3,{fx(12,{p2=FIRE,dice=6,sides=6}),fx(74,{duration=60})})
+    assert(choice.attack(smite)=='damage')
+    o=choice.decide(enemies(input({spells={row('TESTSMIT',smite,3)}}),{enemy(11,{x=150})}))
+    assert(o.kind=='damage' and near(o.worth,21/50+blind))
+    local blinding=spell('TESTHBLD',3,{fx(175,{p2=3,p1=1,duration=30,save=1}),fx(74,{duration=60,save=1})})
+    assert(choice.attack(blinding)=='disable')
+    o=choice.decide(enemies(input({spells={row('TESTHBLD',blinding,3)}}),{enemy(11,{x=150})}))
+    assert(o.kind=='disable' and near(o.worth,0.95+0.05*0.95*blind))
+    -- Holy Word's tiers: the hold up to level 5, blindness for all; a level-10 enemy counts for the
+    -- blindness alone.
+    local word=spell('TESTWORD',7,{fx(175,{p2=3,p1=1,duration=30,dice=5}),fx(74,{duration=60})})
+    local by={}
+    t=enemies(input({spells={row('TESTWORD',word,7)}}),{enemy(11,{x=150,level=3}),enemy(12,{x=300})})
+    for _,x in ipairs(choice.options(t)) do by[x.target]=x end
+    assert(near(by[11].worth,1) and near(by[12].worth,blind))
+    -- Openings: Malison's two on every save weakens no fight of its own, but the caster's hold lands
+    -- more often (at save 10 from 45 % to 55 %); a clever creature counts that, a dull one does not.
+    local malison=spell('TESTMALI',2,{fx(325,{p1=-2,duration=60})})
+    local tens={spell=10,breath=10,death=10,wand=10,poly=10}
+    local function worths(x)
+        local out={}
+        for _,y in ipairs(choice.options(x)) do out[y.resref]=y end
+        return out
+    end
+    t=enemies(input({spells={row('TESTMALI',malison,2),row('TESTHOLD',hold,2)}}),{enemy(11,{x=150,saves=tens})})
+    by=worths(t)
+    assert(near(by.TESTMALI.worth,0.1) and near(by.TESTHOLD.worth,0.45))
+    t.mind=mind.withWit(mind.new(),{step='dull',danger=1})
+    by=worths(t)
+    assert(by.TESTMALI==nil and near(by.TESTHOLD.worth,0.45))
+    -- Faerie Fire's two worse armour class: the ally next to the enemy hits 0.9 instead of 0.8 with
+    -- each of two swings for 8, over the three rounds within the horizon. One far away gains
+    -- nothing; one with a bow only when the enemy is the group's focus.
+    local faerie=spell('TESTFAER',1,{fx(0,{p1=-2,duration=60})})
+    local mate={id=2,x=160,y=100,hp=60,maxHp=60,state=0,ac=5,attack={apr=2,thac0=10,damage=8,damageType=3}}
+    t=enemies(input({spells={row('TESTFAER',faerie,1)}}),{enemy(11,{x=150,ac=5})})
+    t.frame.allies={mate}
+    o=choice.decide(t)
+    assert(o.resref=='TESTFAER' and near(o.worth,2*8*0.1*3/50))
+    mate.x=2000
+    assert(choice.decide(t).kind=='wait')
+    mate.attack.ranged=true
+    assert(choice.decide(t).kind=='wait')
+    t.plan={focus=11}
+    assert(near(choice.decide(t).worth,2*8*0.1*3/50))
+    -- A normal creature draws once a decision whether it sees an opening, and only when a ready
+    -- debuff makes one.
+    t=enemies(input({spells={row('TESTMALI',malison,2),row('TESTHOLD',hold,2)},
+        mind=mind.withWit(mind.new(),{step='normal',danger=1})}),{enemy(11,{x=150,saves=tens})})
+    draws=0;t.rng=stub(400)
+    assert(choice.notices(t)==true and draws==1)
+    t.spells={row('TESTHOLD',hold,2)}
+    assert(choice.notices(t)==false and draws==1)
+end
+groups=groups+1
+
 return groups
