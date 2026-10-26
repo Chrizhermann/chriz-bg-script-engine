@@ -15,6 +15,7 @@
 -- module; no engine object is kept.
 local targeting=require('combat-intent.targeting')
 local spells=require('combat-intent.spells')
+local arsenal=require('combat-intent.arsenal')
 local M={}
 -- A sprite's default visual range in EEex's area search.
 M.sightRange=448
@@ -47,13 +48,33 @@ M.maxFallen=8
 -- m_durationType of an effect with time left (the lab's effect timing, learned.md).
 M.timedEffect=4096
 -- STATS.IDS for the defence slice: ARMORCLASS, THAC0, NUMBEROFATTACKS, DAMAGEBONUS,
--- THAC0BONUSRIGHT, DAMAGEBONUSRIGHT, STONESKINS, HITBONUS. In the lab the right-hand bonuses
--- held strength, proficiency and the weapon's own bonus to hit (probe F: a fighter with 18
--- strength, specialised in a Short Sword +1, had THAC0BONUSRIGHT 3).
-M.combat={ac=2,thac0=7,apr=8,damageBonus=50,thac0Right=84,damageRight=86,stoneskins=88,hitBonus=151}
--- The quiver slots, whose ammunition a launcher shoots, and the fist slot (SLOTS.IDS).
+-- THAC0BONUSRIGHT, DAMAGEBONUSRIGHT, STONESKINS, HITBONUS; and for a weapon's parts (F2c,
+-- combat-intent/arsenal.lua) the bonuses for melee or missiles alone: MELEE_THACO_BONUS,
+-- MISSILETHAC0BONUS, MELEE_DAMAGE_BONUS, MISSILE_DAMAGE_BONUS (opcodes 284, 167, 285, 286). In the
+-- lab the right-hand bonuses held the bonus to hit of strength (dexterity for a bow), the
+-- proficiency and the weapon's own, and the proficiency's bonus to damage (probe F: a level-8
+-- fighter with 18 strength and 16 dexterity had 3 and 2 specialised in a Short Sword +1, 6 and 4
+-- as a high master of the long bow with a Composite Long Bow and Arrows +1; docs/learned.md).
+M.combat={ac=2,thac0=7,apr=8,damageBonus=50,thac0Right=84,damageRight=86,stoneskins=88,hitBonus=151,
+    meleeHit=166,missileHit=72,meleeDamage=167,missileDamage=168}
+-- STATS.IDS: STR, STREXTRA, DEX.
+M.scores={str=36,strExtra=37,dex=40}
+-- The quiver slots, whose ammunition a launcher shoots, the fist slot, the magic weapon slot and
+-- the weapon slots (SLOTS.IDS).
 M.quiver={11,12,13}
 M.fistSlot=10
+M.magicSlot=34
+M.weaponSlots={35,36,37,38}
+-- What SCS's archers look for before they shoot ([src] ssl/library.slb, ArrowSafe): SPLSTATE.IDS
+-- PROTECTION_FROM_NORMAL_MISSILES and STATS.IDS CLERIC_PHYSICAL_MIRROR, the same in every install
+-- read.
+M.normalMissiles=109
+M.physicalMirror=122
+-- The game's tables a weapon's parts come from (combat-intent/arsenal.lua): the rows read of each.
+M.maxStars=5
+M.maxLevel=50
+M.maxScore=25
+M.maxExceptional=100
 -- An effect that ends within this many seconds no longer protects.
 M.expiring=6
 -- Opcodes that deliver other effects; what they delivered is in the list already.
@@ -161,10 +182,11 @@ function M.protectionRows(g,sprite)
 end
 
 -- Creature IDS values, saving throws, resistances, level and the spell protections in both
--- effect lists (M.protectionRows); its creature file (resref) and, for a party member, its place
--- in the party (player: 1 for Player1, the protagonist, up to 6, by joining, as the game's Player1
--- to Player6 count; EEex_Sprite_GetCharacterIndex), for a designer's orders
--- (combat-intent/orders.lua).
+-- effect lists (M.protectionRows); whether it is protected from normal missiles or carries a
+-- Physical Mirror (normalMissiles, reflects: what SCS's archers look for); its creature file
+-- (resref) and, for a party member, its place in the party (player: 1 for Player1, the
+-- protagonist, up to 6, by joining, as the game's Player1 to Player6 count;
+-- EEex_Sprite_GetCharacterIndex), for a designer's orders (combat-intent/orders.lua).
 function M.details(g,sprite,entry)
     local t=sprite.m_typeAI
     entry.ids={ea=t.m_EnemyAlly,general=t.m_General,race=t.m_Race,class=t.m_Class,
@@ -176,6 +198,12 @@ function M.details(g,sprite,entry)
     for _,n in ipairs(M.levels) do level=math.max(level,stat(g,sprite,n)) end
     entry.level=level
     entry.protections=M.protectionRows(g,sprite)
+    local spellState=rawget(g,'EEex_Sprite_GetSpellState')
+    if type(spellState)=='function' then
+        local ok,v=pcall(spellState,sprite,M.normalMissiles)
+        if ok and v==true then entry.normalMissiles=true end
+    end
+    if stat(g,sprite,M.physicalMirror)>0 then entry.reflects=true end
     local resref=name(sprite.m_resref)
     entry.resref=resref~='' and resref or nil
     local place=rawget(g,'EEex_Sprite_GetCharacterIndex')
@@ -247,10 +275,6 @@ function M.splprot(g,sprite,frame,rows)
     return read,failed,last
 end
 
-local function average(dice,sides)
-    dice,sides=number(dice),number(sides)
-    return dice>0 and sides>0 and dice*(sides+1)/2 or 0
-end
 local function itemAt(equipment,slot,reader)
     if equipment==nil or type(slot)~='number' then return nil end
     local item=equipment.m_items:get(slot)
@@ -259,58 +283,126 @@ local function itemAt(equipment,slot,reader)
     if resref=='' then return nil end
     return reader.get('ITM',resref),resref
 end
-local function magical(g,record)
-    return number(record.enchantment)>0 or band(g,number(record.flags),0x40)~=0
-end
--- A creature's weapon as plain values (combat-intent/threat.lua's attack data): attacks a round
--- with half attacks decoded, THAC0 with its bonuses and the weapon's own, the average damage of a
--- hit, whether it shoots and how far, and whether the weapon is magical (for Protection from
--- Magical Weapons). A launcher hits with the ammunition in the first filled quiver slot; their
--- to-hit bonuses add up, the ammunition's damage type counts, and the higher enchantment. For the
--- caster's own weapon attack (combat-intent/weapons.lua) also the item and its ability (1 for
--- the first), the ammunition, the damage type, the hitting item's flags and enchantment, and
--- whether it fights with its fists (the fist slot selected: on-hit effects for fists only).
--- Without a readable weapon, damage and magic stay unknown.
-function M.attack(g,sprite,reader)
-    local apr=stat(g,sprite,M.combat.apr)
-    if apr>5 and apr<=10 then apr=apr-5.5 end
-    local out={apr=apr>0 and apr or nil,
-        thac0=stat(g,sprite,M.combat.thac0)-stat(g,sprite,M.combat.thac0Right)-stat(g,sprite,M.combat.hitBonus)}
-    local equipment=sprite.m_equipment
-    local record,resref=itemAt(equipment,equipment and equipment.m_selectedWeapon,reader)
-    local abilities=record and type(record.abilities)=='table' and record.abilities or {}
-    local index=number(equipment and equipment.m_selectedWeaponAbility)+1
-    if type(abilities[index])~='table' then index=1 end
-    local ability=abilities[index]
-    if type(ability)~='table' then return out end
-    local damage=average(ability.dice,ability.sides)+number(ability.damageBonus)
-    local magic=magical(g,record)
-    local toHit=number(ability.thac0)
-    out.item,out.ability,out.damageType=resref,index,ability.damageType
-    out.flags,out.enchantment=number(record.flags),number(record.enchantment)
-    out.fist=number(equipment.m_selectedWeapon)==M.fistSlot or nil
-    if ability.attackType==4 then
-        out.ranged,out.launcher=true,true
-        for _,slot in ipairs(M.quiver) do
-            local ammo,ammoRef=itemAt(equipment,slot,reader)
-            local hit=ammo and type(ammo.abilities)=='table' and ammo.abilities[1]
-            if type(hit)=='table' then
-                damage=damage+average(hit.dice,hit.sides)+number(hit.damageBonus)
-                toHit=toHit+number(hit.thac0)
-                magic=magic or magical(g,ammo)
-                out.ammo,out.damageType=ammoRef,hit.damageType
-                out.flags,out.enchantment=number(ammo.flags),math.max(out.enchantment,number(ammo.enchantment))
-                break
+
+-- The game's tables a weapon's parts come from (combat-intent/arsenal.lua), read once through
+-- EEex as plain values: WSPECIAL's bonuses and WSPATCK's attacks by stars (and level), STRMOD's
+-- and STRMODEX's bonuses by strength, DEXMOD's missile bonus by dexterity and CLSWPBON's rows by
+-- class name. nil and why when they cannot be read; that is kept too.
+local tableCache=setmetatable({},{__mode='k'})
+local function readTables(g)
+    local function at(t,column,row)
+        local v=g.EEex_Resource_GetAt2DALabels(t,column,tostring(row))
+        return tonumber(v)
+    end
+    local out={wspecial={},wspatck={},strmod={},strmodex={},dexmod={},classes={}}
+    local t=g.EEex_Resource_Load2DA('WSPECIAL')
+    for n=0,M.maxStars do
+        local hit,damage=at(t,'HIT',n),at(t,'DAMAGE',n)
+        if hit and damage then out.wspecial[n]={hit=hit,damage=damage} end
+    end
+    -- WSPATCK's columns are the levels from 1 (the game's own has 50); its width counts the label
+    -- column too.
+    t=g.EEex_Resource_Load2DA('WSPATCK')
+    local width=g.EEex_Resource_Get2DADimensions(t)
+    local levels=math.min(M.maxLevel,(tonumber(width) or 1)-1)
+    for n=0,M.maxStars do
+        local index=g.EEex_Resource_Find2DARowLabel(t,tostring(n))
+        if type(index)=='number' and index>=0 then
+            local row={}
+            for level=1,levels do
+                local v=g.EEex_Resource_GetAt2DAPoint(t,level-1,index)
+                row[level]=tonumber(v)
             end
+            out.wspatck[n]=row
         end
-    elseif ability.attackType==2 then out.ranged=true end
-    if out.ranged and number(ability.range)>0 then out.range=ability.range*targeting.rangeUnit end
-    out.thac0=out.thac0-toHit
-    out.damage=math.max(0,damage+stat(g,sprite,M.combat.damageBonus)+stat(g,sprite,M.combat.damageRight))
-    out.magical=magic
-    -- Plain ammunition from a magical launcher hits as magical.
-    if magic and band(g,out.flags,0x40)==0 and out.enchantment<=0 then out.flags=out.flags+0x40 end
+    end
+    for file,key in pairs({STRMOD={'strmod',M.maxScore},STRMODEX={'strmodex',M.maxExceptional}}) do
+        t=g.EEex_Resource_Load2DA(file)
+        for n=0,key[2] do
+            local hit,damage=at(t,'TO_HIT',n),at(t,'DAMAGE',n)
+            if hit and damage then out[key[1]][n]={hit=hit,damage=damage} end
+        end
+    end
+    t=g.EEex_Resource_Load2DA('DEXMOD')
+    for n=0,M.maxScore do out.dexmod[n]=at(t,'MISSILE',n) end
+    t=g.EEex_Resource_Load2DA('CLSWPBON')
+    local _,rows=g.EEex_Resource_Get2DADimensions(t)
+    for n=0,(tonumber(rows) or 0)-1 do
+        local label=g.EEex_Resource_Get2DARowLabel(t,n)
+        if type(label)=='string' and label~='' then
+            out.classes[label:upper()]={profApr=(at(t,'GETS_PROF_APR',label) or 0)~=0,penalty=at(t,'ZERO_SKILL_THAC0',label) or 0}
+        end
+    end
     return out
+end
+function M.tables(g)
+    local known=tableCache[g]
+    if known==nil then
+        local ok,value=pcall(readTables,g)
+        known=ok and {tables=value} or {error=tostring(value)}
+        tableCache[g]=known
+    end
+    return known.tables,known.error
+end
+
+-- The plain values combat-intent/arsenal.lua works on for a creature (arsenal.hand): its weapon
+-- stats, strength, dexterity and level, the items in its fist, quiver, magic weapon and weapon
+-- slots, and the selected slot and ability; with full also its stars in the proficiencies of those
+-- items, its class's CLSWPBON row and the attacks its creature file gives it.
+local function facts(g,sprite,reader,tables,full)
+    local c={stats={},items={},str=stat(g,sprite,M.scores.str),strExtra=stat(g,sprite,M.scores.strExtra),
+        dex=stat(g,sprite,M.scores.dex),level=0}
+    for key,n in pairs(M.combat) do c.stats[key]=stat(g,sprite,n) end
+    for _,n in ipairs(M.levels) do c.level=math.max(c.level,stat(g,sprite,n)) end
+    local equipment=sprite.m_equipment
+    if equipment==nil then return c end
+    c.selected=equipment.m_selectedWeapon
+    c.ability=number(equipment.m_selectedWeaponAbility)
+    local slots={c.selected,M.fistSlot,M.magicSlot}
+    for _,list in ipairs({M.quiver,M.weaponSlots}) do for _,slot in ipairs(list) do slots[#slots+1]=slot end end
+    for _,slot in ipairs(slots) do
+        if c.items[slot]==nil then
+            local record,resref=itemAt(equipment,slot,reader)
+            if type(record)=='table' then c.items[slot]={resref=resref,record=record} end
+        end
+    end
+    if full then
+        c.pips={}
+        for _,it in pairs(c.items) do
+            local p=it.record.proficiency
+            if type(p)=='number' and p>0 and c.pips[p]==nil then c.pips[p]=stat(g,sprite,p) end
+        end
+        local class=type(reader.idsName)=='function' and reader.idsName('CLASS',sprite.m_typeAI.m_Class)
+        local row=type(class)=='string' and type(tables)=='table' and tables.classes[class] or nil
+        c.profApr,c.penalty=row~=nil and row.profApr or false,row and row.penalty or 0
+        local ok,base=pcall(function() return sprite.m_baseStats.m_numberOfAttacksBase end)
+        if ok and type(base)=='number' then c.baseApr=base end
+    end
+    return c
+end
+
+-- A creature's weapon as plain values (combat-intent/threat.lua's attack data;
+-- combat-intent/arsenal.lua's hand): attacks a round with half attacks decoded, THAC0 with the
+-- bonuses the game reports for the weapon in hand, the average damage of a hit with strength's
+-- bonus, whether it shoots and how far, and whether the weapon is magical (for Protection from
+-- Magical Weapons). A launcher shoots the ammunition in the first quiver slot it fits (while one is
+-- in hand, the selected slot is that quiver slot). For the caster's own weapon attack
+-- (combat-intent/weapons.lua) also the item and its ability (1 for the first), the ammunition, the
+-- damage type, the hitting item's flags and enchantment, the projectile of a missile, the slot and
+-- ability number SelectWeaponAbility takes, and whether it fights with its fists (the fist slot
+-- selected: on-hit effects for fists only). Without a weapon that strikes, damage and magic stay
+-- unknown.
+function M.attack(g,sprite,reader)
+    local tables=M.tables(g)
+    return arsenal.hand(tables,facts(g,sprite,reader,tables,false))
+end
+-- The weapon in the creature's hand (M.attack, with the parts the game's tables give for its two
+-- right-hand bonuses) and the other weapons it could take up (arsenal.others), and why the tables
+-- could not be read (then there are no others).
+function M.arsenal(g,sprite,reader)
+    local tables,err=M.tables(g)
+    local c=facts(g,sprite,reader,tables,true)
+    return arsenal.hand(tables,c),arsenal.others(tables,c),err
 end
 
 -- What protects a creature now, as plain values (combat-intent/defence.lua's guard): its

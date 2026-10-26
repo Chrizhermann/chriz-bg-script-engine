@@ -109,17 +109,17 @@ local records={
     TESTHEAL=spl('TESTHEAL',4,{fx(17,{p1=20})})}
 local POTION={kind='ITM',resref='TESTPOTN',flags=0,abilities={{form=3,flags=0,location=3,target=5,range=1,speed=0,
     projectile=1,effects={fx(17,{p1=20,target=1})}}}}
--- Weapons: a magical long sword, a bow and its arrows.
+-- Weapons: a magical long sword, a bow (item category 15) and its arrows (launcher 1, a bow).
 local function weapon(resref,fields,ability)
-    local a={attackType=1,dice=1,sides=8,damageBonus=0,range=1,thac0=0,effects={}}
+    local a={location=1,attackType=1,dice=1,sides=8,damageBonus=0,range=1,thac0=0,effects={}}
     for k,v in pairs(ability or {}) do a[k]=v end
     local r={kind='ITM',resref=resref,flags=0x40,enchantment=0,abilities={a}}
     for k,v in pairs(fields or {}) do r[k]=v end
     return r
 end
 local ITEMS={TESTPOTN=POTION,TESTSWRD=weapon('TESTSWRD'),
-    TESTBOW=weapon('TESTBOW',{flags=0},{attackType=4,dice=0,sides=0,range=100}),
-    TESTARRW=weapon('TESTARRW',{flags=0,enchantment=1},{attackType=2,dice=1,sides=6,damageBonus=1})}
+    TESTBOW=weapon('TESTBOW',{flags=0,itemType=15},{attackType=4,dice=0,sides=0,range=100}),
+    TESTARRW=weapon('TESTARRW',{flags=0,enchantment=1},{attackType=2,dice=1,sides=6,damageBonus=1,launcher=1})}
 -- The names the game's IDS files give the creature values the tests use (wit's race groups).
 local IDSNAMES={GENERAL={[1]='HUMANOID',[2]='ANIMAL',[4]='UNDEAD'},RACE={[1]='HUMAN',[113]='OGRE'},
     CLASS={[1]='MAGE',[2]='FIGHTER'}}
@@ -881,7 +881,8 @@ assert(last9('swing',3).item=='TESTHRM' and ch9:inspect().counts.strikes==4)
 groups=groups+1
 
 -- 19. Weapon attacks (D2c). A mage with nothing ready attacks with the staff in its hand (THAC0
--- 14 less the staff's 1), AttackOneRound at EEex_Target, and is held while it attacks; once that is
+-- 14 less the staff's 1, which the game holds in THAC0BONUSRIGHT, lab probe F), AttackOneRound at
+-- EEex_Target, and is held while it attacks; once that is
 -- over, the hit points its target lost are recorded. A target that died releases it. A mage with Melf's Minute Meteors casts them on itself, then throws them: five
 -- attacks a round, each with its fire; no second casting while the meteors are in its hand. A
 -- sling without bullets is no weapon. A summoned enemy is sent away by the engine's own removal
@@ -893,7 +894,7 @@ ITEMS.TESTSLNG=weapon('TESTSLNG',{flags=0},{attackType=4,dice=0,sides=0,range=60
 records.TESTMMM=spl('TESTMMM',3,{fx(111,{target=1,p1=1,res='TESTMET',duration=60})},5,1)
 local g10=world()
 local fighter=g10.add(armed(sprite(1,0,0,255),35,'TESTSTAF'))
-fighter.stats[8],fighter.stats[7],fighter.stats[2]=1,14,8
+fighter.stats[8],fighter.stats[7],fighter.stats[2],fighter.stats[84]=1,14,8,1
 local foe=g10.add(sprite(11,60,0,2))
 foe.stats[2]=5
 local dir10=directors.new(g10,{reader=reader9})
@@ -949,7 +950,7 @@ g10.listeners.started[1](thrower,action(31,'TESTMMM',2))
 thrower.m_curAction=action(31,'TESTMMM',2);thrower.book[2][1].m_flags=0
 -- The meteors are in its hand: it throws them, five a round, at the enemy.
 g10.ticks=400;thrower.m_curAction={m_actionID=0}
-thrower.items[34]={cResRef=str('TESTMET')};thrower.m_equipment.m_selectedWeapon=34;thrower.stats[8]=5
+thrower.items[34]={cResRef=str('TESTMET')};thrower.m_equipment.m_selectedWeapon=34;thrower.stats[8]=5;thrower.stats[84]=2
 assert(g10.BGSE_Claim(thrower,'mage','s1')==true)
 c10=last10('choice',2)
 assert(c10.castKind=='weapon' and c10.spell=='TESTMET' and c10.target==12)
@@ -2244,6 +2245,165 @@ assert(claim(slower,240)==true and claim(slower,275)==true)
 o=last('outcome')
 assert(o.hit==false and o.misses==1 and ch:inspect().counts.misses==1)
 assert(ch:inspect().counts.debuffs==2 and ch:inspect().counts.wardFailures==0)
+end)()
+groups=groups+1
+
+-- 35. Weapon choice and kiting (F2c). The game's tables come through EEex's 2DA functions (labels
+-- as strings, the width counting the row labels too, a missing cell the table's default). An archer
+-- (a fighter's profile) at lab probe F's numbers: level 8, strength 18, dexterity 16, a longbow +1
+-- in high mastery and arrows +1 in hand (the game's selected slot is the quiver's), a short sword +1
+-- it is specialized in. An 'arms' row logs the bow: THAC0 7, 9.5 a hit, three shots, the tables'
+-- parts of its bonuses beside the game's (6 and 4). Next to an enemy behind a Physical Mirror it
+-- takes up the sword (SelectWeaponAbility at its slot before AttackOneRound; a 'swing' row names
+-- the slot). Next to an ogre a second archer steps away instead: MoveToPoint to the spot 400
+-- straight away, held while it walks, with a 'kite' and a 'kited' row; within 18 seconds it does not
+-- step away again but shoots. Without the tables the engine logs that once and weighs the weapon in
+-- hand alone.
+;(function()
+local profiles=require('combat-intent.mind')
+local function twoda(columns,list)
+    local t={columns={},labels={},cells={}}
+    for n,c in ipairs(columns) do t.columns[c]=n-1 end
+    for n,r in ipairs(list) do
+        t.labels[n-1]=r[1];t.cells[n-1]={}
+        for k=2,#r do t.cells[n-1][k-2]=tostring(r[k]) end
+    end
+    t.width,t.height=#columns+1,#list
+    return t
+end
+local function attacks(label,low,mid,high)
+    local r={label}
+    for level=1,12 do r[#r+1]=level<7 and low or level<13 and mid or high end
+    return r
+end
+local LEVELS={'LEVEL1'}
+for level=2,12 do LEVELS[#LEVELS+1]=tostring(level) end
+local GAME2DA={
+    WSPECIAL=twoda({'HIT','DAMAGE','SPEED'},{{'0',0,0,0},{'1',0,0,0},{'2',1,2,0},{'3',3,3,0},{'4',3,4,-1},{'5',3,5,-3}}),
+    WSPATCK=twoda(LEVELS,{attacks('0',0,-1),attacks('1',0,-1),attacks('2',-1,1),attacks('3',-1,1),attacks('4',-1,1),
+        attacks('5',-2,2)}),
+    STRMOD=twoda({'TO_HIT','DAMAGE'},{{'16',0,1},{'17',1,1},{'18',1,2}}),
+    STRMODEX=twoda({'TO_HIT','DAMAGE'},{{'0',0,0}}),
+    DEXMOD=twoda({'REACTION','MISSILE','AC'},{{'16',1,1,-2}}),
+    CLSWPBON=twoda({'GETS_PROF_APR','UNARMED_DIVISOR','ZERO_SKILL_THAC0'},{{'MAGE',0,0,5},{'FIGHTER',1,0,2}})}
+local function tablesOf(g)
+    g.EEex_Resource_Load2DA=function(name) return GAME2DA[name] or twoda({},{}) end
+    g.EEex_Resource_Get2DADimensions=function(t) return t.width,t.height end
+    g.EEex_Resource_Get2DARowLabel=function(t,n) return t.labels[n] or '' end
+    g.EEex_Resource_Find2DARowLabel=function(t,label)
+        for n=0,t.height-1 do if t.labels[n]==label:upper() then return n end end
+        return -1
+    end
+    g.EEex_Resource_GetAt2DAPoint=function(t,x,y) return t.cells[y] and t.cells[y][x] or '*' end
+    g.EEex_Resource_GetAt2DALabels=function(t,column,row)
+        local x,y=t.columns[column],g.EEex_Resource_Find2DARowLabel(t,row)
+        return x and y>=0 and t.cells[y][x] or '*'
+    end
+end
+ITEMS.TESTLBOW=weapon('TESTLBOW',{itemType=15,proficiency=104,equipping={fx(1,{p1=2,p2=1,target=1,timing=2})}},
+    {attackType=4,dice=0,sides=0,thac0=1,damageBonus=1,range=100})
+ITEMS.TESTARR1=weapon('TESTARR1',{flags=0,enchantment=1},{attackType=2,launcher=1,dice=1,sides=6,thac0=1,damageBonus=1,
+    damageType=4,projectile=2})
+ITEMS.TESTSSWD=weapon('TESTSSWD',{proficiency=89,enchantment=1},{dice=1,sides=6,thac0=1,damageBonus=1,flags=1})
+ITEMS.TESTCLUB=weapon('TESTCLUB',{flags=0},{dice=4,sides=8,damageBonus=2,damageType=2})
+local function bowman(id,x,y)
+    local s=sprite(id,x,y,255)
+    s.items[11]={cResRef=str('TESTARR1')};s.items[35]={cResRef=str('TESTSSWD')};s.items[36]={cResRef=str('TESTLBOW')}
+    s.m_equipment.m_selectedWeapon=11
+    for n,v in pairs({[7]=13,[8]=3,[84]=6,[86]=4,[36]=18,[40]=16,[34]=8,[89]=2,[104]=4}) do s.stats[n]=v end
+    s.m_baseStats.m_numberOfAttacksBase=1
+    return s
+end
+local g=world()
+tablesOf(g)
+local archer=g.add(bowman(1,1000,1000))
+local mirrored=g.add(sprite(12,1050,1000,2))
+mirrored.stats[7],mirrored.stats[122]=20,1
+local dir=directors.new(g,{reader=reader9})
+local ch=choices.new(g,{reader=reader9,director=dir,seed=47,
+    mindFor=function() return profiles.forFamily(profiles.new(),'fighter') end})
+local rows={}
+ch:setSink(function(row) rows[#rows+1]=row end)
+runtime.install(g,{director=dir,choice=ch,version='test'})
+local function last(kind,member)
+    for n=#rows,1,-1 do
+        if rows[n].kind==kind and (member==nil or rows[n].member==member) then return rows[n] end
+    end
+end
+local function claim(s,tick) g.ticks=tick;return g.BGSE_Claim(s,'mage','s1') end
+-- What the engine reads: the bow in hand at probe F's numbers, and the sword it could take up.
+local own,others,missing=sense.arsenal(g,archer,reader9)
+assert(missing==nil and own.item=='TESTLBOW' and own.ammo=='TESTARR1' and own.slot==36 and own.thac0==7 and
+    own.damage==9.5 and own.apr==3 and own.model.hit==6 and own.model.damage==4)
+assert(#others==1 and others[1].item=='TESTSSWD' and others[1].slot==35 and others[1].thac0==10 and
+    others[1].damage==8.5 and others[1].apr==2)
+-- The Physical Mirror keeps the arrows off: the archer takes up the sword.
+assert(claim(archer,100)==true)
+local a=last('arms',1)
+assert(a.item=='TESTLBOW' and a.ammo=='TESTARR1' and a.thac0==7 and a.damage==9.5 and a.apr==3 and a.others==1)
+assert(a.model.hit==6 and a.model.damage==4 and a.game.hit==6 and a.game.damage==4)
+local c=last('choice',1)
+assert(c.castKind=='weapon' and c.spell=='TESTSSWD' and c.target==12 and c.slot==35)
+g.BGSE_Act(archer)
+assert(g.queued[#g.queued].text=='SelectWeaponAbility(35,0) AttackOneRound(EEex_Target("BGSE"))')
+assert(last('swing',1).slot==35 and ch:inspect().counts.switches==1 and archer.aux.EEex_Target.BGSE==12)
+-- The weapon in hand is the same: no second 'arms' row.
+local count=0
+for _,r in ipairs(rows) do if r.kind=='arms' then count=count+1 end end
+archer.m_curAction={m_actionID=0}
+assert(claim(archer,300)==true)
+for _,r in ipairs(rows) do if r.kind=='arms' then count=count-1 end end
+assert(count==0)
+-- A second archer next to an ogre (three swings of 20 that always land but one in twenty) steps away.
+local kiter=g.add(bowman(2,5000,5000))
+local ogre=g.add(armed(sprite(13,5050,5000,2),35,'TESTCLUB'))
+ogre.stats[8],ogre.stats[7]=3,1
+ogre.m_baseStats.m_hitPoints=80;ogre.stats[1]=80
+assert(claim(kiter,400)==true)
+c=last('choice',2)
+assert(c.castKind=='kite' and c.spell=='KITE' and c.how=='kite' and c.point.x==4600 and c.point.y==5000)
+g.BGSE_Act(kiter)
+assert(g.queued[#g.queued].text=='MoveToPoint([4600.5000])')
+local k=last('kite',2)
+assert(k.from.x==5000 and k.to.x==4600 and k.to.y==5000 and ch:inspect().counts.kites==1)
+-- Held while it walks; then the 'kited' row. The ogre followed: within 18 seconds of the step the
+-- archer shoots it where it stands, after them it steps away again.
+kiter.m_curAction={m_actionID=23}
+local holds=ch:inspect().counts.holds
+assert(claim(kiter,430)==true and ch:inspect().counts.holds==holds+1)
+kiter.m_curAction={m_actionID=0};kiter.m_pos={x=4600,y=5000};ogre.m_pos={x=4650,y=5000}
+assert(claim(kiter,470)==true)
+local done=last('kited',2)
+assert(done.at.x==4600 and done.near==50 and done.took==70 and ch:inspect().counts.kited==1)
+c=last('choice',2)
+assert(c.castKind=='weapon' and c.spell=='TESTLBOW' and c.target==13 and c.slot==nil)
+g.BGSE_Act(kiter)
+assert(g.queued[#g.queued].text=='AttackOneRound(EEex_Target("BGSE"))')
+kiter.m_curAction={m_actionID=0}
+assert(claim(kiter,670)==true and last('choice',2).castKind=='kite' and last('choice',2).point.x==4200)
+-- Without the game's tables: one 'tables' error row, and the weapon in hand alone.
+local g2=world()
+local lone=g2.add(bowman(1,1000,1000))
+local foe2=g2.add(sprite(12,1050,1000,2))
+foe2.stats[7],foe2.stats[122]=20,1
+own,others,missing=sense.arsenal(g2,lone,reader9)
+assert(missing~=nil and #others==0 and own.item=='TESTLBOW' and own.model==nil)
+local dir2=directors.new(g2,{reader=reader9})
+local ch2=choices.new(g2,{reader=reader9,director=dir2,seed=53,
+    mindFor=function() return profiles.forFamily(profiles.new(),'fighter') end})
+local rows2={}
+ch2:setSink(function(row) rows2[#rows2+1]=row end)
+runtime.install(g2,{director=dir2,choice=ch2,version='test'})
+for _,tick in ipairs({100,300}) do
+    g2.ticks=tick;lone.m_curAction={m_actionID=0}
+    assert(g2.BGSE_Claim(lone,'mage','s1')==true)
+end
+local errors,swings=0,0
+for _,r in ipairs(rows2) do
+    if r.kind=='error' and r.where=='tables' then errors=errors+1 end
+    if r.kind=='choice' and r.castKind=='weapon' then swings=swings+1 end
+end
+assert(errors==1 and swings==0 and type(ch2:inspect().tableError)=='string' and ch:inspect().tableError==false)
 end)()
 groups=groups+1
 

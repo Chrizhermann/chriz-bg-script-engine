@@ -15,6 +15,12 @@ M.DAMAGE={[1]='piercing',[2]='crushing',[3]='slashing',[4]='missile',[5]='crushi
     [7]='piercing',[8]='crushing',[9]='crushing'}
 -- Weapon attacks a round of a caster whose own is unknown.
 M.baseApr=1
+-- Seconds a creature takes to take up another weapon (F2c, SelectWeaponAbility): not measured yet,
+-- a lab is to. A switch lowers the round's worth as a walk of that length does (M.paced), so a
+-- creature changes its weapon only for one clearly better.
+M.switchSeconds=1
+-- Effects that keep a missile off by its projectile: immunity (opcode 83) and bounce (197).
+local MISSILE_GUARDS={[83]=true,[197]=true}
 local UNSEEN=targeting.STATE.invisible+targeting.STATE.improvedInvisible
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
@@ -81,6 +87,23 @@ function M.immuneTo(e,w)
     end
     return false
 end
+-- Whether e keeps off the missiles of weapon w (F2c): an immunity to its projectile or one that
+-- turns it back (opcodes 83 and 197, by the PROJECTL.IDS entry one below the projectile field, as
+-- combat-intent/targeting.lua reads them for spells; EE Fixpack adds the entries of darts,
+-- throwing daggers and throwing axes to Protection from Normal Missiles this way), and what SCS's
+-- archers keep away from ([src] ssl/library.slb, ArrowSafe): protection from normal missiles
+-- against a hit that is not magical, and a Physical Mirror. Melee weapons pass.
+function M.missileBlocked(e,w)
+    if type(e)~='table' or type(w)~='table' or not w.ranged then return false end
+    if e.reflects==true then return true end
+    local magical=(number(w.enchantment) and w.enchantment>0) or targeting.has(w.flags,FLAG.magical)
+    if e.normalMissiles==true and not magical then return true end
+    if not number(w.projectile) or type(e.protections)~='table' then return false end
+    for _,p in ipairs(e.protections) do
+        if type(p)=='table' and MISSILE_GUARDS[p.opcode] and number(p.p2) and p.p2+1==w.projectile then return true end
+    end
+    return false
+end
 
 -- How far, in world units, the caster goes for a melee hit: the profile's touchReach in range
 -- units (SCS's touch attacks: within 10); any distance for a creature that chases (mind.chase:
@@ -127,7 +150,7 @@ end
 -- Hit points a round the caster takes at spot from melee weapons that reach it already: living
 -- enemies not disabled within a weapon's reach (combat-intent/threat.lua), whatever they attack
 -- now, against the caster's armour class.
-local function melee(frame,spot)
+function M.meleeAt(frame,spot)
     local hp=0
     for _,o in ipairs(frame.enemies) do
         if targeting.alive(o) and not targeting.disabled(o) then
@@ -144,7 +167,7 @@ end
 -- round: in it every melee enemy within a round's walk strikes wherever the caster stands.
 -- Ranged weapons reach the caster anywhere and do not count.
 function M.exposure(frame,e)
-    return math.max(0,melee(frame,e)-melee(frame,frame.self))
+    return math.max(0,M.meleeAt(frame,e)-M.meleeAt(frame,frame.self))
 end
 
 -- Hits a round on e of a weapon swung apr times with thac0 (bonuses in): d20 rolls against e's

@@ -332,10 +332,10 @@ The engine takes the rounds of all four families now: the choice (`adapters/eeex
 `M.families`) and the director's advice on a member's own casts (`combat-intent/director.lua`)
 cover fighters and monsters as well as mages and priests. Until F2:
 
-- Archers shoot with the weapon in hand at the enemies within its range, from where they stand: no
-  kiting, no switch to a melee weapon (`weapons.reachable`).
+- Archers shot with the weapon in hand at the enemies within its range, from where they stood: no
+  kiting, no switch to a melee weapon. F2c (below) gives them both.
 - Thieves fight as fighters do. SCS's backstab plan still sets up above the hook; the engine's own
-  invisibility and backstab plan come with F2.
+  invisibility and backstab plan come with F2d.
 - SCS's guarded specials above the hook (a glabrezu's Confusion, for one) still go first in the
   round they fire in (Christopher's answer 10).
 
@@ -444,6 +444,88 @@ Dispel Magic with Greater Malison (`attacks_on_pc_defences.ssl`).
 Tests: `harm` (5 groups), the choice's group 23, defence group 6, director group 11 and the choice
 adapter's group 34.
 
+### F2c: archers, weapon choice and kiting (2026-10-26)
+
+SCS's blueprint (credit: DavidW; read in its source): its ranged fighters (`genai/ssl/dw#range.ssl`)
+shoot while no enemy stands close (`shoot.ssl`: enemies below 40 % of their hit points first, then
+casters, then anyone), and leave alone enemies their missiles cannot hurt (`ArrowSafe` in
+`ssl/library.slb`: Protection from Normal Missiles, a Physical Mirror, the shield `shld24`, each
+noticed after three or six seconds; `MissileSafe`: missile resistance of 100, or of 75 and more
+unless its `targetcompromise` timer runs). The engine counts missile resistance in each shot's
+damage instead. With an enemy within 6 a ranged fighter runs from the
+nearest for four seconds, once in eighteen (`retreat.ssl`); if one is still close, it takes up its
+most damaging melee weapon and fights (`dw#wtacor.ssl`, `EquipMostDamagingMelee`).
+
+- **The weapon in hand, read right** (`combat-intent/arsenal.lua`, `sense.arsenal`; lab probe F,
+  [learned.md](../learned.md)): THAC0BONUSRIGHT holds the bonus to hit of strength (of dexterity for
+  missiles), of the proficiency and of the item itself, a launcher's and its ammunition's together;
+  DAMAGEBONUSRIGHT only the proficiency's bonus to damage. Strength's and the item's bonuses to
+  damage come on top, strength's by the ability's flags. While a launcher is in hand the game's
+  selected slot is the quiver's, and the launcher is the first weapon slot that shoots the
+  ammunition. Before, the engine took the arrows for the weapon (a bow's own bonuses and range were
+  lost), counted an item's bonus to hit twice and strength's bonus to damage not at all. Probe F's
+  fighter (level 8, strength 18, dexterity 16) reads THAC0 10, 8.5 a hit and two attacks with its
+  short sword +1, THAC0 7, 9.5 a hit and three attacks with its longbow +1 and arrows +1, as the game
+  showed.
+- **Other weapons.** Each weapon ability of each item in the weapon slots (35 to 38), as it would
+  strike if taken up, worked out from the game's tables, read once through EEex: WSPECIAL for the
+  proficiency, the class's ZERO_SKILL_THAC0 (CLSWPBON) without a star, STRMOD and STRMODEX, DEXMOD's
+  missile column, WSPATCK for the attacks a warrior's proficiency and level bring (for classes whose
+  CLSWPBON row gets them). Its attacks a round are those in hand, less what the weapon in hand adds
+  or sets (opcode 1 while equipped, its WSPATCK share), plus what the other brings, so haste stays.
+  A launcher shoots the first ammunition in the quiver it fits; ammunition alone strikes nothing. A
+  thrown axe is two weapons, swung and thrown. A magic weapon in hand stays there (the game keeps
+  it), and without the tables only the weapon in hand counts (an `error` row once).
+- **Choice** (`choice.weaponOptions`): every weapon at every enemy it can reach. One not in hand
+  costs the second it takes to take it up (`weapons.switchSeconds`, a guess until a lab measures
+  it), as a walk of that length lowers a round's worth: in the tests a sword next to the enemy must
+  be worth 7/6 of the bow in hand to be taken up, so the creature does not change weapons back and
+  forth. A missile weapon walks into its range first, as the game's attack actions do, and the walk
+  lowers the worth; not for a creature that cannot walk. Worth decides, not SCS's range rule: next
+  to an enemy an archer keeps shooting while the bow is worth more and takes up the sword when that
+  is. No missile option at an enemy that keeps its missiles off (`weapons.missileBlocked`):
+  Protection from Normal Missiles against a hit that is not magical, a Physical Mirror, and an
+  immunity or bounce of the missile's projectile (opcodes 83 and 197, by the PROJECTL.IDS entry one
+  below the projectile's number; EE Fixpack adds darts', throwing daggers' and throwing axes'
+  entries to Protection from Normal Missiles this way. The game's own spell names EE's plain
+  arrows and bolts (`1arow01`, `1bolt01`), not the magical ones; Spell Revisions' Protection from
+  Missiles names only the older entries of arrows, axes, bolts and bullets, none that EE's arrows
+  fly as, beside the spell state SCS looks for; [learned.md](../learned.md)).
+- **Kiting** (`choice.kite`), a tactic by wit: with a melee enemy within 6 (96) that can fight, and a
+  missile weapon it can shoot an enemy with, the creature weighs a step of four seconds away
+  (`kiteSeconds`, SCS's 60 ticks): straight away from the melee enemies close to it, or in one of
+  eight directions, where the fewest melee weapons reach it, then furthest from its nearest enemy,
+  with the next four spots as exits. Worth: the hit points a round the melee weapons take from it
+  where it stands less where the step ends (`weapons.meleeAt`), as a share of its own, times
+  caution, for the step's two thirds of a round, and what the walk is worth in danger zones
+  (`zones.delta`). The step is taken when that beats two thirds of a round of its best attack or
+  cast. Not again within 18 seconds (`kiteGap`, SCS's `runonce` timer); not webbed, invisible, with a
+  touch charge, in its own Time Stop or under Improved Alacrity. A clever creature always, a normal
+  one when it notices (a melee enemy close by counts toward noticing), a dull one never. In the
+  tests an ogre that would take 57 of the archer's 60 hit points a round makes it step away (worth
+  0.63 against the bow's 0.06 for those seconds); a weak enemy does not.
+- **In game** (`adapters/eeex/choice.lua`): a weapon not in hand is `SelectWeaponAbility(slot,
+  ability)` before `AttackOneRound`, held as any weapon attack; the `swing` row names the slot and
+  `switches` counts them. An `arms` row logs the weapon in hand whenever it changes, with the
+  tables' parts of its bonuses (`model`) beside the game's THAC0BONUSRIGHT and DAMAGEBONUSRIGHT
+  (`game`). A step away is `MoveToPoint` to the first open spot of the step and its exits, held
+  while the creature walks, like a way out of a zone, with a `kite` row and, once it is over, a
+  `kited` row (where it ended, how close the nearest enemy it sees stands); `kites` and `kited`
+  count them.
+
+Tests: `arsenal` (5 groups, probe F's numbers), weapons groups 12 and 13, the choice adapter's group
+35, 37 mutations checked.
+
+To see in a lab: how long `SelectWeaponAbility` takes and that it takes up a launcher with its
+ammunition, and whether a queued one can hang (one queued on the protagonist did once, on
+2026-10-17, and was not seen again after a fresh load; bg-modding knowledge base, `gotchas.md`):
+the hold of a weapon attack ends after two rounds at most either way; the `arms` rows' model
+against the game on real creatures (whether missile and melee bonuses to hit, stats 72 and 166,
+are part of THAC0BONUSRIGHT); whether Spell Revisions' Protection from Missiles keeps EE's
+arrows off at all, as its projectile entries miss them (the engine skips plain missiles at a
+creature in its spell state, as SCS's archers do, and shoots magical ones); whether enemies
+follow a kite, and whether kiting plays well or annoys.
+
 ## Agreed (Christopher, 2026-10-25)
 
 1. **Target choice by worth, with overrides.** Not SCS's fixed list ("Ich würde es nicht eins zu
@@ -492,6 +574,13 @@ Known gaps, for later:
   times what one effect raising all five (opcode 325) counts. Cures still count blindness,
   deafness and disease on a friend at fixed values (`care.lua`), not by the share of its fight
   they take.
+- Weapons (F2c): the off hand and two-weapon fighting count nothing, nor the shield's armour class
+  lost when a two-handed weapon or a bow is taken up. A launcher always shoots the first ammunition
+  that fits, never a better one. WSPATCK goes by the highest class level, and CLSWPBON by the
+  class's row, not a kit's. Without the game's tables strength's bonus to damage is unknown for the
+  weapon in hand. A thrown weapon counts strength's bonus to hit beside dexterity's when its flag
+  says so (not measured). The walk into a missile's range does not count danger zones on the way.
+  Conjured weapons still take the caster's THAC0 with the bonus to hit of the weapon it held.
 - Barbarian Rage's armour class penalty does not count against what it protects; per-cent maximum
   hit points (opcode 18, mode 2) give no hit points; helmets are not read.
 - Movement speed is not read (haste, slow, boots of speed), only the default.

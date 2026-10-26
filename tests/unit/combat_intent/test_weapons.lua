@@ -469,4 +469,156 @@ i.frame.self.weapon={item='TESTFIST',damage=4.5,damageType=2,apr=1,thac0=10,rang
 assert(near(choice.weaponOptions(i)[1].worth,0.8*8.5/60*pace))
 groups=groups+1
 
+-- 12. Weapon choice (F2c): every weapon the creature carries is an option. An archer (a fighter's
+-- profile) with a bow in hand (two shots of 3.5 that hit 0.8 each, range 400) and a sword in its
+-- second weapon slot (two swings of 5): an enemy 350 away is shot, as the sword's walk of 2.86
+-- seconds and the second it takes to take it up leave 6/9.86 of its round; one next to the archer
+-- is struck with the sword, taken up first (SelectWeaponAbility at slot 36, ability 0), worth 6/7
+-- of its round. A sword of 4 is worth more than the bow in hand, but not after that second.
+local BOW={item='TESTBOW',damage=3.5,damageType=4,apr=2,thac0=10,ranged=true,range=400,flags=0,enchantment=0,
+    ammo='TESTARRW',projectile=2,slot=35,abilityNum=0}
+local function edge(damage)
+    return {item='TESTSWRD',damage=damage,damageType=3,apr=2,thac0=10,ranged=false,flags=0,enchantment=0,slot=36,abilityNum=0}
+end
+local archer=mind.forFamily(mind.new(),'fighter')
+local function shooter()
+    local s=input({mind=archer})
+    s.frame.self.x,s.frame.self.y=1000,1000
+    s.frame.self.weapon=BOW
+    s.frame.self.arsenal={edge(5)}
+    return s
+end
+local function foe(id,x,fields)
+    local f=enemy(id,{x=x,y=1000})
+    for k,v in pairs(fields or {}) do f[k]=v end
+    return f
+end
+i=shooter()
+assert(#choice.arsenal(i.frame.self)==2 and choice.arsenal(i.frame.self)[1]==BOW)
+i.frame.enemies={foe(11,1350)}
+list=choice.weaponOptions(i)
+assert(#list==2 and list[1].resref=='TESTBOW' and list[1].slot==nil and near(list[1].worth,1.6*3.5/60))
+assert(list[2].resref=='TESTSWRD' and list[2].slot==36 and list[2].abilityNum==0 and near(list[2].walk,2.86))
+assert(near(list[2].worth,1.6*5/60*6/9.86))
+d,why=choice.decide(i)
+assert(why=='weapon' and d.resref=='TESTBOW' and d.slot==nil)
+i.frame.enemies={foe(11,1050)}
+d,why=choice.decide(i)
+assert(why=='weapon' and d.resref=='TESTSWRD' and d.slot==36 and d.abilityNum==0 and near(d.worth,1.6*5/60*6/7))
+i.frame.self.arsenal={edge(4)}
+d=choice.decide(i)
+assert(d.resref=='TESTBOW' and d.slot==nil)
+-- A magic weapon in hand stays there: no other is weighed. Weapons of unknown damage are left out.
+i.frame.self.arsenal={edge(5)}
+i.frame.self.magicItem=true
+assert(#choice.arsenal(i.frame.self)==1 and choice.decide(i).resref=='TESTBOW')
+i.frame.self.magicItem=nil
+i.frame.self.arsenal={{item='TESTODD',ranged=false},false}
+assert(#choice.arsenal(i.frame.self)==1)
+-- Missiles kept off (what SCS's archers keep away from, and immunities to the arrows' projectile):
+-- Protection from Normal Missiles keeps off plain arrows, not magical ones; a Physical Mirror any;
+-- an immunity (opcode 83) or a bounce (197) those of the projectile's entry, one below its number.
+i.frame.self.arsenal={}
+i.frame.enemies={foe(11,1350,{normalMissiles=true})}
+rejected={}
+assert(#choice.weaponOptions(i,rejected)==0 and rejected['missile-blocked']==1)
+local magicBow={}
+for k,v in pairs(BOW) do magicBow[k]=v end
+magicBow.enchantment=1
+i.frame.self.weapon=magicBow
+assert(#choice.weaponOptions(i)==1)
+i.frame.enemies={foe(11,1350,{reflects=true})}
+assert(#choice.weaponOptions(i)==0)
+i.frame.self.weapon=BOW
+assert(weapons.missileBlocked({protections={{opcode=83,p2=1}}},BOW) and weapons.missileBlocked({protections={{opcode=197,p2=1}}},BOW))
+assert(not weapons.missileBlocked({protections={{opcode=83,p2=5}}},BOW) and not weapons.missileBlocked({normalMissiles=true},edge(5)))
+assert(not weapons.missileBlocked({normalMissiles=true},{ranged=true,flags=0x40,enchantment=0}))
+-- An enemy beyond the bow's range: the archer walks into range first (two seconds for the 200
+-- beyond), which leaves 6/8 of the round; one that cannot walk has no shot.
+i.frame.enemies={foe(11,1600)}
+o=choice.weaponOptions(i)[1]
+assert(o.resref=='TESTBOW' and near(o.walk,2) and near(o.worth,1.6*3.5/60*6/8))
+i.frame.self.rooted=true
+rejected={}
+assert(#choice.weaponOptions(i,rejected)==0 and rejected['out-of-reach']==1)
+i.frame.self.rooted=nil
+groups=groups+1
+
+-- 13. Kiting (F2c; SCS's retreat.ssl). An ogre (three swings of 20 that hit 19 times in 20) next to
+-- the archer takes 57 hit points a round from it; a step of four seconds away (400 at a walk of 100
+-- a second) keeps them off for two thirds of a round: worth 57/60*4/6, far more than the two thirds
+-- of a round of shots it costs. The step goes straight away from the ogre, with four more spots as
+-- exits.
+i=shooter()
+i.frame.self.arsenal={}
+local ogre=foe(11,1050,{attack={apr=3,thac0=1,damage=20}})
+i.frame.enemies={ogre}
+o=choice.kite(i)
+assert(o and o.kind=='kite' and o.resref=='KITE' and o.mode=='point' and o.point.x==600 and o.point.y==1000)
+assert(near(o.worth,57/60*4/6) and o.score==o.worth and o.walk==4 and #o.exits==4)
+d,why=choice.decide(i)
+assert(why=='kite' and d.kind=='kite' and d.point.x==600)
+-- With the ogre on its other side it steps the other way. Weak enemies (one swing of 2 that hits
+-- three times in ten) stand at every spot a step could end: what they would take there (0.6 a round)
+-- comes off what the step keeps off.
+i.frame.enemies={foe(11,950,{attack={apr=3,thac0=1,damage=20}})}
+o=choice.kite(i)
+assert(o.point.x==1400 and o.point.y==1000)
+local ring={ogre}
+for _,p in ipairs({{1400,1000},{1283,1212},{1000,1300},{717,1212},{600,1000},{717,788},{1000,700},{1283,788}}) do
+    ring[#ring+1]=enemy(20+#ring,{x=p[1],y=p[2],attack={apr=1,thac0=20,damage=2}})
+end
+i.frame.enemies=ring
+o=choice.kite(i)
+assert(o.point.x==600 and o.point.y==1000 and near(o.worth,(57-0.6)/60*4/6))
+i.frame.enemies={ogre}
+-- Not again within 18 seconds of its last step away: it shoots.
+i.kited=i.tick-17*15
+rejected={}
+assert(choice.kite(i,rejected)==nil and rejected['kite-recent']==1)
+d,why=choice.decide(i)
+assert(why=='weapon' and d.resref=='TESTBOW')
+i.kited=i.tick-18*15
+assert(choice.kite(i))
+i.kited=nil
+-- A weak enemy (one swing of 2 that hits three times in ten) is not worth stepping away from.
+i.frame.enemies={foe(11,1050,{attack={apr=1,thac0=20,damage=2}})}
+assert(choice.kite(i) and choice.decide(i).kind=='weapon')
+-- Not from an enemy further than 6 (96) or one that shoots; not without a missile weapon, webbed or
+-- invisible. A dull archer never steps away, a normal one when it notices (one draw).
+i.frame.enemies={foe(11,1100,{attack={apr=3,thac0=1,damage=20}})}
+assert(choice.kite(i)==nil)
+i.frame.enemies={foe(11,1050,{attack={apr=3,thac0=1,damage=20,ranged=true}})}
+assert(choice.kite(i)==nil)
+i.frame.enemies={ogre}
+i.frame.self.weapon=edge(5)
+rejected={}
+assert(choice.kite(i,rejected)==nil and rejected['kite-no-missile']==1)
+i.frame.self.weapon=BOW
+i.frame.self.rooted=true
+assert(choice.kite(i)==nil)
+i.frame.self.rooted=nil
+i.frame.self.state=targeting.STATE.invisible
+assert(choice.kite(i)==nil)
+i.frame.self.state=0
+i.mind=mind.withWit(archer,{step='dull',danger=1})
+rejected={}
+assert(choice.kite(i,rejected)==nil and rejected['kite-unnoticed']==1 and choice.decide(i).kind=='weapon')
+i.mind=mind.withWit(archer,{step='normal',danger=1})
+draws=0
+i.rng=stub(400)
+assert(choice.decide(i).kind=='kite' and draws==1)
+i.rng=stub(600)
+assert(choice.decide(i).kind=='weapon' and draws==2)
+-- An enemy that shoots, close by, is nothing to step away from, so nothing to notice: no draw.
+i.frame.enemies={foe(11,1050,{attack={apr=3,thac0=1,damage=20,ranged=true}})}
+assert(choice.decide(i).kind=='weapon' and draws==2)
+i.frame.enemies={ogre}
+i.rng=nil
+-- A sword at hand changes nothing: the step is weighed against the best attack, here the sword's.
+i.mind=archer
+i.frame.self.arsenal={edge(5)}
+assert(choice.decide(i).kind=='kite')
+groups=groups+1
+
 return groups

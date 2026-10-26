@@ -134,6 +134,22 @@
 -- weapons of its friends gain on it over the rounds the debuff holds (those next to the enemy, and
 -- those with missiles when it is the group's focus), both as likely as the debuff lands. A tactic
 -- (M.tactical): a clever creature always, a normal one when it notices, a dull one never.
+--
+-- Weapon choice (F2c; Christopher, 2026-10-26: archers next; SCS's archers shoot while no enemy
+-- stands close and take up their most damaging melee weapon when one does, [src] genai/ssl/
+-- shoot.ssl, dw#wtacor.ssl, credit DavidW): every weapon in the caster's weapon slots is an attack
+-- option (frame.self.arsenal, combat-intent/arsenal.lua), weighed as the one in hand is, less the
+-- second it takes to take it up (weapons.switchSeconds, as a walk that long lowers the worth), so a
+-- creature changes its weapon only for one clearly better. A missile weapon walks into its range
+-- first, as the game's attack actions do, and is no option against an enemy that keeps its
+-- missiles off (weapons.missileBlocked). A magic weapon in hand stays there, as the game keeps it.
+--
+-- Kiting (F2c; SCS's ranged fighters run from an enemy within 6 for four seconds, once in
+-- eighteen, then stand and fight, [src] genai/ssl/retreat.ssl, dw#range.ssl): a creature with a
+-- missile weapon it can shoot steps away from the melee enemies close to it, worth the hits it keeps
+-- off for the seconds of the step (its caution weighs them), when that beats the part of a round of
+-- its best attack the step costs. A tactic (M.tactical): a clever creature always, a normal one when
+-- it notices, a dull one never.
 local targeting=require('combat-intent.targeting')
 local harm=require('combat-intent.harm')
 local defence=require('combat-intent.defence')
@@ -192,6 +208,12 @@ M.ticksPerSecond=15
 M.castSlack=0.4
 -- A jump into the fight lands this far short of its enemy, within a weapon's reach (threat.reach).
 M.landShort=48
+-- Kiting (see the top): a step of this many seconds away from melee enemies within kiteRange (in
+-- range units), none within kiteGap seconds of the creature's last (SCS's retreat.ssl: 60 ticks,
+-- Range 6, its runonce timer of 18).
+M.kiteSeconds=4
+M.kiteRange=6
+M.kiteGap=18
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
 local function clamp(v,a,b) if v<a then return a elseif v>b then return b end return v end
@@ -628,6 +650,50 @@ local function leaping(input)
     end
     return false
 end
+-- The weapons the caster can attack with (F2c): the one in its hand first, then the others it
+-- could take up (frame.self.arsenal, combat-intent/arsenal.lua), each with its damage known; none
+-- but the one in hand while a magic weapon is there (frame.self.magicItem), as the game keeps it.
+function M.arsenal(caster)
+    local list={}
+    if type(caster.weapon)=='table' and number(caster.weapon.damage) then list[1]=caster.weapon end
+    if caster.magicItem then return list end
+    for _,w in ipairs(type(caster.arsenal)=='table' and caster.arsenal or {}) do
+        if type(w)=='table' and number(w.damage) then list[#list+1]=w end
+    end
+    return list
+end
+-- Whether the caster carries a missile weapon (M.arsenal) it could shoot an enemy with: one alive
+-- and seen, without sanctuary, in its range or a walk away, not immune to the weapon and not
+-- keeping its missiles off.
+local function shooting(input)
+    local caster=input.frame.self
+    for _,arms in ipairs(M.arsenal(caster)) do
+        if arms.ranged then
+            for _,e in ipairs(input.frame.enemies) do
+                local ok,why=weapons.reachable(caster,e,input.mind,arms)
+                if (ok or why=='out-of-reach') and not weapons.immuneTo(e,arms) and not weapons.missileBlocked(e,arms) then
+                    return true
+                end
+            end
+        end
+    end
+    return false
+end
+-- The melee enemies within kiteRange of the caster that can fight: those a step away is from.
+local function pressing(input)
+    local caster=input.frame.self
+    local out={}
+    for _,o in ipairs(input.frame.enemies) do
+        if type(o)=='table' and targeting.alive(o) and not targeting.disabled(o) and not threat.attack(o).ranged and
+            targeting.distance(caster,o)<=M.kiteRange*M.rangeUnit then out[#out+1]=o end
+    end
+    return out
+end
+-- Whether kiting is there to notice (M.kite): a melee enemy stands close and the caster has a
+-- missile weapon to shoot with.
+local function kiting(input)
+    return input.mind.weapons==true and #pressing(input)>0 and shooting(input)
+end
 -- Whether an opening is there to notice: a ready attack spell's debuff lowers an enemy's defences.
 local function opener(input)
     for _,row in ipairs(type(input.spells)=='table' and input.spells or {}) do
@@ -637,9 +703,9 @@ local function opener(input)
     return false
 end
 -- Draws once a decision whether the creature sees a tactic's chance (mind.tactics), and only when
--- there is one to see (an enemy casts, a jump into the fight is there, or a debuff opens an enemy's
--- defences), so that other decisions draw nothing. Without input.rng: when its chance is a half or
--- more.
+-- there is one to see (an enemy casts, a jump into the fight is there, a debuff opens an enemy's
+-- defences, or a melee enemy close by can be stepped away from), so that other decisions draw
+-- nothing. Without input.rng: when its chance is a half or more.
 function M.notices(input)
     local p=number(input.mind.tactics) and input.mind.tactics or 1
     if p>=1 then return true end
@@ -648,7 +714,7 @@ function M.notices(input)
     for _,e in ipairs(input.frame.enemies) do
         if type(e)=='table' and type(e.cast)=='table' then any=true;break end
     end
-    if not any and not leaping(input) and not opener(input) then return false end
+    if not any and not leaping(input) and not opener(input) and not kiting(input) then return false end
     local rng=input.rng
     if not rng then return p>=0.5 end
     return rng:nextInt(1,1000)<=math.floor(p*1000+0.5)
@@ -1069,45 +1135,127 @@ function M.options(input,rejected)
     return out
 end
 
--- Attacks with the weapon in the caster's hand (frame.self.weapon, arms): at each enemy it
--- reaches and can hurt, best first. Worth: a round of its hits, for melee as much of it as counts
--- for a round after the walk to the enemy (weapons.paced; a creature that chases walks to any
--- enemy it sees, weapons.reach), and on a casting enemy what breaking its spell is worth with the
--- hits that come after the walk; cost: for melee, the hit points the caster loses to the weapons
--- around the target that round, times caution. Not while the caster holds a touch charge (the
--- strike decides where that goes), in its own Time Stop or under Improved Alacrity.
+-- Attacks with the caster's weapons (M.arsenal: the one in hand, frame.self.weapon, and those it
+-- could take up): with each at each enemy it reaches and can hurt, best first. Worth: a round of
+-- its hits, as much of it as counts for a round after what comes first (weapons.paced): the walk
+-- to a melee enemy (a creature that chases walks to any enemy it sees, weapons.reach), the walk
+-- into a missile's range, and taking up a weapon not in hand (weapons.switchSeconds); on a casting
+-- enemy what breaking its spell is worth with the hits that come after those. Cost: for melee, the
+-- hit points the caster loses to the weapons around the target that round, times caution. A weapon
+-- not in hand carries its slot, ability number (abilityNum, for SelectWeaponAbility) and
+-- ammunition. Not while the caster holds a touch charge (the strike decides where that goes), in
+-- its own Time Stop or under Improved Alacrity.
 function M.weaponOptions(input,rejected)
     local out={}
     local function reject(why) if rejected then rejected[why]=(rejected[why] or 0)+1 end end
     local frame=input.frame
     local caster=frame.self
-    local arms=caster.weapon
-    if type(arms)~='table' or not number(arms.damage) or type(caster.charge)=='table' or weaponsOut(input) then return out end
+    if type(caster.charge)=='table' or weaponsOut(input) then return out end
     local mind=input.mind
     local maxHp=number(caster.maxHp) and caster.maxHp>0 and caster.maxHp or nil
-    for _,e in ipairs(frame.enemies) do
-        local ok,why=weapons.reachable(caster,e,mind,arms)
-        if ok and weapons.immuneTo(e,arms) then ok,why=false,'weapon-immunity' end
-        if ok then
-            local hits,raw,absorbed=weapons.hits(arms.apr,arms.thac0,e)
-            local worth,expected=hitsOn(input,arms,hits,e)
-            if worth>0 then
-                local cost,walk=0,0
-                if not arms.ranged then
-                    walk=weapons.walk(caster,e)
-                    worth=worth*weapons.paced(walk)
-                    if maxHp then cost=mind.caution*weapons.exposure(frame,e)/maxHp end
-                end
-                local stop=expected>0 and M.interruption(input,e,{from=walk,rate=raw,absorbed=absorbed}) or 0
-                worth=worth+stop
-                out[#out+1]={resref=arms.item or 'WEAPON',kind='weapon',mode='creature',target=e.id,worth=worth,
-                    cost=cost,score=worth-cost,hits={e.id},slack=0,expected={[e.id]=expected},speed=0,
-                    melee=not arms.ranged or nil,walk=walk>0 and walk or nil,interrupt=stop>0 and stop or nil}
-            else reject(hits<=0 and 'absorbed' or 'no-worth') end
-        else reject(why) end
+    for _,arms in ipairs(M.arsenal(caster)) do
+        local switch=arms~=caster.weapon
+        for _,e in ipairs(frame.enemies) do
+            local ok,why=weapons.reachable(caster,e,mind,arms)
+            -- A missile walks into its range first, as the game's attack actions do.
+            local walk=0
+            if not ok and why=='out-of-reach' and arms.ranged then
+                walk=weapons.approach(caster,e,number(arms.range) and arms.range or 0)
+                if walk then ok,why=true,nil else walk=0 end
+            end
+            if ok and weapons.immuneTo(e,arms) then ok,why=false,'weapon-immunity' end
+            if ok and weapons.missileBlocked(e,arms) then ok,why=false,'missile-blocked' end
+            if ok then
+                local hits,raw,absorbed=weapons.hits(arms.apr,arms.thac0,e)
+                local worth,expected=hitsOn(input,arms,hits,e)
+                if worth>0 then
+                    local cost=0
+                    if not arms.ranged then
+                        walk=weapons.walk(caster,e)
+                        if maxHp then cost=mind.caution*weapons.exposure(frame,e)/maxHp end
+                    end
+                    local delay=walk+(switch and weapons.switchSeconds or 0)
+                    worth=worth*weapons.paced(delay)
+                    local stop=expected>0 and M.interruption(input,e,{from=delay,rate=raw,absorbed=absorbed}) or 0
+                    worth=worth+stop
+                    out[#out+1]={resref=arms.item or 'WEAPON',kind='weapon',mode='creature',target=e.id,worth=worth,
+                        cost=cost,score=worth-cost,hits={e.id},slack=0,expected={[e.id]=expected},speed=0,
+                        melee=not arms.ranged or nil,walk=walk>0 and walk or nil,interrupt=stop>0 and stop or nil,
+                        slot=switch and arms.slot or nil,abilityNum=switch and arms.abilityNum or nil,
+                        ammo=switch and arms.ammo or nil}
+                else reject(hits<=0 and 'absorbed' or 'no-worth') end
+            else reject(why) end
+        end
     end
     table.sort(out,better)
     return out
+end
+
+-- Kiting (see the top): steps of kiteSeconds at the caster's speed (zones.walkSpeed without one)
+-- straight away from the melee enemies close to it (pressing) and in eight directions; the step
+-- worth most, then the one furthest from its nearest enemy, with the next four as exits (the
+-- adapter walks to the first open one). Worth: the hit points a round the melee weapons take from
+-- the caster where it stands less where the step ends (weapons.meleeAt), as a share of its own,
+-- times caution, for the seconds of the step (a round at most), and what walking there is worth in
+-- the zones (zones.delta). None for a creature that cannot walk, is invisible, holds a touch
+-- charge, is in its own Time Stop or under Improved Alacrity, has no missile weapon to shoot an
+-- enemy with (shooting), does not see the tactic (M.tactical), or stepped away within kiteGap
+-- seconds (input.kited, by input.tick). rejected (a table, optional) counts why there is none:
+-- 'kite-' and the reason.
+function M.kite(input,rejected)
+    local function reject(why) if rejected then rejected['kite-'..why]=(rejected['kite-'..why] or 0)+1 end end
+    local frame=input.frame
+    local caster=frame.self
+    local maxHp=number(caster.maxHp) and caster.maxHp>0 and caster.maxHp or nil
+    if not maxHp or not number(caster.x) or not number(caster.y) or caster.rooted==true or
+        targeting.has(caster.state,UNSEEN) or type(caster.charge)=='table' or weaponsOut(input) then return nil end
+    local close=pressing(input)
+    if #close==0 then return nil end
+    if not shooting(input) then reject('no-missile');return nil end
+    if not M.tactical(input) then reject('unnoticed');return nil end
+    if number(input.kited) and not (number(input.tick) and input.tick-input.kited>=M.kiteGap*M.ticksPerSecond) then
+        reject('recent');return nil
+    end
+    local here=weapons.meleeAt(frame,caster)
+    if here<=0 then reject('no-harm');return nil end
+    local far=(number(caster.speed) and caster.speed>0 and caster.speed or zones.walkSpeed)*M.kiteSeconds
+    local ax,ay=0,0
+    for _,o in ipairs(close) do
+        local dx,dy=offset(o,caster)
+        local d=math.sqrt(dx*dx+dy*dy)
+        if d>0 then ax,ay=ax+dx/d,ay+dy/d end
+    end
+    local ways={}
+    local n=math.sqrt(ax*ax+ay*ay)
+    if n>1e-9 then ways[1]={ax/n,ay/n} end
+    for k=0,7 do ways[#ways+1]={math.cos(k*math.pi/4),math.sin(k*math.pi/4)} end
+    local share=math.min(1,M.kiteSeconds/M.ROUND)
+    local steps,seen={},{}
+    for _,v in ipairs(ways) do
+        local p={x=math.floor(caster.x+v[1]*far+0.5),y=math.floor(caster.y+v[2]*far*3/4+0.5)}
+        local key=p.x..','..p.y
+        if p.x>=0 and p.y>=0 and not seen[key] then
+            seen[key]=true
+            local nearest=math.huge
+            for _,o in ipairs(frame.enemies) do
+                if type(o)=='table' and targeting.alive(o) then nearest=math.min(nearest,targeting.distance(o,p)) end
+            end
+            local worth=input.mind.caution*(here-weapons.meleeAt(frame,p))/maxHp*share+zones.delta(input,p)
+            steps[#steps+1]={point=p,worth=worth,nearest=nearest}
+        end
+    end
+    table.sort(steps,function(a,b)
+        if a.worth~=b.worth then return a.worth>b.worth end
+        if a.nearest~=b.nearest then return a.nearest>b.nearest end
+        if a.point.x~=b.point.x then return a.point.x<b.point.x end
+        return a.point.y<b.point.y
+    end)
+    local best=steps[1]
+    if not best or best.worth<=0 then reject('no-worth');return nil end
+    local exits={}
+    for i=2,math.min(#steps,5) do if steps[i].worth>0 then exits[#exits+1]=steps[i].point end end
+    return {resref='KITE',kind='kite',mode='point',point=best.point,worth=best.worth,cost=0,score=best.worth,hits={},
+        slack=0,speed=0,walk=M.kiteSeconds,exits=exits}
 end
 
 -- Jumps into the fight (see the top), best first: for each enemy the weapon in hand could hit in
@@ -1295,6 +1443,17 @@ local function pick(input)
     -- than that cost.
     local value=swing and (mind.alwaysAttack and swing.worth or swing.score) or 0
     local swinging=swing~=nil and value>0
+    -- A step away from the melee enemies close by comes first when what it keeps off beats the part
+    -- of a round of the best attack or cast that its seconds take; also while the aura runs.
+    local kite=mind.weapons and M.kite(input,rejected)
+    if kite then
+        local best=options[1] and number(options[1].score) and math.max(0,options[1].score) or 0
+        if kite.score>math.max(value,best)*math.min(1,M.kiteSeconds/M.ROUND) then
+            local list=all()
+            table.insert(list,1,kite)
+            return kite,'kite',list
+        end
+    end
     -- While the aura runs, casts and drinks wait for it. An attack now holds the best of them back
     -- by the part of a round the aura leaves of the attack's round, and is made when it is worth
     -- more than that part of the best.
@@ -1341,8 +1500,9 @@ local function pick(input)
 end
 
 -- The attack, defence, heal or cure, summons, removal, opener, strike, weapon attack, jump into the
--- fight, way out of a zone or wait to do now, and why ('aura', 'no-option' or 'nothing-good' for a
--- wait; 'jump' for a jump taken over the attack it brings sooner), or nil and why for bad input; the options come along for the log, and with a wait for want of options the
+-- fight, step away from melee enemies ('kite'), way out of a zone or wait to do now, and why
+-- ('aura', 'no-option' or 'nothing-good' for a wait; 'jump' for a jump taken over the attack it
+-- brings sooner), or nil and why for bad input; the options come along for the log, and with a wait for want of options the
 -- count of reasons the ready spells gave none. Leaving costs no spell, only the seconds of the
 -- walk: it comes first when it is worth more than that share of a round of the choice, or when the
 -- pain drives a dull creature out (forced). Spell slots cost input.slots of their price,

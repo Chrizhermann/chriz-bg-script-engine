@@ -692,8 +692,8 @@ named in the message log, SCS's own forced one too, and BGSETELE back 18.7 secon
 
 F1e switched fighters and monsters on the same day
 ([FIGHT-01](../research/FIGHT-01-fighter-and-monster-rounds.md), "F1e"): the engine takes the
-rounds of all four families, and the director advises their own casts. Until F2 archers shoot
-from where they stand and thieves fight as fighters do.
+rounds of all four families, and the director advises their own casts. Until F2c archers shot
+from where they stood, and until F2d thieves fight as fighters do.
 
 F2 began with on-hit enhancers (F2a, FIGHT-01): Smite Evil, Poison Weapon, Power Attack and the
 like count by what one hit brings, in buffs and in each swing. Deathblow showed that the
@@ -713,9 +713,17 @@ Writing F2b down showed that the classifier read how often poison strikes the wr
 Revisions' Poison 141 instead of 51 at level 12, an Arrow of Biting 600 instead of 20. Now it
 reads poison as the game deals it.
 
+F2c gave archers SCS's two answers to an enemy at close range (FIGHT-01, "F2c"): every creature
+weighs all the weapons it carries, so an archer takes up its sword when that is worth more, and a
+clever archer steps away from a melee enemy to keep shooting (a normal one when it notices, a dull
+one never), not again within 18 seconds. Missiles walk into range, and nobody shoots at an enemy
+its missiles cannot hurt (Protection from Normal Missiles, a Physical Mirror). Building it showed
+that the engine read a bow wrongly: it took the arrows for the weapon and counted an item's bonus
+to hit twice and strength's bonus to damage not at all.
+
 Next: the teleport lab's second run (an engine jump, SCS's ReallyForceSpellRES form, a cast from
-out of sight) and a lab of mixed fights with fighters and monsters, then the rest of F2 (archers,
-thieves). Melissan's own fight is designed with Christopher.
+out of sight) and a lab of mixed fights with fighters, archers and monsters, then thieves (F2d).
+Melissan's own fight is designed with Christopher.
 
 ## To design with Christopher
 
