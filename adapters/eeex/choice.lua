@@ -114,6 +114,13 @@
 -- up after its patience, walking back to where its fight began; there the creature's own life goes
 -- on. A detection is judged by whether the creature sees an enemy afterwards. BGSE_Search
 -- (api:searches) tells SCS's own hunting blocks to stand aside for every creature the engine drives.
+--
+-- Jumps into the fight (combat-intent/choice.lua): the choice also gets the teleports among the
+-- creature's ready spells and innate abilities (combat-intent/search.lua) and when it last
+-- teleported, for a search or into the fight (adapters/eeex/search.lua), so one gap counts for
+-- both. A jump is SpellPointRES at the nearest open spot where the creature fits, next to its
+-- enemy, cast and held like the engine's other casts, with a 'leap' row; once it ends it is judged
+-- like a search teleport, by how far from its spot the creature stands.
 local sense=require('adapters.eeex.sense')
 local creature=require('adapters.eeex.creature')
 local resources=require('adapters.eeex.resources')
@@ -128,6 +135,7 @@ local summons=require('combat-intent.summons')
 local zones=require('combat-intent.zones')
 local mind=require('combat-intent.mind')
 local orders=require('combat-intent.orders')
+local search=require('combat-intent.search')
 local rngs=require('kernel.rng')
 local M={}
 M.families={mage=true,priest=true}
@@ -354,7 +362,8 @@ function M.new(g,options)
         hits=0,misses=0,errors=0,holds=0,frozen=0,marks=0,markFailures=0,defences=0,guarded=0,unguarded=0,
         guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0,arms=0,attacks=0,attackHits=0,
         weaponFailures=0,releases=0,heals=0,cures=0,potions=0,cared=0,uncared=0,summons=0,conjured=0,
-        unconjured=0,removals=0,stripped=0,unstripped=0,wardFailures=0,revealed=0,unrevealed=0,landed=0,unlanded=0}
+        unconjured=0,removals=0,stripped=0,unstripped=0,wardFailures=0,revealed=0,unrevealed=0,landed=0,unlanded=0,
+        jumps=0}
     local reasons={}
     local log,nextRow,size={},1,0
     local root,sink,lastError,markError,guardError,weaponError,wardError,zoneError,witError
@@ -1428,7 +1437,8 @@ function M.new(g,options)
         local holder,left=timeStop()
         local input={tick=tick,family=family,frame=frame,spells=rows,items=carried,lastDefence=lastDefence[id],
             plan=director and director:plan(id,tick) or {},memory=memory[id] or {},mind=mindFor(sprite,family),rng=rng,
-            creatures=summoned(rows),stays=stays,orders=orderBook[text(sprite.m_resref:get())]}
+            creatures=summoned(rows),stays=stays,orders=orderBook[text(sprite.m_resref:get())],
+            teleports=search.teleports(rows),jumped=seeker:jumped(id)}
         -- The zones in the area, with what they weigh about the caster itself.
         local raw=zoneList(sprite,tick)
         local seen={}
@@ -1485,6 +1495,7 @@ function M.new(g,options)
         if d.use then counts.potions=counts.potions+1 end
         if d.kind=='summon' then counts.summons=counts.summons+1 end
         if d.kind=='removal' then counts.removals=counts.removals+1 end
+        if d.kind=='teleport' then counts.jumps=counts.jumps+1 end
         if d.release then counts.releases=counts.releases+1 end
         record({kind='choice',tick=tick,member=id,family=family,spell=d.resref,castKind=d.kind,mode=d.mode,
             target=d.target,point=d.point,score=d.score,worth=d.worth,hits=d.hits,how=why,top=top,
@@ -1540,7 +1551,7 @@ function M.new(g,options)
             self=d.self,hits=d.hits,castTicks=spell and type(spell.speed)=='number' and spell.speed*M.speedTicks or nil,
             sources=sources,expected=d.expected,disable=disable,charge=d.kind=='strike' and d.spell or nil,
             use=d.use,before=before,count=d.count,creatures=d.creatures,monsters=d.monsters,known=seen,cover=cover,
-            walk=d.walk}
+            walk=d.walk,melee=d.kind=='teleport' and d.melee or nil,innate=d.kind=='teleport' and d.innate or nil}
     end
     -- From the gate, each time a hooked script asks: nil (the creature's script has the round),
     -- {hold=true,own=true} while the engine's queued cast has not started, its own action runs or
@@ -1613,12 +1624,17 @@ function M.new(g,options)
             seeker:mode(object,tick)
         else
             if decision.kind=='teleport' then
-                -- A teleport toward a clue: to the nearest open spot where the creature fits.
+                -- A teleport toward a clue, or into the fight next to an enemy: to the nearest open
+                -- spot where the creature fits. Either counts for the gap before the next.
                 local point=walkable(object,{point=decision.point})
                 local response=point and M.response({resref=decision.spell,point=point})
                 if not response then return 'skipped' end
                 decision.point,decision.response=point,response
-                seeker:jump(object,decision,point,tick)
+                if decision.melee then
+                    seeker:leapt(object.m_id,tick)
+                    record({kind='leap',tick=tick,member=object.m_id,from={x=object.m_pos.x,y=object.m_pos.y},to=point,
+                        spell=decision.spell,target=decision.target,innate=decision.innate})
+                else seeker:jump(object,decision,point,tick) end
             end
             pending[object.m_id]={caster=object.m_id,resref=decision.spell,kind=decision.kind,mode=decision.mode,
                 target=decision.target,point=decision.point,hits=decision.hits,tick=tick,hp=hp,

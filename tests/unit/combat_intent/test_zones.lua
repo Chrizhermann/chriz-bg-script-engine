@@ -464,4 +464,34 @@ do
     for _,o in ipairs(options) do if o.resref=='TESTBOLT' then assert(o.worth<c.worth) end end
     groups=groups+1
 end
+
+-- 12. A jump into the fight (combat-intent/choice.lua): out of a cloud at once it gains what a round
+-- in it would take, with no walk through it; into one it loses that; while the teleport is cast the
+-- creature stands where it is (a second: a round and a second staying against a second of it), and
+-- explosions then can break the casting; a dull one counts none. A fighter that chases jumps over the
+-- fire to the wounded enemy it would not walk through it for (section 6).
+do
+    local i=input({zones={zone(fire)}})
+    local h=zones.hit(i,zone(fire),i.frame.self)
+    local q={x=400,y=100}
+    assert(h>0 and near(zones.leap(i,q,0),h*6/5))
+    assert(near(zones.leap(i,q,1),h*7/5-h/5))
+    assert(near(zones.leap(input({zones={zone(fire)}},{x=600}),{x=100,y=100},0),-h*6/5))
+    assert(zones.leap(input({zones={zone(fire)}},{x=600}),{x=900,y=100},0)==0)
+    assert(zones.leap(input({zones={zone(fire)},mind=mind.new({wit='dull'})}),q,0)==0)
+    local jump={resref='TESTLEAP',kind='teleport',melee=true,worth=0.3,cost=0.03,score=0.27,speed=0,point=q,target=5}
+    zones.adjust(i,jump,{})
+    assert(near(jump.worth,0.3+h*6/5) and near(jump.score,jump.worth-0.03) and jump.finish==nil)
+    local slow={resref='TESTDOOR',kind='teleport',melee=true,worth=0.3,cost=0.12,score=0.18,speed=3,point=q,target=5}
+    zones.adjust(input({zones={zone(fire,{next=1})}}),slow,{})
+    assert(slow.finish==0 and slow.worth==0)
+    local mace={item='MACE',damage=8,damageType=2,apr=2,thac0=5,ranged=false,flags=0,enchantment=0}
+    local soft={apr=0.5,thac0=20,damage=1}
+    local c=input({zones={zone(fire,{x=400})},mind=mind.forFamily(mind.new(),'fighter'),
+        teleports={{resref='TESTLEAP',range=3200,speed=0,level=1,innate=true}}},{x=900,weapon=mace})
+    c.frame.enemies={enemy(5,{x=1000,attack=soft}),enemy(6,{x=200,hp=8,attack=soft})}
+    local d,why=choice.decide(c)
+    assert(why=='best' and d.kind=='teleport' and d.target==6 and d.point.x==248 and d.point.y==100)
+    groups=groups+1
+end
 return groups

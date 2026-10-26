@@ -275,6 +275,14 @@ function M.new(g,options)
         record({kind='teleport',tick=tick,member=id,from={x=sprite.m_pos.x,y=sprite.m_pos.y},to=point,spell=decision.spell,
             clue=decision.clue,target=decision.aim,innate=decision.innate,tactical=s.tactical})
     end
+    -- When the creature last teleported, for a search or into the fight (adapters/eeex/choice.lua):
+    -- one gap counts for both (combat-intent/search.lua, M.jump); nil when it has not.
+    function seeker:jumped(id)
+        local s=states[id]
+        return s and s.jumped
+    end
+    -- A teleport into the fight, prepared at tick: its gap counts for the search's teleports too.
+    function seeker:leapt(id,tick) state(id).jumped=tick end
     -- The rogue's detection mode, started: held briefly before the search goes on.
     function seeker:mode(sprite,tick)
         state(sprite.m_id).act={kind='modal',tick=tick,limit=M.modalTicks}

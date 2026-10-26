@@ -260,16 +260,16 @@ d=search.decide(input({clues={{kind='seen',id=11,x=1500,y=1000,tick=2950}},telep
 assert(d.kind=='search')
 d=search.decide(input({clues={farSeen},teleports={door},mind={wit='normal',tactics=0.5},tactical=false}))
 assert(d.kind=='search')
--- The innate one first; none again within its gap (6 seconds, 18 for a memorized spell).
+-- The innate one first; none again within its gap (18 seconds, for a memorized spell too).
 d=search.decide(input({clues={farSeen},teleports={door,blink}}))
 assert(d.resref=='SPIN147')
-d=search.decide(input({clues={farSeen},teleports={blink},jumped=3000-5*15}))
+d=search.decide(input({clues={farSeen},teleports={blink},jumped=3000-17*15}))
 assert(d.kind=='search')
-d=search.decide(input({clues={farSeen},teleports={blink},jumped=3000-6*15}))
+d=search.decide(input({clues={farSeen},teleports={blink},jumped=3000-18*15}))
 assert(d.kind=='teleport')
-d=search.decide(input({clues={farSeen},teleports={door},jumped=3000-17*15}))
+d=search.decide(input({clues={farSeen},teleports={door,blink},jumped=3000-17*15}))
 assert(d.kind=='search')
-d=search.decide(input({clues={farSeen},teleports={door,blink},jumped=3000-10*15}))
+d=search.decide(input({clues={farSeen},teleports={door,blink},jumped=3000-18*15}))
 assert(d.resref=='SPIN147')
 -- Beyond its range: as far toward the spot as it reaches.
 local short=search.teleports({{resref='TESTSHRT',list='innate',level=1,ready=1,usable=true,spell=shortBlink}})[1]

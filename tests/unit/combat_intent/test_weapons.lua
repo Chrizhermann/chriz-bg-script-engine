@@ -334,4 +334,105 @@ d,why=choice.decide(i)
 assert(why=='weapon' and d.target==12 and d.walk>0)
 groups=groups+1
 
+-- 10. Jumps into the fight (Christopher, 2026-10-26: a real teleport whose name shows in the log). A
+-- fighter with an innate teleport of Teleport Without Error's reach and an axe (two swings of 20,
+-- hitting 0.8 each) sees an enemy 600 away: it lands 48 short of the enemy and strikes without the
+-- walk of 5.36 seconds, worth a round of hits less the teleport's level and what standing there
+-- costs; the walk keeps only 6/11.36 of them.
+local zones=require('combat-intent.zones')
+local fighter=mind.forFamily(mind.new(),'fighter')
+local blink={resref='BGSETELE',range=3200,speed=0,level=1,innate=true}
+local AXE={item='TESTAXE',damage=20,damageType=3,apr=2,thac0=10,ranged=false,flags=0,enchantment=0}
+i=input({mind=fighter,teleports={blink}})
+i.frame.self.weapon=AXE
+i.frame.enemies={enemy(11,{x=700})}
+local stand=weapons.exposure(i.frame,i.frame.enemies[1])/60
+list=choice.jumpOptions(i)
+o=list[1]
+assert(#list==1 and o.kind=='teleport' and o.resref=='BGSETELE' and o.mode=='point' and o.target==11 and o.melee and o.innate)
+assert(o.point.x==652 and o.point.y==100 and near(o.worth,32/60) and near(o.cost,0.03+stand) and o.speed==0 and o.level==1)
+swing=choice.weaponOptions(i)[1]
+assert(near(swing.worth,32/60*6/11.36) and swing.score<o.score)
+d,why=choice.decide(i)
+assert(why=='best' and d.kind=='teleport' and d.target==11 and d.point.x==652)
+-- Within a jump's walk of the landing (200) it walks.
+i.frame.enemies={enemy(11,{x=290})}
+rejected={}
+assert(#choice.jumpOptions(i,rejected)==0 and rejected['jump-near']==1 and choice.decide(i).kind=='weapon')
+-- None within 18 seconds of its last teleport, for a search or a jump.
+i.frame.enemies={enemy(11,{x=700})}
+i.jumped=i.tick-17*15
+rejected={}
+assert(#choice.jumpOptions(i,rejected)==0 and rejected['jump-no-teleport']==1)
+i.jumped=i.tick-18*15
+assert(#choice.jumpOptions(i)==1)
+i.jumped=nil
+-- A memorized teleport (Dimension Door, level 4, a speed point of casting) spends its slot: only for
+-- a walk of 600 or more; its casting paces the hits.
+i.teleports={{resref='SPWI402',range=16000,speed=1,level=4}}
+assert(#choice.jumpOptions(i)==0)
+i.frame.enemies={enemy(11,{x=800})}
+o=choice.jumpOptions(i)[1]
+assert(o.resref=='SPWI402' and o.innate==nil and o.point.x==752 and near(o.cost,0.12+stand))
+assert(near(o.worth,32/60*weapons.paced(zones.speedSeconds)))
+-- Beyond its reach it lands as far as it reaches and walks the rest.
+i.teleports={{resref='TESTHOP',range=160,speed=0,level=1,innate=true}}
+i.frame.enemies={enemy(11,{x=700})}
+o=choice.jumpOptions(i)[1]
+assert(o.point.x==260 and near(o.worth,32/60*weapons.paced((440-64)/100)))
+i.teleports={blink}
+-- A weak hit (a knife of 6): worth less than a spell must be, but more than the walk, and a fighter
+-- that always attacks takes it over the walk. A weaker one still (the mace): the walk is worth more
+-- than the teleport costs.
+i.frame.self.weapon={item='TESTKNIF',damage=6,damageType=1,apr=1,thac0=10,ranged=false,flags=0,enchantment=0}
+d,why=choice.decide(i)
+assert(why=='jump' and d.kind=='teleport' and d.score<i.mind.minValue)
+i.frame.self.weapon=MACE
+d,why=choice.decide(i)
+assert(why=='weapon' and d.kind=='weapon')
+i.frame.self.weapon=AXE
+-- An order to always attack an enemy far off: the jump goes there, not the swing at the one beside.
+i.frame.enemies={enemy(11,{x=700,player=1}),enemy(12,{x=150})}
+assert(choice.decide(i).target==12)
+i.orders={target='protagonist',always=true}
+d=choice.decide(i)
+assert(d.kind=='teleport' and d.target==11 and d.ordered)
+i.orders=nil
+-- A tactic: a normal fighter jumps when it notices (one draw a decision, and none without a jump to
+-- see), a dull one never.
+i.frame.enemies={enemy(11,{x=700})}
+local draws=0
+local function stub(v) return {nextInt=function() draws=draws+1;return v end} end
+i.mind=mind.withWit(fighter,{step='normal',danger=1})
+i.rng=stub(400)
+assert(choice.decide(i).kind=='teleport' and draws==2)
+i.rng=stub(600)
+assert(choice.decide(i).kind=='weapon' and draws==3)
+i.frame.enemies={enemy(11,{x=200})}
+assert(choice.decide(i).kind=='weapon' and draws==3)
+i.frame.enemies={enemy(11,{x=700})}
+i.rng=nil
+i.mind=mind.withWit(fighter,{step='dull',danger=1})
+rejected={}
+assert(#choice.jumpOptions(i,rejected)==0 and rejected['jump-unnoticed']==1 and choice.decide(i).kind=='weapon')
+-- Not for a caster (it walks to no enemy), with a missile weapon, webbed, with a touch charge in hand,
+-- or under Improved Alacrity.
+i.mind=mind.new()
+assert(#choice.jumpOptions(i)==0)
+i.mind=fighter
+i.frame.self.weapon={item='TESTSLNG',damage=3.5,damageType=2,apr=1,thac0=10,ranged=true,range=400,flags=0,enchantment=0}
+assert(#choice.jumpOptions(i)==0)
+i.frame.self.weapon=AXE
+i.frame.self.rooted=true
+assert(#choice.jumpOptions(i)==0)
+i.frame.self.rooted=nil
+i.frame.self.charge={item='TESTHND',touch=true}
+assert(#choice.jumpOptions(i)==0)
+i.frame.self.charge=nil
+i.frame.self.alacrity=true
+assert(#choice.jumpOptions(i)==0)
+i.frame.self.alacrity=nil
+assert(#choice.jumpOptions(i)==1)
+groups=groups+1
+
 return groups

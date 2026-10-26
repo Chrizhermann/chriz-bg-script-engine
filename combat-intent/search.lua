@@ -78,10 +78,13 @@ M.itemLevel=10
 -- A search walk at least jumpMin long goes by an innate teleport, one at least jumpSlotMin long by
 -- a memorized one (M.jump); no innate teleport within jumpGap seconds of the creature's last, no
 -- memorized one within jumpSlotGap (SCS's mages wait 18 seconds between their Dimension Door
--- pursuits).
+-- pursuits). The gap is the only pause the game's Teleport Without Error has, which most fiends
+-- carry and which has no recharge of its own; the installer's BGSETELE comes back after 18 seconds
+-- by itself, as the mind flayers' Planar Travel does (Christopher, 2026-10-26: an instant teleport
+-- with a cooldown). Jumps into the fight count the same gap (combat-intent/choice.lua).
 M.jumpMin=200
 M.jumpSlotMin=600
-M.jumpGap=6
+M.jumpGap=18
 M.jumpSlotGap=18
 -- A group's boss guards its post (M.boss): it has at least bossOthers other members, each at least
 -- bossLead levels below it.
@@ -221,16 +224,17 @@ end
 
 -- The teleport that takes the creature toward p, walk world units away, or nil: an innate one from
 -- jumpMin on, a memorized one from jumpSlotMin on for a tactical creature; none within its gap of
--- the creature's last teleport (input.jumped). The innate first, then the lowest level, then the
--- name. Returns the option and where it lands: p, or as far toward p as it reaches.
+-- the creature's last teleport (input.jumped; with no clock to count it, none at all). The innate
+-- first, then the lowest level, then the name. Returns the option and where it lands: p, or as far
+-- toward p as it reaches.
 function M.jump(input,p,walk,tactical)
     local self=input.frame.self
     local chosen,chosenKey
     for _,o in ipairs(list(input.teleports)) do
         if type(o)=='table' and type(o.resref)=='string' and number(o.range) and o.range>0 then
             local gap=(o.innate and M.jumpGap or M.jumpSlotGap)*M.ticksPerSecond
-            if walk>=(o.innate and M.jumpMin or M.jumpSlotMin) and (o.innate or tactical) and
-                not (number(input.jumped) and input.tick-input.jumped<gap) then
+            local recent=number(input.jumped) and not (number(input.tick) and input.tick-input.jumped>=gap)
+            if walk>=(o.innate and M.jumpMin or M.jumpSlotMin) and (o.innate or tactical) and not recent then
                 local k={o.innate and 1 or 0,-(number(o.level) and o.level or 9)}
                 local better=chosen==nil
                 if not better then

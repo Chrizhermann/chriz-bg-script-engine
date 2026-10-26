@@ -4071,9 +4071,9 @@ local targeting=require('combat-intent.targeting')
 local M={}
 M.bonus=1
 -- The decisions an order to always attack an enemy keeps to it: attacks, touch charges, strikes,
--- weapon attacks and protection removal. Defences, heals, cures, summons, openers, ways out of a
--- zone and waits stay free.
-M.ATTACKS={damage=true,disable=true,removal=true,touch=true,strike=true,weapon=true}
+-- weapon attacks, jumps into the fight (teleport) and protection removal. Defences, heals, cures,
+-- summons, openers, ways out of a zone and waits stay free.
+M.ATTACKS={damage=true,disable=true,removal=true,touch=true,strike=true,weapon=true,teleport=true}
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
 local function selector(v)
@@ -4953,6 +4953,42 @@ function M.delta(input,q)
     local go=math.min(loss(hurts,f,f,q,speed,t,even),most)
     return (stay-go)*danger(input)
 end
+-- What a teleport to q is worth to the caster against standing where it is, in the zones, as
+-- M.delta weighs a walk: it stays where it is while it casts (cast seconds), then stands at q
+-- without crossing anything on the way, until a round after it landed.
+function M.leap(input,q,cast)
+    if not M.active(input) or type(q)~='table' or not number(q.x) or not number(q.y) then return 0 end
+    local f=input.frame.self
+    if not number(f.x) or not number(f.y) then return 0 end
+    local w=wit(input)
+    if w=='dull' then return 0 end
+    local hurts=hurting(input,f)
+    if #hurts==0 then return 0 end
+    cast=number(cast) and cast>0 and cast or 0
+    local t=M.ROUND+cast
+    local most=cap(input,f,hurts)
+    local even=w~='clever'
+    local function inside(z,p)
+        local px,py=flat(p)
+        local cx,cy=flat(z)
+        return (px-cx)^2+(py-cy)^2<=z.radius^2
+    end
+    local go=0
+    for _,h in ipairs(hurts) do
+        local free=h.stopped or 0
+        local spans={}
+        if cast>0 and inside(h.zone,f) then spans[#spans+1]={0,cast} end
+        if inside(h.zone,q) then spans[#spans+1]={cast,t} end
+        for _,s in ipairs(spans) do
+            local n=M.count(h.zone,s[1],s[2],even)
+            local kept=math.min(n,free)
+            free=free-kept
+            go=go+h.hit*(n-kept)
+        end
+    end
+    local stay=math.min(loss(hurts,f,f,f,speedOf(f),t,even),most)
+    return (stay-math.min(go,most))*danger(input)
+end
 
 -- The chance the caster finishes a cast of the given seconds where it stands: each explosion of
 -- a zone around it whose damage lands breaks the cast. The casting starts when the casting aura
@@ -5088,14 +5124,21 @@ end
 
 -- An option with the zones counted: a melee attack or a strike gains what walking to its target
 -- is worth (M.delta: out of harm, or into it); a cast where the caster stands loses what the zones
--- around it may break (the chance it finishes kept as finish, for the log). Changes the option's
--- worth and score in place. A dull creature counts no zone (M.delta and M.through).
+-- around it may break (the chance it finishes kept as finish, for the log); a jump into the fight
+-- (a teleport next to an enemy, combat-intent/choice.lua) both: what landing there is worth
+-- (M.leap) when its casting is not broken. Changes the option's worth and score in place. A dull
+-- creature counts no zone (M.delta, M.leap and M.through).
 function M.adjust(input,o,enemyAt)
     if not M.active(input) or type(o)~='table' or not number(o.worth) then return o end
     if o.kind=='escape' or wit(input)=='dull' then return o end
     if o.kind=='strike' or (o.kind=='weapon' and o.melee) then
         local e=enemyAt and enemyAt[o.target]
         if e then o.worth=o.worth+M.delta(input,e) end
+    elseif o.kind=='teleport' and o.melee then
+        local cast=(number(o.speed) and o.speed or 0)*M.speedSeconds
+        local finish=1
+        if cast>0 then finish=M.through(input,cast);o.finish=finish end
+        o.worth=(o.worth+M.leap(input,o.point,cast))*finish
     elseif not o.use and o.kind~='weapon' then
         local cast=(number(o.speed) and o.speed or 0)*M.speedSeconds
         if cast>0 then o.finish=M.through(input,cast);o.worth=o.worth*o.finish end
@@ -5207,6 +5250,18 @@ factories["combat-intent.choice"]=function(require)
 -- (M.castWindow). Only damage counts yet; whether a hold, sleep or silence breaks a cast is open.
 -- How often a creature sees the chance is its wit (mind.tactics): a clever one always, a normal
 -- one in half its decisions, a dull one never.
+--
+-- Jumps into the fight (Christopher, 2026-10-26: a real teleport whose name shows in the log, not
+-- SCS's silent jump; SCS's fiends jump to a party member who is weak, a mage or easy to hit, [src]
+-- fiend/ssl/jump.ssl, credit DavidW): a creature that walks to any enemy it sees for its melee
+-- weapon (mind.chase) may cast a teleport it has (input.teleports, combat-intent/search.lua) at a
+-- spot next to an enemy a long walk away instead, picked as the search picks one: an innate
+-- teleport for a walk of search.jumpMin or more, a memorized spell from search.jumpSlotMin on, none
+-- within search.jumpGap of its last teleport (input.jumped). It is worth the round of hits it brings
+-- without the walk, and costs what a spell of its level costs and what standing next to the enemy
+-- costs. As it ends next to the enemy like the walk, a creature that always attacks takes it over
+-- the walk whenever it is worth more. A tactic (M.tactical): a clever creature always, a normal
+-- one when it notices, a dull one never.
 local targeting=require('combat-intent.targeting')
 local harm=require('combat-intent.harm')
 local defence=require('combat-intent.defence')
@@ -5220,6 +5275,7 @@ local touch=require('combat-intent.touch')
 local weapons=require('combat-intent.weapons')
 local spells=require('combat-intent.spells')
 local orders=require('combat-intent.orders')
+local search=require('combat-intent.search')
 local M={}
 M.rangeUnit=targeting.rangeUnit
 -- Allies keep this much room beyond an area's edge; positions are up to a check-in old.
@@ -5262,6 +5318,8 @@ M.idle=1
 M.auraTicks=100
 M.ticksPerSecond=15
 M.castSlack=0.4
+-- A jump into the fight lands this far short of its enemy, within a weapon's reach (threat.reach).
+M.landShort=48
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
 local function clamp(v,a,b) if v<a then return a elseif v>b then return b end return v end
@@ -5580,9 +5638,21 @@ function M.tactical(input)
     local p=number(input.mind.tactics) and input.mind.tactics or 1
     return p>=0.5
 end
+-- Whether a jump into the fight is there to notice (M.jumpOptions): the creature walks to enemies
+-- for its melee weapon, has a teleport ready and sees an enemy a jump's walk away.
+local function leaping(input)
+    if type(input.teleports)~='table' or #input.teleports==0 or input.mind.chase~=true then return false end
+    local caster=input.frame.self
+    if type(caster.weapon)~='table' or caster.weapon.ranged then return false end
+    for _,e in ipairs(input.frame.enemies) do
+        local d=type(e)=='table' and targeting.distance(caster,e) or math.huge
+        if d<math.huge and d-M.landShort>=search.jumpMin then return true end
+    end
+    return false
+end
 -- Draws once a decision whether the creature sees a tactic's chance (mind.tactics), and only when
--- there is one to see (an enemy casts), so that other decisions draw nothing. Without input.rng:
--- when its chance is a half or more.
+-- there is one to see (an enemy casts, or a jump into the fight is there), so that other decisions
+-- draw nothing. Without input.rng: when its chance is a half or more.
 function M.notices(input)
     local p=number(input.mind.tactics) and input.mind.tactics or 1
     if p>=1 then return true end
@@ -5591,7 +5661,7 @@ function M.notices(input)
     for _,e in ipairs(input.frame.enemies) do
         if type(e)=='table' and type(e.cast)=='table' then any=true;break end
     end
-    if not any then return false end
+    if not any and not leaping(input) then return false end
     local rng=input.rng
     if not rng then return p>=0.5 end
     return rng:nextInt(1,1000)<=math.floor(p*1000+0.5)
@@ -6040,6 +6110,63 @@ function M.weaponOptions(input,rejected)
     return out
 end
 
+-- Jumps into the fight (see the top), best first: for each enemy the weapon in hand could hit in
+-- melee a long walk away, the teleport search.jump picks for the walk to a spot landShort short of
+-- the enemy on the way, cast at that spot or as far toward it as the teleport reaches. Worth: a
+-- round of the weapon's hits on the enemy as weaponOptions counts it, paced by the casting and any
+-- walk left after landing; on a casting enemy what breaking its spell is worth with the hits that
+-- come after the casting aura, the casting and that walk. Cost: the teleport's level as for a spell,
+-- and the hit points lost standing next to the enemy, times caution. Not for a creature that does
+-- not chase, cannot walk or holds a touch charge, in its own Time Stop or under Improved Alacrity,
+-- or that does not see the tactic (M.tactical). rejected (a table, optional) counts why an enemy
+-- got no jump: 'jump-' and the reason.
+function M.jumpOptions(input,rejected)
+    local out={}
+    local function reject(why) if rejected then rejected['jump-'..why]=(rejected['jump-'..why] or 0)+1 end end
+    local frame=input.frame
+    local caster=frame.self
+    local arms=caster.weapon
+    local mind=input.mind
+    if type(input.teleports)~='table' or #input.teleports==0 or mind.chase~=true then return out end
+    if type(arms)~='table' or not number(arms.damage) or arms.ranged or type(caster.charge)=='table' or
+        weaponsOut(input) or caster.rooted==true then return out end
+    if not M.tactical(input) then reject('unnoticed');return out end
+    local maxHp=number(caster.maxHp) and caster.maxHp>0 and caster.maxHp or nil
+    local aura=number(caster.aura) and caster.aura>0 and caster.aura or 0
+    for _,e in ipairs(frame.enemies) do
+        local ok,why=weapons.reachable(caster,e,mind,arms)
+        if ok and weapons.immuneTo(e,arms) then ok,why=false,'weapon-immunity' end
+        local d=ok and targeting.distance(caster,e) or 0
+        if ok and d-M.landShort<search.jumpMin then ok,why=false,'near' end
+        if ok then
+            local walk=d-M.landShort
+            local spot={x=caster.x+(e.x-caster.x)*walk/d,y=caster.y+(e.y-caster.y)*walk/d}
+            local o,at=search.jump(input,spot,walk,true)
+            local hits,raw,absorbed=weapons.hits(arms.apr,arms.thac0,e)
+            local worth,expected=hitsOn(input,arms,hits,e)
+            if o and worth>0 then
+                local landed={}
+                for k,v in pairs(caster) do landed[k]=v end
+                landed.x,landed.y=at.x,at.y
+                local cast=(number(o.speed) and o.speed or 0)*zones.speedSeconds
+                local rest=weapons.walk(landed,e)
+                worth=worth*weapons.paced(cast+rest)
+                local stop=expected>0 and M.interruption(input,e,{from=aura+cast+rest,rate=raw,absorbed=absorbed}) or 0
+                worth=worth+stop
+                local level=number(o.level) and o.level or 1
+                local cost=mind.economy*slots(input)*M.costPerLevel*level
+                if maxHp then cost=cost+mind.caution*weapons.exposure(frame,e)/maxHp end
+                out[#out+1]={resref=o.resref,kind='teleport',mode='point',point=at,target=e.id,worth=worth,cost=cost,
+                    score=worth-cost,hits={e.id},slack=0,speed=number(o.speed) and o.speed or 0,level=level,
+                    innate=o.innate,melee=true,interrupt=stop>0 and stop or nil}
+            elseif not o then reject('no-teleport')
+            else reject(hits<=0 and 'absorbed' or 'no-worth') end
+        else reject(why) end
+    end
+    table.sort(out,better)
+    return out
+end
+
 -- The input without its releases (sequencers and triggers): under Improved Alacrity SCS keeps
 -- them for later (caster_definitions.ssl), and so does the engine.
 function M.unreleased(input)
@@ -6131,6 +6258,9 @@ local function pick(input)
     for _,o in ipairs(care.options(input,rejected)) do options[#options+1]=o end
     for _,o in ipairs(summons.options(input,rejected)) do options[#options+1]=o end
     for _,o in ipairs(removal.options(input,rejected,function(s) return M.attack(s)~=nil end)) do options[#options+1]=o end
+    if mind.weapons then
+        for _,o in ipairs(M.jumpOptions(input,rejected)) do options[#options+1]=o end
+    end
     -- A weapon attack spends nothing: it needs no minimum worth, and it is taken over a spell
     -- only when it is worth more.
     local swings=mind.weapons and M.weaponOptions(input,rejected) or {}
@@ -6177,7 +6307,17 @@ local function pick(input)
     end
     local best=options[1]
     if best.score<mind.minValue then
-        if swinging then return swing,'weapon',all() end
+        if swinging then
+            -- A jump into the fight ends next to an enemy as the walk does, sooner: the best one is
+            -- taken over the attack when it is worth more.
+            for _,o in ipairs(options) do
+                if o.kind=='teleport' and o.melee then
+                    if o.score>swing.score then return o,'jump',all() end
+                    break
+                end
+            end
+            return swing,'weapon',all()
+        end
         -- No attack is worth anything: the best that is worth something, rather than nothing.
         if best.score>0 then return best,'weak',options end
         return M.wait(M.idle),'nothing-good',options,rejected
@@ -6191,9 +6331,9 @@ local function pick(input)
     return pool[rng:nextInt(1,#pool)],'near-best',options
 end
 
--- The attack, defence, heal or cure, summons, removal, opener, strike, weapon attack, way out of a
--- zone or wait to do now, and why ('aura', 'no-option' or 'nothing-good' for a wait), or nil and
--- why for bad input; the options come along for the log, and with a wait for want of options the
+-- The attack, defence, heal or cure, summons, removal, opener, strike, weapon attack, jump into the
+-- fight, way out of a zone or wait to do now, and why ('aura', 'no-option' or 'nothing-good' for a
+-- wait; 'jump' for a jump taken over the attack it brings sooner), or nil and why for bad input; the options come along for the log, and with a wait for want of options the
 -- count of reasons the ready spells gave none. Leaving costs no spell, only the seconds of the
 -- walk: it comes first when it is worth more than that share of a round of the choice, or when the
 -- pain drives a dull creature out (forced). Spell slots cost input.slots of their price,
@@ -6653,10 +6793,13 @@ M.itemLevel=10
 -- A search walk at least jumpMin long goes by an innate teleport, one at least jumpSlotMin long by
 -- a memorized one (M.jump); no innate teleport within jumpGap seconds of the creature's last, no
 -- memorized one within jumpSlotGap (SCS's mages wait 18 seconds between their Dimension Door
--- pursuits).
+-- pursuits). The gap is the only pause the game's Teleport Without Error has, which most fiends
+-- carry and which has no recharge of its own; the installer's BGSETELE comes back after 18 seconds
+-- by itself, as the mind flayers' Planar Travel does (Christopher, 2026-10-26: an instant teleport
+-- with a cooldown). Jumps into the fight count the same gap (combat-intent/choice.lua).
 M.jumpMin=200
 M.jumpSlotMin=600
-M.jumpGap=6
+M.jumpGap=18
 M.jumpSlotGap=18
 -- A group's boss guards its post (M.boss): it has at least bossOthers other members, each at least
 -- bossLead levels below it.
@@ -6796,16 +6939,17 @@ end
 
 -- The teleport that takes the creature toward p, walk world units away, or nil: an innate one from
 -- jumpMin on, a memorized one from jumpSlotMin on for a tactical creature; none within its gap of
--- the creature's last teleport (input.jumped). The innate first, then the lowest level, then the
--- name. Returns the option and where it lands: p, or as far toward p as it reaches.
+-- the creature's last teleport (input.jumped; with no clock to count it, none at all). The innate
+-- first, then the lowest level, then the name. Returns the option and where it lands: p, or as far
+-- toward p as it reaches.
 function M.jump(input,p,walk,tactical)
     local self=input.frame.self
     local chosen,chosenKey
     for _,o in ipairs(list(input.teleports)) do
         if type(o)=='table' and type(o.resref)=='string' and number(o.range) and o.range>0 then
             local gap=(o.innate and M.jumpGap or M.jumpSlotGap)*M.ticksPerSecond
-            if walk>=(o.innate and M.jumpMin or M.jumpSlotMin) and (o.innate or tactical) and
-                not (number(input.jumped) and input.tick-input.jumped<gap) then
+            local recent=number(input.jumped) and not (number(input.tick) and input.tick-input.jumped>=gap)
+            if walk>=(o.innate and M.jumpMin or M.jumpSlotMin) and (o.innate or tactical) and not recent then
                 local k={o.innate and 1 or 0,-(number(o.level) and o.level or 9)}
                 local better=chosen==nil
                 if not better then
@@ -8553,6 +8697,14 @@ function M.new(g,options)
         record({kind='teleport',tick=tick,member=id,from={x=sprite.m_pos.x,y=sprite.m_pos.y},to=point,spell=decision.spell,
             clue=decision.clue,target=decision.aim,innate=decision.innate,tactical=s.tactical})
     end
+    -- When the creature last teleported, for a search or into the fight (adapters/eeex/choice.lua):
+    -- one gap counts for both (combat-intent/search.lua, M.jump); nil when it has not.
+    function seeker:jumped(id)
+        local s=states[id]
+        return s and s.jumped
+    end
+    -- A teleport into the fight, prepared at tick: its gap counts for the search's teleports too.
+    function seeker:leapt(id,tick) state(id).jumped=tick end
     -- The rogue's detection mode, started: held briefly before the search goes on.
     function seeker:mode(sprite,tick)
         state(sprite.m_id).act={kind='modal',tick=tick,limit=M.modalTicks}
@@ -8706,6 +8858,13 @@ factories["adapters.eeex.choice"]=function(require)
 -- up after its patience, walking back to where its fight began; there the creature's own life goes
 -- on. A detection is judged by whether the creature sees an enemy afterwards. BGSE_Search
 -- (api:searches) tells SCS's own hunting blocks to stand aside for every creature the engine drives.
+--
+-- Jumps into the fight (combat-intent/choice.lua): the choice also gets the teleports among the
+-- creature's ready spells and innate abilities (combat-intent/search.lua) and when it last
+-- teleported, for a search or into the fight (adapters/eeex/search.lua), so one gap counts for
+-- both. A jump is SpellPointRES at the nearest open spot where the creature fits, next to its
+-- enemy, cast and held like the engine's other casts, with a 'leap' row; once it ends it is judged
+-- like a search teleport, by how far from its spot the creature stands.
 local sense=require('adapters.eeex.sense')
 local creature=require('adapters.eeex.creature')
 local resources=require('adapters.eeex.resources')
@@ -8720,6 +8879,7 @@ local summons=require('combat-intent.summons')
 local zones=require('combat-intent.zones')
 local mind=require('combat-intent.mind')
 local orders=require('combat-intent.orders')
+local search=require('combat-intent.search')
 local rngs=require('kernel.rng')
 local M={}
 M.families={mage=true,priest=true}
@@ -8946,7 +9106,8 @@ function M.new(g,options)
         hits=0,misses=0,errors=0,holds=0,frozen=0,marks=0,markFailures=0,defences=0,guarded=0,unguarded=0,
         guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0,arms=0,attacks=0,attackHits=0,
         weaponFailures=0,releases=0,heals=0,cures=0,potions=0,cared=0,uncared=0,summons=0,conjured=0,
-        unconjured=0,removals=0,stripped=0,unstripped=0,wardFailures=0,revealed=0,unrevealed=0,landed=0,unlanded=0}
+        unconjured=0,removals=0,stripped=0,unstripped=0,wardFailures=0,revealed=0,unrevealed=0,landed=0,unlanded=0,
+        jumps=0}
     local reasons={}
     local log,nextRow,size={},1,0
     local root,sink,lastError,markError,guardError,weaponError,wardError,zoneError,witError
@@ -10020,7 +10181,8 @@ function M.new(g,options)
         local holder,left=timeStop()
         local input={tick=tick,family=family,frame=frame,spells=rows,items=carried,lastDefence=lastDefence[id],
             plan=director and director:plan(id,tick) or {},memory=memory[id] or {},mind=mindFor(sprite,family),rng=rng,
-            creatures=summoned(rows),stays=stays,orders=orderBook[text(sprite.m_resref:get())]}
+            creatures=summoned(rows),stays=stays,orders=orderBook[text(sprite.m_resref:get())],
+            teleports=search.teleports(rows),jumped=seeker:jumped(id)}
         -- The zones in the area, with what they weigh about the caster itself.
         local raw=zoneList(sprite,tick)
         local seen={}
@@ -10077,6 +10239,7 @@ function M.new(g,options)
         if d.use then counts.potions=counts.potions+1 end
         if d.kind=='summon' then counts.summons=counts.summons+1 end
         if d.kind=='removal' then counts.removals=counts.removals+1 end
+        if d.kind=='teleport' then counts.jumps=counts.jumps+1 end
         if d.release then counts.releases=counts.releases+1 end
         record({kind='choice',tick=tick,member=id,family=family,spell=d.resref,castKind=d.kind,mode=d.mode,
             target=d.target,point=d.point,score=d.score,worth=d.worth,hits=d.hits,how=why,top=top,
@@ -10132,7 +10295,7 @@ function M.new(g,options)
             self=d.self,hits=d.hits,castTicks=spell and type(spell.speed)=='number' and spell.speed*M.speedTicks or nil,
             sources=sources,expected=d.expected,disable=disable,charge=d.kind=='strike' and d.spell or nil,
             use=d.use,before=before,count=d.count,creatures=d.creatures,monsters=d.monsters,known=seen,cover=cover,
-            walk=d.walk}
+            walk=d.walk,melee=d.kind=='teleport' and d.melee or nil,innate=d.kind=='teleport' and d.innate or nil}
     end
     -- From the gate, each time a hooked script asks: nil (the creature's script has the round),
     -- {hold=true,own=true} while the engine's queued cast has not started, its own action runs or
@@ -10205,12 +10368,17 @@ function M.new(g,options)
             seeker:mode(object,tick)
         else
             if decision.kind=='teleport' then
-                -- A teleport toward a clue: to the nearest open spot where the creature fits.
+                -- A teleport toward a clue, or into the fight next to an enemy: to the nearest open
+                -- spot where the creature fits. Either counts for the gap before the next.
                 local point=walkable(object,{point=decision.point})
                 local response=point and M.response({resref=decision.spell,point=point})
                 if not response then return 'skipped' end
                 decision.point,decision.response=point,response
-                seeker:jump(object,decision,point,tick)
+                if decision.melee then
+                    seeker:leapt(object.m_id,tick)
+                    record({kind='leap',tick=tick,member=object.m_id,from={x=object.m_pos.x,y=object.m_pos.y},to=point,
+                        spell=decision.spell,target=decision.target,innate=decision.innate})
+                else seeker:jump(object,decision,point,tick) end
             end
             pending[object.m_id]={caster=object.m_id,resref=decision.spell,kind=decision.kind,mode=decision.mode,
                 target=decision.target,point=decision.point,hits=decision.hits,tick=tick,hp=hp,

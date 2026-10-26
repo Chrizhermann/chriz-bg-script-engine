@@ -677,8 +677,20 @@ The search now also teleports toward a clue with the creature's own teleports
 the party member; innate powers by anyone, a memorized Dimension Door only by a creature that sees
 its tactics and only for a long walk.
 
-Next: SCS's scripted powers without a memorized copy (the fiends' and Melissan's teleport) for the
-engine, then F1e (switching fighters and monsters on) with a lab, then F2.
+SCS's jumps into the fight, the fiends' silent teleport next to a party member, stand aside since
+2026-10-26 (HOOK-01, rule 8). Christopher wanted a real ability the player sees, instant and
+with a cooldown, not a silent jump. So the installer gives each creature of a hooked script that
+teleports by script only and has no teleport of its own a real innate Teleport (BGSETELE: instant,
+named in the log, back after 18 seconds); most fiends already carry the game's Teleport Without
+Error. The engine uses either in its search and in fights: a creature that chases with a melee
+weapon jumps next to an enemy a long walk away when the jump is worth more than the walk, a clever
+one always, a normal one when it notices, a dull one never
+([FIGHT-01](../research/FIGHT-01-fighter-and-monster-rounds.md), "Jumps into the fight"). It is
+asleep until F1e, as mages and priests do not chase.
+
+Next: a lab check of the teleports (their names in the log, BGSETELE's recharge), then F1e
+(switching fighters and monsters on) with a lab, then F2. Melissan's own fight is designed with
+Christopher.
 
 ## To design with Christopher
 

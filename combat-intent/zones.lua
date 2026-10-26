@@ -297,6 +297,42 @@ function M.delta(input,q)
     local go=math.min(loss(hurts,f,f,q,speed,t,even),most)
     return (stay-go)*danger(input)
 end
+-- What a teleport to q is worth to the caster against standing where it is, in the zones, as
+-- M.delta weighs a walk: it stays where it is while it casts (cast seconds), then stands at q
+-- without crossing anything on the way, until a round after it landed.
+function M.leap(input,q,cast)
+    if not M.active(input) or type(q)~='table' or not number(q.x) or not number(q.y) then return 0 end
+    local f=input.frame.self
+    if not number(f.x) or not number(f.y) then return 0 end
+    local w=wit(input)
+    if w=='dull' then return 0 end
+    local hurts=hurting(input,f)
+    if #hurts==0 then return 0 end
+    cast=number(cast) and cast>0 and cast or 0
+    local t=M.ROUND+cast
+    local most=cap(input,f,hurts)
+    local even=w~='clever'
+    local function inside(z,p)
+        local px,py=flat(p)
+        local cx,cy=flat(z)
+        return (px-cx)^2+(py-cy)^2<=z.radius^2
+    end
+    local go=0
+    for _,h in ipairs(hurts) do
+        local free=h.stopped or 0
+        local spans={}
+        if cast>0 and inside(h.zone,f) then spans[#spans+1]={0,cast} end
+        if inside(h.zone,q) then spans[#spans+1]={cast,t} end
+        for _,s in ipairs(spans) do
+            local n=M.count(h.zone,s[1],s[2],even)
+            local kept=math.min(n,free)
+            free=free-kept
+            go=go+h.hit*(n-kept)
+        end
+    end
+    local stay=math.min(loss(hurts,f,f,f,speedOf(f),t,even),most)
+    return (stay-math.min(go,most))*danger(input)
+end
 
 -- The chance the caster finishes a cast of the given seconds where it stands: each explosion of
 -- a zone around it whose damage lands breaks the cast. The casting starts when the casting aura
@@ -432,14 +468,21 @@ end
 
 -- An option with the zones counted: a melee attack or a strike gains what walking to its target
 -- is worth (M.delta: out of harm, or into it); a cast where the caster stands loses what the zones
--- around it may break (the chance it finishes kept as finish, for the log). Changes the option's
--- worth and score in place. A dull creature counts no zone (M.delta and M.through).
+-- around it may break (the chance it finishes kept as finish, for the log); a jump into the fight
+-- (a teleport next to an enemy, combat-intent/choice.lua) both: what landing there is worth
+-- (M.leap) when its casting is not broken. Changes the option's worth and score in place. A dull
+-- creature counts no zone (M.delta, M.leap and M.through).
 function M.adjust(input,o,enemyAt)
     if not M.active(input) or type(o)~='table' or not number(o.worth) then return o end
     if o.kind=='escape' or wit(input)=='dull' then return o end
     if o.kind=='strike' or (o.kind=='weapon' and o.melee) then
         local e=enemyAt and enemyAt[o.target]
         if e then o.worth=o.worth+M.delta(input,e) end
+    elseif o.kind=='teleport' and o.melee then
+        local cast=(number(o.speed) and o.speed or 0)*M.speedSeconds
+        local finish=1
+        if cast>0 then finish=M.through(input,cast);o.finish=finish end
+        o.worth=(o.worth+M.leap(input,o.point,cast))*finish
     elseif not o.use and o.kind~='weapon' then
         local cast=(number(o.speed) and o.speed or 0)*M.speedSeconds
         if cast>0 then o.finish=M.through(input,cast);o.worth=o.worth*o.finish end

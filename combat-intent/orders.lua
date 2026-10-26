@@ -20,9 +20,9 @@ local targeting=require('combat-intent.targeting')
 local M={}
 M.bonus=1
 -- The decisions an order to always attack an enemy keeps to it: attacks, touch charges, strikes,
--- weapon attacks and protection removal. Defences, heals, cures, summons, openers, ways out of a
--- zone and waits stay free.
-M.ATTACKS={damage=true,disable=true,removal=true,touch=true,strike=true,weapon=true}
+-- weapon attacks, jumps into the fight (teleport) and protection removal. Defences, heals, cures,
+-- summons, openers, ways out of a zone and waits stay free.
+M.ATTACKS={damage=true,disable=true,removal=true,touch=true,strike=true,weapon=true,teleport=true}
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
 local function selector(v)

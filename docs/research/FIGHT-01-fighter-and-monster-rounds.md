@@ -217,8 +217,9 @@ The engine searches with what the creature and its group perceived instead
   not see and its mages after the one they chase; here the spot is the clue's. An innate power goes
   for a walk of 200 or more, by anyone (it is how such a creature moves); a memorized spell, which
   spends its slot, for 600 or more and only by a creature that sees its tactics this search. No
-  innate teleport within 6 seconds of the last, no memorized one within 18 (SCS's pause between
-  its mages' Dimension Door pursuits); the innate first, then the lowest level; beyond its range
+  teleport within 18 seconds of the creature's last, a search jump or a jump into the fight (SCS's
+  pause between its mages' Dimension Door pursuits; the game's Teleport Without Error, which most
+  fiends carry, has no recharge of its own); the innate first, then the lowest level; beyond its range
   as far toward the spot as it reaches, and the creature walks when that would land it in a danger
   zone short of the spot. The log judges each by where the creature stands after it
   (`landed` rows with the distance off its spot, `landed` and `unlanded` counts).
@@ -266,11 +267,47 @@ The engine searches with what the creature and its group perceived instead
 
 Not built yet: opening doors, buffing at the post after giving up, barks, and an ordered target's
 clues coming first. SCS's scripted teleports (the fiends' and Melissan's `dw#fitel`, cast with
-`ReallyForceSpellRES` without a memorized copy) are no ability the engine sees, so a fiend it drives
-walks its searches for now; giving the engine such scripted powers is open (before F1e). To see in
-a lab: searches in real fights, whether spell damage sets `m_lHitter` as weapon hits do, what
-Detect Illusion reveals, and whether a teleport at a spot the caster does not see goes off or first
-walks until it does.
+`ReallyForceSpellRES` without a memorized copy) are no ability the engine sees. Since 2026-10-26
+the installer gives each creature of a hooked script that teleports that way and has no teleport of
+its own a real innate one, BGSETELE ([HOOK-01](HOOK-01-scs-hook-placement.md), rule 8); most fiends
+already carry the game's Teleport Without Error (SPIN159). So a fiend the engine drives searches and
+jumps with a teleport the player sees cast. To see in a lab: searches in real fights, whether spell
+damage sets `m_lHitter` as weapon hits do, what Detect Illusion reveals, whether a teleport at a
+spot the caster does not see goes off or first walks until it does, and that SPIN159 and BGSETELE
+show their names in the log and BGSETELE comes back after 18 seconds.
+
+### Jumps into the fight (2026-10-26)
+
+Christopher on SCS's silent fiend jumps: "Wenn die so einen Instant-Teleport hätten, der halt
+irgendwie auf Cooldown geht" (no round lost, but seen: a glow and the name in the log). SCS is the
+blueprint (`fiend/ssl/jump.ssl`, credit DavidW): its fiends jump next to a party member that is
+weak, a mage or easy to hit. The engine (`combat-intent/choice.lua`'s `jumpOptions`) weighs the jump
+against the walk instead:
+
+- **Who.** A creature that walks to the enemies it sees for its melee weapon (`mind.chase`: the
+  fighter and monster profiles), with a teleport among its ready spells and innate abilities (as
+  the search finds them). Not with a ranged weapon or a touch charge, nor while rooted, in its own
+  Time Stop or under Improved Alacrity.
+- **Wit.** A tactic: a clever creature always, a normal one when it notices (drawn once a decision,
+  also when only a jump is there to notice), a dull one never.
+- **Where.** A spot 48 short of the enemy on the way there, when the walk to it is 200 or more for
+  an innate teleport and 600 or more for a memorized spell; beyond the teleport's range as far
+  toward it as it reaches, at the nearest open spot where the creature fits. The search's rules
+  pick the teleport and its 18-second pause, shared with the search.
+- **Worth.** The round of the weapon's hits on that enemy as for a swing, paced by the casting and
+  any walk left after landing, and on a casting enemy what breaking its spell is worth. It costs
+  the teleport's level as a spell's would and what standing next to the enemy costs, times caution.
+  A danger zone counts as for a step out of it: leaving a cloud by the jump is worth what the cloud
+  would still have hurt, landing in one costs it (`zones.leap`), and an order to attack someone
+  makes the jump to that enemy count as ordered.
+- **Choice.** A jump ends next to the enemy as the walk does, so a creature that always attacks
+  takes the jump over the walk whenever it is worth more (`why='jump'`), also when it is worth less
+  than a spell must be. A very weak weapon walks, as the teleport costs more than the few hits the
+  jump wins: in the tests a knife of 6 jumps 600 to its enemy, a mace of 4.5 walks.
+- **Log.** A `leap` row (from, to, the teleport, the target, innate or not), `jumps` in the counts,
+  and a `landed` row once it ends, as for a search teleport.
+
+Asleep in the game until F1e switches fighters and monsters on: mages and priests do not chase.
 
 ## Agreed (Christopher, 2026-10-25)
 

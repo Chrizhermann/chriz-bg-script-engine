@@ -2094,6 +2094,69 @@ d40=decide40(function(p) return p.x>=100 and p.x<=300 end)
 assert(d40.kind=='search' and d40.point.x==400 and d40.clue=='seen' and d40.target==11)
 d40=decide40(function(p) return p.x>=300 end)
 assert(d40.kind=='look' and d40.zone==true and d40.searched==d40.key)
+-- A jump into the fight counts for the search's gap too: 10 ticks after one, the creature walks.
+local seeker41=seekers.new(g40,{director=director40})
+seeker41:leapt(1,140)
+assert(seeker41:jumped(1)==140 and seekers.new(g40,{}):jumped(1)==nil)
+local d41=seeker41:decide(s40,frame40,150,'mage',{wit='clever',tactics=1},rows40,{},nil)
+assert(d41.kind=='search' and d41.point.x==400)
+end)()
+groups=groups+1
+
+-- 33. Jumps into the fight (combat-intent/choice.lua). A creature that walks to enemies for its
+-- weapon (a fighter's profile) with a staff and an innate teleport of BGSETELE's kind (instant,
+-- Teleport Without Error's reach) sees an enemy 400 away: it teleports next to it, worth more than
+-- the walk though less than a spell must be (SpellPointRES at the nearest open spot, 48 short of
+-- the enemy, with a 'leap' row), cast and held like the engine's other casts and judged by where it
+-- lands; then it strikes. 18 seconds after the jump it may jump again, not before.
+;(function()
+local profiles=require('combat-intent.mind')
+local leap=spl('TESTLEAP',1,{fx(124,{target=1})},4)
+leap.spellType,leap.abilities[1].speed,leap.abilities[1].range=4,0,200
+records.TESTLEAP=leap
+local g=world()
+local jumper=g.add(armed(sprite(1,0,0,255),35,'TESTSTAF'))
+jumper.stats[8],jumper.stats[7],jumper.stats[2]=2,14,8
+jumper.m_baseStats.m_hitPoints=400;jumper.stats[1]=400
+gift(jumper,'TESTLEAP')
+local foe=g.add(sprite(11,400,0,2))
+foe.stats[2]=5
+local dir=directors.new(g,{reader=reader9})
+local ch=choices.new(g,{reader=reader9,director=dir,seed=41,
+    mindFor=function() return profiles.forFamily(profiles.new(),'fighter') end})
+local rows={}
+ch:setSink(function(row) rows[#rows+1]=row end)
+runtime.install(g,{director=dir,choice=ch,version='test'})
+local function last(kind) for n=#rows,1,-1 do if rows[n].kind==kind then return rows[n] end end end
+local function claim(tick) g.ticks=tick;return g.BGSE_Claim(jumper,'mage','s1') end
+assert(claim(100)==true)
+local c=last('choice')
+assert(c.castKind=='teleport' and c.how=='jump' and c.spell=='TESTLEAP' and c.target==11 and c.point.x==352 and
+    c.point.y==0 and ch:inspect().counts.jumps==1)
+g.BGSE_Act(jumper)
+local l=last('leap')
+assert(g.queued[#g.queued].text=='SpellPointRES("TESTLEAP",[352.0])' and l.to.x==352 and l.target==11 and
+    l.spell=='TESTLEAP' and l.innate==true and l.from.x==0)
+g.ticks=101
+g.listeners.started[1](jumper,action(95,'TESTLEAP',-1))
+jumper.m_curAction=action(95,'TESTLEAP',-1)
+assert(claim(105)==true and ch:inspect().running==1)
+jumper.m_pos={x=352,y=0};jumper.m_curAction={m_actionID=0}
+assert(claim(110)==true)
+c=last('choice')
+assert(c.castKind=='weapon' and c.target==11 and c.walk==nil)
+g.BGSE_Act(jumper)
+assert(g.queued[#g.queued].text=='AttackOneRound(EEex_Target("BGSE"))')
+assert(claim(145)==true and last('landed').off==0 and ch:inspect().counts.landed==1)
+-- The enemy steps back out of reach, 428 away: within the gap the creature walks to it, after the
+-- gap it jumps again.
+foe.m_pos={x=780,y=0}
+assert(claim(220)==true)
+c=last('choice')
+assert(c.castKind=='weapon' and c.target==11 and math.abs(c.walk-3.64)<1e-9)
+assert(claim(400)==true)
+c=last('choice')
+assert(c.castKind=='teleport' and c.target==11 and c.point.x==732 and ch:inspect().counts.jumps==2)
 end)()
 groups=groups+1
 
