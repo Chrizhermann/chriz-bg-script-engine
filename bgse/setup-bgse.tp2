@@ -25,8 +25,14 @@ OUTER_SET bgse_hooked = 0
 OUTER_SET bgse_copied = 0
 OUTER_SET bgse_aside = 0
 OUTER_SET bgse_hunted = 0
+OUTER_SET bgse_jumped = 0
 OUTER_SET bgse_skipped = 0
 OUTER_TEXT_SPRINT bgse_registry ~~
+// The spells known to move their caster, those looked up so far, and the hooked scripts that
+// teleport their creature by script (bgse/lib/hook.tpa).
+OUTER_TEXT_SPRINT bgse_teleports ~|~
+OUTER_TEXT_SPRINT bgse_checked ~|~
+OUTER_TEXT_SPRINT bgse_teleporters ~|~
 ACTION_BASH_FOR ~override~ ~^.+\.bcs$~ BEGIN
   COPY_EXISTING ~%BASH_FOR_FILE%~ ~override~
     // SCS scripts carry its castspell round timer and its DMWW_ difficulty settings.
@@ -34,20 +40,44 @@ ACTION_BASH_FOR ~override~ ~^.+\.bcs$~ BEGIN
          AND (INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~DMWW_~) >= 0) BEGIN
       TEXT_SPRINT bgse_script ~%BASH_FOR_RES%~
       TO_LOWER bgse_script
-      LPF bgse_hook_bcs STR_VAR bgse_script = EVAL ~%bgse_script%~ RET bgse_result bgse_family bgse_copies bgse_clouds bgse_hunts END
+      LPF bgse_hook_bcs STR_VAR bgse_script = EVAL ~%bgse_script%~ bgse_teleports = EVAL ~%bgse_teleports%~
+          bgse_checked = EVAL ~%bgse_checked%~
+        RET bgse_result bgse_family bgse_copies bgse_clouds bgse_hunts bgse_jumps bgse_teleporter bgse_teleports bgse_checked END
       PATCH_IF (~%bgse_result%~ STRING_EQUAL_CASE ~hooked~) BEGIN
         SET bgse_hooked += 1
         SET bgse_copied += bgse_copies
         SET bgse_aside += bgse_clouds
         SET bgse_hunted += bgse_hunts
+        SET bgse_jumped += bgse_jumps
         TEXT_SPRINT bgse_registry ~%bgse_registry%  ['%bgse_script%']='%bgse_family%',%LNL%~
-        PATCH_LOG ~BGSE hook: %BASH_FOR_RES% (%bgse_family%, %bgse_copies% guarded SCS blocks, %bgse_clouds% SCS cloud blocks, %bgse_hunts% SCS hunting blocks)~
+        PATCH_IF (bgse_teleporter = 1) BEGIN
+          TEXT_SPRINT bgse_teleporters ~%bgse_teleporters%%bgse_script%|~
+        END
+        PATCH_LOG ~BGSE hook: %BASH_FOR_RES% (%bgse_family%, %bgse_copies% guarded SCS blocks, %bgse_clouds% SCS cloud blocks, %bgse_hunts% SCS hunting blocks, %bgse_jumps% SCS jumps)~
       END ELSE PATCH_IF NOT (~%bgse_result%~ STRING_EQUAL_CASE ~not-scs~) BEGIN
         SET bgse_skipped += 1
         PATCH_PRINT ~BGSE hook: left %BASH_FOR_RES% as it is (%bgse_result%)~
       END
     END
   BUT_ONLY_IF_IT_CHANGES
+END
+// Creatures SCS lets teleport only by script get a real innate teleport, which the engine casts
+// like any spell (Christopher, 2026-10-26); one with a teleport of its own (most fiends have the
+// game's Teleport Without Error) keeps that one.
+OUTER_SET bgse_granted = 0
+ACTION_IF (STRING_LENGTH ~%bgse_teleporters%~ > 1) BEGIN
+  COPY_EXISTING_REGEXP GLOB ~^.+\.cre$~ ~override~
+    LPF bgse_grant_teleport STR_VAR bgse_teleporters = EVAL ~%bgse_teleporters%~ bgse_teleports = EVAL ~%bgse_teleports%~
+        bgse_checked = EVAL ~%bgse_checked%~
+      RET bgse_grant bgse_teleports bgse_checked END
+    PATCH_IF (bgse_grant = 1) BEGIN
+      SET bgse_granted += 1
+      PATCH_LOG ~BGSE teleport: %SOURCE_RES% got the innate teleport~
+    END
+  BUT_ONLY_IF_IT_CHANGES
+END
+ACTION_IF (bgse_granted > 0) BEGIN
+  LAF bgse_create_teleport END
 END
 // The engine reads which scripts carry the hook, to tell a creature's hooked scripts from
 // others in its script slots (adapters/eeex/hook.lua).
@@ -59,3 +89,4 @@ BGSE_HOOKED={
 >>>>>>>>
 COPY ~.../bgse-inline/M_BGSEHK.lua~ ~override~ EVALUATE_BUFFER
 PRINT ~BGSE hook: %bgse_hooked% SCS scripts hooked, %bgse_copied% SCS blocks guarded, %bgse_aside% SCS cloud blocks yield to the engine, %bgse_hunted% SCS hunting blocks yield to the engine's search, %bgse_skipped% left as they are.~
+PRINT ~BGSE teleport: %bgse_jumped% SCS jumps into the fight yield to the creatures' own teleports, %bgse_granted% creatures that teleport only by script got the innate teleport BGSETELE.~

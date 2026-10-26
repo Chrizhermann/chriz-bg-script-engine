@@ -33,8 +33,201 @@
 // puzzles it (the whatthe timer). They get a last condition that holds when BGSE_Search says no
 // (first in an OR group that lacks members, as above) and are never copied above the hook.
 //
+// SCS's scripted teleports (Christopher, 2026-10-26: such powers become real abilities): a cast
+// without a spellbook check of a spell that moves the caster (bgse_teleports). One at an enemy, a
+// party member or the creature last seen, which a trigger says the creature sees or detects, is a
+// jump into the fight (SCS's fiends jump to a weak party member): it stands aside like the hunt and
+// is never copied above the hook, as the engine jumps with the creature's own teleport. The
+// creatures whose hooked scripts teleport by script get an innate teleport of their own unless
+// they have one (bgse_grant_teleport, bgse/setup-bgse.tp2).
+//
 // tools/hook_rule.py is the reference version of this rule. Keep the two in step;
 // tests/integration/test_hook_installer.py compares them.
+
+// The spells of a script's casts without a spellbook (ForceSpell, ReallyForceSpell and their Point
+// and RES forms) as |R=RESREF| and |I=NAME| entries in upper case, each once: the RES forms name
+// the resource first, the others name the spell (a SPELL.IDS name or number) last. Comments go
+// first.
+DEFINE_PATCH_FUNCTION bgse_cast_spells
+  STR_VAR bgse_baf = ~~
+  RET bgse_spells
+BEGIN
+  TEXT_SPRINT bgse_spells ~|~
+  INNER_PATCH_SAVE text ~%bgse_baf%~ BEGIN
+    REPLACE_TEXTUALLY CASE_SENSITIVE ~ *//.*$~ ~~
+  END
+  INNER_PATCH ~%text%~ BEGIN
+    REPLACE_EVALUATE CASE_SENSITIVE ~^    \(ReallyForceSpellPointRES\|ReallyForceSpellPoint\|ReallyForceSpellRES\|ReallyForceSpell\|ForceSpellPointRES\|ForceSpellPoint\|ForceSpellRES\|ForceSpell\)(\(.*\)) *$~ BEGIN
+      TEXT_SPRINT action ~%MATCH1%~
+      TEXT_SPRINT args ~%MATCH2%~
+      LPF bgse_cast_parts STR_VAR bgse_action = EVAL ~%action%~ bgse_args = EVAL ~%args%~ RET bgse_spell bgse_target END
+      TEXT_SPRINT form ~I~
+      PATCH_IF ((~%action%~ STRING_MATCHES_REGEXP ~^.*RES$~) = 0) BEGIN
+        TEXT_SPRINT form ~R~
+      END
+      PATCH_IF (STRING_LENGTH ~%bgse_spell%~ > 0)
+          AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%form%=%bgse_spell%|~ ~%bgse_spells%~) < 0) BEGIN
+        TEXT_SPRINT bgse_spells ~%bgse_spells%%form%=%bgse_spell%|~
+      END
+    END ~%MATCH0%~
+  END
+END
+
+// The spell (in upper case, without quotes) and the target of one such cast, its action and the
+// text between its brackets (tools/hook_rule.py: ungated_casts); the target is empty for a cast at
+// a point.
+DEFINE_PATCH_FUNCTION bgse_cast_parts
+  STR_VAR bgse_action = ~~
+          bgse_args = ~~
+  RET bgse_spell bgse_target
+BEGIN
+  TEXT_SPRINT bgse_spell ~~
+  TEXT_SPRINT bgse_target ~~
+  PATCH_IF ((~%bgse_action%~ STRING_MATCHES_REGEXP ~^.*RES$~) = 0) BEGIN
+    SET comma = INDEX (CASE_SENSITIVE EXACT_MATCH ~,~ ~%bgse_args%~)
+  END ELSE BEGIN
+    SET comma = RINDEX (CASE_SENSITIVE EXACT_MATCH ~,~ ~%bgse_args%~)
+  END
+  INNER_PATCH ~%bgse_args%~ BEGIN
+    PATCH_IF (comma < 0) BEGIN
+      READ_ASCII 0 bgse_spell (BUFFER_LENGTH)
+    END ELSE PATCH_IF ((~%bgse_action%~ STRING_MATCHES_REGEXP ~^.*RES$~) = 0) BEGIN
+      READ_ASCII 0 bgse_spell (comma)
+      READ_ASCII (comma + 1) bgse_target (BUFFER_LENGTH - comma - 1)
+    END ELSE BEGIN
+      READ_ASCII 0 bgse_target (comma)
+      READ_ASCII (comma + 1) bgse_spell (BUFFER_LENGTH - comma - 1)
+    END
+  END
+  INNER_PATCH_SAVE bgse_spell ~%bgse_spell%~ BEGIN
+    REPLACE_TEXTUALLY CASE_SENSITIVE ~"~ ~~
+  END
+  TO_UPPER bgse_spell
+  PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~Point~ ~%bgse_action%~) >= 0) BEGIN
+    TEXT_SPRINT bgse_target ~~
+  END
+END
+
+// Whether a spell moves its caster: an ability with opcode 124 (Teleport) or 274 (Teleport to
+// target) on the caster (target 1). bgse_form R names a resref, I a SPELL.IDS name or number. A
+// spell the game lacks moves nobody.
+DEFINE_PATCH_FUNCTION bgse_moves_caster
+  STR_VAR bgse_form = ~R~
+          bgse_spell = ~~
+  RET bgse_moves
+BEGIN
+  SET bgse_moves = 0
+  TEXT_SPRINT res ~%bgse_spell%~
+  PATCH_IF (~%bgse_form%~ STRING_EQUAL ~I~) BEGIN
+    PATCH_IF ((~%bgse_spell%~ STRING_MATCHES_REGEXP ~^[0-9]+$~) = 0) BEGIN
+      SET number = bgse_spell
+    END ELSE BEGIN
+      SET number = IDS_OF_SYMBOL (~SPELL~ ~%bgse_spell%~)
+    END
+    TEXT_SPRINT res ~~
+    PATCH_IF (number >= 1000) AND (number < 5000) BEGIN
+      SET kind = number / 1000
+      SET rest = number - kind * 1000
+      TEXT_SPRINT prefix ~SPCL~
+      PATCH_IF (kind = 1) BEGIN
+        TEXT_SPRINT prefix ~SPPR~
+      END ELSE PATCH_IF (kind = 2) BEGIN
+        TEXT_SPRINT prefix ~SPWI~
+      END ELSE PATCH_IF (kind = 3) BEGIN
+        TEXT_SPRINT prefix ~SPIN~
+      END
+      PATCH_IF (rest < 10) BEGIN
+        TEXT_SPRINT res ~%prefix%00%rest%~
+      END ELSE PATCH_IF (rest < 100) BEGIN
+        TEXT_SPRINT res ~%prefix%0%rest%~
+      END ELSE BEGIN
+        TEXT_SPRINT res ~%prefix%%rest%~
+      END
+    END
+  END
+  PATCH_IF (STRING_LENGTH ~%res%~ > 0) AND (STRING_LENGTH ~%res%~ <= 8) BEGIN
+    PATCH_IF (FILE_EXISTS_IN_GAME ~%res%.spl~) BEGIN
+      INNER_PATCH_FILE ~%res%.spl~ BEGIN
+        PATCH_IF (BUFFER_LENGTH >= 0x72) BEGIN
+          READ_ASCII 0 signature (8)
+          PATCH_IF (~%signature%~ STRING_EQUAL ~SPL V1  ~) BEGIN
+            READ_LONG 0x64 abilities
+            READ_SHORT 0x68 ability_count
+            READ_LONG 0x6a effects
+            FOR (a = 0; a < ability_count; a += 1) BEGIN
+              SET at = abilities + 0x28 * a
+              PATCH_IF (at + 0x28 <= BUFFER_LENGTH) BEGIN
+                READ_SHORT (at + 0x1e) effect_count
+                READ_SHORT (at + 0x20) first
+                FOR (f = 0; f < effect_count; f += 1) BEGIN
+                  SET e = effects + 0x30 * (first + f)
+                  PATCH_IF (e + 0x30 <= BUFFER_LENGTH) BEGIN
+                    READ_SHORT e opcode
+                    READ_BYTE (e + 2) target
+                    PATCH_IF ((opcode = 124) OR (opcode = 274)) AND (target = 1) BEGIN
+                      SET bgse_moves = 1
+                    END
+                  END
+                END
+              END
+            END
+          END
+        END
+      END
+    END
+  END
+END
+
+// A block's scripted teleports (tools/hook_rule.py: scripted_teleports, is_jump): how many casts
+// without a spellbook check cast a spell that moves the caster (bgse_teleports, |NAME| entries in
+// upper case), and whether one of them is a jump into the fight: at an enemy, a party member or
+// the creature last seen, which a trigger says the creature sees or detects, unless the creature
+// must be on the party's side. Comments go first.
+DEFINE_PATCH_FUNCTION bgse_block_teleports
+  STR_VAR bgse_block = ~~
+          bgse_teleports = ~|~
+  RET bgse_scripted bgse_jump
+BEGIN
+  SET bgse_scripted = 0
+  SET bgse_jump = 0
+  INNER_PATCH_SAVE text ~%bgse_block%~ BEGIN
+    REPLACE_TEXTUALLY CASE_SENSITIVE ~ *//.*$~ ~~
+  END
+  TEXT_SPRINT trig ~~
+  TEXT_SPRINT resp ~~
+  INNER_PATCH ~%text%~ BEGIN
+    SET then = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~%LNL%THEN%LNL%~)
+    PATCH_IF (then > 0) BEGIN
+      READ_ASCII 0 trig (then)
+      READ_ASCII then resp (BUFFER_LENGTH - then)
+    END
+  END
+  PATCH_IF (STRING_LENGTH ~%resp%~ > 0)
+      AND ((~%trig%~ STRING_CONTAINS_REGEXP ~[^A-Za-z0-9_]\(HaveSpell\|HaveSpellRES\|HasItem\|KnowSpell\)(~) != 0) BEGIN
+    SET ally = (INDEX (CASE_SENSITIVE ~^ +Allegiance(Myself,GOODCUTOFF)~ ~%trig%~) >= 0) ? 1 : 0
+    TEXT_SPRINT seen ~|~
+    INNER_PATCH ~%trig%~ BEGIN
+      REPLACE_EVALUATE CASE_SENSITIVE ~^ +\(See\|Detect\)(\(.*\)) *$~ BEGIN
+        TEXT_SPRINT seen ~%seen%%MATCH2%|~
+      END ~%MATCH0%~
+    END
+    INNER_PATCH ~%resp%~ BEGIN
+      REPLACE_EVALUATE CASE_SENSITIVE ~^    \(ReallyForceSpellPointRES\|ReallyForceSpellPoint\|ReallyForceSpellRES\|ReallyForceSpell\|ForceSpellPointRES\|ForceSpellPoint\|ForceSpellRES\|ForceSpell\)(\(.*\)) *$~ BEGIN
+        TEXT_SPRINT action ~%MATCH1%~
+        TEXT_SPRINT args ~%MATCH2%~
+        LPF bgse_cast_parts STR_VAR bgse_action = EVAL ~%action%~ bgse_args = EVAL ~%args%~ RET bgse_spell bgse_target END
+        PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%bgse_spell%|~ ~%bgse_teleports%~) >= 0) BEGIN
+          SET bgse_scripted += 1
+          PATCH_IF (ally = 0) AND (STRING_LENGTH ~%bgse_target%~ > 0)
+              AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%bgse_target%|~ ~%seen%~) >= 0)
+              AND ((~%bgse_target%~ STRING_MATCHES_REGEXP ~^\(Player[1-6]\|NearestEnemyOf(Myself)\|LastSeenBy(Myself)\|\[\(PC\|GOODCUTOFF\|ENEMY\|ANYONE\)[^]]*\]\)$~) = 0) BEGIN
+            SET bgse_jump = 1
+          END
+        END
+      END ~%MATCH0%~
+    END
+  END
+END
 
 // Number of action lines in a response part that are not part of an ordinary combat round
 // (tools/hook_rule.py: COMBAT).
@@ -329,20 +522,26 @@ BEGIN
   END
 END
 
-// Hook one decompiled SCS script; bgse_script is its resref in lower case. bgse_result is
-// hooked, not-scs, unsafe-name, no-castspell, already-hooked or no-anchor; only "hooked"
-// changes bgse_baf. bgse_clouds counts the cloud blocks that stand aside, bgse_hunts the
-// hunting blocks.
+// Hook one decompiled SCS script; bgse_script is its resref in lower case, bgse_teleports the
+// spells that move their caster (|NAME| entries in upper case: resrefs, SPELL.IDS names and
+// numbers). bgse_result is hooked, not-scs, unsafe-name, no-castspell, already-hooked or
+// no-anchor; only "hooked" changes bgse_baf. bgse_clouds counts the cloud blocks that stand aside,
+// bgse_hunts the hunting blocks, bgse_jumps the scripted jumps into the fight; bgse_teleporter is 1
+// when a hooked script teleports its creature by script.
 DEFINE_PATCH_FUNCTION bgse_hook_baf
   STR_VAR bgse_baf = ~~
           bgse_script = ~~
-  RET bgse_result bgse_family bgse_copies bgse_clouds bgse_hunts bgse_baf
+          bgse_teleports = ~|~
+  RET bgse_result bgse_family bgse_copies bgse_clouds bgse_hunts bgse_jumps bgse_teleporter bgse_baf
 BEGIN
   TEXT_SPRINT bgse_result ~not-scs~
   TEXT_SPRINT bgse_family ~~
   SET bgse_copies = 0
   SET bgse_clouds = 0
   SET bgse_hunts = 0
+  SET bgse_jumps = 0
+  SET bgse_teleporter = 0
+  SET teleporting = 0
   INNER_PATCH_SAVE bgse_baf ~%bgse_baf%~ BEGIN
     REPLACE_TEXTUALLY CASE_SENSITIVE EXACT_MATCH ~%MNL%~ ~~
   END
@@ -404,6 +603,7 @@ BEGIN
           SET $bgse_copy(~%n%~) = 0
           SET $bgse_cloud(~%n%~) = 0
           SET $bgse_hunt(~%n%~) = 0
+          SET $bgse_jump(~%n%~) = 0
           READ_ASCII start block (stop - start)
           PATCH_IF (INDEX (CASE_INSENSITIVE EXACT_MATCH ~chas~ ~%block%~) >= 0)
               OR (INDEX (CASE_INSENSITIVE EXACT_MATCH ~teleportpursuetimer~ ~%block%~) >= 0)
@@ -416,6 +616,17 @@ BEGIN
             // someone).
             LPF bgse_hunt_block STR_VAR bgse_block = EVAL ~%block%~ RET bgse_hunt END
             SET $bgse_hunt(~%n%~) = bgse_hunt
+          END
+          PATCH_IF (STRING_LENGTH ~%bgse_teleports%~ > 1) AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~ForceSpell~ ~%block%~) >= 0) BEGIN
+            // Its scripted teleports; a jump into the fight that is not part of the hunt.
+            LPF bgse_block_teleports STR_VAR bgse_block = EVAL ~%block%~ bgse_teleports = EVAL ~%bgse_teleports%~
+              RET bgse_scripted bgse_jump END
+            PATCH_IF (bgse_scripted > 0) BEGIN
+              SET teleporting = 1
+            END
+            PATCH_IF (bgse_jump = 1) AND ($bgse_hunt(~%n%~) = 0) BEGIN
+              SET $bgse_jump(~%n%~) = 1
+            END
           END
           PATCH_IF (anchor < 0) BEGIN
             // SCS's cloud escape or stand-still (tools/hook_rule.py: is_cloud); only those above
@@ -507,7 +718,7 @@ BEGIN
           END
           PATCH_IF (carries = 1) BEGIN
             FOR (k = i; k < j; k += 1) BEGIN
-              PATCH_IF ($bgse_hunt(~%k%~) = 0) BEGIN
+              PATCH_IF ($bgse_hunt(~%k%~) = 0) AND ($bgse_jump(~%k%~) = 0) BEGIN
                 SET $bgse_copy(~%k%~) = 1
               END
             END
@@ -518,9 +729,11 @@ BEGIN
         END
       END
       // Special abilities and blocks that do more than an ordinary combat round, with the
-      // target picks right before them when they aim at LastSeenBy; never SCS's hunt.
+      // target picks right before them when they aim at LastSeenBy; never SCS's hunt or its
+      // scripted jumps into the fight.
       FOR (i = anchor; i < n; i += 1) BEGIN
-        PATCH_IF (($bgse_special(~%i%~) = 1) OR ($bgse_encounter(~%i%~) = 1)) AND ($bgse_hunt(~%i%~) = 0) BEGIN
+        PATCH_IF (($bgse_special(~%i%~) = 1) OR ($bgse_encounter(~%i%~) = 1)) AND ($bgse_hunt(~%i%~) = 0)
+            AND ($bgse_jump(~%i%~) = 0) BEGIN
           SET $bgse_copy(~%i%~) = 1
           PATCH_IF ($bgse_lastseen(~%i%~) = 1) BEGIN
             SET k = i - 1
@@ -560,9 +773,9 @@ BEGIN
         READ_ASCII at tail (BUFFER_LENGTH - at)
       END
       // SCS's cloud blocks above the hook stand aside while the engine weighs danger zones for
-      // the creature (tools/hook_rule.py: stand_aside), and its hunting blocks above and below
-      // the hook while the engine drives it; from the last one up so the blocks before keep
-      // their offsets.
+      // the creature (tools/hook_rule.py: stand_aside), and its hunting blocks and scripted jumps
+      // above and below the hook while the engine drives it; from the last one up so the blocks
+      // before keep their offsets.
       TEXT_SPRINT zone_line ~  !EEex_LuaTrigger("return BGSE_Zones and BGSE_Zones(EEex_LuaTrigger_Object,'%bgse_family%','%bgse_script%') or false")~
       TEXT_SPRINT search_line ~  !EEex_LuaTrigger("return BGSE_Search and BGSE_Search(EEex_LuaTrigger_Object,'%bgse_family%','%bgse_script%') or false")~
       INNER_PATCH_SAVE head ~%head%~ BEGIN
@@ -572,12 +785,16 @@ BEGIN
             TEXT_SPRINT lines ~%zone_line%~
             SET bgse_clouds += 1
           END
-          PATCH_IF ($bgse_hunt(~%i%~) = 1) BEGIN
+          PATCH_IF ($bgse_hunt(~%i%~) = 1) OR ($bgse_jump(~%i%~) = 1) BEGIN
             PATCH_IF (STRING_LENGTH ~%lines%~ > 0) BEGIN
               TEXT_SPRINT lines ~%lines%%LNL%~
             END
             TEXT_SPRINT lines ~%lines%%search_line%~
-            SET bgse_hunts += 1
+            PATCH_IF ($bgse_hunt(~%i%~) = 1) BEGIN
+              SET bgse_hunts += 1
+            END ELSE BEGIN
+              SET bgse_jumps += 1
+            END
           END
           PATCH_IF (STRING_LENGTH ~%lines%~ > 0) BEGIN
             SET s = $bgse_start(~%i%~)
@@ -588,14 +805,19 @@ BEGIN
       END
       INNER_PATCH_SAVE tail ~%tail%~ BEGIN
         FOR (i = n - 1; i >= anchor; i -= 1) BEGIN
-          PATCH_IF ($bgse_hunt(~%i%~) = 1) BEGIN
+          PATCH_IF ($bgse_hunt(~%i%~) = 1) OR ($bgse_jump(~%i%~) = 1) BEGIN
             SET s = $bgse_start(~%i%~) - at
             SET e = $bgse_stop(~%i%~) - at
             LPF bgse_aside INT_VAR bgse_from = s bgse_to = e STR_VAR bgse_lines = EVAL ~%search_line%~ END
-            SET bgse_hunts += 1
+            PATCH_IF ($bgse_hunt(~%i%~) = 1) BEGIN
+              SET bgse_hunts += 1
+            END ELSE BEGIN
+              SET bgse_jumps += 1
+            END
           END
         END
       END
+      SET bgse_teleporter = teleporting
       TEXT_SPRINT bgse_baf ~%head%%insert%IF%LNL%  %guard%%LNL%THEN%LNL%  RESPONSE #100%LNL%    EEex_LuaAction("if BGSE_Act then BGSE_Act(EEex_LuaAction_Object) end")%LNL%END%LNL%%LNL%%tail%~
       TEXT_SPRINT bgse_result ~hooked~
     END
@@ -604,22 +826,43 @@ END
 
 // Hook the BCS in the patch buffer; bgse_script is its resref in lower case. A script that
 // fails to decompile, patch or compile is left exactly as it was (bgse_result "failed").
+// bgse_teleports and bgse_checked (|NAME| entries in upper case) are the spells known to move
+// their caster and all spells looked up so far: the spells of the script's casts without a
+// spellbook are looked up in the game once each (bgse_moves_caster), and both come back with them.
 DEFINE_PATCH_FUNCTION bgse_hook_bcs
   STR_VAR bgse_script = ~~
-  RET bgse_result bgse_family bgse_copies bgse_clouds bgse_hunts
+          bgse_teleports = ~|~
+          bgse_checked = ~|~
+  RET bgse_result bgse_family bgse_copies bgse_clouds bgse_hunts bgse_jumps bgse_teleporter bgse_teleports bgse_checked
 BEGIN
   TEXT_SPRINT bgse_result ~failed~
   TEXT_SPRINT bgse_family ~~
   SET bgse_copies = 0
   SET bgse_clouds = 0
   SET bgse_hunts = 0
+  SET bgse_jumps = 0
+  SET bgse_teleporter = 0
   READ_ASCII 0 bcs (BUFFER_LENGTH)
   PATCH_TRY
     INNER_PATCH_SAVE baf ~%bcs%~ BEGIN
       DECOMPILE_BCS_TO_BAF
     END
-    LPF bgse_hook_baf STR_VAR bgse_baf = EVAL ~%baf%~ bgse_script = EVAL ~%bgse_script%~
-      RET bgse_result bgse_family bgse_copies bgse_clouds bgse_hunts bgse_baf END
+    LPF bgse_cast_spells STR_VAR bgse_baf = EVAL ~%baf%~ RET bgse_spells END
+    INNER_PATCH ~%bgse_spells%~ BEGIN
+      REPLACE_EVALUATE CASE_SENSITIVE ~\([RI]\)=\([^|]+\)~ BEGIN
+        TEXT_SPRINT form ~%MATCH1%~
+        TEXT_SPRINT name ~%MATCH2%~
+        PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%name%|~ ~%bgse_checked%~) < 0) BEGIN
+          LPF bgse_moves_caster STR_VAR bgse_form = EVAL ~%form%~ bgse_spell = EVAL ~%name%~ RET bgse_moves END
+          TEXT_SPRINT bgse_checked ~%bgse_checked%%name%|~
+          PATCH_IF (bgse_moves = 1) BEGIN
+            TEXT_SPRINT bgse_teleports ~%bgse_teleports%%name%|~
+          END
+        END
+      END ~%MATCH0%~
+    END
+    LPF bgse_hook_baf STR_VAR bgse_baf = EVAL ~%baf%~ bgse_script = EVAL ~%bgse_script%~ bgse_teleports = EVAL ~%bgse_teleports%~
+      RET bgse_result bgse_family bgse_copies bgse_clouds bgse_hunts bgse_jumps bgse_teleporter bgse_baf END
     PATCH_IF (~%bgse_result%~ STRING_EQUAL_CASE ~hooked~) BEGIN
       DELETE_BYTES 0 BUFFER_LENGTH
       INSERT_BYTES 0 (STRING_LENGTH ~%bgse_baf%~)
@@ -631,8 +874,126 @@ BEGIN
     SET bgse_copies = 0
     SET bgse_clouds = 0
     SET bgse_hunts = 0
+    SET bgse_jumps = 0
+    SET bgse_teleporter = 0
     DELETE_BYTES 0 BUFFER_LENGTH
     INSERT_BYTES 0 (STRING_LENGTH ~%bcs%~)
     WRITE_ASCIIE 0 ~%bcs%~
   END
+END
+
+// Give the creature in the patch buffer (a CRE V1.0) the innate teleport BGSETELE when one of its
+// scripts is a hooked script that teleports by script (bgse_teleporters, |script| entries in lower
+// case) and none of its memorized spells moves its caster (tools/hook_rule.py: grants); its
+// memorized spells are looked up once each, as in bgse_hook_bcs. bgse_grant is 1 when it got it. A
+// creature file WeiDU cannot add the spell to is left exactly as it was.
+DEFINE_PATCH_FUNCTION bgse_grant_teleport
+  STR_VAR bgse_teleporters = ~|~
+          bgse_teleports = ~|~
+          bgse_checked = ~|~
+  RET bgse_grant bgse_teleports bgse_checked
+BEGIN
+  SET bgse_grant = 0
+  PATCH_IF (BUFFER_LENGTH >= 0x2d4) BEGIN
+    READ_ASCII 0 signature (8)
+    SET scripted = 0
+    PATCH_IF (~%signature%~ STRING_EQUAL ~CRE V1.0~) BEGIN
+      FOR (o = 0x248; o < 0x270; o += 8) BEGIN
+        READ_ASCII o script (8) NULL
+        TO_LOWER script
+        PATCH_IF (STRING_LENGTH ~%script%~ > 0) AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%script%|~ ~%bgse_teleporters%~) >= 0) BEGIN
+          SET scripted = 1
+        END
+      END
+    END
+    PATCH_IF (scripted = 1) BEGIN
+      READ_LONG 0x2b0 at
+      READ_LONG 0x2b4 count
+      SET own = 0
+      FOR (i = 0; (i < count) AND (own = 0); i += 1) BEGIN
+        PATCH_IF (at + 12 * i + 8 <= BUFFER_LENGTH) BEGIN
+          READ_ASCII (at + 12 * i) spell (8) NULL
+          TO_UPPER spell
+          PATCH_IF (STRING_LENGTH ~%spell%~ > 0) BEGIN
+            PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%spell%|~ ~%bgse_checked%~) < 0) BEGIN
+              LPF bgse_moves_caster STR_VAR bgse_form = ~R~ bgse_spell = EVAL ~%spell%~ RET bgse_moves END
+              TEXT_SPRINT bgse_checked ~%bgse_checked%%spell%|~
+              PATCH_IF (bgse_moves = 1) BEGIN
+                TEXT_SPRINT bgse_teleports ~%bgse_teleports%%spell%|~
+              END
+            END
+            PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%spell%|~ ~%bgse_teleports%~) >= 0) BEGIN
+              SET own = 1
+            END
+          END
+        END
+      END
+      PATCH_IF (own = 0) BEGIN
+        READ_ASCII 0 cre (BUFFER_LENGTH)
+        PATCH_TRY
+          ADD_KNOWN_SPELL ~BGSETELE~ #0 ~innate~
+          ADD_MEMORIZED_SPELL ~BGSETELE~ #0 ~innate~ (1)
+          SET bgse_grant = 1
+        WITH DEFAULT
+          SET bgse_grant = 0
+          DELETE_BYTES 0 BUFFER_LENGTH
+          INSERT_BYTES 0 (STRING_LENGTH ~%cre%~)
+          WRITE_ASCIIE 0 ~%cre%~
+        END
+      END
+    END
+  END
+END
+
+// The innate teleport the installer gives creatures that SCS lets teleport only by script
+// (Christopher, 2026-10-26: "Instant-Teleport, der halt irgendwie auf Cooldown geht", with its name
+// in the log): cast at a point within reach at once, it moves the caster there with a light where
+// it lands, a short glow and a sound; it is gone for 18 seconds after each use and then back by
+// itself (172 and a delayed 171, as the game's mind flayers' Planar Travel recharges). Its name and
+// description are those of the game's own Teleport Without Error (SPIN159, which SCS's scripted
+// dw#fitel copies), else an English name.
+DEFINE_ACTION_FUNCTION bgse_create_teleport
+BEGIN
+  OUTER_SET name = 0 - 1
+  OUTER_SET description = 0 - 1
+  ACTION_IF (FILE_EXISTS_IN_GAME ~spin159.spl~) BEGIN
+    COPY_EXISTING ~spin159.spl~ ~override~
+      PATCH_IF (BUFFER_LENGTH >= 0x72) BEGIN
+        READ_LONG 0x08 name
+        READ_LONG 0x50 description
+      END
+    BUT_ONLY_IF_IT_CHANGES
+  END
+  ACTION_IF (name < 0) BEGIN
+    OUTER_SET name = RESOLVE_STR_REF (~Teleport Without Error~)
+  END
+  CREATE SPL ~bgsetele~
+    WRITE_LONG  0x08 name
+    WRITE_LONG  0x0c (0 - 1)
+    WRITE_SHORT 0x1c 4                // innate
+    WRITE_SHORT 0x22 9                // casting glow, school and kind as Teleport Without Error's
+    WRITE_BYTE  0x25 8
+    WRITE_BYTE  0x27 13
+    WRITE_LONG  0x34 1
+    WRITE_ASCII 0x3a ~SPWI402C~ #8
+    WRITE_LONG  0x50 description
+    WRITE_LONG  0x64 0x72
+    WRITE_SHORT 0x68 1
+    WRITE_LONG  0x6a 0x9a
+    INSERT_BYTES 0x72 0x28
+    WRITE_BYTE  0x72 1                // ability: standard
+    WRITE_SHORT 0x74 4                // innate
+    WRITE_ASCII 0x76 ~SPWI402B~ #8
+    WRITE_BYTE  0x7e 4                // at any point within range
+    WRITE_SHORT 0x80 200              // as far as Teleport Without Error reaches
+    WRITE_SHORT 0x82 1
+    WRITE_SHORT 0x84 0                // instant
+    WRITE_SHORT 0x94 1
+    WRITE_SHORT 0x98 1                // no projectile
+    LPF ADD_SPELL_EFFECT INT_VAR opcode = 172 target = 1 timing = 1 STR_VAR resource = ~BGSETELE~ END
+    LPF ADD_SPELL_EFFECT INT_VAR opcode = 171 target = 1 timing = 4 duration = 18 STR_VAR resource = ~BGSETELE~ END
+    LPF ADD_SPELL_EFFECT INT_VAR opcode = 124 target = 1 timing = 1 END
+    LPF ADD_SPELL_EFFECT INT_VAR opcode = 141 target = 1 parameter2 = 2 timing = 4 duration = 1 END
+    LPF ADD_SPELL_EFFECT INT_VAR opcode = 50 target = 1 parameter1 = 1562902528 parameter2 = 1638400 timing = 0 duration = 2 END
+    LPF ADD_SPELL_EFFECT INT_VAR opcode = 174 target = 1 timing = 0 STR_VAR resource = ~EFF_M09~ END
 END

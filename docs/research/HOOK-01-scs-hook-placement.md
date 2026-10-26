@@ -121,6 +121,39 @@ Python, and `tests/integration/test_hook_installer.py` checks they agree.
    joined the hunt, and to 2,914 with Melissan's. When the triggers end in an OR group that lacks
    members, the condition goes first, as in rule 6; a block that is both gets both conditions, the
    cloud's first.
+8. SCS's scripted teleports (2026-10-26, Christopher: a creature should teleport with a real
+   ability whose name shows in the log, not jump silently). A scripted teleport is a `ForceSpell`
+   family cast (`ReallyForceSpell` too, and the `Point` and `RES` forms) whose triggers check no
+   spellbook or item (`HaveSpell`, `HaveSpellRES`, `HasItem`, `KnowSpell`), of a spell that moves
+   its caster: an ability effect with opcode 124 or 274 aimed at the caster (target 1). The
+   installer reads that from the game's spell files (`bgse_moves_caster`, SPELL.IDS names
+   included); `tools/hook_rule.py` takes the list of such spells as a file.
+   - A jump into the fight is a scripted teleport at a creature that a `See` or `Detect` trigger
+     names (a party member, the nearest enemy, the creature last seen, or a class), unless a
+     trigger says the creature must be on the party's side or the block is part of the hunt. It
+     gets `!BGSE_Search` like the hunt and is never copied above the hook: the engine jumps with
+     the creature's own teleport instead ([FIGHT-01](FIGHT-01-fighter-and-monster-rounds.md)).
+   - A hooked script with any scripted teleport teleports its creature by script. A creature
+     whose script slots name such a script, and none of whose memorized spells moves its caster,
+     gets the innate `BGSETELE` (known and memorized). A creature with a teleport of its own keeps
+     it: most fiends have the game's Teleport Without Error (`SPIN159`), mind flayers Planar
+     Travel (`SPIN186`).
+   - `BGSETELE` takes the name and description of `SPIN159` when the game has it, else the
+     English name Teleport Without Error. It is instant (speed 0) and otherwise built like
+     `SPIN159` (range 200, casting glow, school), removes itself when used and comes back after 18
+     seconds (opcodes 172 and 171), lights and glows where the creature lands, and sounds like
+     Planar Travel (`EFF_M09`).
+
+   In the SR lab's 1,148 hooked scripts there are 51 jumps in 50 scripts, all of them SCS's fiend
+   jump (`fiend/ssl/jump.ssl`: `ForceSpell(LastSeenBy(Myself),…)` with `DW#FITEL`, SCS's silent
+   copy of the teleport, below the anchor). Until now they ran as copied specials. Copies fall
+   from 2,914 to 2,506, since the jumps' target picks are no longer copied either, and 16,345
+   blocks get the search condition. 65 hooked scripts teleport by script. 123 creatures use them:
+   110 have a teleport of their own (`SPIN159`, or `SPIN186` for mind flayers), and 13 get
+   `BGSETELE`: Melissan in the final fight (`FINMEL01`), the undead mind flayers (`MINDVA01`,
+   `MINDVAM`, `UDVAMP`), four elementals (`UDELDA`, `UDELDE`, `UDELDF`, `ELEMIMIX`) and five
+   demons (`DEMOGOR2`, `OHB5BHAL`, `DW#BFSUM`, `SUDEMON2`, `GORCHR`). Host run of the rule on the
+   lab's files, nothing installed.
 
 `BGSE_Zones` and `BGSE_Search` go by the script that decides for the creature: the first hooked
 script in its stack, since a lower script runs only after every higher one let the pass through
@@ -132,7 +165,9 @@ hunting blocks stand aside exactly when the higher one's do (`kernel/hook.lua`, 
 `tools/hook_agree.py` checks that WeiDU and `tools/hook_rule.py` agree without a game: WeiDU runs
 `bgse_hook_baf` on a folder of decompiled scripts with `--nogame`, and every result, count and text
 must match. On the SR lab's 1,241 decompiled scripts (1,148 hooked) all agree byte for byte
-(2026-10-25, 2 to 3 minutes; again on 2026-10-26 with the pursuit rule, 3.5 minutes).
+(2026-10-25, 2 to 3 minutes; again on 2026-10-26 with the pursuit rule, 3.5 minutes, and with
+the teleport rule, given the lab's 48 names of spells that move their caster as a fourth argument:
+51 jumps, 65 scripts that teleport by script).
 
 The claim is cached per creature and game tick, so the copies and the hook ask once per
 script pass and get the same answer. When the engine declines or is switched off, every

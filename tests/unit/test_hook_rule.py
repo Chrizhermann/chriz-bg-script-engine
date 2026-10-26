@@ -6,6 +6,9 @@ import pytest
 from tools import hook_rule
 
 FIXTURES = Path(__file__).resolve().parents[1] / 'fixtures/hook'
+# The fixtures' spells that move their caster (the integration test's fake game has them): the
+# chase's b-hkfit and the jump's fiend teleport (SPELL.IDS 3159, SPIN159).
+TELEPORTS = frozenset({'B-HKFIT', 'INNATE_FIEND_TELEPORT'})
 
 
 def text(name):
@@ -162,7 +165,8 @@ def test_hunting_blocks_yield_to_the_engines_search(name, family, hunts):
     # walk while an unseen attacker puzzles it, the fighter's walk at the party it does not see out
     # of a cloud, its reset of its chase that clears its actions and its walk to the nearest door,
     # the monster's end of a chase above the hook, its teleport to the party member it chases, its
-    # walk to a party member it does not detect and its teleport to one.
+    # walk to a party member it does not detect and its teleport to one. (The monster's jump into
+    # the fight stands aside as well: test_scripted_jumps_...)
     source = text(name)
     spans, anchor, copies = hook_rule.plan(source)
     assert hook_rule.hunts(source, spans) == hunts
@@ -306,7 +310,7 @@ def test_hook_never_ends_with_continue_and_guards_come_first():
 
 def test_monster_script_keeps_specials_and_everything_beyond_a_combat_round():
     source = text('B-HKMON')
-    spans, anchor, copies = hook_rule.plan(source)
+    spans, anchor, copies = hook_rule.plan(source, TELEPORTS)
     # The setup block and SCS's end of a chase stay above; the first round-timer block is the
     # anchor. Copied: the innate power, the summon with its target pick, the escape, the death
     # handler, the allegiance change, the scripted heal cast with SpellNoDecRES and the two steps
@@ -314,17 +318,87 @@ def test_monster_script_keeps_specials_and_everything_beyond_a_combat_round():
     # two spellbook casts (checked with HaveSpell, or used up with RemoveSpell), the
     # self-application checked with HaveSpellRES, the power applied to an enemy, the fiend's
     # teleport to the party member it chases, its walk and teleport to one it does not detect (SCS's
-    # hunt) and an ally's walk after the party are the engine's.
+    # hunt), an ally's walk after the party and the fiend's jump into the fight are the engine's.
     assert anchor == 2 and copies == [3, 4, 5, 7, 8, 9, 11, 14, 15]
-    patched, reason, family, count = hook_rule.patch(source, 'B-HKMON')
+    patched, reason, family, count = hook_rule.patch(source, 'B-HKMON', TELEPORTS)
     assert (reason, family, count) == ('hooked', 'monster', 9)
     assert hook_rule.guard('monster', 'b-hkmon') in patched
+
+
+def test_scripted_jumps_into_the_fight_stand_aside_for_the_creatures_own_teleport():
+    # The fiend's jump to the weak party member it sees (SCS's fiend/ssl/jump.ssl) is a cast without
+    # a spellbook check: copied above the hook while nothing says its spell moves the caster (a game
+    # without the fiend teleport), and with the game's spells known it stands aside like the hunt,
+    # as the engine jumps with the creature's own teleport.
+    source = text('B-HKMON')
+    spans, anchor, copies = hook_rule.plan(source, {'B-HKFIT'})
+    assert 22 in copies and hook_rule.jumps(source, spans, {'B-HKFIT'}) == []
+    assert hook_rule.jumps(source, spans, TELEPORTS) == [22]
+    patched = hook_rule.patch(source, 'B-HKMON', TELEPORTS)[0]
+    search = hook_rule.search_guard('monster', 'b-hkmon')
+    jump = source[spans[22][0]:spans[22][1]]
+    assert hook_rule.aside(jump, ['  !' + search]) in patched
+    assert jump.replace('IF\n', 'IF\n  ' + hook_rule.guard('monster', 'b-hkmon') + '\n', 1) not in patched
+    assert patched.count(search) == 5
+    # The script teleports by script (the chase, and the jump): its creatures get the innate
+    # Teleport unless they have one of their own.
+    assert hook_rule.teleporter(source, {'B-HKFIT'}) and not hook_rule.teleporter(source, frozenset())
+    assert not hook_rule.teleporter(text('B-HKMAG'), TELEPORTS | {'WIZARD_DIMENSION_DOOR'})
+
+
+@pytest.mark.parametrize('triggers,actions,jump', [
+    # SCS's fiend jump at the creature it last saw; at a party member or the nearest enemy it sees or
+    # detects; the IDS form, by name and by number; a comment after the action.
+    (['See(LastSeenBy(Myself))', '!Range(LastSeenBy(Myself),15)'], ['ForceSpellRES("b-hkfit",LastSeenBy(Myself))'], True),
+    (['See(Player3)'], ['ReallyForceSpellRES("B-HKFIT",Player3)'], True),
+    (['Detect(NearestEnemyOf(Myself))'], ['ReallyForceSpell(NearestEnemyOf(Myself),INNATE_FIEND_TELEPORT)'], True),
+    (['See(Player1)'], ['ForceSpell(Player1,3159)'], True),
+    (['See(LastSeenBy(Myself))'], ['ForceSpellRES("b-hkfit",LastSeenBy(Myself))  // Teleport'], True),
+    # Not a jump into the fight: to the summoner, to a point, to someone no trigger says it sees, a
+    # spell checked against the spellbook, one that moves nobody, or for a creature that must be on
+    # the party's side.
+    (['See(LastSummonerOf(Myself))'], ['ReallyForceSpell(LastSummonerOf(Myself),INNATE_FIEND_TELEPORT)'], False),
+    (['See(NearestEnemyOf(Myself))'], ['ReallyForceSpellPointRES("b-hkfit",[928.788])'], False),
+    (['See(NearestEnemyOf(Myself))'], ['ForceSpellRES("b-hkfit",Player2)'], False),
+    (['!See(Player2)'], ['ForceSpellRES("b-hkfit",Player2)'], False),
+    (['HaveSpellRES("b-hkfit")', 'See(Player1)'], ['ForceSpellRES("b-hkfit",Player1)'], False),
+    (['See(Player1)'], ['ForceSpellRES("b-hkpow",Player1)'], False),
+    (['Allegiance(Myself,GOODCUTOFF)', 'See(Player1)'], ['ForceSpellRES("b-hkfit",Player1)'], False),
+])
+def test_jumps_are_scripted_teleports_at_a_creature_the_creature_sees(triggers, actions, jump):
+    lines = ''.join(f'  {t}\n' for t in triggers)
+    response = ''.join(f'    {a}\n' for a in actions)
+    block = f'IF\n{lines}THEN\n  RESPONSE #100\n{response}END\n'
+    assert hook_rule.is_jump(block, TELEPORTS | {'INNATE_FIEND_TELEPORT', '3159'}) is jump
+
+
+def test_scripted_casts_name_their_spell_and_target_as_written():
+    block = ('IF\n  See(Player1)\nTHEN\n  RESPONSE #100\n    ForceSpellRES("dw#fitel",LastSeenBy(Myself))  // Teleport\n'
+             '    ReallyForceSpell(Player2,INNATE_FIEND_TELEPORT)\n    ForceSpellPoint([10.20],3159)\n'
+             '    ReallyForceSpellPointRES("dimdoor",[30.40])\n    Spell(Player1,WIZARD_DIMENSION_DOOR)\n'
+             '    SpellNoDecRES("b-hkheal",Myself)\nEND\n')
+    assert hook_rule.ungated_casts(block) == [('DW#FITEL', 'LastSeenBy(Myself)'), ('INNATE_FIEND_TELEPORT', 'Player2'),
+                                              ('3159', None), ('DIMDOOR', None)]
+    assert hook_rule.ungated_casts(block.replace('See(Player1)', 'HaveSpell(WIZARD_DIMENSION_DOOR)')) == []
+    assert hook_rule.scripted_teleports(block, {'DIMDOOR', '3159'}) == ['3159', 'DIMDOOR']
+
+
+@pytest.mark.parametrize('scripts,memorized,granted', [
+    # A creature with a teleporting script and no teleport of its own; one whose own innate moves
+    # it (a fiend's Teleport Without Error); one whose scripts do not teleport; any case.
+    (['', 'b-hkmon', '', '', ''], ['SPWI112'], True),
+    (['B-HKMON', '', '', '', ''], ['SPWI112', 'B-HKBLK'], False),
+    (['B-HKMAG', 'B-HKPRI', '', '', ''], [], False),
+    (['', '', '', 'B-HKMON', ''], ['b-hkblk'], False),
+])
+def test_creatures_that_teleport_only_by_script_get_the_innate_teleport(scripts, memorized, granted):
+    assert hook_rule.grants(scripts, memorized, {'B-HKMON'}, TELEPORTS | {'B-HKBLK'}) is granted
 
 
 def test_blocks_left_to_the_engine_are_ordinary_combat_rounds():
     for name in ('B-HKMAG', 'B-HKPRI', 'B-HKRNG', 'B-HKMON'):
         source = text(name)
-        spans, anchor, copies = hook_rule.plan(source)
+        spans, anchor, copies = hook_rule.plan(source, TELEPORTS)
         for i in range(anchor, len(spans)):
             if i not in copies:
                 assert not hook_rule.is_encounter(source[spans[i][0]:spans[i][1]]), (name, i)

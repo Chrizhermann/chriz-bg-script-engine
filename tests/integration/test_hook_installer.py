@@ -12,12 +12,21 @@ from pathlib import Path
 import pytest
 
 from tools import build_runtime, hook_rule
+from tools.ie_resources import parse_spl
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / 'tests/fixtures/hook'
 HOOKED = {'B-HKMAG': ('mage', 7), 'B-HKPRI': ('priest', 2), 'B-HKRNG': ('fighter', 0),
           'B-HKMON': ('monster', 9)}
 UNTOUCHED = ('B-HKNOA', 'B-HKOLD', 'B-HKCST', 'B-HKNON', 'B-HKVAN')
+# The fake game's spells that move their caster: the monster's chase and jump spells, and a
+# creature's own innate teleport.
+TELEPORTS = frozenset({'B-HKFIT', 'INNATE_FIEND_TELEPORT', 'B-HKBLK'})
+# Creatures: one whose script teleports by script and that has no teleport of its own (the innate
+# goes to it), one that has its own, and one whose scripts do not teleport.
+CREATURES = {'B-HKFND': (['', 'B-HKMON', '', '', ''], ['B-HKPOW']),
+             'B-HKFN2': (['B-HKMON', '', '', '', ''], ['B-HKBLK']),
+             'B-HKMGC': (['B-HKMAG', '', '', '', ''], [])}
 
 # Authored synthetic identifiers with the signature shapes the fixtures use.
 TRIGGER = """IDS V1.0
@@ -85,7 +94,7 @@ IDS = {
     'GENDER': 'IDS V1.0\n0 ANYONE\n',
     'ALIGN': 'IDS V1.0\n0 ANYONE\n',
     'SPELL': ('IDS V1.0\n1308 CLERIC_INVISIBILITY_PURGE\n2101 WIZARD_MAGIC_MISSILE\n2102 WIZARD_MIRROR_IMAGE\n'
-              '2420 WIZARD_ORACLE\n2525 WIZARD_DIMENSION_DOOR\n3101 DEMILICH_TRAP_SOUL\n'),
+              '2420 WIZARD_ORACLE\n2525 WIZARD_DIMENSION_DOOR\n3101 DEMILICH_TRAP_SOUL\n3159 INNATE_FIEND_TELEPORT\n'),
     'STATS': 'IDS V1.0\n18 RESISTMAGIC\n200 WIZARD_IMPROVED_ALACRITY\n',
     'BOOLEAN': 'IDS V1.0\n0 FALSE\n1 TRUE\n',
 }
@@ -97,7 +106,78 @@ def _weidu() -> Path:
     return binary
 
 
-def _fake_game(root: Path, eeex: bool = True, lua_trigger: bool = True) -> None:
+def _tlk(strings) -> bytes:
+    """A TLK V1 file with these strings, from index 0."""
+    entries, data = bytearray(), bytearray()
+    for text in strings:
+        raw = text.encode('ascii')
+        entries += struct.pack('<H8sIIII', 1 if raw else 0, b'', 0, 0, len(data), len(raw))
+        data += raw
+    return b'TLK V1  ' + struct.pack('<HII', 0, len(strings), 0x12 + len(entries)) + bytes(entries) + bytes(data)
+
+
+def _tlk_text(data: bytes, index: int) -> str:
+    count, start = struct.unpack_from('<II', data, 0x0A)
+    assert 0 <= index < count, (index, count)
+    offset, length = struct.unpack_from('<II', data, 0x12 + 0x1A * index + 0x12)
+    return data[start + offset:start + offset + length].decode('ascii')
+
+
+def _spl(spell_type: int, name: int = 0xFFFFFFFF, description: int = 0xFFFFFFFF) -> bytes:
+    """A spell with one ability aimed at a point that moves its caster there (opcode 124 on the
+    caster): an innate (type 4) or a wizard spell (type 1) such as SCS's scripted teleport."""
+    header = bytearray(0x72)
+    header[:8] = b'SPL V1  '
+    struct.pack_into('<II', header, 0x08, name, 0xFFFFFFFF)
+    struct.pack_into('<H', header, 0x1C, spell_type)
+    struct.pack_into('<I', header, 0x34, 1 if spell_type == 4 else 4)
+    struct.pack_into('<I', header, 0x50, description)
+    struct.pack_into('<IHIHH', header, 0x64, 0x72, 1, 0x9A, 0, 0)
+    ability = bytearray(0x28)
+    ability[0] = 1
+    struct.pack_into('<H', ability, 0x02, 4 if spell_type == 4 else 2)
+    ability[0x0C] = 4
+    struct.pack_into('<HHH', ability, 0x0E, 200, 1, 1)
+    struct.pack_into('<HH', ability, 0x1E, 1, 0)
+    struct.pack_into('<H', ability, 0x26, 1)
+    effect = struct.pack('<HBBiIBBIBB8siiIiI', 124, 1, 0, 0, 0, 1, 0, 0, 100, 0, b'', 0, 0, 0, 0, 0)
+    return bytes(header + ability) + effect
+
+
+def _cre(scripts, memorized) -> bytes:
+    """A creature with these scripts (override, class, race, general and default slot) and these
+    innate spells known and memorized, no items or effects, and the memorization levels a real
+    creature has (seven priest, nine wizard, one innate)."""
+    head = bytearray(0x2D4)
+    head[:8] = b'CRE V1.0'
+    struct.pack_into('<II', head, 0x08, 0xFFFFFFFF, 0xFFFFFFFF)
+    for i, script in enumerate(scripts):
+        head[0x248 + 8 * i:0x250 + 8 * i] = script.encode('ascii').ljust(8, b'\0')
+    known = b''.join(s.encode('ascii').ljust(8, b'\0') + struct.pack('<HH', 0, 2) for s in memorized)
+    levels = [(level, 0) for level in range(7)] + [(level, 1) for level in range(9)] + [(0, 2)]
+    info = b''.join(struct.pack('<HHHHII', level, len(memorized) if kind == 2 else 0,
+                                len(memorized) if kind == 2 else 0, kind, 0, len(memorized) if kind == 2 else 0)
+                    for level, kind in levels)
+    spells = b''.join(s.encode('ascii').ljust(8, b'\0') + struct.pack('<I', 1) for s in memorized)
+    slots = struct.pack('<40H', *([0xFFFF] * 38 + [0, 0]))
+    at = 0x2D4
+    struct.pack_into('<II', head, 0x2A0, at, len(memorized))
+    struct.pack_into('<II', head, 0x2A8, at + len(known), len(levels))
+    struct.pack_into('<II', head, 0x2B0, at + len(known) + len(info), len(memorized))
+    end = at + len(known) + len(info) + len(spells)
+    struct.pack_into('<III', head, 0x2B8, end, end + len(slots), 0)
+    struct.pack_into('<II', head, 0x2C4, end + len(slots), 0)
+    return bytes(head) + known + info + spells + slots
+
+
+def _spells(data: bytes, table: int):
+    """(resref, two words) of a creature's known (0x2A0) or memorized (0x2B0) spells."""
+    offset, count = struct.unpack_from('<II', data, table)
+    return [(data[offset + 12 * i:offset + 12 * i + 8].rstrip(b'\0').decode('ascii').upper(),
+             struct.unpack_from('<HH', data, offset + 12 * i + 8)) for i in range(count)]
+
+
+def _fake_game(root: Path, eeex: bool = True, lua_trigger: bool = True, fiend_teleport: bool = True) -> None:
     (root / 'data').mkdir(parents=True)
     (root / 'override').mkdir()
     (root / 'lang/en_us').mkdir(parents=True)
@@ -121,11 +201,19 @@ def _fake_game(root: Path, eeex: bool = True, lua_trigger: bool = True) -> None:
     for index, (name, _) in enumerate(resources):
         key += struct.pack('<8sHI', name.encode('ascii').ljust(8, b'\x00'), 1008, index)
     (root / 'chitin.key').write_bytes(key + bif_name)
-    tlk = b'TLK V1  ' + struct.pack('<HII', 0, 1, 0x2C) + bytes(0x1A)
+    tlk = _tlk(['', 'Its description', 'Fiendish Teleport'])
     (root / 'dialog.tlk').write_bytes(tlk)
     (root / 'lang/en_us/dialog.tlk').write_bytes(tlk)
     if eeex:
         (root / 'override/M___EEex.lua').write_text('-- synthetic EEex marker\n', encoding='ascii')
+    # The chase's scripted teleport (a wizard spell, as SCS's dw#fitel), a creature's own innate
+    # teleport and, in a game that has it, the game's fiend teleport with its own name.
+    (root / 'override/B-HKFIT.SPL').write_bytes(_spl(1))
+    (root / 'override/B-HKBLK.SPL').write_bytes(_spl(4))
+    if fiend_teleport:
+        (root / 'override/SPIN159.SPL').write_bytes(_spl(4, name=2, description=1))
+    for name, (scripts, memorized) in CREATURES.items():
+        (root / f'override/{name}.CRE').write_bytes(_cre(scripts, memorized))
     (root / 'fixture').mkdir()
     for path in FIXTURES.glob('*.baf'):
         shutil.copy(path, root / 'fixture' / path.name)
@@ -185,22 +273,36 @@ def test_installer_matches_reference_and_is_reversible(tmp_path: Path) -> None:
     assert 'SUCCESSFULLY INSTALLED' in output, output
     assert ('BGSE hook: 4 SCS scripts hooked, 18 SCS blocks guarded, 5 SCS cloud blocks yield to the engine, '
             "14 SCS hunting blocks yield to the engine's search, 3 left as they are.") in output, output
+    assert ("BGSE teleport: 1 SCS jumps into the fight yield to the creatures' own teleports, 1 creatures that "
+            'teleport only by script got the innate teleport BGSETELE.') in output, output
     for name, reason in (('B-HKNOA', 'no-anchor'), ('B-HKOLD', 'already-hooked'), ('B-HKCST', 'no-castspell')):
         assert f'left {name} as it is ({reason})'.casefold() in output.casefold(), output
     installed = _snapshot(tmp_path)
     assert installed['override/m_bgse.lua'] == build_runtime.build().encode('utf-8')
     for name in UNTOUCHED:
         assert installed[f'override/{name.casefold()}.bcs'] == before[f'override/{name.casefold()}.bcs'], name
-    assert set(installed) - set(before) == {'override/m_bgse.lua', 'override/m_bgsehk.lua'}
+    assert set(installed) - set(before) == {'override/m_bgse.lua', 'override/m_bgsehk.lua', 'override/bgsetele.spl'}
     # The registry lists exactly the hooked scripts, in lower case, with their family.
     registry = installed['override/m_bgsehk.lua'].decode('ascii')
     entries = sorted(line.strip() for line in registry.splitlines() if line.strip().startswith("['"))
     assert entries == sorted(f"['{n.lower()}']='{f}'," for n, (f, _) in HOOKED.items()), registry
     assert 'BGSE_HOOKED={' in registry
+    # The creature that teleports only by script got the innate teleport, known and memorized;
+    # the one with a teleport of its own and the one whose scripts do not teleport did not.
+    fiend = installed['override/b-hkfnd.cre']
+    assert ('BGSETELE', (0, 2)) in _spells(fiend, 0x2A0)
+    assert sorted(s for s, _ in _spells(fiend, 0x2B0)) == ['B-HKPOW', 'BGSETELE']
+    assert ('BGSETELE', (1, 0)) in _spells(fiend, 0x2B0)
+    info, levels = struct.unpack_from('<II', fiend, 0x2A8)
+    innate = [struct.unpack_from('<HHHHII', fiend, info + 16 * i) for i in range(levels)]
+    assert [(e[0], e[4], e[5]) for e in innate if e[3] == 2] == [(0, 0, 2)]
+    for name in ('B-HKFN2', 'B-HKMGC'):
+        assert installed[f'override/{name.casefold()}.cre'] == before[f'override/{name.casefold()}.cre'], name
+    _check_teleport(installed['override/bgsetele.spl'], 'Fiendish Teleport', tmp_path)
 
     hooked = _decompile(tmp_path, HOOKED)
     for name, (family, copies) in HOOKED.items():
-        expected, reason, got_family, got_copies = hook_rule.patch(originals[name], name)
+        expected, reason, got_family, got_copies = hook_rule.patch(originals[name], name, TELEPORTS)
         assert (reason, got_family, got_copies) == ('hooked', family, copies)
         assert hooked[name] == expected, name
     # The mage's cloud escape, its run from a Cloudkill's marker and its stand-still take the
@@ -213,14 +315,49 @@ def test_installer_matches_reference_and_is_reversible(tmp_path: Path) -> None:
     # walk while an unseen attacker puzzles it, the priest's free Invisibility Purge, the fighter's
     # walk at the party it does not see out of a cloud, chase reset and walk to the door (whose
     # triggers end in an OR group that lacks a member), the monster's end of a chase, teleport after
-    # the party member it chases and walk and teleport to one it does not detect; not an ally's
-    # walk after the party.
-    for name, count in (('B-HKMAG', 6), ('B-HKRNG', 3), ('B-HKPRI', 1), ('B-HKMON', 4)):
+    # the party member it chases and walk and teleport to one it does not detect, and its jump into
+    # the fight; not an ally's walk after the party.
+    for name, count in (('B-HKMAG', 6), ('B-HKRNG', 3), ('B-HKPRI', 1), ('B-HKMON', 5)):
         assert hooked[name].count(hook_rule.search_guard(HOOKED[name][0], name.lower())) == count, name
 
     _install(tmp_path, '--force-uninstall-list', '0', '--force-install-list', '0')
     assert _snapshot(tmp_path) == installed
 
+    _install(tmp_path, '--force-uninstall-list', '0')
+    assert _snapshot(tmp_path) == before
+
+
+def _check_teleport(data: bytes, name: str, root: Path) -> None:
+    """The innate teleport: instant, cast at a point, it moves the caster, lights where it lands,
+    glows and sounds, and is gone for 18 seconds, then back; named as given."""
+    spell = parse_spl(data, 'BGSETELE')
+    assert (spell['spellType'], spell['level'], spell['school'], spell['secondary']) == (4, 1, 8, 13)
+    assert struct.unpack_from('<H', data, 0x22)[0] == 9
+    [ability] = spell['abilities']
+    assert (ability['location'], ability['target'], ability['range'], ability['speed'], ability['projectile']) == (
+        4, 4, 200, 0, 1)
+    assert [(e['opcode'], e['target'], e['timing'], e['duration'], e['res']) for e in ability['effects']] == [
+        (172, 1, 1, 0, 'BGSETELE'), (171, 1, 4, 18, 'BGSETELE'), (124, 1, 1, 0, ''), (141, 1, 4, 1, ''),
+        (50, 1, 0, 2, ''), (174, 1, 0, 0, 'EFF_M09')]
+    assert _tlk_text((root / 'lang/en_us/dialog.tlk').read_bytes(), spell['name']) == name
+
+
+def test_without_the_fiend_teleport_the_jump_stays_and_the_innate_gets_an_english_name(tmp_path: Path) -> None:
+    # A game without the fiend teleport: the monster's jump casts a spell that moves nobody there, so
+    # it stays a special copied above the hook; its chase still teleports by script, so its creature
+    # gets the innate teleport, named in English.
+    _fake_game(tmp_path, fiend_teleport=False)
+    before = _snapshot(tmp_path)
+    originals = _decompile(tmp_path, ['B-HKMON'])
+    output = _install(tmp_path, '--force-install-list', '0')
+    assert ('BGSE hook: 4 SCS scripts hooked, 19 SCS blocks guarded, 5 SCS cloud blocks yield to the engine, '
+            "14 SCS hunting blocks yield to the engine's search, 3 left as they are.") in output, output
+    assert ("BGSE teleport: 0 SCS jumps into the fight yield to the creatures' own teleports, 1 creatures that "
+            'teleport only by script got the innate teleport BGSETELE.') in output, output
+    hooked = _decompile(tmp_path, ['B-HKMON'])
+    assert hooked['B-HKMON'] == hook_rule.patch(originals['B-HKMON'], 'B-HKMON', TELEPORTS - {'INNATE_FIEND_TELEPORT'})[0]
+    installed = _snapshot(tmp_path)
+    _check_teleport(installed['override/bgsetele.spl'], 'Teleport Without Error', tmp_path)
     _install(tmp_path, '--force-uninstall-list', '0')
     assert _snapshot(tmp_path) == before
 

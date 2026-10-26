@@ -33,8 +33,19 @@ puzzles it (the whatthe timer). They get a last condition that holds when BGSE_S
 they are never copied above the hook. The chase's bookkeeping (which party member it last saw,
 forgetting the dead) ends with Continue() and stays as it is.
 
+SCS's scripted teleports (Christopher, 2026-10-26: such powers become real abilities): a cast
+without a spellbook check (no HaveSpell or the like in its triggers) of a spell that moves the
+caster, as SCS's fiends, elementals and Melissan teleport with dw#fitel. The installer gives the
+creatures whose scripts do that a real innate Teleport of their own (bgse/setup-bgse.tp2), which
+the engine casts like any spell. A scripted teleport at a creature a trigger says the creature
+sees is a jump into the fight (SCS's fiends jump to a weak party member): it stands aside like the
+hunt and is never copied above the hook, as the engine jumps with the creature's own Teleport.
+Scripted teleports elsewhere (to a partner, to the summoner, to a point) stay SCS's. Which spells
+move the caster comes from the game's spell files (teleports: their upper-case resrefs and
+SPELL.IDS names).
+
 Run it on a folder of decompiled scripts to see what an install would do:
-    python tools/hook_rule.py <folder-with-baf> [report.json]
+    python tools/hook_rule.py <folder-with-baf> [report.json] [teleports.txt]
 """
 import json
 import re
@@ -117,6 +128,9 @@ PURSUIT = re.compile(
 ALLY = re.compile(r'^ +Allegiance\(Myself,GOODCUTOFF\)', re.M)
 PUZZLED = re.compile(r'^ +GlobalTimerNotExpired\("whatthe","LOCALS"\)', re.M)
 WANDER = re.compile(r'^ {4}RandomWalk(?:Continuous)?\(', re.M)
+# A spellbook-free cast: the RES forms name the resource first, the others the target (a point
+# for the Point forms) first and the spell (a SPELL.IDS name or number) last.
+UNGATED = re.compile(r'^ {4}((?:Really)?ForceSpell(?:Point)?(?:RES)?)\((.*)\) *$', re.M)
 
 
 def guard(family, script):
@@ -257,6 +271,62 @@ def hunts(text, spans):
     return [i for i, (a, b) in enumerate(spans) if is_hunt(text[a:b])]
 
 
+def ungated_casts(block):
+    """(spell, target) for each spellbook-free cast of a block whose triggers check no spellbook:
+    the spell in upper case as written (a resref, a SPELL.IDS name or a number), the target None
+    for a cast at a point."""
+    trig, resp = split(COMMENT.sub('', block))
+    if SPELLBOOK_GATE.search(trig):
+        return []
+    out = []
+    for m in UNGATED.finditer(resp):
+        action, args = m.group(1), m.group(2)
+        if action.endswith('RES'):
+            spell, _, target = args.partition(',')
+            spell = spell.strip().strip('"')
+        else:
+            target, _, spell = args.rpartition(',')
+        out.append((spell.strip().upper(), None if 'Point' in action else target.strip()))
+    return out
+
+
+def scripted_teleports(block, teleports):
+    """The spells of a block's spellbook-free casts that move the caster (teleports)."""
+    return [s for s, _ in ungated_casts(block) if s in teleports]
+
+
+def is_jump(block, teleports):
+    """A scripted teleport into the fight: a spellbook-free cast of a spell that moves the caster
+    (teleports) at an enemy, a party member or the creature last seen, which a trigger says the
+    creature sees or detects (SCS's fiends jump to a weak party member that way); not one to the
+    summoner, a partner or a point, nor one the creature must be on the party's side for."""
+    trig, _ = split(COMMENT.sub('', block))
+    if ALLY.search(trig):
+        return False
+    seen = {m.group(2) for m in SENSE.finditer(trig) if not m.group(1)}
+    return any(s in teleports and t is not None and t in seen and TARGET.fullmatch(t)
+               for s, t in ungated_casts(block))
+
+
+def jumps(text, spans, teleports):
+    """Indices of SCS's scripted jumps into the fight that are not part of its hunt."""
+    return [i for i, (a, b) in enumerate(spans) if is_jump(text[a:b], teleports) and not is_hunt(text[a:b])]
+
+
+def teleporter(text, teleports):
+    """Whether a script lets its creature teleport by script: a scripted teleport anywhere in it."""
+    text = text.replace('\r', '')
+    return any(scripted_teleports(text[a:b], teleports) for a, b in blocks(text))
+
+
+def grants(scripts, memorized, teleporters, teleports):
+    """Whether a creature gets the innate Teleport: one of its scripts (its script slots) is a hooked
+    script that teleports by script (teleporters, upper case), and none of its memorized spells moves
+    its caster (teleports): a creature with a teleport of its own keeps that one."""
+    return (any(s.upper() in teleporters for s in scripts if s) and
+            not any(m.upper() in teleports for m in memorized if m))
+
+
 def is_anchor(block):
     trig, resp = split(block)
     if CASTSPELL not in trig or FIRST_ROUND in resp:
@@ -312,8 +382,9 @@ def family(text):
     return 'monster' if MONSTER.search(text) else None
 
 
-def plan(text):
-    """Return (anchor index, copied block indices) or None when the script has no anchor."""
+def plan(text, teleports=frozenset()):
+    """Return (block spans, anchor index or None, copied block indices); teleports names the spells
+    that move their caster (is_jump)."""
     spans = blocks(text)
     texts = [text[a:b] for a, b in spans]
     anchor = next((i for i, b in enumerate(texts) if is_anchor(b)), None)
@@ -331,21 +402,24 @@ def plan(text):
             i = j
         else:
             i += 1
+    standing = {i for i in range(len(texts)) if is_hunt(texts[i]) or is_jump(texts[i], teleports)}
     for i in range(anchor, len(texts)):
-        if (is_special(texts[i]) or is_encounter(texts[i])) and not is_hunt(texts[i]):
+        if (is_special(texts[i]) or is_encounter(texts[i])) and i not in standing:
             copies.add(i)
             if 'LastSeenBy(Myself)' in texts[i]:
                 k = i - 1
                 while k >= anchor and is_target_pick(texts[k]):
                     copies.add(k)
                     k -= 1
-    # SCS's hunt is never copied: it stands aside for the engine's search (a fiend's teleport to
-    # the party member it last saw is a special, for one).
-    return spans, anchor, sorted(i for i in copies if not is_hunt(texts[i]))
+    # SCS's hunt and its scripted jumps into the fight are never copied: they stand aside for the
+    # engine's search and the creature's own Teleport (a fiend's teleport to the party member it
+    # last saw is a special, for one).
+    return spans, anchor, sorted(copies - standing)
 
 
-def patch(text, script):
-    """Return (patched text or None, reason, family, number of copies) for the named script."""
+def patch(text, script, teleports=frozenset()):
+    """Return (patched text or None, reason, family, number of copies) for the named script;
+    teleports names the spells that move their caster (is_jump)."""
     text = text.replace('\r', '')
     script = script.lower()
     fam = family(text)
@@ -358,14 +432,15 @@ def patch(text, script):
         return None, 'no-castspell', fam, 0
     if MARK in text:
         return None, 'already-hooked', fam, 0
-    spans, anchor, copies = plan(text)
+    spans, anchor, copies = plan(text, teleports)
     if anchor is None:
         return None, 'no-anchor', fam, 0
     insert = ''.join(text[spans[i][0]:spans[i][1]].replace('IF\n', f'IF\n  {guard(fam, script)}\n', 1) + '\n'
                      for i in copies)
     at = spans[anchor][0]
     head, tail = text[:at], text[at:]
-    cloudy, hunting = set(clouds(text, spans, anchor)), set(hunts(text, spans))
+    cloudy = set(clouds(text, spans, anchor))
+    hunting = set(hunts(text, spans)) | set(jumps(text, spans, teleports))
     # From the last one up, so the blocks before keep their offsets.
     for i in reversed(range(len(spans))):
         conditions = ([f'  !{zones_guard(fam, script)}'] if i in cloudy else []) + (
@@ -382,16 +457,21 @@ def patch(text, script):
 
 def main():
     folder = Path(sys.argv[1])
+    teleports = frozenset()
+    if len(sys.argv) > 3:
+        teleports = frozenset(line.strip().upper() for line in Path(sys.argv[3]).read_text(encoding='utf-8').splitlines()
+                              if line.strip())
     rows = []
     for path in sorted(folder.glob('*.baf')):
         text = path.read_text(encoding='latin-1')
-        patched, reason, fam, copies = patch(text, path.stem)
+        patched, reason, fam, copies = patch(text, path.stem, teleports)
         text = text.replace('\r', '')
-        spans, anchor, _ = plan(text)
+        spans, anchor, _ = plan(text, teleports)
         cloudy = len(clouds(text, spans, anchor)) if patched else 0
         hunting = len(hunts(text, spans)) if patched else 0
+        jumping = len(jumps(text, spans, teleports)) if patched else 0
         rows.append({'script': path.stem, 'family': fam, 'result': reason, 'copies': copies, 'clouds': cloudy,
-                     'hunts': hunting})
+                     'hunts': hunting, 'jumps': jumping, 'teleporter': bool(patched) and teleporter(text, teleports)})
     summary = {}
     for row in rows:
         key = f"{row['family']}/{row['result']}"

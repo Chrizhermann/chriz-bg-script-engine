@@ -195,3 +195,17 @@ THEN
     MoveToObject(Player1)
 END
 
+IF
+  !GlobalTimerNotExpired("castspell","LOCALS")
+  !GlobalTimerNotExpired("teleport","LOCALS")
+  !Range(LastSeenBy(Myself),15)
+  See(LastSeenBy(Myself))
+THEN
+  RESPONSE #100
+    SetGlobalTimer("castspell","LOCALS",6)
+    ForceSpell(LastSeenBy(Myself),INNATE_FIEND_TELEPORT)
+    SetGlobalTimer("teleport","LOCALS",16)
+  RESPONSE #100
+    Continue()
+END
+
