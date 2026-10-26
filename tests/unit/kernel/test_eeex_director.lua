@@ -353,4 +353,54 @@ assert(root.inspect().director.areas.AR0001.reservations[1].target==11)
 assert(start(m1,action(31,'TESTSRHD',11)).m_acteeID.m_Instance==12)
 groups=groups+1
 
+-- 9. A row an opcode 326 tests on the caster (aimed at itself, its spell still reaching the
+-- creature the spell is cast at: the Dreadnought stuns the creature its critical hit strikes when
+-- its own strength is high enough) is the caster's own check: asked once, with the caster as both
+-- creatures, the same mark on every enemy. A row on the target is asked per enemy; flipped, the
+-- caster is tested against each.
+;(function()
+local asked={}
+g.EngineGlobals.g_pBaldurChitin.m_pObjectGame.m_ruleTables={IsProtectedFromSpell=function(_,row,stats,mine,value)
+    asked[#asked+1]={row,stats.m_id,mine.m_id,value}
+    if row==125 then return stats.m_id==1 and 1 or 0 end
+    return stats.m_id==12 and 1 or 0
+end}
+local function calls(row)
+    local out={}
+    for _,c in ipairs(asked) do if c[1]==row then out[#out+1]=c end end
+    return out
+end
+local wanted={['row:125:16:caster']={row=125,value=16,caster=true},['row:104:3']={row=104,value=3},
+    ['row:104:3:flip']={row=104,value=3,flip=true}}
+local frame={enemies={{id=11},{id=12}}}
+local read,failed=sense.splprot(g,m1,frame,wanted)
+assert(read==5 and failed==0 and #asked==5)
+local own=calls(125)
+assert(#own==1 and own[1][2]==1 and own[1][3]==1 and own[1][4]==16)
+local a,b=frame.enemies[1].splprot,frame.enemies[2].splprot
+assert(a['row:125:16:caster']==true and b['row:125:16:caster']==true)
+assert(a['row:104:3']==false and b['row:104:3']==true)
+assert(a['row:104:3:flip']==false and b['row:104:3:flip']==false)
+local pairsSeen={}
+for _,c in ipairs(calls(104)) do pairsSeen[c[2]..'>'..c[3]]=true end
+assert(pairsSeen['11>1'] and pairsSeen['12>1'] and pairsSeen['1>11'] and pairsSeen['1>12'])
+-- Another caster's own check: its strength, not the first one's.
+asked={}
+frame={enemies={{id=11},{id=12}}}
+assert(sense.splprot(g,m2,frame,{['row:125:16:caster']=wanted['row:125:16:caster']})==1 and #asked==1)
+assert(asked[1][2]==2 and asked[1][3]==2 and frame.enemies[1].splprot['row:125:16:caster']==false
+    and frame.enemies[2].splprot['row:125:16:caster']==false)
+-- One creature as the receiver of another's spell (a cloud's caster): the caster row is the
+-- caster's check, the others as for an enemy.
+asked={}
+local entry={}
+assert(sense.mark(g,entry,g.objects[11],m1,wanted)==3 and #asked==3)
+own=calls(125)
+assert(#own==1 and own[1][2]==1 and own[1][3]==1 and entry.splprot['row:125:16:caster']==true)
+pairsSeen={}
+for _,c in ipairs(calls(104)) do pairsSeen[c[2]..'>'..c[3]]=true end
+assert(pairsSeen['11>1'] and pairsSeen['1>11'] and entry.splprot['row:104:3']==false)
+end)()
+groups=groups+1
+
 return groups

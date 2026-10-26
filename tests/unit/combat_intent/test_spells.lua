@@ -920,4 +920,81 @@ assert(not c.partial and c.approximate and c.reasons['missing:SPL:TESTNONE'] and
 assert(classify(critKit,world(critWorld),{weapons=false}).hits==nil)
 groups=groups+1
 
+-- Opcode 326 aimed at "self" or "original caster" (IESDP) still applies its spell to the ability
+-- target, while its SPLPROT row tests the creature it lands on: the caster. Inside the spell a 326
+-- applies, "self" is the creature the 326 lands on, and so is "original caster" when that spell has
+-- no projectile (0). Artisan's Kitpack's Dreadnought stuns the creature its critical hit strikes
+-- this way, when its own strength is high enough.
+;(function()
+local sub=spl('TESTSUB',{ability({fx(12,{p1=10,p2=8*65536,timing=1}),fx(0,{target=1,p1=2,duration=6}),
+    fx(44,{target=9,p1=1,duration=6})})})
+local bare=spl('TESTBARE',{ability({fx(44,{target=9,p1=1,duration=6})},{projectile=0})})
+local w=world({['SPL:TESTSUB']=sub,['SPL:TESTBARE']=bare})
+-- At a creature: the spell's damage and its "self" (armour class) land on the target, its
+-- "original caster" (strength) on the caster; the row is the caster's, so its mark decides for
+-- every creature reached.
+for _,t in ipairs({1,9}) do
+    local c=classify(spl('TESTAIM',{ability({fx(326,{target=t,p1=16,p2=125,res='TESTSUB'}),fx(17,{target=1,p1=5})})}),w)
+    assert(c.roles.damage.who.target and not c.roles.damage.who.self and not c.approximate)
+    assert(c.roles.heal.who.self and not c.roles.heal.who.target and c.aim==nil and c.remap==nil)
+    assert(c.roles.protection.who.target and not c.roles.protection.who.self)
+    assert(c.roles.buff.who.self and not c.roles.buff.who.target)
+    assert(#c.conditions==1 and c.conditions[1].caster==true and spells.conditionKey(c.conditions[1])=='row:125:16:caster')
+    assert(spells.rows(c)['row:125:16:caster'].caster==true)
+    assert(spells.view(c,function() return true end).damage and spells.view(c,function() return false end).damage==nil)
+end
+assert(classify(spl('TESTAIM',{ability({fx(326,{target=1,res='TESTBARE'})})}),w).roles.buff.who.target)
+-- A 326 on the target: its "self" lands on the target too; its row is the target's.
+local c=classify(spl('TESTON',{ability({fx(326,{target=2,p1=16,p2=125,res='TESTSUB'})})}),w)
+assert(c.roles.protection.who.target and not c.roles.protection.who.self and c.roles.buff.who.self)
+assert(c.conditions[1].caster==nil and spells.conditionKey(c.conditions[1])=='row:125:16')
+-- Cast at oneself everything lands on the caster, and the row is still the caster's; aimed at a
+-- point there is no creature to apply it to: on the caster, approximate.
+c=classify(spl('TESTSELF',{ability({fx(326,{target=1,p1=16,p2=125,res='TESTSUB'})},{target=5})}),w)
+assert(c.roles.damage.who.self and not c.roles.damage.who.target and c.conditions[1].caster==true)
+c=classify(spl('TESTPNT',{ability({fx(326,{target=1,res='TESTSUB'})},{target=4})}),w)
+assert(c.approximate and c.reasons['326-unaimed:TESTSUB'] and c.roles.damage.who.self)
+-- What a 148 casts is aimed at a point too; what a 146 casts at a creature is aimed at that
+-- creature, also when it explodes there.
+local spot=spl('TESTSPOT',{ability({fx(326,{target=1,res='TESTSUB'})},{target=4})})
+local burst=spl('TESTBRST',{ability({fx(326,{target=1,res='TESTSUB'})},{projectile=99})})
+local around=world({['SPL:TESTSUB']=sub,['SPL:TESTSPOT']=spot,['SPL:TESTBRST']=burst,['PRO:99']=pro()})
+c=classify(spl('TESTTHRW',{ability({fx(148,{p2=1,res='TESTSPOT'})})}),around)
+assert(c.approximate and c.reasons['326-unaimed:TESTSUB'] and c.roles.damage.who.self)
+c=classify(spl('TESTBLST',{ability({fx(146,{p2=1,res='TESTBRST'})})}),around)
+assert(c.area and c.roles.damage.who.target and not c.roles.damage.who.area and not c.approximate)
+-- A 326 on the preset target of an area spell reaches each creature there, by each one's row.
+c=classify(spl('TESTWIDE',{ability({fx(326,{target=2,p1=16,p2=125,res='TESTSUB'})},{target=4,projectile=99})}),around)
+assert(c.roles.damage.who.area and c.roles.protection.who.area and not c.roles.damage.who.target)
+assert(not c.approximate and c.conditions[1].caster==nil)
+-- Through a cast: the creature a 146 casts at is the ability target of what it casts. A cast inside
+-- a 326's spell lands on the creature the 326 lands on and keeps its own rule: its "self" is the
+-- caster.
+local relay=spl('TESTRLY',{ability({fx(326,{target=1,res='TESTSUB'})})})
+local inner=spl('TESTINR',{ability({fx(0,{target=1,p1=2,duration=6}),fx(12,{p1=4,p2=8*65536,timing=1})})})
+local outer=spl('TESTOUT',{ability({fx(146,{target=1,p2=1,res='TESTINR'})})})
+w=world({['SPL:TESTSUB']=sub,['SPL:TESTRLY']=relay,['SPL:TESTINR']=inner,['SPL:TESTOUT']=outer})
+c=classify(spl('TESTCAST',{ability({fx(146,{target=2,p2=1,res='TESTRLY'})})}),w)
+assert(c.roles.damage.who.target and not c.roles.damage.who.self)
+c=classify(spl('TESTCSLF',{ability({fx(146,{target=1,p2=1,res='TESTRLY'})})}),w)
+assert(c.roles.damage.who.self and not c.roles.damage.who.target)
+c=classify(spl('TESTNEST',{ability({fx(326,{target=2,res='TESTOUT'})})}),w)
+assert(c.roles.damage.who.target and c.roles.protection.who.self and not c.roles.protection.who.target)
+-- After a cast at oneself the ability's next 326 is aimed at its own target again; a dead
+-- creature is a target too.
+c=classify(spl('TESTSEQ',{ability({fx(146,{target=1,p2=1,res='TESTINR'}),fx(326,{target=1,res='TESTSUB'})})}),w)
+assert(c.roles.damage.who.self and c.roles.damage.who.target)
+c=classify(spl('TESTDEAD',{ability({fx(326,{target=1,res='TESTSUB'})},{target=3})}),w)
+assert(c.roles.damage.who.target and not c.roles.damage.who.self and not c.approximate)
+-- The Dreadnought's critical hit: by its strength (the holder's row), damage and a stun on the
+-- creature hit.
+local stun=spl('TESTSTUN',{ability({fx(12,{p1=6,timing=1}),fx(45,{duration=10})})})
+local massive=spl('TESTMASV',{ability({fx(326,{target=1,p1=16,p2=125,res='TESTSTUN'})},{target=5})})
+w=world({['SPL:TESTSTUN']=stun,['SPL:TESTMASV']=massive})
+local h=classify(spl('TESTDRED',{ability({fx(341,{target=1,timing=9,special=1,res='TESTMASV'})},{target=5})}),w).hits[1]
+assert(h.strike.roles.disable.who.target and h.strike.roles.damage.who.target and not h.strike.roles.damage.who.self)
+assert(h.strike.conditions[1].caster==true)
+end)()
+groups=groups+1
+
 return groups

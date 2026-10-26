@@ -36,7 +36,7 @@ files alone, whatever Spell Revisions, SCS or other mods changed?
   holder's level without its projectile; what it puts on its caster lands on the holder
   (FIGHT-01, "F2e"). Each entry keeps the spell or item it comes from (`source`), so an enemy that
   carries what the hit brings is known.
-- Host tests: `tests/unit/combat_intent/test_spells.lua`, 38 groups on Lua 5.1 and LuaJIT,
+- Host tests: `tests/unit/combat_intent/test_spells.lua`, 39 groups on Lua 5.1 and LuaJIT,
   all synthetic records.
 
 ## Census over every SPL
@@ -160,6 +160,23 @@ files alone, whatever Spell Revisions, SCS or other mods changed?
   `SPWI117`, `SPWI218`) read as partial and the engine never struck with them. Over every SPL
   of the SR lab ten spells change: these three, the kit's own Shocking Grasp and Chill Touch,
   its four helper spells and a mod's Harm (`OHBPR608`), which empties the weapon slot first.
+- Opcode 326 aimed at oneself (2026-10-27; IESDP). A 326 whose target is "self" or "original
+  caster" still applies its spell to the ability's target, the creature the spell holding it is
+  cast at, while its SPLPROT row tests the creature the 326 lands on: the caster. The classifier
+  had put all of it on the caster. Now such a condition is marked as the caster's (`caster`, key
+  suffix `:caster`), and the engine asks it once per caster with the caster as both creatures, the
+  same mark on every enemy (`sense.splprot`, `sense.mark`). An ability aimed at a point has no
+  creature to apply it to: the spell lands on the caster and the reading is approximate (reason
+  `326-unaimed:`). Inside the spell a 326 applies, "self" is the creature the 326 lands on, and so
+  is "original caster" when that spell has no projectile (0); a cast inside it keeps its own rule.
+  Over every SPL at caster levels 9 and 15, 227 spells of the SR lab read differently, 166 of them
+  only in the key of a caster condition, and 29 of the no-SR lab (25). Artisan's Kitpack's
+  Dreadnought stuns and hurts the creature its critical hit strikes, by its own strength; Spell
+  Revisions' Improved Haste (`SPWI613`) and SCS's Spell Trigger copies (`DW#DT*`, `DW#TG37` to
+  `41`) give their "self" effects to every creature in their area; Shared Gift (`C0SS-HL1`) heals
+  the ally it is cast at. SCS's Cacofiend, Summon Fiend and Gate in the no-SR lab (`SPWI707`,
+  `SPWI807`, `SPWI905`, aimed at a point) are approximate now. Effects a 326 moves onto another
+  creature keep their level range for that creature; no spell in either lab has such a range.
 
 ## In game
 

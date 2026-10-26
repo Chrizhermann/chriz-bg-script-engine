@@ -642,7 +642,9 @@ The Spell Revisions lab at level 12 reads all 30 of its holders without a gap: S
 weapons (Martyr's Morning Star +2 takes 15 % of the target's hit points, the Bracers of the Shuttered
 Lid blind, the Astral Crossbow +2 knocks unconscious, Spell Breaker +2 dispels), Artisan's Kitpack's
 Kensai, Swashbuckler, Trickster, Siegemaster and Dreadnought, and the Sirene NPC's Brimstone +3 and
-Harbinger of Pain +4.
+Harbinger of Pain +4. Since the classifier reads opcode 326 as IESDP describes it (SPELLS-01,
+2026-10-27), the Dreadnought's critical hit stuns and hurts the creature it strikes when the
+Dreadnought's own strength is high enough.
 
 Tests: spells group 38, weapons group 14, defence group 13, `arsenal` group 6, the choice adapter's
 group 37 (a brawler's critical hit spell from its own effects, at its level, with fists only); 57
@@ -690,9 +692,7 @@ Known gaps, for later:
 - Critical hits (F2e): critical hit effects of magical attacks (special 3) count nothing, nor what
   a critical hit spell does to the holder itself (Corinth's Bow's Luck, Second Wind's heal). The
   critical hit and on-hit effects of a weapon not in hand count nothing when the creature weighs
-  taking it up: they are no active effects until it does. Critical hit spells that put their
-  effects through opcode 326 aimed at "self" (Artisan's Kitpack's Dreadnought) count for the holder
-  until the classifier reads 326 as IESDP describes it (next). Helmets are not read: half of all
+  taking it up: they are no active effects until it does. Helmets are not read: half of all
   critical hits count as kept off.
 - Debuffs (F2b): lower strength, dexterity and constitution count nothing (the engine reads
   neither the stats nor their tables), and neither do lower maximum hit points, movement, casting

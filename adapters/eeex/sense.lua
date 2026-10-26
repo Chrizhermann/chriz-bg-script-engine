@@ -273,29 +273,34 @@ local function ruleTables(g)
     if not chitin and engine then chitin=engine.g_pBaldurChitin end
     return chitin.m_pObjectGame.m_ruleTables
 end
--- Marks which of rows ({key={row,value,flip}}, the SPLPROT conditions of the spells in question)
--- each enemy of the frame meets as the target of this caster's spell: entry.splprot[key]=true
--- or false. flip swaps the two creatures, as EEex's 326 does with special bit 0. A row the
--- engine does not answer stays unmarked, and nothing that depends on it is judged. Returns the
--- marks read, the checks that failed and the last failure.
+-- Marks which of rows ({key={row,value,flip,caster}}, the SPLPROT conditions of the spells in
+-- question) each enemy of the frame meets as the target of this caster's spell:
+-- entry.splprot[key]=true or false. flip swaps the two creatures, as EEex's 326 does with special
+-- bit 0; a caster row is the caster's own check (a 326 that lands on it, whoever receives what
+-- follows), the same mark on every enemy. A row the engine does not answer stays unmarked, and
+-- nothing that depends on it is judged. Returns the marks read, the checks that failed and the
+-- last failure.
 function M.splprot(g,sprite,frame,rows)
     if next(rows)==nil or #frame.enemies==0 then return 0,0 end
     local ok,rt=pcall(ruleTables,g)
     if not ok or rt==nil then return 0,1,tostring(rt) end
     local read,failed,last=0,0,nil
+    local own={}
     for _,entry in ipairs(frame.enemies) do
         local enemy=g.EEex_GameObject_Get(entry.id)
         if enemy and g.EEex_GameObject_IsSprite(enemy,false) then
             local marks=entry.splprot or {}
             entry.splprot=marks
             for key,f in pairs(rows) do
-                if marks[key]==nil then
+                if marks[key]==nil and f.caster and own[key]~=nil then marks[key]=own[key]
+                elseif marks[key]==nil then
                     local stats,mine=enemy,sprite
-                    if f.flip then stats,mine=sprite,enemy end
+                    if f.caster then stats=sprite elseif f.flip then stats,mine=sprite,enemy end
                     local done,v=pcall(function() return rt:IsProtectedFromSpell(f.row,stats,mine,f.value) end)
                     if done and type(v)=='number' then marks[key]=v~=0;read=read+1
                     elseif done and type(v)=='boolean' then marks[key]=v;read=read+1
                     else failed=failed+1;last=done and 'answer '..type(v) or tostring(v) end
+                    if f.caster then own[key]=marks[key] end
                 end
             end
         end
@@ -621,8 +626,9 @@ function M.zones(g,area,tick)
 end
 
 -- Marks which of rows (the SPLPROT conditions of the spells in question) a creature meets as the
--- receiver (stats) of a spell from mine, as M.splprot does for enemies: entry.splprot[key]. Returns
--- the marks read, the checks that failed and the last failure.
+-- receiver (stats) of a spell from mine, as M.splprot does for enemies: entry.splprot[key]; a
+-- caster row is mine's own check. Returns the marks read, the checks that failed and the last
+-- failure.
 function M.mark(g,entry,stats,mine,rows)
     if next(rows)==nil then return 0,0 end
     local ok,rt=pcall(ruleTables,g)
@@ -633,7 +639,7 @@ function M.mark(g,entry,stats,mine,rows)
     for key,f in pairs(rows) do
         if marks[key]==nil then
             local a,b=stats,mine
-            if f.flip then a,b=mine,stats end
+            if f.caster then a=mine elseif f.flip then a,b=mine,stats end
             local done,v=pcall(function() return rt:IsProtectedFromSpell(f.row,a,b,f.value) end)
             if done and type(v)=='number' then marks[key]=v~=0;read=read+1
             elseif done and type(v)=='boolean' then marks[key]=v;read=read+1

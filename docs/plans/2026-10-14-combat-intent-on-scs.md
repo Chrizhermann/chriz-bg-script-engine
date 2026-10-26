@@ -737,7 +737,12 @@ lab's weapons and kits settled who such a spell reaches: "self" is the attacker.
 showed that the classifier misreads opcode 326 aimed at "self", which IESDP says still lands on
 the spell's target (Artisan's Kitpack's Dreadnought stuns the creature it hits that way).
 
-Next: opcode 326 as IESDP describes it, the teleport lab's second run (an engine jump, SCS's
+The classifier now reads opcode 326 that way (SPELLS-01): a 326 aimed at "self" applies its spell
+to the creature the spell is cast at, while its own check tests the caster. The Dreadnought's
+critical hit stuns the creature it strikes when the Dreadnought is strong enough, Spell Revisions'
+Improved Haste counts for everyone in its area, and Shared Gift heals the ally it is cast at.
+
+Next: the teleport lab's second run (an engine jump, SCS's
 ReallyForceSpellRES form, a cast from out of sight) and a lab of mixed fights with fighters,
 archers, thieves and monsters, then thieves that hide with their own skill (F2f) instead of SCS's
 free invisibility. Melissan's own fight is designed with Christopher.

@@ -617,10 +617,14 @@ H[232]=function(c,e,who,p) kind(c,'prepare','contingency',who,e,p) end
 H[234]=H[232]
 for _,op in ipairs({256,257,258,260}) do H[op]=function(c,e,who,p) kind(c,'prepare','sequencer',who,e,p) end end
 
--- Who receives an effect, from its target field and where its delivery lands.
-local function receiver(e,where)
+-- Who receives an effect, from its target field and where its delivery lands. Inside the spell an
+-- opcode 326 applies (c.remap, IESDP), "self" is the creature the 326 lands on, and so is "original
+-- caster" when that spell has no projectile (0).
+local function receiver(c,e,where)
     local t=e.target
-    if t==1 or t==9 then return 'self' end
+    local remap=c.remap
+    if t==1 then return remap and remap.self or 'self' end
+    if t==9 then return remap and remap.caster or 'self' end
     if t==2 then return where end
     if t==3 then return 'party' end
     if t==4 or t==8 then return 'everyone' end
@@ -680,11 +684,14 @@ local function valid(e)
 end
 
 -- Creature conditions: an IDS file and entry ({ids,entry}), a SPLPROT row and value
--- ({row,value}; flip when the check swaps source and target), or levels ({minLevel,maxLevel},
--- nil for an open end). c.conditions lists each once, and c.when holds the positions of those the
--- effects being walked depend on (all must hold).
+-- ({row,value}; flip when the check swaps source and target; caster when the caster is checked,
+-- whoever receives what follows: an opcode 326 that lands on the caster), or levels
+-- ({minLevel,maxLevel}, nil for an open end). c.conditions lists each once, and c.when holds the
+-- positions of those the effects being walked depend on (all must hold).
 function M.conditionKey(f)
-    if f.row~=nil then return 'row:'..tostring(f.row)..':'..tostring(f.value)..(f.flip and ':flip' or '') end
+    if f.row~=nil then
+        return 'row:'..tostring(f.row)..':'..tostring(f.value)..(f.flip and ':flip' or '')..(f.caster and ':caster' or '')
+    end
     if f.minLevel~=nil or f.maxLevel~=nil then return 'level:'..tostring(f.minLevel or 0)..':'..tostring(f.maxLevel or 0) end
     return 'ids:'..tostring(f.ids)..':'..tostring(f.entry)
 end
@@ -952,7 +959,7 @@ local function send(c,state,e,where,depth,p)
         -- spells that hurt everyone.
         local when=c.when
         if e.p1~=0 then c.conditional=true;c.when=within(when,condition(c,{ids=e.p2,entry=e.p1})) end
-        walk(c,state,{inner},receiver(e,where),depth+1,p,'EFF:'..e.res,c.owner)
+        walk(c,state,{inner},receiver(c,e,where),depth+1,p,'EFF:'..e.res,c.owner)
         c.when=when
         return
     end
@@ -969,11 +976,17 @@ local function send(c,state,e,where,depth,p)
         for k,v in pairs(eff.effect) do inner[k]=v end
         inner.target=2
         local saved=c.times;c.times=(saved or 1)*times;c.approximate=true
-        walk(c,state,{inner},receiver(e,where),depth+1,p,'EFF:'..e.res,c.owner)
+        walk(c,state,{inner},receiver(c,e,where),depth+1,p,'EFF:'..e.res,c.owner)
         c.times=saved;return
     end
     -- 146 casts at a creature, 148 at a point, 326 applies a spell's effects directly, 333
     -- casts repeatedly, 366 casts when the target moves.
+    -- A 326 aimed at "self" or "original caster" still applies its spell to the ability target
+    -- (IESDP): the creature the spell holding it is cast at (c.aim), while its SPLPROT row tests the
+    -- creature the 326 lands on, the caster (Artisan's Kitpack's Dreadnought stuns the creature its
+    -- critical hit strikes when its own strength is high enough). Without a creature to aim at it
+    -- lands on the caster, approximate. Inside the spell a 326 applies, "self" is the creature it
+    -- lands on (c.remap).
     -- 333 casts the holder's resref plus B when it names none.
     local res=e.res
     -- A resref holds eight characters, so an eight-character holder names itself.
@@ -989,8 +1002,13 @@ local function send(c,state,e,where,depth,p)
     local index=M.abilityForLevel(sub,level)
     local ability=index and sub.abilities[index]
     if type(ability)~='table' then return state.miss(c,'SPL',res) end
-    local to=receiver(e,where)
+    local own=receiver(c,e,where)
+    local to=own
+    if op==326 and (e.target==1 or e.target==9) then
+        if c.aim then to=c.aim else c.approximate=true;c.reasons['326-unaimed:'..res]=true end
+    end
     if op==148 then to='point' end
+    local castAt=op~=148 and to or nil
     local subArea=op~=326 and area(state.lookup('PRO',ability.projectile),state.level) or nil
     -- What a cast delivers is checked against the receiver's spell protections by its own power,
     -- school, secondary type, hostility and projectile (326 applies effects without a cast). to:
@@ -1011,14 +1029,18 @@ local function send(c,state,e,where,depth,p)
         to='area'
         c.filter=subArea.filter
     end
-    -- 326 applies the spell only to creatures that meet its SPLPROT row (parameter 2, value in
-    -- parameter 1; row 0 is anyone). EEex swaps the row's source and target with special bit 0.
+    -- 326 applies the spell only when the creature it lands on meets its SPLPROT row (parameter 2,
+    -- value in parameter 1; row 0 is anyone). EEex swaps the row's source and target with special
+    -- bit 0.
     local when=c.when
     if op==326 and e.p2~=0 then
-        c.when=within(when,condition(c,{row=e.p2,value=e.p1,flip=e.special%2==1 or nil}))
+        c.when=within(when,condition(c,{row=e.p2,value=e.p1,flip=e.special%2==1 or nil,caster=own=='self' or nil}))
     end
+    local aim,remap=c.aim,c.remap
+    c.aim=castAt
+    c.remap=op==326 and {self=to,caster=ability.projectile==0 and to or nil} or nil
     walk(c,state,ability.effects,to,depth+1,p,'SPL:'..res,res)
-    c.times=saved;c.when=when;c.filter=filter
+    c.times=saved;c.when=when;c.filter=filter;c.aim=aim;c.remap=remap
 end
 -- What a delivery brings shares its saving throw: an effect without one of its own saves as the
 -- delivery does (Spell Revisions' Charm Person saves on its 177s, not on the charm).
@@ -1027,7 +1049,7 @@ local function deliver(c,state,e,where,depth,p)
     local inherit,wait,when=c.inherit,c.delay,c.when
     if saveNames(e.save) then c.inherit={save=e.save,saveBonus=e.saveBonus} end
     c.delay=(wait or 0)+delay(e)
-    if receiver(e,where)~='self' then c.when=leveled(c,e,when) end
+    if receiver(c,e,where)~='self' then c.when=leveled(c,e,when) end
     send(c,state,e,where,depth,p)
     c.inherit,c.delay,c.when=inherit,wait,when
 end
@@ -1059,7 +1081,7 @@ walk=function(c,state,effects,where,depth,p,key,owner)
             if state.count>M.limits.effects then c.partial=true;c.reasons['too-many-effects']=true;break end
             if type(e)~='table' or not valid(e) then c.partial=true;c.reasons['bad-effect']=true
             else
-                local who=receiver(e,where)
+                local who=receiver(c,e,where)
                 local q=p*chance(e)
                 -- What lands on the caster by a preset target does so only within its levels, by
                 -- the caster level; the game does not check a self-targeted effect (GemRB).
@@ -1129,12 +1151,12 @@ local HARMS_ALLIES={everyone=true,nonparty=true,casterGroup=true}
 -- (opcodes 146 and 148) and lands nothing else there, as SCS's sequencers and triggers do
 -- (DEFENCE-01). It reaches as far as its shortest spell at the casting level; SCS writes the
 -- ability's effect count where its range belongs.
-local function releaseRange(record,ability,state,where)
+local function releaseRange(c,record,ability,state,where)
     if record.kind~='SPL' or record.spellType~=4 or type(ability.effects)~='table' then return nil end
     local count,shortest=0,nil
     for _,e in ipairs(ability.effects) do
         if type(e)~='table' or not valid(e) then return nil end
-        local who=receiver(e,where)
+        local who=receiver(c,e,where)
         if who and who~='self' then
             if e.opcode~=146 and e.opcode~=148 then return nil end
             local sub=state.lookup('SPL',e.res)
@@ -1189,6 +1211,8 @@ function M.classify(record,index,lookup,options)
     -- turnings, deflections and traps let through (IESDP); a sub-spell's area does not count here.
     c.explodes=c.area~=nil
     local where=c.area and 'area' or (c.target=='self' and 'self') or (c.target=='point' and 'point') or 'target'
+    -- The creature the ability is cast at, where an opcode 326 aimed at "self" applies its spell.
+    c.aim=(c.target=='self' and 'self') or ((c.target=='creature' or c.target=='dead') and 'target') or nil
     -- The record itself is on the path, so a sub-spell that casts it again is a cycle.
     local key=tostring(record.kind)..':'..tostring(record.resref)
     walk(c,state,ability.effects,where,0,1,key,record.resref)
@@ -1200,10 +1224,11 @@ function M.classify(record,index,lookup,options)
         again.ends=ends
         return M.classify(record,index,lookup,again)
     end
-    local reach=releaseRange(record,ability,state,where)
+    local reach=releaseRange(c,record,ability,state,where)
     if reach then c.release=true;c.ownRange=c.range;c.range=reach end
     spent(c.hits)
     c.times=nil;c.owner=nil;c.node=nil;c.when=nil;c.inherit=nil;c.conditionAt=nil;c.delay=nil;c.filter=nil
+    c.aim=nil;c.remap=nil
     c.marks=nil
     -- Without conditions every creature gets the same roles, and no view needs the log.
     if #c.conditions==0 then c.conditions=nil;c.log=nil;c.nodes=nil end
