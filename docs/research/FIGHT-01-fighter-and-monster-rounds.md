@@ -365,8 +365,9 @@ fists (slot 10 selected, `sense.attack`).
 The Spell Revisions lab at level 12 reads: Smite Evil (`C0PAL02`) 21 magic damage on the next hit;
 the assassin's Poison Weapon (`SPCL423`) 22 poison on every hit for 30 seconds, save vs death;
 Power Attack (`SPCL906`) a stun, save vs death; Smite (`SPCL909`) a stun and a knockback without a
-save. An on-hit EFF that cannot be read leaves the spell approximate, with its reason, and the rest
-of it whole.
+save; Deathblow (`SPCL902`) a slay up to level 10, Greater Deathblow up to 12 (the hit's EFF keeps
+its levels, SPELLS-01). An on-hit EFF that cannot be read leaves the spell approximate, with its
+reason, and the rest of it whole.
 
 ## Agreed (Christopher, 2026-10-25)
 

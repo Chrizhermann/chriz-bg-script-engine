@@ -108,14 +108,15 @@ local function itm(v,resref)
         enchantment=v.u32(0x60),abilities=abilities,equipping=effects(v,fxOff,v.u16(0x6E),v.u16(0x70))}
 end
 
+-- An EFF file keeps the levels it reaches apart from its dice (minLevel, maxLevel).
 local function eff(v,resref)
     check(v,'EFF V2.0',0xD4)
     return {kind='EFF',resref=resref,effect={opcode=v.u32(0x10),target=v.u32(0x14),
         power=v.u32(0x18),p1=v.i32(0x1C),p2=v.u32(0x20),timing=v.u16(0x24),resist=v.u32(0x5C),
         duration=v.u32(0x28),prob1=v.u16(0x2C),prob2=v.u16(0x2E),res=v.resref(0x30),
         dice=v.i32(0x38),sides=v.i32(0x3C),save=v.u32(0x40),saveBonus=v.i32(0x44),
-        special=v.u32(0x48),school=v.u32(0x4C),secondary=v.u32(0xD0),res2=v.resref(0x70),
-        res3=v.resref(0x78)}}
+        special=v.u32(0x48),school=v.u32(0x4C),minLevel=v.i32(0x54),maxLevel=v.i32(0x58),
+        secondary=v.u32(0xD0),res2=v.resref(0x70),res3=v.resref(0x78)}}
 end
 
 -- Area-of-effect keys only for type 3.

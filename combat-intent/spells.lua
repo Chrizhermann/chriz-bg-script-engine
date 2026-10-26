@@ -27,8 +27,10 @@ local STATS={[6]='charisma',[10]='constitution',[15]='dexterity',[19]='intellige
 local TOHIT={[54]=true,[167]=true,[278]=true,[284]=true,[288]=true,[305]=true,[306]=true}
 local WEAPON_DAMAGE={[73]=true,[285]=true,[286]=true,[289]=true}
 local SAVE_MODS={[33]=true,[34]=true,[35]=true,[36]=true,[37]=true,[325]=true,[346]=true}
--- Opcodes that use the dice fields for an amount; elsewhere they are a level range.
-local DICE_AMOUNT={[12]=true,[17]=true,[18]=true,[25]=true,[98]=true,[218]=true}
+-- Opcodes that roll their dice fields for an amount (IESDP: 12, 17, 18, 218 with parameter 2 at
+-- 1, 331 and 333); they reach creatures of any level.
+local DICE_AMOUNT={[12]=true,[17]=true,[18]=true,[331]=true,[333]=true}
+local function diced(e) return DICE_AMOUNT[e.opcode]==true or (e.opcode==218 and e.p2==1) end
 -- Graphics, sounds, text, scripting state and bookkeeping: no role.
 local NEUTRAL={}
 for _,op in ipairs({7,8,9,23,41,50,51,52,53,56,57,61,63,64,66,71,72,82,94,95,96,99,103,104,105,
@@ -59,6 +61,20 @@ local function seconds(e)
     return e.duration
 end
 local function average(dice,sides) if dice>0 and sides>0 then return dice*(sides+1)/2 end return 0 end
+-- The levels of the creatures an effect reaches, lowest and highest (nil: open), as the game
+-- checks them (IESDP; GemRB's CheckLevel): an EFF file keeps them in fields of their own
+-- (minLevel, maxLevel) and its dice are only dice; a spell's or an item's effect keeps them in
+-- its dice fields (sides the lowest, dice the highest). Effects that roll their dice have none.
+local function levels(e)
+    if diced(e) then return nil,nil end
+    local lo,hi=e.sides,e.dice
+    if e.minLevel~=nil or e.maxLevel~=nil then lo,hi=e.minLevel,e.maxLevel end
+    return number(lo) and lo>0 and lo or nil,number(hi) and hi>0 and hi or nil
+end
+local function inLevels(e,level)
+    local lo,hi=levels(e)
+    return not ((lo and level<lo) or (hi and level>hi))
+end
 local function saveNames(bits)
     local names
     for _,pair in ipairs(SAVES) do
@@ -102,9 +118,11 @@ local function add(c,name,who,e,p)
         for s in pairs(saves) do r.save[s]=true end
         if r.saveBonus==nil or e.saveBonus<r.saveBonus then r.saveBonus=e.saveBonus end
     end
-    if not DICE_AMOUNT[e.opcode] then
-        if e.dice>0 then r.maxLevel=math.min(r.maxLevel or e.dice,e.dice) end
-        if e.sides>0 then r.minLevel=math.max(r.minLevel or e.sides,e.sides) end
+    -- What lands on the caster was checked against its level already (walk).
+    if who~='self' then
+        local lo,hi=levels(e)
+        if hi then r.maxLevel=math.min(r.maxLevel or hi,hi) end
+        if lo then r.minLevel=math.max(r.minLevel or lo,lo) end
     end
     r.duration=longer(r.duration,seconds(e))
     if e.breakFree then r.breakFree=e.breakFree end
@@ -579,11 +597,13 @@ local function valid(e)
     return type(e.res)=='string'
 end
 
--- Creature conditions: an IDS file and entry ({ids,entry}), or a SPLPROT row and value
--- ({row,value}; flip when the check swaps source and target). c.conditions lists each once, and
--- c.when holds the positions of those the effects being walked depend on (all must hold).
+-- Creature conditions: an IDS file and entry ({ids,entry}), a SPLPROT row and value
+-- ({row,value}; flip when the check swaps source and target), or levels ({minLevel,maxLevel},
+-- nil for an open end). c.conditions lists each once, and c.when holds the positions of those the
+-- effects being walked depend on (all must hold).
 function M.conditionKey(f)
     if f.row~=nil then return 'row:'..tostring(f.row)..':'..tostring(f.value)..(f.flip and ':flip' or '') end
+    if f.minLevel~=nil or f.maxLevel~=nil then return 'level:'..tostring(f.minLevel or 0)..':'..tostring(f.maxLevel or 0) end
     return 'ids:'..tostring(f.ids)..':'..tostring(f.entry)
 end
 local function condition(c,f)
@@ -604,6 +624,15 @@ local function within(when,n)
     out[#out+1]=n
     return out
 end
+-- when, and e's own levels: a creature outside them never gets e, nor what e delivers. Spell
+-- Revisions' Color Spray puts only creatures of level 1 to sleep and blinds up to the caster's
+-- level plus two; SCS casts one of four spells by the target's level.
+local function leveled(c,e,when)
+    local lo,hi=levels(e)
+    if not (lo or hi) then return when end
+    c.conditional=true
+    return within(when,condition(c,{minLevel=lo,maxLevel=hi}))
+end
 
 -- The walk node of a spell on the current path (the spell itself or one it comes through).
 local function ancestor(c,res)
@@ -622,12 +651,14 @@ end
 --   Without a condition, row 0 is SCS's and SR's guard against stacking, not an immunity.
 local function exclusion(c,e)
     local op=e.opcode
-    if op==101 then return c.when and {opcode=e.p2,when=c.when} or nil end
+    -- An immunity within levels is one under a creature condition.
+    local when=leveled(c,e,c.when)
+    if op==101 then return when and {opcode=e.p2,when=when} or nil end
     if e.res=='' or not (op==206 or op==318 or op==324) then return nil end
     local node=ancestor(c,e.res)
     if not node then return nil end
-    if op~=206 and e.p2~=0 then return {node=node,when=within(c.when,condition(c,{row=e.p2,value=e.p1}))} end
-    return c.when and {node=node,when=c.when} or nil
+    if op~=206 and e.p2~=0 then return {node=node,when=within(when,condition(c,{row=e.p2,value=e.p1}))} end
+    return when and {node=node,when=when} or nil
 end
 
 -- An effect without a saving throw of its own, given the one of the delivery that brings it.
@@ -870,12 +901,14 @@ local function send(c,state,e,where,depth,p)
 end
 -- What a delivery brings shares its saving throw: an effect without one of its own saves as the
 -- delivery does (Spell Revisions' Charm Person saves on its 177s, not on the charm).
+-- A delivery to others brings what it delivers only to creatures within its own levels.
 local function deliver(c,state,e,where,depth,p)
-    local inherit,wait=c.inherit,c.delay
+    local inherit,wait,when=c.inherit,c.delay,c.when
     if saveNames(e.save) then c.inherit={save=e.save,saveBonus=e.saveBonus} end
     c.delay=(wait or 0)+delay(e)
+    if receiver(e,where)~='self' then c.when=leveled(c,e,when) end
     send(c,state,e,where,depth,p)
-    c.inherit,c.delay=inherit,wait
+    c.inherit,c.delay,c.when=inherit,wait,when
 end
 local DELIVERY={[146]=true,[148]=true,[177]=true,[272]=true,[283]=true,[326]=true,[333]=true,[366]=true}
 
@@ -907,6 +940,9 @@ walk=function(c,state,effects,where,depth,p,key,owner)
             else
                 local who=receiver(e,where)
                 local q=p*chance(e)
+                -- What lands on the caster by a preset target does so only within its levels, by
+                -- the caster level; the game does not check a self-targeted effect (GemRB).
+                if who=='self' and e.target~=1 and number(state.level) and not inLevels(e,state.level) then q=0 end
                 local own=e
                 if who and q>0 and c.inherit and not saveNames(e.save) then e=inherited(e,c.inherit) end
                 if who and q>0 and onSave[who] then
@@ -949,7 +985,7 @@ walk=function(c,state,effects,where,depth,p,key,owner)
                         if (e.opcode==248 or e.opcode==249) and e.res~='' and state.weapons then onHit(c,state,e,q,who) end
                         -- The log replays what reaches others for one creature (M.view).
                         if who~='self' then
-                            local when=c.when
+                            local when=leveled(c,e,c.when)
                             if TYPED[e.opcode] and e.p2~=0 and e.p1~=0 then
                                 when=within(when,condition(c,{ids=e.p2,entry=e.p1}))
                             end

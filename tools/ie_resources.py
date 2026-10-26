@@ -319,16 +319,19 @@ def parse_itm(data, resref):
 
 
 def parse_eff(data, resref):
-    """Parse an EFF V2.0 file into {'kind': 'EFF', 'effect': {...}}."""
+    """Parse an EFF V2.0 file into {'kind': 'EFF', 'effect': {...}}. The file keeps the levels
+    it reaches apart from its dice (minLevel, maxLevel)."""
     _check(data, b'EFF V2.0', 0xD4)
     opcode, target, power, p1, p2, timing = _unpack('<IIIiIH', data, 0x10)
     duration, prob1, prob2, res = _unpack('<IHH8s', data, 0x28)
     dice, sides, save, save_bonus, special, school = _unpack('<iiIiII', data, 0x38)
+    min_level, max_level = _unpack('<ii', data, 0x54)
     effect = {
         'opcode': opcode, 'target': target, 'power': power, 'p1': p1, 'p2': p2,
         'timing': timing, 'resist': _unpack('<I', data, 0x5C)[0], 'duration': duration,
         'prob1': prob1, 'prob2': prob2, 'res': _resref(res), 'dice': dice, 'sides': sides,
         'save': save, 'saveBonus': save_bonus, 'special': special, 'school': school,
+        'minLevel': min_level, 'maxLevel': max_level,
         'secondary': _unpack('<I', data, 0xD0)[0],
         'res2': _resref(data[0x70:0x78]), 'res3': _resref(data[0x78:0x80]),
     }

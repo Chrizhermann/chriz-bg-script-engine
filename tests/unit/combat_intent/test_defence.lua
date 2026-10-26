@@ -467,6 +467,14 @@ assert(near(find(defence.options(i,{}),'TESTPOIS').worth,2.5*4/60) and near(find
 i.frame.enemies[1].mirror=nil
 i.frame.self.guard={sources={TESTPOIS=true}}
 assert(find(defence.options(i,{}),'TESTPOIS')==nil)
+-- Deathblow's hit slays up to level 10 only (its EFF keeps its levels apart from its dice).
+hitWorld['EFF:TESTDBEF']={kind='EFF',resref='TESTDBEF',effect=fx(55,{target=2,p2=2,timing=1,duration=0,minLevel=0,maxLevel=10})}
+local blow=input({fighter(11,130)},{row('TESTDBLW',onHits('TESTDBLW',{fx(248,{duration=12,res='TESTDBEF'})}),1)},
+    {mind=mind.new({ownWeapon=true})})
+blow.frame.self.weapon={damage=10,damageType=3,apr=2,thac0=10}
+assert(find(defence.options(blow,{}),'TESTDBLW').worth>0.5)
+blow.frame.enemies[1].level=11
+assert(find(defence.options(blow,{}),'TESTDBLW')==nil)
 -- A caster that casts does not swing.
 i.frame.self.guard={}
 i.mind=mind.new()

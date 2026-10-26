@@ -735,4 +735,59 @@ for _,op in ipairs({55,209,238}) do assert(one(fx(op,{})).roles.disable.kinds.de
 assert(one(fx(209,{})).roles.disable.belowHp==60)
 groups=groups+1
 
+-- Levels (IESDP; GemRB's CheckLevel). A spell's or item's effect keeps the levels it reaches in
+-- its dice fields (sides the lowest, dice the highest), an EFF file in fields of its own, where its
+-- dice are only dice. Effects that roll their dice reach any level: damage, healing, maximum hit
+-- points, Stoneskin's skins by dice (parameter 2 at 1), 331 and 333. Each creature sees what
+-- reaches its level (view), so the tiers of one spell stay apart.
+local function atLevel(n)
+    return function(f)
+        if f.minLevel==nil and f.maxLevel==nil then return false end
+        return not ((f.minLevel and n<f.minLevel) or (f.maxLevel and n>f.maxLevel))
+    end
+end
+c=classify(spl('TESTTIER',{ability({fx(13,{dice=4}),fx(45,{dice=8,sides=5,duration=12}),fx(12,{dice=2,sides=6})})}),world({}))
+local low,mid,high=spells.view(c,atLevel(3)),spells.view(c,atLevel(6)),spells.view(c,atLevel(10))
+assert(low.disable.kinds.death and not low.disable.kinds.stun and low.disable.maxLevel==4 and low.disable.minLevel==nil)
+assert(mid.disable.kinds.stun and not mid.disable.kinds.death and mid.disable.minLevel==5 and mid.disable.maxLevel==8)
+assert(high.disable==nil and near(high.damage.amount,7) and near(low.damage.amount,7) and c.conditional)
+local r=one(fx(98,{p1=6,dice=12,sides=8})).roles.buff
+assert(r.kinds.regeneration and r.minLevel==8 and r.maxLevel==12)
+assert(one(fx(25,{p1=1,duration=6,dice=6})).roles.damage.maxLevel==6)
+assert(one(fx(331,{p1=1,dice=1,sides=2})).roles.summon.maxLevel==nil)
+r=one(fx(218,{p1=4,dice=10})).roles.protection
+assert(r.stoneskin==4 and r.maxLevel==10)
+r=one(fx(218,{p2=1,dice=1,sides=4})).roles.protection
+assert(near(r.stoneskin,2.5) and r.maxLevel==nil and r.minLevel==nil)
+-- An EFF's own levels: Deathblow's hit slays up to level 10; its dice say nothing about levels.
+local levelWorld={['EFF:TESTDBEF']={kind='EFF',resref='TESTDBEF',effect=fx(55,{p2=2,minLevel=0,maxLevel=10,dice=19,sides=2})},
+    ['SPL:TESTCSSL']=spl('TESTCSSL',{ability({fx(39,{duration=12})})}),
+    ['SPL:TESTTIRA']=spl('TESTTIRA',{ability({fx(45,{duration=6})})}),
+    ['SPL:TESTTIRB']=spl('TESTTIRB',{ability({fx(13,{})})})}
+c=classify(spl('TESTDB',{ability({fx(248,{target=1,duration=12,res='TESTDBEF'})},{target=5})}),world(levelWorld))
+local strike=c.hits[1].strike
+assert(spells.view(strike,atLevel(1)).disable.slays and spells.view(strike,atLevel(10)).disable.kinds.death)
+assert(spells.view(strike,atLevel(11)).disable==nil and strike.roles.disable.maxLevel==10)
+-- A delivery reaches only creatures within its levels, and so does what it brings: Spell
+-- Revisions' Color Spray puts level 1 to sleep through a 146 and blinds up to level 3; SCS casts
+-- one of two spells by the target's level (326).
+c=classify(spl('TESTCS',{ability({fx(146,{p2=1,res='TESTCSSL',dice=1}),fx(74,{dice=3,duration=18})})}),world(levelWorld))
+assert(spells.view(c,atLevel(1)).disable.kinds.sleep and spells.view(c,atLevel(2)).disable==nil)
+assert(spells.view(c,atLevel(3)).debuff.kinds.blind and spells.view(c,atLevel(4)).debuff==nil)
+c=classify(spl('TESTTIR',{ability({fx(326,{res='TESTTIRA',dice=8}),fx(326,{res='TESTTIRB',sides=9})})}),world(levelWorld))
+assert(spells.view(c,atLevel(8)).disable.kinds.stun and not spells.view(c,atLevel(8)).disable.kinds.death)
+assert(spells.view(c,atLevel(9)).disable.kinds.death and not spells.view(c,atLevel(9)).disable.kinds.stun)
+-- An immunity within levels keeps those creatures out of what follows.
+c=classify(spl('TESTIMM',{ability({fx(101,{p2=13,sides=10,duration=1}),fx(13,{})})}),world({}))
+assert(spells.view(c,atLevel(9)).disable.kinds.death and spells.view(c,atLevel(10)).disable==nil)
+-- What lands on the caster by a preset target does so only within its levels, by the caster
+-- level (extra attacks from level 7 and from 13); a self-targeted effect (target 1) always lands.
+local whirl=spl('TESTWHL',{ability({fx(1,{p1=1,sides=7,duration=30}),fx(1,{p1=1,sides=13,duration=30})},{target=5})})
+assert(classify(whirl,world({}),{level=6}).roles.buff==nil)
+assert(classify(whirl,world({}),{level=9}).roles.buff.amounts.attacks==1)
+assert(classify(whirl,world({}),{level=13}).roles.buff.amounts.attacks==2)
+whirl.abilities[1].effects[1].target=1
+assert(classify(whirl,world({}),{level=6}).roles.buff.amounts.attacks==1)
+groups=groups+1
+
 return groups

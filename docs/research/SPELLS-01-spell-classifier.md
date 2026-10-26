@@ -31,7 +31,7 @@ files alone, whatever Spell Revisions, SCS or other mods changed?
   partial, a spell choice for the player, unknown projectile) and unknown opcodes.
 - It never raises. Missing or odd data is reported (partial with a reason), and the caller
   skips what it cannot use; the creature's other abilities stay usable.
-- Host tests: `tests/unit/combat_intent/test_spells.lua`, 22 groups on Lua 5.1 and LuaJIT,
+- Host tests: `tests/unit/combat_intent/test_spells.lua`, 35 groups on Lua 5.1 and LuaJIT,
   all synthetic records.
 
 ## Census over every SPL
@@ -101,6 +101,22 @@ files alone, whatever Spell Revisions, SCS or other mods changed?
   expected to sleep by its save (`choice.brokenFree`). A cure for someone else (the caster) or
   one that comes before the condition stays a cure. Over every SPL of the SR lab only Greater
   Command and its sub-spell match.
+- Levels (2026-10-26). An effect reaches only creatures within its levels (IESDP; GemRB's
+  `CheckLevel`). A spell's or item's effect keeps them in its dice fields, except where the dice
+  roll an amount (opcodes 12, 17, 18, 218 with parameter 2 at 1, 331 and 333; the list had 25
+  and 98, which keep levels there too, and lacked 331 and 333). An EFF file keeps them in fields
+  of its own (0x54, 0x58; both readers return them as `minLevel` and `maxLevel`), and its dice
+  are only dice. The classifier read neither the EFF fields nor a delivery's levels, and merged
+  the tiers of one spell into one range: Holy Word's death up to level 4 and confusion up to 9
+  became one disable up to level 4, so its confusion counted for no one above. Now levels are
+  creature conditions, as IDS
+  entries and SPLPROT rows are, for every effect and delivery that reaches others: each creature
+  sees what reaches its level (`spells.view`, judged by `targeting.holds` from the creature's
+  level), Deathblow's on-hit slay (`SPCL902`, its EFF up to level 10) included. What lands on the
+  caster by a preset target is checked against the caster level the spell is classified at; a
+  self-targeted effect is not checked. At caster level 12, 57 spells of the SR lab reach
+  creatures by level and 35 of them reach levels differently: Color Spray, Holy Word, Cloudkill,
+  Prismatic Spray, Sleep and SCS's tiered spells among them.
 - An empty item reference in opcode 111 creates no weapon and is no missing file
   (2026-10-20); IESDP warns that the game can crash on it. A kit mod in the SR lab gives one kit
   (SPLPROT row 418, the kit check) the charge of a touch spell in the fist instead, through a

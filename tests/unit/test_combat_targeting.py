@@ -16,7 +16,7 @@ def run(backend, name):
 
 @pytest.mark.parametrize('backend', ['lua51', 'luajit21'])
 def test_targeting(backend):
-    assert run(backend, 'test_targeting.lua') == 6
+    assert run(backend, 'test_targeting.lua') == 7
 
 
 @pytest.mark.parametrize('backend', ['lua51', 'luajit21'])

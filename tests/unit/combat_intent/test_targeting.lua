@@ -243,4 +243,12 @@ assert(legal(enemy({hp=1,minHp=1}))=='filter' and legal(enemy({hp=11,maxHp=20,mi
 assert(legal(regenerating,fireBolt,caster,enemy({id=2,x=100,ids=trollIds}))=='ok')
 groups=groups+1
 
+-- Levels by the creature's own level (the highest of its classes'); unknown without one.
+local within=targeting.holds({level=6})
+assert(within({minLevel=5,maxLevel=8})==true and within({maxLevel=5})==false and within({minLevel=7})==false)
+assert(targeting.holds({})({maxLevel=5})==nil)
+local stun=spell('TESTLVST',{fx(45,{dice=8,sides=5,duration=12})})
+assert(viewOf(stun,enemy({level=6})).disable.kinds.stun and viewOf(stun,enemy({level=9})).disable==nil)
+groups=groups+1
+
 return groups

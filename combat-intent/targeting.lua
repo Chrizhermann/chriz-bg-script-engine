@@ -126,7 +126,8 @@ end
 
 -- Whether e meets one of a spell's conditions (combat-intent/spells.lua): an IDS file and entry
 -- by e's own values, a SPLPROT row by the marks the adapter read through the engine's own check
--- (e.splprot, keyed by spells.conditionKey). true, false or nil (cannot judge).
+-- (e.splprot, keyed by spells.conditionKey), levels by e's level (the highest of its classes', as
+-- the game compares it). true, false or nil (cannot judge).
 function M.holds(e)
     return function(f)
         if type(f)~='table' then return nil end
@@ -136,6 +137,11 @@ function M.holds(e)
             local v=marks[spells.conditionKey(f)]
             if v==true or v==false then return v end
             return nil
+        end
+        if f.minLevel~=nil or f.maxLevel~=nil then
+            local level=type(e)=='table' and e.level
+            if not number(level) then return nil end
+            return not ((number(f.minLevel) and level<f.minLevel) or (number(f.maxLevel) and level>f.maxLevel))
         end
         return ids.matches(f,e)
     end
