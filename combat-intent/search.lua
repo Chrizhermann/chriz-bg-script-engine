@@ -78,10 +78,11 @@ M.itemLevel=10
 -- A search walk at least jumpMin long goes by an innate teleport, one at least jumpSlotMin long by
 -- a memorized one (M.jump); no innate teleport within jumpGap seconds of the creature's last, no
 -- memorized one within jumpSlotGap (SCS's mages wait 18 seconds between their Dimension Door
--- pursuits). The gap is the only pause the game's Teleport Without Error has, which most fiends
--- carry and which has no recharge of its own; the installer's BGSETELE comes back after 18 seconds
--- by itself, as the mind flayers' Planar Travel does (Christopher, 2026-10-26: an instant teleport
--- with a cooldown). Jumps into the fight count the same gap (combat-intent/choice.lua).
+-- pursuits). The gap is the only pause for the game's Teleport Without Error, which most fiends
+-- carry: it gives itself back at once (opcodes 172 and 171). The installer's BGSETELE comes back
+-- after 18 seconds by itself, as the mind flayers' Planar Travel does (Christopher, 2026-10-26: an
+-- instant teleport with a cooldown). Jumps into the fight count the same gap
+-- (combat-intent/choice.lua).
 M.jumpMin=200
 M.jumpSlotMin=600
 M.jumpGap=18

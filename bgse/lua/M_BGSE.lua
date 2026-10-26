@@ -6793,10 +6793,11 @@ M.itemLevel=10
 -- A search walk at least jumpMin long goes by an innate teleport, one at least jumpSlotMin long by
 -- a memorized one (M.jump); no innate teleport within jumpGap seconds of the creature's last, no
 -- memorized one within jumpSlotGap (SCS's mages wait 18 seconds between their Dimension Door
--- pursuits). The gap is the only pause the game's Teleport Without Error has, which most fiends
--- carry and which has no recharge of its own; the installer's BGSETELE comes back after 18 seconds
--- by itself, as the mind flayers' Planar Travel does (Christopher, 2026-10-26: an instant teleport
--- with a cooldown). Jumps into the fight count the same gap (combat-intent/choice.lua).
+-- pursuits). The gap is the only pause for the game's Teleport Without Error, which most fiends
+-- carry: it gives itself back at once (opcodes 172 and 171). The installer's BGSETELE comes back
+-- after 18 seconds by itself, as the mind flayers' Planar Travel does (Christopher, 2026-10-26: an
+-- instant teleport with a cooldown). Jumps into the fight count the same gap
+-- (combat-intent/choice.lua).
 M.jumpMin=200
 M.jumpSlotMin=600
 M.jumpGap=18
@@ -8883,6 +8884,9 @@ local search=require('combat-intent.search')
 local rngs=require('kernel.rng')
 local M={}
 M.families={mage=true,priest=true}
+-- Every family a hook asks for (kernel/hook.lua): the ones api:setFamilies takes.
+local FAMILIES={}
+for _,family in ipairs(require('kernel.hook').families) do FAMILIES[family]=true end
 -- Game ticks (15 a second). A queued cast that has not started pendingTicks after it was
 -- queued, or after the creature's casting aura was last seen busy, is given up; a started one is
 -- held as long beyond its casting time (decide). outcomeTicks after a cast ends, or after time
@@ -9069,6 +9073,8 @@ function M.new(g,options)
     -- hurts: each creature's hit points when last looked at for pain; pained: the tick the pain
     -- drove a dull creature out, until it is out.
     local hurts,hurtCount,pained={},0,{}
+    -- The families whose rounds the choice takes (api:setFamilies).
+    local families=M.families
     local seed=options.seed
     if type(seed)~='number' then
         local clock=rawget(g,'os') and g.os.time or (os and os.time)
@@ -10076,7 +10082,7 @@ function M.new(g,options)
 
     local function decide(view,family)
         if not enabled or missing then return decline(missing and 'missing' or 'off') end
-        if not M.families[family] then return decline('family') end
+        if not families[family] then return decline('family') end
         local tick=now()
         if type(tick)~='number' then return decline('no-clock') end
         local id=view.id
@@ -10476,7 +10482,7 @@ function M.new(g,options)
     -- as for every round the engine takes. Then the engine alone searches, detects and gives up, also
     -- when it has no clue to go on; a creature off its side (neutral, charmed) keeps SCS's own.
     function api:searches(family,id)
-        if not (enabled and not missing and M.families[family]==true) then return false end
+        if not (enabled and not missing and families[family]==true) then return false end
         local sprite=get(id)
         return sprite~=nil and sense.side(sprite.m_typeAI.m_EnemyAlly)=='evil'
     end
@@ -10488,7 +10494,7 @@ function M.new(g,options)
     -- that the engine did not know when it chose the action lets SCS's escape break it off, as
     -- SCS's creatures always do.
     function api:zones(family,id)
-        if not (enabled and not missing and M.families[family]==true and zonesReady()) then return false end
+        if not (enabled and not missing and families[family]==true and zonesReady()) then return false end
         local ok,result=pcall(weighs,id,family)
         if ok then return result==true end
         zoneFailed('zone-guard',result)
@@ -10510,6 +10516,20 @@ function M.new(g,options)
     -- table.
     function api:setWit(value)
         assert(type(value)=='boolean');witOn=value;minds,mindCount={},0
+    end
+    -- Labs: the families whose rounds the choice takes (M.families by default: mages and priests
+    -- until F1e switches fighters and monsters on), e.g. {mage=true,priest=true,monster=true}; nil
+    -- restores the default. A bad table changes nothing: false and the first bad entry.
+    function api:setFamilies(t)
+        if t==nil then families=M.families;return true end
+        if type(t)~='table' then return false,'families' end
+        local copy={}
+        for family,on in pairs(t) do
+            if not FAMILIES[family] or type(on)~='boolean' then return false,tostring(family) end
+            copy[family]=on
+        end
+        families=copy
+        return true
     end
     function api:setWitOverrides(t)
         if t~=nil and type(t)~='table' then return false,'overrides' end

@@ -149,7 +149,8 @@ Python, and `tests/integration/test_hook_installer.py` checks they agree.
    copy of the teleport, below the anchor). Until now they ran as copied specials. Copies fall
    from 2,914 to 2,506, since the jumps' target picks are no longer copied either, and 16,345
    blocks get the search condition. 65 hooked scripts teleport by script. 123 creatures use them:
-   110 have a teleport of their own (`SPIN159`, or `SPIN186` for mind flayers), and 13 get
+   110 have a teleport of their own (94 `SPIN159`, 15 mind flayers `SPIN186`, and the dryad
+   `DRYADHA` six Dimension Doors), and 13 get
    `BGSETELE`: Melissan in the final fight (`FINMEL01`), the undead mind flayers (`MINDVA01`,
    `MINDVAM`, `UDVAMP`), four elementals (`UDELDA`, `UDELDE`, `UDELDF`, `ELEMIMIX`) and five
    demons (`DEMOGOR2`, `OHB5BHAL`, `DW#BFSUM`, `SUDEMON2`, `GORCHR`). Host run of the rule on the

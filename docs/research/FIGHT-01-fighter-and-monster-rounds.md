@@ -219,7 +219,7 @@ The engine searches with what the creature and its group perceived instead
   spends its slot, for 600 or more and only by a creature that sees its tactics this search. No
   teleport within 18 seconds of the creature's last, a search jump or a jump into the fight (SCS's
   pause between its mages' Dimension Door pursuits; the game's Teleport Without Error, which most
-  fiends carry, has no recharge of its own); the innate first, then the lowest level; beyond its range
+  fiends carry, gives itself back at once); the innate first, then the lowest level; beyond its range
   as far toward the spot as it reaches, and the creature walks when that would land it in a danger
   zone short of the spot. The log judges each by where the creature stands after it
   (`landed` rows with the distance off its spot, `landed` and `unlanded` counts).
@@ -267,14 +267,15 @@ The engine searches with what the creature and its group perceived instead
 
 Not built yet: opening doors, buffing at the post after giving up, barks, and an ordered target's
 clues coming first. SCS's scripted teleports (the fiends' and Melissan's `dw#fitel`, cast with
-`ReallyForceSpellRES` without a memorized copy) are no ability the engine sees. Since 2026-10-26
-the installer gives each creature of a hooked script that teleports that way and has no teleport of
-its own a real innate one, BGSETELE ([HOOK-01](HOOK-01-scs-hook-placement.md), rule 8); most fiends
-already carry the game's Teleport Without Error (SPIN159). So a fiend the engine drives searches and
-jumps with a teleport the player sees cast. To see in a lab: searches in real fights, whether spell
-damage sets `m_lHitter` as weapon hits do, what Detect Illusion reveals, whether a teleport at a
-spot the caster does not see goes off or first walks until it does, and that SPIN159 and BGSETELE
-show their names in the log and BGSETELE comes back after 18 seconds.
+`ForceSpellRES` or `ReallyForceSpellRES` without a memorized copy) are no ability the engine sees.
+Since 2026-10-26 the installer gives each creature of a hooked script that teleports that way and
+has no teleport of its own a real innate one, BGSETELE ([HOOK-01](HOOK-01-scs-hook-placement.md),
+rule 8); most fiends already carry the game's Teleport Without Error (SPIN159). So a fiend the
+engine drives searches and jumps with a teleport the player sees cast. To see in a lab: searches in
+real fights, whether spell damage sets `m_lHitter` as weapon hits do, what Detect Illusion
+reveals, whether a teleport at a spot the caster does not see goes off or first walks until it
+does, and that SPIN159 and BGSETELE show their names in the log and BGSETELE comes back after 18
+seconds.
 
 ### Jumps into the fight (2026-10-26)
 
