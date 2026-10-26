@@ -83,6 +83,7 @@ def build_eff():
     struct.pack_into('<iiIiII', data, 0x38, 1, 8, 2, -3, 9, 5)
     struct.pack_into('<ii', data, 0x54, 3, 10)
     struct.pack_into('<I', data, 0x5C, 1)
+    struct.pack_into('<ii', data, 0x60, 7, -2)
     data[0x70:0x78] = ref('res2')
     data[0x78:0x80] = ref('res3')
     struct.pack_into('<I', data, 0xD0, 42)
@@ -243,8 +244,10 @@ def test_eff_v2():
     eff = ie.parse_eff(build_eff(), 'Ab')
     assert set(eff) == {'kind', 'resref', 'effect'} and eff['resref'] == 'AB'
     effect = eff['effect']
-    assert set(effect) == EFFECT_KEYS | {'school', 'secondary', 'res2', 'res3', 'minLevel', 'maxLevel'}
+    assert set(effect) == EFFECT_KEYS | {'school', 'secondary', 'res2', 'res3', 'minLevel', 'maxLevel',
+                                         'p3', 'p4'}
     assert (effect['minLevel'], effect['maxLevel']) == (3, 10)
+    assert (effect['p3'], effect['p4']) == (7, -2)
     assert (effect['opcode'], effect['target'], effect['power'], effect['p1'], effect['p2']) == (
         12, 2, 4, -5, 6)
     assert (effect['timing'], effect['resist'], effect['duration']) == (1, 1, 30)

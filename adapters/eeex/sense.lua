@@ -14,6 +14,7 @@
 -- area (D3e): its area projectiles that explode again and again. Only plain values leave this
 -- module; no engine object is kept.
 local targeting=require('combat-intent.targeting')
+local spells=require('combat-intent.spells')
 local M={}
 -- A sprite's default visual range in EEex's area search.
 M.sightRange=448
@@ -344,11 +345,13 @@ function M.guard(g,sprite,tick,classify)
                 elseif kind==1 or kind==9 or kind==2 then left=math.huge end
                 if left and left>0 then
                     conditions[label]=math.max(conditions[label] or 0,left)
-                    -- Poison's hit points left: per second by its type, as the classifier counts it.
-                    if label=='poison' and left<math.huge then
-                        local p1,mode=number(e.m_effectAmount),number(e.m_dWFlags)%65536
-                        local rate=({[0]=1,[1]=p1,[2]=p1>0 and 1/p1 or 0,[3]=p1})[mode] or 1
-                        poison=poison+rate*left
+                    -- Poison's hit points left as the classifier counts them: per second by
+                    -- its type, over its first minute (one without an end too). Parameters 3
+                    -- and 4 are m_effectAmount2 and 3, the EFF file's order.
+                    if label=='poison' then
+                        local rate=spells.perSecond({opcode=op,p1=number(e.m_effectAmount),p2=number(e.m_dWFlags),
+                            p3=number(e.m_effectAmount2),p4=number(e.m_effectAmount3)}) or 0
+                        poison=poison+rate*math.min(left,spells.overTime)
                     end
                 end
             end
@@ -359,7 +362,8 @@ function M.guard(g,sprite,tick,classify)
                 if op==206 and res~='' then recast[res]=true end
                 if not M.delivered[op] then
                     list[#list+1]={opcode=op,target=1,power=number(e.m_spellLevel),p1=number(e.m_effectAmount),
-                        p2=number(e.m_dWFlags),timing=timing,resist=0,duration=duration,prob1=100,prob2=0,res=res,
+                        p2=number(e.m_dWFlags),p3=number(e.m_effectAmount2),p4=number(e.m_effectAmount3),
+                        timing=timing,resist=0,duration=duration,prob1=100,prob2=0,res=res,
                         dice=number(e.m_numDice),sides=number(e.m_diceSize),save=0,saveBonus=0,special=number(e.m_special),
                         source=source}
                 end
@@ -403,7 +407,8 @@ function M.wards(g,sprite,tick,classify)
             elseif kind==2 then timing,duration,left=2,0,math.huge
             else return end
             local effect={opcode=op,target=1,power=number(e.m_spellLevel),p1=number(e.m_effectAmount),
-                p2=number(e.m_dWFlags),timing=timing,resist=0,duration=duration,prob1=100,prob2=0,res=name(e.m_res),
+                p2=number(e.m_dWFlags),p3=number(e.m_effectAmount2),p4=number(e.m_effectAmount3),timing=timing,
+                resist=0,duration=duration,prob1=100,prob2=0,res=name(e.m_res),
                 dice=number(e.m_numDice),sides=number(e.m_diceSize),save=0,saveBonus=0,special=number(e.m_special)}
             out[#out+1]={opcode=op,p2=effect.p2,source=name(e.m_sourceRes),school=number(e.m_school),
                 secondary=number(e.m_secondaryType),power=number(e.m_spellLevel),level=number(e.m_casterLevel),
@@ -431,7 +436,8 @@ local function carried(g,e,tick)
     if kind==M.timedEffect then timing,duration=0,math.max(0,math.floor((duration-tick)/15))
     elseif kind>10 then timing=0 end
     return {opcode=number(e.m_effectId),target=2,power=number(e.m_spellLevel),p1=number(e.m_effectAmount),
-        p2=number(e.m_dWFlags),timing=timing,resist=band(g,number(e.m_flags),0xFF),duration=duration,
+        p2=number(e.m_dWFlags),p3=number(e.m_effectAmount2),p4=number(e.m_effectAmount3),timing=timing,
+        resist=band(g,number(e.m_flags),0xFF),duration=duration,
         prob1=number(e.m_probabilityUpper),prob2=number(e.m_probabilityLower),res=name(e.m_res),
         dice=number(e.m_numDice),sides=number(e.m_diceSize),save=number(e.m_savingThrow),saveBonus=number(e.m_saveMod),
         special=number(e.m_special)}

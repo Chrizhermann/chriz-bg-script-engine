@@ -651,18 +651,29 @@ mage.m_timedEffectList[1].m_duration=200+80
 guard=sense.guard(g7,mage,200,effectsOf)
 assert(guard.sources.TESTSTON==nil and guard.roles.protection==nil)
 -- The conditions on it a cure takes away, with their seconds left, and the hit points its poison
--- will still take (D3b): a hold with 12 seconds, a poison of 2 a second for 10, a feeblemind
--- without an end; a Hold (II) of 20 seconds apart, as the cure of holds leaves it (IESDP).
-local function effect(op,ticks,kind,p1,p2)
+-- will still take (D3b): a hold with 12 seconds, a poison of 2 a second for 10 (type 2, 2 every
+-- second), a feeblemind without an end; a Hold (II) of 20 seconds apart, as the cure of holds
+-- leaves it (IESDP).
+local function effect(op,ticks,kind,p1,p2,p3,p4)
     return {m_effectId=op,m_durationType=kind or 4096,m_duration=ticks,m_effectAmount=p1 or 0,m_dWFlags=p2 or 0,
-        m_res=str(''),m_sourceRes=str('TESTCOND')}
+        m_effectAmount2=p3,m_effectAmount3=p4,m_res=str(''),m_sourceRes=str('TESTCOND')}
 end
 local timed=mage.m_timedEffectList
-mage.m_timedEffectList={effect(109,200+180),effect(25,200+150,4096,2,1),effect(185,200+300)}
+mage.m_timedEffectList={effect(109,200+180),effect(25,200+150,4096,2,2),effect(185,200+300)}
 mage.m_equipedEffectList={effect(76,0,1)}
 guard=sense.guard(g7,mage,200,effectsOf)
 assert(guard.conditions.hold==12 and guard.conditions.hold2==20 and guard.conditions.poison==10 and guard.poison==20)
 assert(guard.conditions.feeblemind==math.huge and guard.conditions.sleep==nil)
+-- Poison as EE deals it: type 1 a hit point a second; type 3 one every parameter 1 seconds; type
+-- 2 with a frequency multiplier (parameter 4) of 2, 2 every 2 seconds; type 4 parameter 3 every
+-- parameter 1 seconds; one without an end, its first minute.
+local function poisonOf(...)
+    mage.m_timedEffectList={effect(25,...)}
+    return sense.guard(g7,mage,200,effectsOf).poison
+end
+assert(poisonOf(200+150,4096,2,1)==10 and near(poisonOf(200+600,4096,3,3),40/3))
+assert(poisonOf(200+150,4096,2,2,0,2)==10 and near(poisonOf(200+450,4096,6,4,4),20))
+assert(poisonOf(0,1,3,3)==20)
 mage.m_timedEffectList,mage.m_equipedEffectList=timed,{}
 -- A defence the creature's own script starts begins the pause too: a second mage under one
 -- fighter would cast Stoneskin, but its script casts it first (a block of SCS's above the hook, in

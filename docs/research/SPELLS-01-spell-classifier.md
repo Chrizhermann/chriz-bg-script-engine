@@ -31,7 +31,7 @@ files alone, whatever Spell Revisions, SCS or other mods changed?
   partial, a spell choice for the player, unknown projectile) and unknown opcodes.
 - It never raises. Missing or odd data is reported (partial with a reason), and the caller
   skips what it cannot use; the creature's other abilities stay usable.
-- Host tests: `tests/unit/combat_intent/test_spells.lua`, 36 groups on Lua 5.1 and LuaJIT,
+- Host tests: `tests/unit/combat_intent/test_spells.lua`, 37 groups on Lua 5.1 and LuaJIT,
   all synthetic records.
 
 ## Census over every SPL
@@ -129,6 +129,25 @@ files alone, whatever Spell Revisions, SCS or other mods changed?
   losing a die a round) and Contagion (13: strength, dexterity and charisma, and a slow). Damage
   over time counts its first minute at most (`overTime`): a fight is over sooner, and a disease
   that runs for hours would otherwise seem to kill anyone.
+- How often poison strikes (2026-10-26; IESDP opcodes 25, 78 and 272). The classifier had poison
+  types 2 and 3 the wrong way round. Type 2 deals parameter 1 every second: Bolt of Biting
+  (`BOLT04`, parameter 1 2 for 15 seconds) says "30 points of poison damage in 15 seconds", and
+  a wyvern's sting (`WYVERN2`) deals 5 a second for 20 seconds, 100 in all, where the engine read
+  4. Type 3 deals one point every parameter 1 seconds: the Poisoned Arrow (`AROW14`) says "1
+  point of poison damage every 3 seconds", and Spell Revisions' Poison (`SPPR411`) deals one
+  every 4, 3 or 2 seconds by caster level, so at level 12 it reads 51 (6d6 and 30 poison) instead
+  of 141. Now `spells.perSecond` reads all three opcodes: type 0 a point a second when parameter
+  1 is not 0; 1 a point a second (272 does nothing); 2 and 3 as above; 4 parameter 3 every
+  parameter 1 seconds, from EFF files only (Artisan's Kitpack's assassin poisons `C0AS#PV1` to
+  `5`: 2 to 10 a round, so its Poison Weapon's hit reads 10 at level 1 and 40 at level 20); each
+  slowed by the frequency multiplier in parameter 4 (0 counts as 1; spells and items have none).
+  Type 1 was read as parameter 1 a second: the Arrow of Biting (`AROW05`, parameter 1 30), which
+  hobgoblin marksmen and elite mercenaries shoot, read 600 for its 20 seconds and deals 20. The
+  EFF readers read parameters 3 and 4 (offsets 0x60 and 0x64); on a creature they are
+  `m_effectAmount2` and `m_effectAmount3`, the file's order. Poison without an end counts its
+  first minute, as a long one does, and a 272 that never applies its file delivers nothing.
+  Over every SPL and ITM ability of the SR lab at caster level 12, 136 poison readings change
+  (110 item abilities, mostly monster weapons, and 26 spells), 69 up and 67 down.
 - An empty item reference in opcode 111 creates no weapon and is no missing file
   (2026-10-20); IESDP warns that the game can crash on it. A kit mod in the SR lab gives one kit
   (SPLPROT row 418, the kit check) the charge of a touch spell in the fist instead, through a

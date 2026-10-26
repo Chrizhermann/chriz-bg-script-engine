@@ -95,8 +95,9 @@ attack's scale (shares of a creature), as protections do (DEFENCE-01):
 - **Worth of a cure:** what the condition would still keep the friend out of, as the same disable
   on an enemy is worth (hold 1, sleep 0.8, confusion 0.8, panic 0.7, silence 0.7 for casters,
   blindness 0.3, deafness 0.2 for casters, disease 0.1), for the seconds it has left (18 count in
-  full), and the hit points poison would still take. A spell that heals and cures (Heal) counts
-  both.
+  full), and the hit points poison would still take (as often as it strikes by its type, over
+  its first minute, as the classifier counts poison; SPELLS-01). A spell that heals and cures
+  (Heal) counts both.
 - **Who:** the caster itself; allies above SCS's healing level for the caster's level; not an ally
   another member of the group is already healing or curing (the director's reservations, as for
   disables). A spell cast at a creature reaches allies in its range and a round's walk beyond it

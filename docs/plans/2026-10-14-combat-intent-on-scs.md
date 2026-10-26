@@ -708,6 +708,11 @@ Malison before Hold Person), a normal one when it notices, a dull one never. One
 group casts each debuff spell at an enemy, and nobody casts one at an enemy that carries it
 already. Prayer, Recitation and Chant count what they take from enemies too.
 
+Writing F2b down showed that the classifier read how often poison strikes the wrong way round
+(SPELLS-01, "How often poison strikes"): a wyvern's sting counted 4 instead of 100, Spell
+Revisions' Poison 141 instead of 51 at level 12, an Arrow of Biting 600 instead of 20. Now it
+reads poison as the game deals it.
+
 Next: the teleport lab's second run (an engine jump, SCS's ReallyForceSpellRES form, a cast from
 out of sight) and a lab of mixed fights with fighters and monsters, then the rest of F2 (archers,
 thieves). Melissan's own fight is designed with Christopher.

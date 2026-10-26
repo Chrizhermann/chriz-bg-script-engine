@@ -621,13 +621,37 @@ H[12]=function(c,e,who,p)
     end
 end
 -- Damage over time counts its first minute: a fight is over sooner (threat.rest caps it there), and
--- a disease that runs for hours would otherwise seem to kill anyone.
+-- a disease that runs for hours would otherwise seem to kill anyone. One without an end counts
+-- that minute too.
 M.overTime=60
+-- How often a poison (25), a disease's damage (78 types 0 to 3) or a repeating EFF (272) strikes
+-- in a second, by its type in parameter 2 (IESDP): 0 once a second when parameter 1 is not 0; 1
+-- a hit point a second, nothing for 272; 2 parameter 1 every FM seconds; 3 once every parameter
+-- 1 × FM seconds; 4 parameter 3 every parameter 1 × FM seconds, from EFF files only (25 and 272).
+-- FM, the frequency multiplier, is parameter 4: 0 counts as 1, and spells and items have none.
+-- The texts agree: Bolt of Biting (BOLT04, type 2, parameter 1 2) deals "30 points of poison
+-- damage in 15 seconds", Poisoned Arrow (AROW14, type 3, parameter 1 3) "1 point of poison
+-- damage every 3 seconds". Nil for other types (5 and up crash the game).
+function M.perSecond(e)
+    local t=e.p2%65536
+    local fm=number(e.p4) and e.p4>0 and e.p4 or 1
+    if t==0 then return e.p1~=0 and 1 or 0 end
+    if t==1 then return e.opcode==272 and 0 or 1 end
+    if t==2 then return math.max(e.p1,0)/fm end
+    if t==3 then return e.p1>0 and 1/(e.p1*fm) or 0 end
+    if t==4 and e.opcode~=78 then
+        return e.p1>0 and number(e.p3) and math.max(e.p3,0)/(e.p1*fm) or 0
+    end
+    return nil
+end
+local function overTime(e)
+    local s=seconds(e)
+    if s=='permanent' or s=='equipped' then return M.overTime end
+    return number(s) and math.min(s,M.overTime) or 0
+end
 H[25]=function(c,e,who,p)
-    local s=seconds(e);local span=number(s) and math.min(s,M.overTime) or 0
-    local mode=e.p2%65536
-    local rate=({[0]=1,[1]=e.p1,[2]=e.p1>0 and 1/e.p1 or 0,[3]=e.p1})[mode] or 1
-    damage(c,e,who,p,rate*span,'poison')
+    local amount=(M.perSecond(e) or 0)*overTime(e)
+    if amount>0 then damage(c,e,who,p,amount,'poison') end
     kind(c,'debuff','poison',who,e,p)
 end
 H[17]=function(c,e,who,p)
@@ -726,22 +750,20 @@ H[137]=function(c,e,who,p)
     local r=kind(c,'debuff','chant',who,e,p)
     if v>0 then tally(set(r,'amounts'),'luck',v*p) end
 end
--- Disease (IESDP opcode 78) by its type in parameter 2: 0 and 1 take a hit point a second, 2
--- parameter 1 a second, 3 one every parameter 1 seconds (poison damage, as opcode 25 counts it); 4
--- to 9 lower strength, dexterity, constitution, intelligence, wisdom or charisma by parameter 1
--- (below 0 they raise it); 10 slows; 11 and 12 are Mold Touch, magic damage of 1d6, or of parameter
--- 1 d6 losing a die a round; 13 is Contagion, strength, dexterity and charisma lower by parameter 1
--- and slowed. Each keeps the disease label, which Cure Disease takes away.
+-- Disease (IESDP opcode 78) by its type in parameter 2: 0 to 3 deal poison damage as often as
+-- M.perSecond says, as opcode 25 does; 4 to 9 lower strength, dexterity, constitution,
+-- intelligence, wisdom or charisma by parameter 1 (below 0 they raise it); 10 slows; 11 and 12
+-- are Mold Touch, magic damage of 1d6, or of parameter 1 d6 losing a die a round; 13 is
+-- Contagion, strength, dexterity and charisma lower by parameter 1 and slowed. Each keeps the
+-- disease label, which Cure Disease takes away.
 local DISEASE_STATS={[4]={'strength'},[5]={'dexterity'},[6]={'constitution'},[7]={'intelligence'},
     [8]={'wisdom'},[9]={'charisma'},[13]={'strength','dexterity','charisma'}}
 H[78]=function(c,e,who,p)
     local t=e.p2%65536
     kind(c,'debuff','disease',who,e,p)
     if t<=3 then
-        local s=seconds(e)
-        local span=number(s) and math.min(s,M.overTime) or 0
-        local rate=({[0]=1,[1]=1,[2]=e.p1,[3]=e.p1>0 and 1/e.p1 or 0})[t] or 0
-        if rate>0 and span>0 then damage(c,e,who,p,rate*span,'poison') end
+        local amount=(M.perSecond(e) or 0)*overTime(e)
+        if amount>0 then damage(c,e,who,p,amount,'poison') end
     elseif t==11 then damage(c,e,who,p,3.5,'magic')
     elseif t==12 then local n=math.max(0,e.p1);damage(c,e,who,p,3.5*n*(n+1)/2,'magic') end
     if t==10 or t==13 then kind(c,'debuff','slow',who,e,p) end
@@ -1315,18 +1337,17 @@ local function send(c,state,e,where,depth,p)
         return
     end
     if op==272 then
+        local span=seconds(e)
+        -- As often as M.perSecond says over the effect's time; one without an end (mostly a
+        -- kit's lasting power, renewed every second) counts one second. One that never applies
+        -- its file (type 1, or type 0 with parameter 1 at 0) delivers nothing.
+        local times=(number(span) and math.max(span,1) or 1)*(M.perSecond(e) or 0)
+        if times<=0 then return end
         local eff=state.lookup('EFF',e.res)
         if type(eff)~='table' or type(eff.effect)~='table' then return state.miss(c,'EFF',e.res) end
         local inner={}
         for k,v in pairs(eff.effect) do inner[k]=v end
         inner.target=2
-        local span=seconds(e)
-        -- Type 0 once a second, 2 p1 times a second, 3 once every p1 seconds, 4 a number of
-        -- times (EFF parameter 3) every p1 rounds.
-        local times=number(span) and math.max(span,1) or 1
-        local every=math.max(e.p1,1)
-        if e.p2==2 then times=times*every elseif e.p2==3 then times=times/every
-        elseif e.p2==4 then times=times/(6*every) end
         local saved=c.times;c.times=(saved or 1)*times;c.approximate=true
         walk(c,state,{inner},receiver(e,where),depth+1,p,'EFF:'..e.res,c.owner)
         c.times=saved;return
@@ -7941,7 +7962,9 @@ local function itm(v,resref)
         enchantment=v.u32(0x60),abilities=abilities,equipping=effects(v,fxOff,v.u16(0x6E),v.u16(0x70))}
 end
 
--- An EFF file keeps the levels it reaches apart from its dice (minLevel, maxLevel).
+-- An EFF file keeps the levels it reaches apart from its dice (minLevel, maxLevel), and
+-- parameters 3 and 4 that spell and item effects lack (p3, p4: a poison's second amount and
+-- frequency multiplier).
 local function eff(v,resref)
     check(v,'EFF V2.0',0xD4)
     return {kind='EFF',resref=resref,effect={opcode=v.u32(0x10),target=v.u32(0x14),
@@ -7949,7 +7972,7 @@ local function eff(v,resref)
         duration=v.u32(0x28),prob1=v.u16(0x2C),prob2=v.u16(0x2E),res=v.resref(0x30),
         dice=v.i32(0x38),sides=v.i32(0x3C),save=v.u32(0x40),saveBonus=v.i32(0x44),
         special=v.u32(0x48),school=v.u32(0x4C),minLevel=v.i32(0x54),maxLevel=v.i32(0x58),
-        secondary=v.u32(0xD0),res2=v.resref(0x70),res3=v.resref(0x78)}}
+        p3=v.i32(0x60),p4=v.i32(0x64),secondary=v.u32(0xD0),res2=v.resref(0x70),res3=v.resref(0x78)}}
 end
 
 -- Area-of-effect keys only for type 3.
@@ -8089,6 +8112,7 @@ factories["adapters.eeex.sense"]=function(require)
 -- area (D3e): its area projectiles that explode again and again. Only plain values leave this
 -- module; no engine object is kept.
 local targeting=require('combat-intent.targeting')
+local spells=require('combat-intent.spells')
 local M={}
 -- A sprite's default visual range in EEex's area search.
 M.sightRange=448
@@ -8419,11 +8443,13 @@ function M.guard(g,sprite,tick,classify)
                 elseif kind==1 or kind==9 or kind==2 then left=math.huge end
                 if left and left>0 then
                     conditions[label]=math.max(conditions[label] or 0,left)
-                    -- Poison's hit points left: per second by its type, as the classifier counts it.
-                    if label=='poison' and left<math.huge then
-                        local p1,mode=number(e.m_effectAmount),number(e.m_dWFlags)%65536
-                        local rate=({[0]=1,[1]=p1,[2]=p1>0 and 1/p1 or 0,[3]=p1})[mode] or 1
-                        poison=poison+rate*left
+                    -- Poison's hit points left as the classifier counts them: per second by
+                    -- its type, over its first minute (one without an end too). Parameters 3
+                    -- and 4 are m_effectAmount2 and 3, the EFF file's order.
+                    if label=='poison' then
+                        local rate=spells.perSecond({opcode=op,p1=number(e.m_effectAmount),p2=number(e.m_dWFlags),
+                            p3=number(e.m_effectAmount2),p4=number(e.m_effectAmount3)}) or 0
+                        poison=poison+rate*math.min(left,spells.overTime)
                     end
                 end
             end
@@ -8434,7 +8460,8 @@ function M.guard(g,sprite,tick,classify)
                 if op==206 and res~='' then recast[res]=true end
                 if not M.delivered[op] then
                     list[#list+1]={opcode=op,target=1,power=number(e.m_spellLevel),p1=number(e.m_effectAmount),
-                        p2=number(e.m_dWFlags),timing=timing,resist=0,duration=duration,prob1=100,prob2=0,res=res,
+                        p2=number(e.m_dWFlags),p3=number(e.m_effectAmount2),p4=number(e.m_effectAmount3),
+                        timing=timing,resist=0,duration=duration,prob1=100,prob2=0,res=res,
                         dice=number(e.m_numDice),sides=number(e.m_diceSize),save=0,saveBonus=0,special=number(e.m_special),
                         source=source}
                 end
@@ -8478,7 +8505,8 @@ function M.wards(g,sprite,tick,classify)
             elseif kind==2 then timing,duration,left=2,0,math.huge
             else return end
             local effect={opcode=op,target=1,power=number(e.m_spellLevel),p1=number(e.m_effectAmount),
-                p2=number(e.m_dWFlags),timing=timing,resist=0,duration=duration,prob1=100,prob2=0,res=name(e.m_res),
+                p2=number(e.m_dWFlags),p3=number(e.m_effectAmount2),p4=number(e.m_effectAmount3),timing=timing,
+                resist=0,duration=duration,prob1=100,prob2=0,res=name(e.m_res),
                 dice=number(e.m_numDice),sides=number(e.m_diceSize),save=0,saveBonus=0,special=number(e.m_special)}
             out[#out+1]={opcode=op,p2=effect.p2,source=name(e.m_sourceRes),school=number(e.m_school),
                 secondary=number(e.m_secondaryType),power=number(e.m_spellLevel),level=number(e.m_casterLevel),
@@ -8506,7 +8534,8 @@ local function carried(g,e,tick)
     if kind==M.timedEffect then timing,duration=0,math.max(0,math.floor((duration-tick)/15))
     elseif kind>10 then timing=0 end
     return {opcode=number(e.m_effectId),target=2,power=number(e.m_spellLevel),p1=number(e.m_effectAmount),
-        p2=number(e.m_dWFlags),timing=timing,resist=band(g,number(e.m_flags),0xFF),duration=duration,
+        p2=number(e.m_dWFlags),p3=number(e.m_effectAmount2),p4=number(e.m_effectAmount3),timing=timing,
+        resist=band(g,number(e.m_flags),0xFF),duration=duration,
         prob1=number(e.m_probabilityUpper),prob2=number(e.m_probabilityLower),res=name(e.m_res),
         dice=number(e.m_numDice),sides=number(e.m_diceSize),save=number(e.m_savingThrow),saveBonus=number(e.m_saveMod),
         special=number(e.m_special)}

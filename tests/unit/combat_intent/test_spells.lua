@@ -176,14 +176,30 @@ c=classify(spl('TESTHLDC',{ability({fx(177,{res='TESTHLDE',p2=2,timing=1})})}),c
 assert(c.roles.disable and c.roles.disable.duration=='permanent')
 groups=groups+1
 
--- 272 repeats an EFF: once a second, every p1 seconds, or p1 times a second.
-local rep=spl('TESTREP',{ability({fx(272,{res='TESTEFF',duration=10})})})
+-- 272 repeats an EFF (IESDP): once a second (parameter 1 set), once every p1 seconds, p1 times a
+-- second; type 1 and type 0 without parameter 1 never apply it. Type 4 applies it parameter 3
+-- times every p1 seconds, from an EFF file only; a frequency multiplier (parameter 4) of 2 halves it.
+local rep=spl('TESTREP',{ability({fx(272,{res='TESTEFF',p1=1,duration=10})})})
 c=classify(rep,effs)
 assert(c.approximate and near(c.roles.damage.amount,40))
 rep.abilities[1].effects[1].p2=3;rep.abilities[1].effects[1].p1=2
 assert(near(classify(rep,effs).roles.damage.amount,20))
 rep.abilities[1].effects[1].p2=2
 assert(near(classify(rep,effs).roles.damage.amount,80))
+rep.abilities[1].effects[1].p2=1
+c=classify(rep,effs)
+assert(next(c.roles)==nil and not c.approximate)
+rep.abilities[1].effects[1].p2=0;rep.abilities[1].effects[1].p1=0
+assert(next(classify(rep,effs).roles)==nil)
+rep.abilities[1].effects[1].p2=4;rep.abilities[1].effects[1].p1=2
+assert(next(classify(rep,effs).roles)==nil)
+local repeats=world({['EFF:TESTEFF']=eff,
+    ['EFF:TESTREP4']={kind='EFF',resref='TESTREP4',effect=fx(272,{res='TESTEFF',p1=2,p2=4,p3=3,target=1})},
+    ['EFF:TESTREPF']={kind='EFF',resref='TESTREPF',effect=fx(272,{res='TESTEFF',p1=2,p2=4,p3=3,p4=2,target=1})}})
+c=classify(spl('TESTREPE',{ability({fx(177,{res='TESTREP4',p2=2,duration=10})})}),repeats)
+assert(c.approximate and near(c.roles.damage.amount,60))
+c=classify(spl('TESTREPE',{ability({fx(177,{res='TESTREPF',p2=2,duration=10})})}),repeats)
+assert(near(c.roles.damage.amount,30))
 groups=groups+1
 
 -- 333 casts the holder's resref plus B, at level 1 unless parameter 2 gives one.
@@ -821,12 +837,36 @@ d=one(fx(78,{p1=2,p2=13,duration=60})).roles.debuff
 assert(d.kinds.slow and d.amounts.strength==2 and d.amounts.dexterity==2 and d.amounts.charisma==2 and d.kinds.disease)
 assert(one(fx(78,{p2=11})).roles.damage.types.magic==3.5)
 assert(one(fx(78,{p1=3,p2=12})).roles.damage.types.magic==21)
--- Poison counts its first minute too.
-assert(one(fx(25,{p1=1,duration=600})).roles.damage.types.poison==60)
 -- A negative chant lowers luck by its parameter; below 0 it helps.
 d=one(fx(137,{p1=1,duration=60})).roles.debuff
 assert(d.kinds.chant and d.amounts.luck==1)
 assert(one(fx(137,{p1=255,duration=60})).roles.buff.kinds.chant)
+groups=groups+1
+
+-- Poison as EE deals it (IESDP opcode 25), over its first minute: types 0 and 1 a hit point a
+-- second (0 only with parameter 1 set); 2 parameter 1 every second, Bolt of Biting's "30 points
+-- of poison damage in 15 seconds"; 3 one every parameter 1 seconds, the Poisoned Arrow's "1 point
+-- of poison damage every 3 seconds" for 40 seconds; 4 parameter 3 every parameter 1 seconds, from
+-- an EFF file: an assassin's poison of 4 every 6 seconds (Artisan's Kitpack), through a 177 for 30
+-- seconds. A frequency multiplier (parameter 4) of 2 halves each; one without an end counts its
+-- first minute; types 5 and up (they crash the game) count no damage.
+local function poison(fields,lookup) local r=one(fx(25,fields),nil,lookup).roles return r.damage and r.damage.types.poison end
+assert(poison({p1=1,duration=600})==60 and poison({duration=20})==nil and one(fx(25,{duration=20})).roles.debuff.kinds.poison)
+assert(poison({p1=30,p2=1,duration=20})==20)
+assert(poison({p1=2,p2=2,duration=15})==30 and near(poison({p1=3,p2=3,duration=40}),40/3))
+assert(poison({p1=6,p2=4,duration=30})==nil)
+local venom=world({['EFF:TESTVNM']={kind='EFF',resref='TESTVNM',effect=fx(25,{p1=6,p2=4,p3=4,timing=1,target=1})},
+    ['EFF:TESTVNMF']={kind='EFF',resref='TESTVNMF',effect=fx(25,{p1=6,p2=4,p3=4,p4=2,timing=1,target=1})}})
+d=one(fx(177,{res='TESTVNM',p2=2,duration=30}),nil,venom).roles
+assert(near(d.damage.types.poison,20) and d.debuff.kinds.poison)
+assert(near(one(fx(177,{res='TESTVNMF',p2=2,duration=30}),nil,venom).roles.damage.types.poison,10))
+assert(poison({p1=2,p2=2,p4=2,duration=15})==15 and near(poison({p1=3,p2=3,p4=2,duration=60}),10))
+assert(poison({p1=3,p2=3,timing=1})==20 and poison({p1=3,p2=3,timing=9})==20 and poison({p1=3,p2=5,duration=60})==nil)
+-- Disease's damage follows the same rule: a frequency multiplier of 2 halves it; type 1 a hit point
+-- a second.
+assert(one(fx(78,{p1=3,p2=2,p4=2,duration=10})).roles.damage.types.poison==15)
+assert(one(fx(78,{p1=30,p2=1,duration=20})).roles.damage.types.poison==20)
+assert(spells.perSecond(fx(78,{p1=2,p2=4}))==nil and spells.perSecond(fx(272,{p1=5,p2=1}))==0)
 groups=groups+1
 
 return groups
