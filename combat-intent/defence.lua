@@ -301,14 +301,18 @@ local function swing(h,d,crit)
 end
 local function reaches(role) return type(role)=='table' and type(role.who)=='table' and (role.who.target or role.who.area) end
 -- What on-hit effects (hits, combat-intent/spells.lua) bring through the hits of weapon held over
--- r rounds, swung apr times a round with thac0, as a share of an enemy: for each living enemy, what
--- one hit's payload does there (combat-intent/harm.lua): its damage on every hit that lands past
--- Mirror Images and Stoneskin skins, on the first alone for a payload the hit takes off again
--- (once), and its disable once; the mean over the enemies. What an enemy's spell protections keep
--- out counts nothing.
-local function payload(hits,held,apr,thac0,frame,r)
+-- r rounds, swung apr times a round with thac0 and crit critical hit points, as a share of an
+-- enemy: for each living enemy, what one hit's payload does there (combat-intent/harm.lua): its
+-- damage on every hit that lands past Mirror Images and Stoneskin skins, a critical hit effect's
+-- (F2e) on the critical hits among them where no helmet keeps them off (M.critOpen), either on the
+-- first alone for a payload the hit takes off again (once); the strongest disable and the strongest
+-- debuff once, as likely as a hit that brings it lands, the debuff against the armour class of the
+-- holder's side and none on an enemy that carries it already (harm.carries); the mean over the
+-- enemies. What an enemy's spell protections keep out counts nothing.
+local function payload(hits,held,apr,thac0,crit,frame,r)
     local list=weapons.payloads(hits,held)
     if #list==0 then return 0 end
+    local ac=threat.armour(threat.friends(frame))
     local total,n=0,0
     for _,e in ipairs(type(frame.enemies)=='table' and frame.enemies or {}) do
         if targeting.alive(e) then
@@ -316,22 +320,29 @@ local function payload(hits,held,apr,thac0,frame,r)
             local maxHp=number(e.maxHp) and e.maxHp>0 and e.maxHp or M.enemyHp
             local hp=number(e.hp) and e.hp>0 and e.hp or maxHp
             local absorbed=(number(e.mirror) and e.mirror>0 and e.mirror or 0)+(number(e.skins) and e.skins>0 and e.skins or 0)
-            local landed=math.max(0,apr*threat.hitChance(thac0,number(e.ac) and e.ac or M.enemyAc)*r-absorbed)
-            local dealt,disabled=0,0
+            local chance=threat.hitChance(thac0,number(e.ac) and e.ac or M.enemyAc)
+            local landed=math.max(0,apr*chance*r-absorbed)
+            local crits=landed*weapons.critical(chance,crit)*M.critOpen
+            local dealt,disabled,weakened=0,0,0
             for _,h in ipairs(list) do
                 local roles=spells.view(h.strike,targeting.holds(e))
                 if type(roles)=='table' and not targeting.protected(e,h.strike) then
                     local floor=targeting.floor(e,roles)
+                    local times=h.critical and crits or landed
+                    if h.once then times=math.min(1,times) end
                     if reaches(roles.damage) then
                         local _,each=harm.damage(roles.damage,e,0,floor)
-                        dealt=dealt+each*(h.once and math.min(1,landed) or landed)
+                        dealt=dealt+each*times
                     end
                     if reaches(roles.disable) then
-                        disabled=math.max(disabled,harm.disable(roles.disable,e,0,floor)*math.min(1,landed))
+                        disabled=math.max(disabled,harm.disable(roles.disable,e,0,floor)*math.min(1,times))
+                    end
+                    if reaches(roles.debuff) and not harm.carries(e,h.strike,h.source) then
+                        weakened=math.max(weakened,harm.debuff(roles.debuff,e,ac)*math.min(1,times))
                     end
                 end
             end
-            total=total+math.min(dealt,hp)/maxHp+disabled
+            total=total+math.min(dealt,hp)/maxHp+disabled+weakened
         end
     end
     return n>0 and total/n or 0
@@ -359,7 +370,7 @@ function M.offense(buff,f,frame,r,held,own,hits)
     local d=math.max(0,a.damage+damage-less+a.damage*(percent-fewer)/100)
     local before=a.apr*swing(threat.hitChance(a.thac0,ac),a.damage,0)
     local after=apr*swing(threat.hitChance(a.thac0-hit+lost,ac),d,crit-blunt)
-    return math.max(0,after-before)*r/hp+payload(hits,held,apr,a.thac0-hit+lost,frame,r)
+    return math.max(0,after-before)*r/hp+payload(hits,held,apr,a.thac0-hit+lost,crit-blunt,frame,r)
 end
 
 -- Whether a role of a beneficial spell reaches friends: the caster, its area (an area that

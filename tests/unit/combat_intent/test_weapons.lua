@@ -84,6 +84,7 @@ assert(met.ranged and met.range==640 and met.rounds==2 and met.flags==0x40)
 assert(met.strike and met.strike.roles.damage.types.fire==2.5)
 local sword=weapons.conjured(blade,caster)
 assert(sword.apr==2 and sword.thac0==12 and sword.damage==3.5 and not sword.ranged and sword.rounds==20 and sword.enchantment==3)
+assert(sword.itemType==20)
 assert(weapons.conjured(half,caster).apr==1.5)
 assert(weapons.conjured(hand,caster)==nil and weapons.conjured(bolt,caster)==nil and weapons.conjured(nil,caster)==nil)
 groups=groups+1
@@ -619,6 +620,96 @@ i.rng=nil
 i.mind=archer
 i.frame.self.arsenal={edge(5)}
 assert(choice.decide(i).kind=='kite')
+groups=groups+1
+
+-- 14. Critical hit effects and on-hit debuffs (F2e). Of the hits that land with chance h, a share
+-- of (1+crit)/20 over h are critical hits (no less likely than 1 in 20, all of them at most).
+assert(near(weapons.critical(0.8,0),0.05/0.8) and near(weapons.critical(0.8,4),0.25/0.8) and weapons.critical(0.1,4)==1)
+assert(near(weapons.critical(0.8,-5),0.05/0.8) and weapons.critical(0,0)==0 and weapons.critical(nil,0)==0)
+-- A kit's critical hit effect with melee hits casts 10 fire at the creature hit: of the mace's 0.8
+-- hits a round, 0.05/0.8 are critical hits, half of them past a helmet (0.025 a round), worth 0.25
+-- more and counted as expected. Four critical hit points (opcode 301 on the creature) make five in
+-- twenty. One with missiles alone does not come with the mace; one of a single weapon only with that
+-- item; one of a category (fists, 28) only with a weapon of it.
+RECORDS['SPL:TESTCRFI']=spl('TESTCRFI',1,{fx(12,{p1=10,p2=8*65536,timing=1})})
+RECORDS['SPL:TESTCRST']=spl('TESTCRST',1,{fx(45,{duration=12})})
+RECORDS['EFF:TESTWKEF']={kind='EFF',resref='TESTWKEF',effect=fx(54,{p1=-4,duration=12})}
+pace=6/(6+0.36)
+i=input({mind=mind.forFamily(mind.new(),'fighter')})
+i.frame.self.weapon=MACE
+i.frame.enemies={enemy(12,{x=200})}
+local burning=carrying({fx(341,{target=1,timing=9,special=1,res='TESTCRFI',source='TESTKIT'})})
+i.frame.self.guard={hits=burning}
+o=choice.weaponOptions(i)[1]
+assert(near(o.worth,(3.6+0.25)/60*pace) and near(o.expected[12],3.85))
+i.frame.self.guard={hits=burning,roles={buff={amounts={critical=4}}}}
+assert(near(choice.weaponOptions(i)[1].worth,(3.6+1.25)/60*pace))
+i.frame.self.guard={hits=burning,roles={buff={amounts={critical=4}},debuff={amounts={critical=4}}}}
+assert(near(choice.weaponOptions(i)[1].worth,(3.6+0.25)/60*pace))
+i.frame.self.guard={hits=carrying({fx(341,{target=1,timing=9,special=2,res='TESTCRFI'})})}
+assert(near(choice.weaponOptions(i)[1].worth,3.6/60*pace))
+i.frame.self.guard={hits=carrying({fx(341,{target=1,timing=2,p2=1,res='TESTCRFI',source='TESTMACE'})})}
+assert(near(choice.weaponOptions(i)[1].worth,(3.6+0.25)/60*pace))
+i.frame.self.guard={hits=carrying({fx(341,{target=1,timing=2,p2=1,res='TESTCRFI',source='TESTAXE'})})}
+assert(near(choice.weaponOptions(i)[1].worth,3.6/60*pace))
+i.frame.self.guard={hits=carrying({fx(341,{target=1,timing=1,p3=28,res='TESTCRFI'})})}
+assert(near(choice.weaponOptions(i)[1].worth,3.6/60*pace))
+i.frame.self.weapon={item='TESTFIST',damage=4.5,damageType=2,apr=1,thac0=10,ranged=false,flags=0,enchantment=0,fist=true,
+    itemType=28}
+assert(near(choice.weaponOptions(i)[1].worth,(3.6+0.25)/60*pace))
+-- A critical hit that stuns counts as likely as a critical hit lands (0.025 of the stun's 2/3).
+i.frame.self.weapon=MACE
+i.frame.self.guard={hits=carrying({fx(341,{target=1,timing=9,special=1,res='TESTCRST'})})}
+assert(near(choice.weaponOptions(i)[1].worth,(3.6/60+0.025*2/3)*pace))
+-- An on-hit effect that weakens (THAC0 4 worse for 12 seconds) takes a quarter of the fight of an
+-- enemy that swings twice for 10 at the caster's armour class 5, for two thirds of the full time,
+-- as likely as a hit lands (0.8); the weapon's own hit weakens alike. None on an enemy that carries
+-- it already: an effect of the spell that holds it, or of the file it lands.
+local weakening=carrying({fx(248,{target=1,duration=30,res='TESTWKEF',source='TESTKIT'})})
+i.frame.self.guard={hits=weakening}
+local brute=enemy(12,{x=200,attack={apr=2,thac0=10,damage=10}})
+i.frame.enemies={brute}
+assert(near(choice.weaponOptions(i)[1].worth,(3.6/60+0.8*0.25*2/3)*pace))
+brute.wards={{source='TESTKIT'}}
+assert(near(choice.weaponOptions(i)[1].worth,3.6/60*pace))
+brute.wards={{source='TESTWKEF'}}
+assert(near(choice.weaponOptions(i)[1].worth,3.6/60*pace))
+brute.wards=nil
+i.frame.self.guard={}
+local weak=spells.classify(itm('TESTMACW',{effects={fx(54,{p1=-4,duration=12})}}),1,lookup,{level=12,weapons=false})
+i.frame.self.weapon={item='TESTMACW',damage=4.5,damageType=2,apr=1,thac0=10,ranged=false,flags=0,enchantment=0,strike=weak}
+assert(near(choice.weaponOptions(i)[1].worth,(3.6/60+0.8*0.25*2/3)*pace))
+brute.wards={{source='TESTMACW'}}
+assert(near(choice.weaponOptions(i)[1].worth,3.6/60*pace))
+brute.wards=nil
+-- The strongest disable and the strongest debuff a hit brings count side by side.
+i.frame.self.weapon=MACE
+i.frame.self.guard={hits={weakening[1],carrying({fx(341,{target=1,timing=9,special=1,res='TESTCRST'})})[1]}}
+assert(near(choice.weaponOptions(i)[1].worth,(3.6/60+0.025*2/3+0.8*0.25*2/3)*pace))
+-- What a hit's debuff takes counts more on an enemy the creature's orders name, as its damage does.
+brute.resref='TESTBRUT'
+i.frame.self.guard={hits=weakening}
+i.orders={target='TESTBRUT'}
+assert(near(choice.weaponOptions(i)[1].worth,2*(3.6/60+0.8*0.25*2/3)*pace))
+i.orders=nil
+-- A critical hit's fire counts where the weapon itself does nothing (crushing resistance 100).
+i.frame.enemies={enemy(12,{x=200,resist={crushing=100}})}
+i.frame.self.guard={hits=burning}
+assert(near(choice.weaponOptions(i)[1].worth,0.25/60*pace))
+-- A critical hit spell that takes the spell holding it off its holder again comes once: with every
+-- hit critical (19 critical hit points) and three swings a round, 1.2 critical hits land past
+-- helmets, but its 10 fire counts once beside the swings' 10.8.
+RECORDS['SPL:TESTCRSG']=spl('TESTCRSG',1,{fx(12,{p1=10,p2=8*65536,timing=1}),fx(321,{target=1,res='TESTSIEG',timing=1})})
+i.frame.enemies={enemy(12,{x=200})}
+i.frame.self.weapon={item='TESTFLL3',damage=4.5,damageType=2,apr=3,thac0=10,ranged=false,flags=0,enchantment=0}
+local function siege(source)
+    return {hits=carrying({fx(341,{target=1,duration=60,special=1,res='TESTCRSG',source=source})}),
+        roles={buff={amounts={critical=19}}}}
+end
+i.frame.self.guard=siege('TESTSIEG')
+assert(i.frame.self.guard.hits[1].once and near(choice.weaponOptions(i)[1].worth,(10.8+10)/60*pace))
+i.frame.self.guard=siege('TESTOTHR')
+assert(near(choice.weaponOptions(i)[1].worth,(10.8+12)/60*pace))
 groups=groups+1
 
 return groups

@@ -596,6 +596,62 @@ barbarian has stat 175 set; whether a backstab leaves its target immune for a wh
 fighter-thief stabs with a two-handed sword whose thieves' bit a mod cleared; and whether a
 hidden thief reaches the spot behind a moving enemy in time.
 
+### F2e: critical hit effects and on-hit debuffs (2026-10-27)
+
+Weapons and kit powers that cast a spell on a critical hit (opcode 341) count now, and so do hits
+that weaken (F2b's debuffs, brought by opcodes 248 and 249 or by a critical hit), beside on-hit
+damage and disables.
+
+- **The game's rule** (IESDP, opcode 341): while the effect lasts, the spell it names is cast at each
+  creature its holder hits critically, with either hand (parameter 2 at 0) or with the weapon that
+  holds it alone (1); from an EFF file only with weapons of one category (parameter 3, ITEMCAT.IDS:
+  28 for fists and claws); with any attack (special 0), melee ones (1), ranged ones (2) or magical
+  ones (3, which count nothing here).
+- **Who gets what** ([learned.md](../learned.md)): inside such a spell "self" (effect target 1) and
+  "original caster" (9) are the attacker, the preset target (2) the creature hit. IESDP does not
+  say; the in-game texts of the lab's holders do. Beamdog's Corinth's Bow +2 gives its wielder Luck
+  by a cast at self (`BDBOW02`), the Sword of Troll Decapitation +1 gives its wearer strength
+  through target 9 (`BDSW2H02`), Artisan's Kitpack's Kensai heals itself with target 1 (Second
+  Wind, `C0KN#09A`), and the Sirene NPC's Harbinger of Pain +4 deals its 1d10 to target and wielder
+  with one effect each (targets 2 and 1, `C0SBLUN`). The classifier (`spells.lua`, `onCrit`) reads
+  the spell at the holder's level as if cast at the creature hit without its projectile, so what it
+  puts on its caster lands on the holder.
+- **How often** (`weapons.critical`): of the hits that land, a share of (1 + critical hit points)/20
+  over the chance to hit are critical hits, at least 1 in 20 and at most all of them (a natural 20
+  always hits). Critical hit points come from the creature's own effects (opcode 301), less what its
+  debuffs take. Half of them get past a helmet (`defence.critOpen`, as for a weapon's own critical
+  hits; helmets are not read yet).
+- **A swing** (`choice.hitsOn`): what the critical hit spell deals counts as expected damage, but not
+  toward a kill, which no one plans on a critical hit; its disable and its debuff count as likely as
+  a critical hit lands. One of a single weapon counts only with that item, one of a category only
+  with a weapon of it (`arsenal.lua` reads every weapon's category from its item).
+- **A buff** (`defence.offense`): the same over the rounds the buff runs, also when the buff raises
+  the critical hit points itself: Critical Strike's sure critical hits make every hit that lands one.
+- **Once:** a critical hit spell that takes the spell holding it off its holder again (opcode 321)
+  comes once, as an on-hit effect does (F2a).
+- **On-hit debuffs:** a hit's debuff counts by `harm.debuff` (F2b), against the armour class of the
+  caster's side, as likely as a hit that brings it lands, the strongest one beside the strongest
+  disable; more on an enemy the creature's orders name. Nothing on an enemy that carries it already:
+  an effect of the spell or item that holds it, or of what it lands (`harm.carries`). A weapon's own
+  effects weaken alike.
+- **In game** (`sense.guard`, `adapters/eeex/choice.lua`): the creature's active effects are
+  classified at its own level, so a kit power's critical hit or on-hit spell counts at the holder's
+  level (until now, at level 1).
+
+The Spell Revisions lab at level 12 reads all 30 of its holders without a gap: Siege of Dragonspear's
+weapons (Martyr's Morning Star +2 takes 15 % of the target's hit points, the Bracers of the Shuttered
+Lid blind, the Astral Crossbow +2 knocks unconscious, Spell Breaker +2 dispels), Artisan's Kitpack's
+Kensai, Swashbuckler, Trickster, Siegemaster and Dreadnought, and the Sirene NPC's Brimstone +3 and
+Harbinger of Pain +4.
+
+Tests: spells group 38, weapons group 14, defence group 13, `arsenal` group 6, the choice adapter's
+group 37 (a brawler's critical hit spell from its own effects, at its level, with fists only); 57
+mutations checked.
+
+To see in a lab: that "self" in a critical hit spell is the attacker (Corinth's Bow's Luck on its
+wielder); how often critical hits come with critical hit points; and whether a helmet keeps a
+critical hit spell off as it keeps a critical hit's double damage off.
+
 ## Agreed (Christopher, 2026-10-25)
 
 1. **Target choice by worth, with overrides.** Not SCS's fixed list ("Ich würde es nicht eins zu
@@ -631,8 +687,13 @@ difficulty.
 
 Known gaps, for later:
 
-- Critical hit effects (opcode 341) and on-hit effects that only weaken (debuffs) count nothing
-  yet; on-hit damage and disables do (F2a).
+- Critical hits (F2e): critical hit effects of magical attacks (special 3) count nothing, nor what
+  a critical hit spell does to the holder itself (Corinth's Bow's Luck, Second Wind's heal). The
+  critical hit and on-hit effects of a weapon not in hand count nothing when the creature weighs
+  taking it up: they are no active effects until it does. Critical hit spells that put their
+  effects through opcode 326 aimed at "self" (Artisan's Kitpack's Dreadnought) count for the holder
+  until the classifier reads 326 as IESDP describes it (next). Helmets are not read: half of all
+  critical hits count as kept off.
 - Debuffs (F2b): lower strength, dexterity and constitution count nothing (the engine reads
   neither the stats nor their tables), and neither do lower maximum hit points, movement, casting
   speed, critical hit chances, bonuses against kinds of creature, Grease, knockback, wild surges or

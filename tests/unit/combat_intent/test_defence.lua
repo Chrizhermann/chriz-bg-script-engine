@@ -491,4 +491,45 @@ i.mind=mind.new()
 assert(#defence.options(i,{})==0)
 groups=groups+1
 
+-- 13. Critical hit effects and on-hit debuffs (F2e). A buff whose opcode 341 casts 10 fire at each
+-- creature its melee hits strike critically: of the 4.5 hits in three rounds, 0.05/0.75 are
+-- critical hits, half of them past a helmet (0.15), worth 1.5 fire; past two Mirror Images 2.5 hits
+-- land. One for missiles alone does not come with a sword, one of a single weapon never with a
+-- spell's. Critical Strike's sure critical hits make all landing hits critical (1.5 hits in its one
+-- round, 0.75 past helmets: 7.5 fire beside what the doubled hits add). A critical hit that stuns
+-- counts as likely as one lands (0.15 of the stun's 2/3).
+hitWorld['SPL:TESTCRFI']=sub('TESTCRFI',{fx(12,{p1=10,p2=8*65536,timing=1,target=2,duration=0})},1)
+hitWorld['SPL:TESTCRST']=sub('TESTCRST',{fx(45,{target=2,duration=12})},1)
+hitWorld['EFF:TESTWKEF']={kind='EFF',resref='TESTWKEF',effect=fx(54,{p1=-4,target=2,duration=12})}
+local burn=onHits('TESTBURN',{fx(341,{duration=30,special=1,res='TESTCRFI'})})
+local volley=onHits('TESTVOLY',{fx(341,{duration=30,special=2,res='TESTCRFI'})})
+local edged=onHits('TESTEDGE',{fx(341,{duration=30,p2=1,res='TESTCRFI'})})
+local surest=onHits('TESTSURE',{fx(301,{p1=20,duration=6}),fx(341,{duration=6,special=1,res='TESTCRFI'})})
+local daze=onHits('TESTDAZE',{fx(341,{duration=30,special=1,res='TESTCRST'})})
+i=input({fighter(11,130)},{row('TESTBURN',burn,1),row('TESTVOLY',volley,1),row('TESTEDGE',edged,1),
+    row('TESTSURE',surest,1),row('TESTDAZE',daze,1)},{mind=mind.new({ownWeapon=true})})
+i.frame.self.weapon={item='TESTSWRD',damage=10,damageType=3,apr=2,thac0=10}
+rejected={}
+opts=defence.options(i,rejected)
+assert(#opts==3 and rejected['no-worth']==2 and find(opts,'TESTVOLY')==nil and find(opts,'TESTEDGE')==nil)
+assert(near(find(opts,'TESTBURN').worth,1.5/60) and near(find(opts,'TESTDAZE').worth,0.15*2/3))
+assert(near(find(opts,'TESTSURE').worth,(2*10*(1+0.95*defence.critOpen)-2*0.75*10)/60+7.5/60))
+i.frame.enemies[1].mirror=2
+assert(near(find(defence.options(i,{}),'TESTBURN').worth,2.5*(0.05/0.75)*0.5*10/60))
+i.frame.enemies[1].mirror=nil
+-- A buff whose hits weaken (THAC0 4 worse for 12 seconds) takes 4/19 of the fight of a fighter that
+-- swings twice at the caster's armour class 8 (it hits 0.95, then 0.75), for two thirds of the full
+-- time, once a hit lands; nothing on an enemy that carries it already.
+local sap=onHits('TESTSAP',{fx(248,{duration=30,res='TESTWKEF'})})
+i=input({fighter(11,130)},{row('TESTSAP',sap,1)},{mind=mind.new({ownWeapon=true})})
+i.frame.self.weapon={damage=10,damageType=3,apr=2,thac0=10}
+assert(near(find(defence.options(i,{}),'TESTSAP').worth,4/19*2/3))
+-- Past four Mirror Images half a hit lands in the three rounds: the debuff counts half as likely.
+i.frame.enemies[1].mirror=4
+assert(near(find(defence.options(i,{}),'TESTSAP').worth,4/19*2/3*0.5))
+i.frame.enemies[1].mirror=nil
+i.frame.enemies[1].wards={{source='TESTSAP'}}
+assert(find(defence.options(i,{}),'TESTSAP')==nil)
+groups=groups+1
+
 return groups

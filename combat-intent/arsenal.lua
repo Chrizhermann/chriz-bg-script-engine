@@ -241,12 +241,13 @@ end
 -- shoots and how far (a launcher's own range, else the ammunition's), the item, its ability (1 for
 -- the first) and the ammunition, the damage type and the hitting item's flags and enchantment
 -- (plain ammunition from a magical launcher hits as magical), the projectile a missile flies as,
--- slot and abilityNum for SelectWeaponAbility, and whether it can backstab (M.THIEF).
+-- slot and abilityNum for SelectWeaponAbility, whether it can backstab (M.THIEF) and the item's
+-- category (ITEMCAT.IDS, for critical hit effects of one category).
 local function attack(c,s,hit,damage)
     local stats=c.stats
     local melee=not s.ranged
     local out={item=s.item,ability=s.number+1,slot=s.slot,abilityNum=s.number,ammo=s.ammo,ranged=s.ranged,
-        launcher=s.launcher,fist=s.slot==M.FIST or nil}
+        launcher=s.launcher,fist=s.slot==M.FIST or nil,itemType=number(s.record.itemType) and s.record.itemType or nil}
     if melee and number(s.record.usability) and not targeting.has(s.record.usability,M.THIEF) then out.backstab=true end
     out.thac0=value(stats.thac0)-hit-value(stats.hitBonus)-value(melee and stats.meleeHit or stats.missileHit)
     out.damage=math.max(0,damage+value(stats.damageBonus)+value(melee and stats.meleeDamage or stats.missileDamage))

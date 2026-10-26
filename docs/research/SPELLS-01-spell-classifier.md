@@ -31,7 +31,12 @@ files alone, whatever Spell Revisions, SCS or other mods changed?
   partial, a spell choice for the player, unknown projectile) and unknown opcodes.
 - It never raises. Missing or odd data is reported (partial with a reason), and the caller
   skips what it cannot use; the creature's other abilities stay usable.
-- Host tests: `tests/unit/combat_intent/test_spells.lua`, 37 groups on Lua 5.1 and LuaJIT,
+- On-hit and critical hit effects (opcodes 248, 249 and 341) are listed in `c.hits`: what one hit
+  brings, classified as cast at the creature hit. A critical hit effect's spell is read at the
+  holder's level without its projectile; what it puts on its caster lands on the holder
+  (FIGHT-01, "F2e"). Each entry keeps the spell or item it comes from (`source`), so an enemy that
+  carries what the hit brings is known.
+- Host tests: `tests/unit/combat_intent/test_spells.lua`, 38 groups on Lua 5.1 and LuaJIT,
   all synthetic records.
 
 ## Census over every SPL

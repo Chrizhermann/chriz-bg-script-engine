@@ -434,14 +434,15 @@ function M.arsenal(g,sprite,reader)
 end
 
 -- What protects a creature now, as plain values (combat-intent/defence.lua's guard): its
--- active effects classified as one record (classify(record), combat-intent/spells.lua) for
--- their roles, the engine's counts of Stoneskin skins and Mirror Images, the spells its effects
--- come from, the spells opcode 206 keeps off it, and the conditions on it a cure takes away
--- with the seconds each has left (math.huge for one without an end) and the hit points its
--- poison will still take; hits: the on-hit effects it carries (each effect names the spell it
--- comes from, for one that its first hit ends). Effects that end within M.expiring seconds and
--- delayed ones that have not started are left out of its roles.
-function M.guard(g,sprite,tick,classify)
+-- active effects classified as one record (classify(record,level), combat-intent/spells.lua; level:
+-- the creature's, at which what its hits cast counts) for their roles, the engine's counts of
+-- Stoneskin skins and Mirror Images, the spells its effects come from, the spells opcode 206 keeps
+-- off it, and the conditions on it a cure takes away with the seconds each has left (math.huge for
+-- one without an end) and the hit points its poison will still take; hits: the on-hit and critical
+-- hit effects it carries (each effect names the spell or item it comes from, for one that its first
+-- hit ends and one of a single weapon). Effects that end within M.expiring seconds and delayed ones
+-- that have not started are left out of its roles.
+function M.guard(g,sprite,tick,classify,level)
     local list,sources,recast,conditions={},{},{},{}
     local poison=0
     for _,effects in ipairs({sprite.m_timedEffectList,sprite.m_equipedEffectList}) do
@@ -493,7 +494,7 @@ function M.guard(g,sprite,tick,classify)
     local record={kind='SPL',resref='',name=0,flags=0,spellType=0,exclusion=0,school=0,secondary=0,level=1,
         casting={},abilities={{form=1,flags=0,location=2,target=5,targetCount=0,range=0,minLevel=1,speed=0,
         projectile=1,effects=list}}}
-    local classified=classify(record)
+    local classified=classify(record,level)
     local mirror=sprite.m_nMirrorImages
     return {roles=type(classified)=='table' and classified.roles or {},stoneskins=stat(g,sprite,M.combat.stoneskins),
         mirror=type(mirror)=='number' and mirror or 0,sources=sources,recast=recast,conditions=conditions,poison=poison,
@@ -660,7 +661,7 @@ function M.defend(g,frame,tick,reader,classify)
         each(entry,function(sprite)
             M.identity(g,sprite,entry)
             entry.protections=M.protectionRows(g,sprite)
-            entry.guard=M.guard(g,sprite,tick,classify)
+            entry.guard=M.guard(g,sprite,tick,classify,entry.level)
             if entry~=frame.self then entry.attack=M.attack(g,sprite,reader) end
         end)
     end

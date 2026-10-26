@@ -528,8 +528,11 @@ function M.new(g,options)
         end
         return cache[key] or nil
     end
-    -- A creature's active effects, classified as one record for what protects it (sense.guard).
-    local function effectsOf(record) return spells.classify(record,1,reader.lookup,{level=1}) end
+    -- A creature's active effects, classified as one record for what protects it (sense.guard), at
+    -- its level: what its hits cast (on-hit and critical hit effects) counts at the holder's.
+    local function effectsOf(record,level)
+        return spells.classify(record,1,reader.lookup,{level=type(level)=='number' and level>0 and level or 1})
+    end
     -- One active effect on its own (sense.wards), classified once by its fields: its roles. A pause
     -- of six seconds or less on a creature itself is no role, so the key tells short from long.
     local function single(effect)
@@ -640,15 +643,15 @@ function M.new(g,options)
     -- A weapon as an attack (combat-intent/weapons.lua's arms), or nil: what sense.arsenal reads for
     -- the one in hand or another, and what a hit casts or applies (the weapon's ability, or the
     -- ammunition a launcher shoots, classified), with the slot, ability number and ammunition
-    -- SelectWeaponAbility takes it up by, the projectile a missile flies as and whether it can
-    -- backstab. A launcher without ammunition is none.
+    -- SelectWeaponAbility takes it up by, the projectile a missile flies as, whether it can backstab
+    -- and the item's category. A launcher without ammunition is none.
     local function arms(a)
         if type(a)~='table' or type(a.item)~='string' or type(a.damage)~='number' or (a.launcher and not a.ammo) then return nil end
         local strike
         if a.ammo then strike=item(a.ammo)[1] else strike=item(a.item)[a.ability] end
         return {item=a.item,damage=a.damage,damageType=a.damageType,apr=a.apr or weapons.baseApr,thac0=a.thac0,
             ranged=a.ranged==true,range=a.range,flags=a.flags,enchantment=a.enchantment,strike=strike,fist=a.fist,
-            slot=a.slot,abilityNum=a.abilityNum,ammo=a.ammo,projectile=a.projectile,backstab=a.backstab}
+            slot=a.slot,abilityNum=a.abilityNum,ammo=a.ammo,projectile=a.projectile,backstab=a.backstab,itemType=a.itemType}
     end
     -- The 'arms' row (see the top) when the weapon in the creature's hand (a, sense.arsenal's) is
     -- another than when last read.

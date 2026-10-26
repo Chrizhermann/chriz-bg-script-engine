@@ -41,9 +41,9 @@ Demivrgvs and contributors at Gibberlings Three. This project builds on their wo
 tactical knowledge; it does not copy or redistribute SCS files.
 
 The engine reads what other mods of the collection put into the game, and its notes name them where
-it matters: Artisan's Kitpack (Artemius I) and Bardic Wonders (The Artisan, artisans-corner.com),
-the Tweaks Anthology (Gibberlings Three, project lead CamDawg) and the EE Fixpack (Gibberlings
-Three, many authors). None of their files are copied either.
+it matters: Artisan's Kitpack and the Sirene NPC (Artemius I), Bardic Wonders (The Artisan,
+artisans-corner.com), the Tweaks Anthology (Gibberlings Three, project lead CamDawg) and the EE
+Fixpack (Gibberlings Three, many authors). None of their files are copied either.
 
 ## Naming
 

@@ -48,7 +48,9 @@ end
 
 -- The on-hit effects of a list (combat-intent/spells.lua's hits, F2a) that a hit with weapon w
 -- brings: melee ones (opcode 248) with a melee weapon, those for fists only when w is the fist;
--- ranged ones (249) with missiles and thrown weapons.
+-- ranged ones (249) with missiles and thrown weapons. Critical hit effects (opcode 341, F2e) by
+-- their kind of attack alike; one of a single weapon only with that item (a launcher's with what it
+-- shoots), one of a weapon category (ITEMCAT.IDS) only with a weapon of that category.
 function M.payloads(hits,w)
     local out={}
     if type(hits)~='table' or type(w)~='table' then return out end
@@ -57,10 +59,20 @@ function M.payloads(hits,w)
             local fits
             if w.ranged then fits=h.ranged==true
             else fits=h.melee==true and (not h.fists or w.fist==true) end
+            if fits and h.weapon~=nil then fits=type(w.item)=='string' and w.item:upper()==h.weapon end
+            if fits and h.category~=nil then fits=w.itemType==h.category end
             if fits then out[#out+1]=h end
         end
     end
     return out
+end
+
+-- The share of the hits that land with chance (threat.hitChance) that are critical hits: a roll of
+-- 20 less crit (critical hit points, opcode 301), no less likely than 1 in 20, always hits.
+function M.critical(chance,crit)
+    if not number(chance) or chance<=0 then return 0 end
+    local q=math.max(0.05,math.min(1,(1+(number(crit) and crit or 0))/20))
+    return math.min(1,q/chance)
 end
 
 -- Whether an immunity to weapons (opcode 120, by its type p2) keeps weapon w off (its flags and
@@ -181,8 +193,9 @@ end
 
 -- The weapon a classified spell conjures for the caster as an attack (arms), or nil: its first
 -- weapon that is no touch charge, with the caster's THAC0 less the weapon's bonus, its attacks a
--- round (set or raised by the item, opcode 1), its average damage and its range in world units.
--- Rounds: how long it lasts, from its uses and its duration (nil when neither is known).
+-- round (set or raised by the item, opcode 1), its average damage, its range in world units and
+-- its category. Rounds: how long it lasts, from its uses and its duration (nil when neither is
+-- known).
 function M.conjured(spell,caster)
     if type(spell)~='table' or type(spell.weapons)~='table' then return nil end
     for _,w in ipairs(spell.weapons) do
@@ -196,7 +209,7 @@ function M.conjured(spell,caster)
             if number(w.seconds) and w.seconds>0 then rounds=math.min(rounds or math.huge,w.seconds/6) end
             return {item=w.item,damage=average(w.dice,w.sides)+(number(w.bonus) and w.bonus or 0),damageType=w.damageType,
                 apr=apr,thac0=thac0,ranged=w.attack~='melee',range=number(w.range) and w.range*targeting.rangeUnit or nil,
-                flags=w.flags,enchantment=w.enchantment,strike=w.strike,rounds=rounds}
+                flags=w.flags,enchantment=w.enchantment,strike=w.strike,rounds=rounds,itemType=w.itemType}
         end
     end
 end

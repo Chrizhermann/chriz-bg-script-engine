@@ -158,6 +158,10 @@ c.items[10].record=item({itemType=28,usability=0},FIST.abilities)
 assert(arsenal.hand(TABLES,fighter(10,0,{apr=1})).backstab==nil and arsenal.hand(TABLES,c).backstab==true)
 c.selected=10
 assert(arsenal.hand(TABLES,c).backstab==true)
+-- Each weapon carries its item's category (F2e: critical hit effects of one category), a bow's
+-- with what it shoots; a fist's is 28.
+assert(hand.itemType==19 and find(others,'BOW').itemType==15 and find(others,'GREAT').itemType==20)
+assert(find(others,'AXE',1).itemType==25 and arsenal.hand(TABLES,c).itemType==28)
 groups=groups+1
 
 return groups

@@ -38,7 +38,7 @@ for _,op in ipairs({7,8,9,23,41,50,51,52,53,56,57,61,63,64,66,71,72,82,94,95,96,
     169,170,172,174,180,181,182,183,184,186,187,190,192,194,195,196,215,225,237,239,240,243,
     244,245,251,252,253,254,255,262,263,265,267,268,269,271,275,276,277,279,281,282,287,290,291,
     293,294,295,296,298,300,302,307,308,309,311,312,313,315,319,320,323,327,328,330,336,338,339,
-    340,341,342,347,348,349,350,351,352,353,354,355,356,357,358,359,360,361,362,363,364,365,367,
+    340,342,347,348,349,350,351,352,353,354,355,356,357,358,359,360,361,362,363,364,365,367,
     21,59,90,91,92,171,233,266}) do NEUTRAL[op]=true end
 -- 321 and 266 remove the effects or protections of one named resource: SCS and SR use them
 -- to refresh their own helpers, so they are bookkeeping, not dispelling. What 321 takes away
@@ -407,6 +407,8 @@ H[345]=H[344]
 H[111]=function(c,e,who,p) if e.res~='' then kind(c,'buff','weapon',who,e,p) end end
 H[248]=function(c,e,who,p) kind(c,'buff','onHit',who,e,p) end
 H[249]=H[248]
+-- A spell cast at each creature its holder hits critically (onCrit, F2e).
+H[341]=function(c,e,who,p) kind(c,'buff','onCrit',who,e,p) end
 H[303]=function(c,e,who,p) kind(c,'buff','backstab',who,e,p) end
 H[42]=function(c,e,who,p) if e.p1>0 then kind(c,'buff','slots',who,e,p) end end
 H[62]=H[42]
@@ -783,7 +785,7 @@ local function weapon(c,state,e,p)
         attack=ATTACKS[ability.attackType] or 'none',range=ability.range,speed=ability.speed,
         toHit=ability.thac0,dice=ability.dice,sides=ability.sides,bonus=ability.damageBonus,
         damageType=ability.damageType,flags=item.flags,enchantment=item.enchantment,aprSet=aprSet,aprAdd=aprAdd,
-        uses=n,touch=(ability.attackType==1 and n==1) or nil,
+        itemType=item.itemType,uses=n,touch=(ability.attackType==1 and n==1) or nil,
         seconds=seconds(e),chance=p,strike=M.classify(item,1,state.lookup,{level=state.level,weapons=false})}
 end
 
@@ -796,8 +798,21 @@ end
 -- effect comes from, not the spells that cast that one), is its only one (once), and so for every
 -- on-hit effect of that spell, as they go together (spent): Smite Evil ends with its first hit, and
 -- a kit's Poison Weapon poisons with one 248 and ends with another. An active effect read from a
--- creature names that spell as its source. An EFF that cannot be read leaves the spell as it is
--- (its roles are whole) and only the hit unknown: approximate, with the reason.
+-- creature names that spell as its source (source: kept, for an enemy that carries what the hit
+-- brings already). An EFF that cannot be read leaves the spell as it is (its roles are whole) and
+-- only the hit unknown: approximate, with the reason.
+local function holding(c,e,strike)
+    local own,source={},nil
+    for _,res in ipairs({c.owner or false,e.source or false}) do
+        if type(res)=='string' and res~='' then own[res:upper()]=true;source=res:upper() end
+    end
+    local ends={}
+    local strips=strike.roles.strips
+    if type(strips)=='table' and type(strips.who)=='table' and strips.who.self and type(strips.res)=='table' then
+        for res in pairs(strips.res) do ends[res]=true end
+    end
+    return own,ends,source
+end
 local function onHit(c,state,e,p,who)
     local eff=state.lookup('EFF',e.res)
     if type(eff)~='table' or type(eff.effect)~='table' then
@@ -809,19 +824,45 @@ local function onHit(c,state,e,p,who)
     inner.target=2
     local strike=M.classify({kind='EFF',resref=e.res,abilities={{target=1,range=0,projectile=0,effects={inner}}}},1,
         state.lookup,{level=state.level,weapons=false})
-    local own={}
-    for _,res in ipairs({c.owner,e.source}) do
-        if type(res)=='string' and res~='' then own[res:upper()]=true end
-    end
-    local ends={}
-    local strips=strike.roles.strips
-    if type(strips)=='table' and type(strips.who)=='table' and strips.who.self and type(strips.res)=='table' then
-        for res in pairs(strips.res) do ends[res]=true end
-    end
+    local own,ends,source=holding(c,e,strike)
     c.hits=c.hits or {}
     c.hits[#c.hits+1]={eff=e.res,melee=e.opcode==248,ranged=e.opcode==249,
         fists=(e.opcode==248 and math.floor(e.p2/4)%2==1) or nil,who=who,chance=p,seconds=seconds(e),once=false,
-        strike=strike,own=own,ends=ends}
+        strike=strike,source=source,own=own,ends=ends}
+end
+-- A critical hit effect (opcode 341, F2e; IESDP): while it lasts, the spell it names is cast at each
+-- creature its holder hits critically, with either hand (parameter 2 at 0) or with the weapon that
+-- holds it alone (1: the item it comes from, as an active effect names it; weapon); from an EFF
+-- file only with weapons of one category (parameter 3, ITEMCAT.IDS: 28 for fists and claws;
+-- category); with any attack (special 0), melee (1), ranged (2) or magical ones (3, which count
+-- nothing here). c.hits lists it as an on-hit effect that critical hits alone bring (critical):
+-- what one delivers is the spell at the holder's level, classified as cast at the creature hit
+-- without a projectile, so what it puts on its caster lands on the holder, and one that takes its
+-- own spell off the holder again comes once (spent), as for onHit. A spell that cannot be read
+-- leaves the hit unknown.
+local CRIT_ATTACK={[0]={melee=true,ranged=true},[1]={melee=true},[2]={ranged=true}}
+local function onCrit(c,state,e,p,who)
+    local spell=state.lookup('SPL',e.res)
+    local index=type(spell)=='table' and M.abilityForLevel(spell,state.level)
+    local ability=index and spell.abilities[index]
+    if type(ability)~='table' then
+        c.approximate=true;c.reasons['missing:SPL:'..tostring(e.res)]=true
+        return
+    end
+    local strike=M.classify({kind='SPL',resref=type(spell.resref)=='string' and spell.resref or e.res,level=spell.level,
+        school=spell.school,secondary=spell.secondary,flags=spell.flags,
+        abilities={{target=1,range=0,projectile=0,effects=ability.effects}}},1,state.lookup,{level=state.level,weapons=false})
+    local own,ends,source=holding(c,e,strike)
+    local attack=CRIT_ATTACK[e.special] or {}
+    local weapon
+    if e.p2==1 then
+        local from=type(e.source)=='string' and e.source~='' and e.source or c.owner
+        weapon=type(from)=='string' and from:upper() or ''
+    end
+    c.hits=c.hits or {}
+    c.hits[#c.hits+1]={eff=e.res,critical=true,melee=attack.melee==true,ranged=attack.ranged==true,weapon=weapon,
+        category=number(e.p3) and e.p3>0 and e.p3 or nil,who=who,chance=p,seconds=seconds(e),once=false,
+        strike=strike,source=source,own=own,ends=ends}
 end
 local function spent(hits)
     for _,h in ipairs(hits or {}) do
@@ -1063,6 +1104,7 @@ walk=function(c,state,effects,where,depth,p,key,owner)
                         H[e.opcode](c,e,who,q)
                         if e.opcode==111 and e.res~='' and who=='self' and state.weapons then weapon(c,state,e,q) end
                         if (e.opcode==248 or e.opcode==249) and e.res~='' and state.weapons then onHit(c,state,e,q,who) end
+                        if e.opcode==341 and e.res~='' and state.weapons then onCrit(c,state,e,q,who) end
                         -- The log replays what reaches others for one creature (M.view).
                         if who~='self' then
                             local when=leveled(c,e,c.when)

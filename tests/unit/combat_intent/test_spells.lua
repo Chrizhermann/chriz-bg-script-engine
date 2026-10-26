@@ -586,6 +586,7 @@ local blade=itm('TESTBLD',20,{weaponAbility({dice=1,sides=8,effects={fx(12,{dice
 c=classify(spl('TESTBLAD',{ability({fx(111,{target=1,p1=1,res='TESTBLD',duration=240})},{target=5})}),
     world({['ITM:TESTBLD']=blade}))
 assert(c.weapons[1].uses==nil and c.weapons[1].touch==nil and c.weapons[1].dice==1 and c.weapons[1].sides==8)
+assert(c.weapons[1].itemType==20)
 c=classify(spl('TESTLOST',{ability({fx(111,{target=1,p1=1,res='TESTNONE',duration=60})},{target=5})}),world({}))
 assert(c.weapons==nil and c.partial and c.reasons['missing:ITM:TESTNONE'])
 -- An empty item reference creates nothing: no weapon, and nothing is missing. A kit mod's Shocking
@@ -867,6 +868,56 @@ assert(poison({p1=3,p2=3,timing=1})==20 and poison({p1=3,p2=3,timing=9})==20 and
 assert(one(fx(78,{p1=3,p2=2,p4=2,duration=10})).roles.damage.types.poison==15)
 assert(one(fx(78,{p1=30,p2=1,duration=20})).roles.damage.types.poison==20)
 assert(spells.perSecond(fx(78,{p1=2,p2=4}))==nil and spells.perSecond(fx(272,{p1=5,p2=1}))==0)
+groups=groups+1
+
+-- Critical hit effects (opcode 341, F2e): the spell it names is cast at each creature its holder
+-- hits critically. A kit's lasting one with melee hits (special 1): its spell at the holder's level
+-- (2d6 fire from level 10 on, 1d6 below), read as cast at the creature hit without its projectile;
+-- what it puts on its caster lands on the holder.
+local critHit=spl('TESTCRHT',{ability({fx(12,{p2=8*65536,dice=1,sides=6,timing=1}),fx(0,{target=1,p1=2,duration=6})},
+    {projectile=99}),ability({fx(12,{p2=8*65536,dice=2,sides=6,timing=1})},{minLevel=10,projectile=99})})
+local critWorld={['SPL:TESTCRHT']=critHit,['PRO:99']=pro({radius=480})}
+assert(spells.neutral[341]==nil)
+local critKit=spl('TESTCRKT',{ability({fx(341,{target=1,timing=9,special=1,res='TESTCRHT'})},{target=5})})
+c=classify(critKit,world(critWorld))
+h=c.hits[1]
+assert(not c.partial and #c.hits==1 and c.roles.buff.kinds.onCrit and c.roles.buff.who.self and c.roles.damage==nil)
+assert(h.critical==true and h.melee==true and h.ranged==false and h.fists==nil and h.weapon==nil and h.category==nil)
+assert(h.who=='self' and h.seconds=='permanent' and h.once==false and h.eff=='TESTCRHT' and h.source=='TESTCRKT')
+assert(h.strike.area==nil and h.strike.roles.damage.who.target and near(h.strike.roles.damage.types.fire,3.5))
+assert(h.strike.roles.protection.who.self and h.strike.roles.protection.who.target==nil)
+assert(near(classify(critKit,world(critWorld),{level=12}).hits[1].strike.roles.damage.types.fire,7))
+-- Any attack (special 0) brings it with melee and missiles alike, ranged ones (2) with missiles
+-- alone; magical attacks (3) and unknown kinds count nothing.
+local function critOf(fields,lookup)
+    return classify(spl('',{ability({fx(341,fields)},{target=5})}),lookup or world(critWorld)).hits[1]
+end
+h=critOf({target=1,res='TESTCRHT'})
+assert(h.melee and h.ranged)
+h=critOf({target=1,special=2,res='TESTCRHT'})
+assert(h.ranged and not h.melee)
+for _,kind in ipairs({3,7}) do
+    h=critOf({target=1,special=kind,res='TESTCRHT'})
+    assert(h.melee==false and h.ranged==false)
+end
+-- By this weapon only (parameter 2 at 1): with the item it comes from, as an active effect names it
+-- (sense.guard), else the item or spell that holds it; one without either matches no weapon. From an
+-- EFF file only with weapons of one category (parameter 3, ITEMCAT.IDS: 28 for fists).
+assert(critOf({target=1,p2=1,res='TESTCRHT',source='testaxe'}).weapon=='TESTAXE')
+assert(classify(spl('TESTSWRD',{ability({fx(341,{target=1,p2=1,res='TESTCRHT'})},{target=5})}),world(critWorld)).hits[1].weapon=='TESTSWRD')
+assert(critOf({target=1,p2=1,res='TESTCRHT'}).weapon=='')
+local anonymous=spl('',{ability({fx(341,{target=1,p2=1,res='TESTCRHT'})},{target=5})})
+anonymous.resref=nil
+assert(classify(anonymous,world(critWorld)).hits[1].weapon=='')
+assert(critOf({target=1,p3=28,res='TESTCRHT'}).category==28 and critOf({target=1,p3=0,res='TESTCRHT'}).category==nil)
+-- A critical hit spell that takes the spell holding it off its holder again (opcode 321) comes once.
+critWorld['SPL:TESTCRSG']=spl('TESTCRSG',{ability({fx(12,{p2=8*65536,dice=1,sides=6,timing=1}),fx(321,{target=1,res='TESTSIEG',timing=1})})})
+assert(critOf({target=1,timing=0,duration=60,special=2,res='TESTCRSG',source='TESTSIEG'}).once==true)
+assert(critOf({target=1,timing=0,duration=60,special=2,res='TESTCRSG',source='TESTOTHR'}).once==false)
+-- A spell that cannot be read leaves the hit unknown; a strike is read without critical hit effects.
+c=classify(spl('TESTCRLS',{ability({fx(341,{target=1,timing=9,res='TESTNONE'})},{target=5})}),world({}))
+assert(not c.partial and c.approximate and c.reasons['missing:SPL:TESTNONE'] and c.hits==nil and c.roles.buff.kinds.onCrit)
+assert(classify(critKit,world(critWorld),{weapons=false}).hits==nil)
 groups=groups+1
 
 return groups

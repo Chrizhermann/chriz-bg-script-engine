@@ -2544,4 +2544,51 @@ assert(g.queued[#g.queued].text:find('UseItem%("TESTINVP",Myself%)')~=nil)
 end)()
 groups=groups+1
 
+-- 37. Critical hit effects (F2e). A brawler (a fighter's profile) whose kit casts fire at each
+-- creature its fists hit critically (opcode 341 from an EFF file: melee, weapon category 28) stands
+-- next to an ogre. The engine reads the effect from the brawler's own effects, the spell at the
+-- brawler's level (40 fire from level 9 on, 10 below) and the category of the fists in its hand: the
+-- swing is worth more for it, four times as much more at level 9 as at level 1. With a club in hand
+-- the effect brings nothing.
+;(function()
+local profiles=require('combat-intent.mind')
+local function tier(minLevel,fire)
+    return {form=1,flags=0,location=2,target=1,targetCount=0,range=1,minLevel=minLevel,speed=0,projectile=1,
+        effects={fx(12,{p1=fire,p2=8*65536,timing=1})}}
+end
+records.TESTCRFX={kind='SPL',resref='TESTCRFX',name=0,flags=0,spellType=4,exclusion=0,school=0,secondary=0,level=1,
+    casting={},abilities={tier(1,10),tier(9,40)}}
+ITEMS.TESTFST2=weapon('TESTFST2',{flags=0,itemType=28},{dice=1,sides=4,damageType=2})
+ITEMS.TESTCLB2=weapon('TESTCLB2',{flags=0,itemType=17},{dice=1,sides=4,damageType=2})
+local function swing(level,carried,slot,resref)
+    local g=world()
+    local brawler=sprite(1,100,100,255)
+    brawler.items[slot]={cResRef=str(resref)};brawler.m_equipment.m_selectedWeapon=slot
+    brawler.stats[8],brawler.stats[7],brawler.stats[34]=1,10,level
+    if carried then
+        brawler.m_timedEffectList={{m_effectId=341,m_durationType=1,m_duration=0,m_effectAmount=0,m_dWFlags=0,
+            m_effectAmount2=28,m_effectAmount3=0,m_numDice=0,m_diceSize=0,m_special=1,m_spellLevel=0,
+            m_res=str('TESTCRFX'),m_sourceRes=str('TESTBRWL')}}
+    end
+    g.add(brawler)
+    local ogre=g.add(sprite(11,150,100,2))
+    ogre.stats[2],ogre.stats[1]=5,60;ogre.m_baseStats.m_hitPoints=60
+    local dir=directors.new(g,{reader=reader})
+    local ch=choices.new(g,{reader=reader,director=dir,seed=61,
+        mindFor=function() return profiles.forFamily(profiles.new(),'fighter') end})
+    local rows={}
+    ch:setSink(function(row) rows[#rows+1]=row end)
+    runtime.install(g,{director=dir,choice=ch,version='test'})
+    g.ticks=100
+    assert(g.BGSE_Claim(brawler,'mage','s1')==true)
+    for n=#rows,1,-1 do if rows[n].kind=='choice' then return rows[n] end end
+end
+local plain,low,high=swing(9,false,10,'TESTFST2'),swing(1,true,10,'TESTFST2'),swing(9,true,10,'TESTFST2')
+assert(plain.castKind=='weapon' and plain.spell=='TESTFST2' and high.castKind=='weapon' and high.target==11)
+assert(low.worth>plain.worth and high.worth>low.worth and near(high.worth-plain.worth,4*(low.worth-plain.worth)))
+local club=swing(9,true,35,'TESTCLB2')
+assert(club.spell=='TESTCLB2' and near(club.worth,swing(9,false,35,'TESTCLB2').worth))
+end)()
+groups=groups+1
+
 return groups

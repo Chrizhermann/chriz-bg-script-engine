@@ -729,10 +729,18 @@ spell of invisibility adds. SCS's own hide, a thief that sees no enemy turns inv
 stays SCS's: it happens before the engine's turn and out of the party's sight. The game's backstab
 rule comes from GemRB's reading of the game, so the lab still has to show it in EE.
 
-Next: the teleport lab's second run (an engine jump, SCS's ReallyForceSpellRES form, a cast from
-out of sight) and a lab of mixed fights with fighters, archers, thieves and monsters, then
-critical hit effects (opcode 341) and debuffs that weapons deliver on a hit. Melissan's own fight
-is designed with Christopher.
+F2e counts critical hit effects and hits that weaken (FIGHT-01, "F2e"): a weapon or kit power
+that casts a spell on a critical hit adds what that spell does as often as critical hits come
+(critical hit points raise the share, half are kept off by helmets), in each swing and in buffs
+like Critical Strike, and an on-hit debuff counts as F2b's debuffs do. The in-game texts of the
+lab's weapons and kits settled who such a spell reaches: "self" is the attacker. Reading them also
+showed that the classifier misreads opcode 326 aimed at "self", which IESDP says still lands on
+the spell's target (Artisan's Kitpack's Dreadnought stuns the creature it hits that way).
+
+Next: opcode 326 as IESDP describes it, the teleport lab's second run (an engine jump, SCS's
+ReallyForceSpellRES form, a cast from out of sight) and a lab of mixed fights with fighters,
+archers, thieves and monsters, then thieves that hide with their own skill (F2f) instead of SCS's
+free invisibility. Melissan's own fight is designed with Christopher.
 
 ## To design with Christopher
 

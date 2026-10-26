@@ -459,7 +459,7 @@ for _,op in ipairs({7,8,9,23,41,50,51,52,53,56,57,61,63,64,66,71,72,82,94,95,96,
     169,170,172,174,180,181,182,183,184,186,187,190,192,194,195,196,215,225,237,239,240,243,
     244,245,251,252,253,254,255,262,263,265,267,268,269,271,275,276,277,279,281,282,287,290,291,
     293,294,295,296,298,300,302,307,308,309,311,312,313,315,319,320,323,327,328,330,336,338,339,
-    340,341,342,347,348,349,350,351,352,353,354,355,356,357,358,359,360,361,362,363,364,365,367,
+    340,342,347,348,349,350,351,352,353,354,355,356,357,358,359,360,361,362,363,364,365,367,
     21,59,90,91,92,171,233,266}) do NEUTRAL[op]=true end
 -- 321 and 266 remove the effects or protections of one named resource: SCS and SR use them
 -- to refresh their own helpers, so they are bookkeeping, not dispelling. What 321 takes away
@@ -828,6 +828,8 @@ H[345]=H[344]
 H[111]=function(c,e,who,p) if e.res~='' then kind(c,'buff','weapon',who,e,p) end end
 H[248]=function(c,e,who,p) kind(c,'buff','onHit',who,e,p) end
 H[249]=H[248]
+-- A spell cast at each creature its holder hits critically (onCrit, F2e).
+H[341]=function(c,e,who,p) kind(c,'buff','onCrit',who,e,p) end
 H[303]=function(c,e,who,p) kind(c,'buff','backstab',who,e,p) end
 H[42]=function(c,e,who,p) if e.p1>0 then kind(c,'buff','slots',who,e,p) end end
 H[62]=H[42]
@@ -1204,7 +1206,7 @@ local function weapon(c,state,e,p)
         attack=ATTACKS[ability.attackType] or 'none',range=ability.range,speed=ability.speed,
         toHit=ability.thac0,dice=ability.dice,sides=ability.sides,bonus=ability.damageBonus,
         damageType=ability.damageType,flags=item.flags,enchantment=item.enchantment,aprSet=aprSet,aprAdd=aprAdd,
-        uses=n,touch=(ability.attackType==1 and n==1) or nil,
+        itemType=item.itemType,uses=n,touch=(ability.attackType==1 and n==1) or nil,
         seconds=seconds(e),chance=p,strike=M.classify(item,1,state.lookup,{level=state.level,weapons=false})}
 end
 
@@ -1217,8 +1219,21 @@ end
 -- effect comes from, not the spells that cast that one), is its only one (once), and so for every
 -- on-hit effect of that spell, as they go together (spent): Smite Evil ends with its first hit, and
 -- a kit's Poison Weapon poisons with one 248 and ends with another. An active effect read from a
--- creature names that spell as its source. An EFF that cannot be read leaves the spell as it is
--- (its roles are whole) and only the hit unknown: approximate, with the reason.
+-- creature names that spell as its source (source: kept, for an enemy that carries what the hit
+-- brings already). An EFF that cannot be read leaves the spell as it is (its roles are whole) and
+-- only the hit unknown: approximate, with the reason.
+local function holding(c,e,strike)
+    local own,source={},nil
+    for _,res in ipairs({c.owner or false,e.source or false}) do
+        if type(res)=='string' and res~='' then own[res:upper()]=true;source=res:upper() end
+    end
+    local ends={}
+    local strips=strike.roles.strips
+    if type(strips)=='table' and type(strips.who)=='table' and strips.who.self and type(strips.res)=='table' then
+        for res in pairs(strips.res) do ends[res]=true end
+    end
+    return own,ends,source
+end
 local function onHit(c,state,e,p,who)
     local eff=state.lookup('EFF',e.res)
     if type(eff)~='table' or type(eff.effect)~='table' then
@@ -1230,19 +1245,45 @@ local function onHit(c,state,e,p,who)
     inner.target=2
     local strike=M.classify({kind='EFF',resref=e.res,abilities={{target=1,range=0,projectile=0,effects={inner}}}},1,
         state.lookup,{level=state.level,weapons=false})
-    local own={}
-    for _,res in ipairs({c.owner,e.source}) do
-        if type(res)=='string' and res~='' then own[res:upper()]=true end
-    end
-    local ends={}
-    local strips=strike.roles.strips
-    if type(strips)=='table' and type(strips.who)=='table' and strips.who.self and type(strips.res)=='table' then
-        for res in pairs(strips.res) do ends[res]=true end
-    end
+    local own,ends,source=holding(c,e,strike)
     c.hits=c.hits or {}
     c.hits[#c.hits+1]={eff=e.res,melee=e.opcode==248,ranged=e.opcode==249,
         fists=(e.opcode==248 and math.floor(e.p2/4)%2==1) or nil,who=who,chance=p,seconds=seconds(e),once=false,
-        strike=strike,own=own,ends=ends}
+        strike=strike,source=source,own=own,ends=ends}
+end
+-- A critical hit effect (opcode 341, F2e; IESDP): while it lasts, the spell it names is cast at each
+-- creature its holder hits critically, with either hand (parameter 2 at 0) or with the weapon that
+-- holds it alone (1: the item it comes from, as an active effect names it; weapon); from an EFF
+-- file only with weapons of one category (parameter 3, ITEMCAT.IDS: 28 for fists and claws;
+-- category); with any attack (special 0), melee (1), ranged (2) or magical ones (3, which count
+-- nothing here). c.hits lists it as an on-hit effect that critical hits alone bring (critical):
+-- what one delivers is the spell at the holder's level, classified as cast at the creature hit
+-- without a projectile, so what it puts on its caster lands on the holder, and one that takes its
+-- own spell off the holder again comes once (spent), as for onHit. A spell that cannot be read
+-- leaves the hit unknown.
+local CRIT_ATTACK={[0]={melee=true,ranged=true},[1]={melee=true},[2]={ranged=true}}
+local function onCrit(c,state,e,p,who)
+    local spell=state.lookup('SPL',e.res)
+    local index=type(spell)=='table' and M.abilityForLevel(spell,state.level)
+    local ability=index and spell.abilities[index]
+    if type(ability)~='table' then
+        c.approximate=true;c.reasons['missing:SPL:'..tostring(e.res)]=true
+        return
+    end
+    local strike=M.classify({kind='SPL',resref=type(spell.resref)=='string' and spell.resref or e.res,level=spell.level,
+        school=spell.school,secondary=spell.secondary,flags=spell.flags,
+        abilities={{target=1,range=0,projectile=0,effects=ability.effects}}},1,state.lookup,{level=state.level,weapons=false})
+    local own,ends,source=holding(c,e,strike)
+    local attack=CRIT_ATTACK[e.special] or {}
+    local weapon
+    if e.p2==1 then
+        local from=type(e.source)=='string' and e.source~='' and e.source or c.owner
+        weapon=type(from)=='string' and from:upper() or ''
+    end
+    c.hits=c.hits or {}
+    c.hits[#c.hits+1]={eff=e.res,critical=true,melee=attack.melee==true,ranged=attack.ranged==true,weapon=weapon,
+        category=number(e.p3) and e.p3>0 and e.p3 or nil,who=who,chance=p,seconds=seconds(e),once=false,
+        strike=strike,source=source,own=own,ends=ends}
 end
 local function spent(hits)
     for _,h in ipairs(hits or {}) do
@@ -1484,6 +1525,7 @@ walk=function(c,state,effects,where,depth,p,key,owner)
                         H[e.opcode](c,e,who,q)
                         if e.opcode==111 and e.res~='' and who=='self' and state.weapons then weapon(c,state,e,q) end
                         if (e.opcode==248 or e.opcode==249) and e.res~='' and state.weapons then onHit(c,state,e,q,who) end
+                        if e.opcode==341 and e.res~='' and state.weapons then onCrit(c,state,e,q,who) end
                         -- The log replays what reaches others for one creature (M.view).
                         if who~='self' then
                             local when=leveled(c,e,c.when)
@@ -3001,7 +3043,9 @@ end
 
 -- The on-hit effects of a list (combat-intent/spells.lua's hits, F2a) that a hit with weapon w
 -- brings: melee ones (opcode 248) with a melee weapon, those for fists only when w is the fist;
--- ranged ones (249) with missiles and thrown weapons.
+-- ranged ones (249) with missiles and thrown weapons. Critical hit effects (opcode 341, F2e) by
+-- their kind of attack alike; one of a single weapon only with that item (a launcher's with what it
+-- shoots), one of a weapon category (ITEMCAT.IDS) only with a weapon of that category.
 function M.payloads(hits,w)
     local out={}
     if type(hits)~='table' or type(w)~='table' then return out end
@@ -3010,10 +3054,20 @@ function M.payloads(hits,w)
             local fits
             if w.ranged then fits=h.ranged==true
             else fits=h.melee==true and (not h.fists or w.fist==true) end
+            if fits and h.weapon~=nil then fits=type(w.item)=='string' and w.item:upper()==h.weapon end
+            if fits and h.category~=nil then fits=w.itemType==h.category end
             if fits then out[#out+1]=h end
         end
     end
     return out
+end
+
+-- The share of the hits that land with chance (threat.hitChance) that are critical hits: a roll of
+-- 20 less crit (critical hit points, opcode 301), no less likely than 1 in 20, always hits.
+function M.critical(chance,crit)
+    if not number(chance) or chance<=0 then return 0 end
+    local q=math.max(0.05,math.min(1,(1+(number(crit) and crit or 0))/20))
+    return math.min(1,q/chance)
 end
 
 -- Whether an immunity to weapons (opcode 120, by its type p2) keeps weapon w off (its flags and
@@ -3134,8 +3188,9 @@ end
 
 -- The weapon a classified spell conjures for the caster as an attack (arms), or nil: its first
 -- weapon that is no touch charge, with the caster's THAC0 less the weapon's bonus, its attacks a
--- round (set or raised by the item, opcode 1), its average damage and its range in world units.
--- Rounds: how long it lasts, from its uses and its duration (nil when neither is known).
+-- round (set or raised by the item, opcode 1), its average damage, its range in world units and
+-- its category. Rounds: how long it lasts, from its uses and its duration (nil when neither is
+-- known).
 function M.conjured(spell,caster)
     if type(spell)~='table' or type(spell.weapons)~='table' then return nil end
     for _,w in ipairs(spell.weapons) do
@@ -3149,7 +3204,7 @@ function M.conjured(spell,caster)
             if number(w.seconds) and w.seconds>0 then rounds=math.min(rounds or math.huge,w.seconds/6) end
             return {item=w.item,damage=average(w.dice,w.sides)+(number(w.bonus) and w.bonus or 0),damageType=w.damageType,
                 apr=apr,thac0=thac0,ranged=w.attack~='melee',range=number(w.range) and w.range*targeting.rangeUnit or nil,
-                flags=w.flags,enchantment=w.enchantment,strike=w.strike,rounds=rounds}
+                flags=w.flags,enchantment=w.enchantment,strike=w.strike,rounds=rounds,itemType=w.itemType}
         end
     end
 end
@@ -3399,12 +3454,13 @@ end
 -- shoots and how far (a launcher's own range, else the ammunition's), the item, its ability (1 for
 -- the first) and the ammunition, the damage type and the hitting item's flags and enchantment
 -- (plain ammunition from a magical launcher hits as magical), the projectile a missile flies as,
--- slot and abilityNum for SelectWeaponAbility, and whether it can backstab (M.THIEF).
+-- slot and abilityNum for SelectWeaponAbility, whether it can backstab (M.THIEF) and the item's
+-- category (ITEMCAT.IDS, for critical hit effects of one category).
 local function attack(c,s,hit,damage)
     local stats=c.stats
     local melee=not s.ranged
     local out={item=s.item,ability=s.number+1,slot=s.slot,abilityNum=s.number,ammo=s.ammo,ranged=s.ranged,
-        launcher=s.launcher,fist=s.slot==M.FIST or nil}
+        launcher=s.launcher,fist=s.slot==M.FIST or nil,itemType=number(s.record.itemType) and s.record.itemType or nil}
     if melee and number(s.record.usability) and not targeting.has(s.record.usability,M.THIEF) then out.backstab=true end
     out.thac0=value(stats.thac0)-hit-value(stats.hitBonus)-value(melee and stats.meleeHit or stats.missileHit)
     out.damage=math.max(0,damage+value(stats.damageBonus)+value(melee and stats.meleeDamage or stats.missileDamage))
@@ -3950,14 +4006,18 @@ local function swing(h,d,crit)
 end
 local function reaches(role) return type(role)=='table' and type(role.who)=='table' and (role.who.target or role.who.area) end
 -- What on-hit effects (hits, combat-intent/spells.lua) bring through the hits of weapon held over
--- r rounds, swung apr times a round with thac0, as a share of an enemy: for each living enemy, what
--- one hit's payload does there (combat-intent/harm.lua): its damage on every hit that lands past
--- Mirror Images and Stoneskin skins, on the first alone for a payload the hit takes off again
--- (once), and its disable once; the mean over the enemies. What an enemy's spell protections keep
--- out counts nothing.
-local function payload(hits,held,apr,thac0,frame,r)
+-- r rounds, swung apr times a round with thac0 and crit critical hit points, as a share of an
+-- enemy: for each living enemy, what one hit's payload does there (combat-intent/harm.lua): its
+-- damage on every hit that lands past Mirror Images and Stoneskin skins, a critical hit effect's
+-- (F2e) on the critical hits among them where no helmet keeps them off (M.critOpen), either on the
+-- first alone for a payload the hit takes off again (once); the strongest disable and the strongest
+-- debuff once, as likely as a hit that brings it lands, the debuff against the armour class of the
+-- holder's side and none on an enemy that carries it already (harm.carries); the mean over the
+-- enemies. What an enemy's spell protections keep out counts nothing.
+local function payload(hits,held,apr,thac0,crit,frame,r)
     local list=weapons.payloads(hits,held)
     if #list==0 then return 0 end
+    local ac=threat.armour(threat.friends(frame))
     local total,n=0,0
     for _,e in ipairs(type(frame.enemies)=='table' and frame.enemies or {}) do
         if targeting.alive(e) then
@@ -3965,22 +4025,29 @@ local function payload(hits,held,apr,thac0,frame,r)
             local maxHp=number(e.maxHp) and e.maxHp>0 and e.maxHp or M.enemyHp
             local hp=number(e.hp) and e.hp>0 and e.hp or maxHp
             local absorbed=(number(e.mirror) and e.mirror>0 and e.mirror or 0)+(number(e.skins) and e.skins>0 and e.skins or 0)
-            local landed=math.max(0,apr*threat.hitChance(thac0,number(e.ac) and e.ac or M.enemyAc)*r-absorbed)
-            local dealt,disabled=0,0
+            local chance=threat.hitChance(thac0,number(e.ac) and e.ac or M.enemyAc)
+            local landed=math.max(0,apr*chance*r-absorbed)
+            local crits=landed*weapons.critical(chance,crit)*M.critOpen
+            local dealt,disabled,weakened=0,0,0
             for _,h in ipairs(list) do
                 local roles=spells.view(h.strike,targeting.holds(e))
                 if type(roles)=='table' and not targeting.protected(e,h.strike) then
                     local floor=targeting.floor(e,roles)
+                    local times=h.critical and crits or landed
+                    if h.once then times=math.min(1,times) end
                     if reaches(roles.damage) then
                         local _,each=harm.damage(roles.damage,e,0,floor)
-                        dealt=dealt+each*(h.once and math.min(1,landed) or landed)
+                        dealt=dealt+each*times
                     end
                     if reaches(roles.disable) then
-                        disabled=math.max(disabled,harm.disable(roles.disable,e,0,floor)*math.min(1,landed))
+                        disabled=math.max(disabled,harm.disable(roles.disable,e,0,floor)*math.min(1,times))
+                    end
+                    if reaches(roles.debuff) and not harm.carries(e,h.strike,h.source) then
+                        weakened=math.max(weakened,harm.debuff(roles.debuff,e,ac)*math.min(1,times))
                     end
                 end
             end
-            total=total+math.min(dealt,hp)/maxHp+disabled
+            total=total+math.min(dealt,hp)/maxHp+disabled+weakened
         end
     end
     return n>0 and total/n or 0
@@ -4008,7 +4075,7 @@ function M.offense(buff,f,frame,r,held,own,hits)
     local d=math.max(0,a.damage+damage-less+a.damage*(percent-fewer)/100)
     local before=a.apr*swing(threat.hitChance(a.thac0,ac),a.damage,0)
     local after=apr*swing(threat.hitChance(a.thac0-hit+lost,ac),d,crit-blunt)
-    return math.max(0,after-before)*r/hp+payload(hits,held,apr,a.thac0-hit+lost,frame,r)
+    return math.max(0,after-before)*r/hp+payload(hits,held,apr,a.thac0-hit+lost,crit-blunt,frame,r)
 end
 
 -- Whether a role of a beneficial spell reaches friends: the caster, its area (an area that
@@ -6990,10 +7057,23 @@ end
 -- protection stops the weapon, one against what its hit casts stops that part. The hits kill
 -- when those expected reach those needed, as likely as the last one lands (two swings that each
 -- hit four times in five, needing both: 0.6), unless e's minimum holds against them
--- (targeting.floor): then they take what it has above it. The strongest disable a hit brings
--- counts as likelier the more hits land. bs (combat-intent/backstab.lua, optional): the chance the
--- first hit is a backstab, which multiplies the weapon's own damage of that hit (not what it casts);
--- a kill counts as likely as it is with the backstab and without.
+-- (targeting.floor): then they take what it has above it. The strongest disable and the strongest
+-- debuff (F2e) a hit brings count as likelier the more hits that bring them land, the debuff
+-- against the armour class of the caster's side and none on an enemy that carries it already
+-- (harm.carries). A critical hit effect (F2e) comes with the critical hits among the hits
+-- (weapons.critical, by the caster's critical hit points) where no helmet keeps them off
+-- (defence.critOpen): what it deals counts as expected, but not toward a kill, which no one plans on
+-- a critical hit. bs (combat-intent/backstab.lua, optional): the chance the first hit is a
+-- backstab, which multiplies the weapon's own damage of that hit (not what it casts); a kill counts
+-- as likely as it is with the backstab and without.
+local function critPoints(guard)
+    local roles=type(guard)=='table' and type(guard.roles)=='table' and guard.roles or {}
+    local function points(role)
+        local a=type(role)=='table' and role.amounts
+        return type(a)=='table' and number(a.critical) and a.critical or 0
+    end
+    return points(roles.buff)-points(roles.debuff)
+end
 local function hitsOn(input,arms,hits,e,bs)
     local hp,maxHp=e.hp,e.maxHp
     if not number(hits) or hits<=0 or not number(hp) or not number(maxHp) or maxHp<=0 or hp<=0 then return 0,0 end
@@ -7002,11 +7082,15 @@ local function hitsOn(input,arms,hits,e,bs)
     if type(bs)=='table' and number(bs.chance) and bs.chance>0 and number(bs.multiplier) and bs.multiplier>1 then
         stab,p=(bs.multiplier-1)*per,clamp(bs.chance,0,1)
     end
-    local first,floor,disables=0,targeting.floor(e,nil),{}
-    local function strike(c,once)
+    local guard=input.frame.self.guard
+    local crits=hits*weapons.critical(threat.hitChance(arms.thac0,e.ac),critPoints(guard))*defence.critOpen
+    local first,critical,floor,conditions=0,0,targeting.floor(e,nil),{}
+    local function strike(c,h)
         local roles=type(c)=='table' and spells.view(c,targeting.holds(e)) or nil
         if type(roles)~='table' or targeting.protected(e,c) then return end
         floor=math.min(floor,targeting.floor(e,roles))
+        local times=h and h.critical and crits or hits
+        if h and h.once then times=math.min(1,times) end
         if reaches(roles.damage) then
             local role=roles.damage
             local each=0
@@ -7015,16 +7099,19 @@ local function hitsOn(input,arms,hits,e,bs)
             end
             local save=M.saveChance(role,e)
             each=each*landing(role,e)*(role.saveForHalf and 1-save/2 or 1-save)
-            if once then first=first+each else per=per+each end
+            if h and h.critical then critical=critical+each*times
+            elseif h and h.once then first=first+each else per=per+each end
         end
-        if reaches(roles.disable) then disables[#disables+1]=roles.disable end
+        if reaches(roles.disable) then conditions[#conditions+1]={role=roles.disable,times=times} end
+        if reaches(roles.debuff) and not harm.carries(e,c,h and h.source) then
+            conditions[#conditions+1]={role=roles.debuff,times=times,debuff=true}
+        end
     end
     strike(arms.strike)
-    local guard=input.frame.self.guard
-    for _,h in ipairs(weapons.payloads(type(guard)=='table' and guard.hits,arms)) do strike(h.strike,h.once) end
+    for _,h in ipairs(weapons.payloads(type(guard)=='table' and guard.hits,arms)) do strike(h.strike,h) end
     local worth,expected=0,0
-    if (per>0 or first>0) and hp>floor then
-        local dealt=hits*per+first*math.min(1,hits)+p*stab
+    if (per>0 or first>0 or critical>0) and hp>floor then
+        local dealt=hits*per+first*math.min(1,hits)+p*stab+critical
         expected=math.min(dealt,hp-floor)
         worth=expected/maxHp
         if floor<=0 then
@@ -7043,9 +7130,13 @@ local function hitsOn(input,arms,hits,e,bs)
         if type(plan)=='table' and plan.focus==e.id then worth=worth*(1+input.mind.focusBonus*input.mind.coordination) end
         worth=worth*orders.favour(input,e)
     end
-    local best=0
-    for _,role in ipairs(disables) do best=math.max(best,disableOn(input,{resref=arms.item or ''},role,e,floor)) end
-    return worth+best*math.min(1,hits),expected
+    local best,weak=0,0
+    for _,x in ipairs(conditions) do
+        if x.debuff then
+            weak=math.max(weak,harm.debuff(x.role,e,facing(input,nil))*orders.favour(input,e)*math.min(1,x.times))
+        else best=math.max(best,disableOn(input,{resref=arms.item or ''},x.role,e,floor)*math.min(1,x.times)) end
+    end
+    return worth+best+weak,expected
 end
 
 -- Options of one ready spell that conjures a weapon (arms, combat-intent/weapons.lua): cast on
@@ -9302,14 +9393,15 @@ function M.arsenal(g,sprite,reader)
 end
 
 -- What protects a creature now, as plain values (combat-intent/defence.lua's guard): its
--- active effects classified as one record (classify(record), combat-intent/spells.lua) for
--- their roles, the engine's counts of Stoneskin skins and Mirror Images, the spells its effects
--- come from, the spells opcode 206 keeps off it, and the conditions on it a cure takes away
--- with the seconds each has left (math.huge for one without an end) and the hit points its
--- poison will still take; hits: the on-hit effects it carries (each effect names the spell it
--- comes from, for one that its first hit ends). Effects that end within M.expiring seconds and
--- delayed ones that have not started are left out of its roles.
-function M.guard(g,sprite,tick,classify)
+-- active effects classified as one record (classify(record,level), combat-intent/spells.lua; level:
+-- the creature's, at which what its hits cast counts) for their roles, the engine's counts of
+-- Stoneskin skins and Mirror Images, the spells its effects come from, the spells opcode 206 keeps
+-- off it, and the conditions on it a cure takes away with the seconds each has left (math.huge for
+-- one without an end) and the hit points its poison will still take; hits: the on-hit and critical
+-- hit effects it carries (each effect names the spell or item it comes from, for one that its first
+-- hit ends and one of a single weapon). Effects that end within M.expiring seconds and delayed ones
+-- that have not started are left out of its roles.
+function M.guard(g,sprite,tick,classify,level)
     local list,sources,recast,conditions={},{},{},{}
     local poison=0
     for _,effects in ipairs({sprite.m_timedEffectList,sprite.m_equipedEffectList}) do
@@ -9361,7 +9453,7 @@ function M.guard(g,sprite,tick,classify)
     local record={kind='SPL',resref='',name=0,flags=0,spellType=0,exclusion=0,school=0,secondary=0,level=1,
         casting={},abilities={{form=1,flags=0,location=2,target=5,targetCount=0,range=0,minLevel=1,speed=0,
         projectile=1,effects=list}}}
-    local classified=classify(record)
+    local classified=classify(record,level)
     local mirror=sprite.m_nMirrorImages
     return {roles=type(classified)=='table' and classified.roles or {},stoneskins=stat(g,sprite,M.combat.stoneskins),
         mirror=type(mirror)=='number' and mirror or 0,sources=sources,recast=recast,conditions=conditions,poison=poison,
@@ -9528,7 +9620,7 @@ function M.defend(g,frame,tick,reader,classify)
         each(entry,function(sprite)
             M.identity(g,sprite,entry)
             entry.protections=M.protectionRows(g,sprite)
-            entry.guard=M.guard(g,sprite,tick,classify)
+            entry.guard=M.guard(g,sprite,tick,classify,entry.level)
             if entry~=frame.self then entry.attack=M.attack(g,sprite,reader) end
         end)
     end
@@ -10855,8 +10947,11 @@ function M.new(g,options)
         end
         return cache[key] or nil
     end
-    -- A creature's active effects, classified as one record for what protects it (sense.guard).
-    local function effectsOf(record) return spells.classify(record,1,reader.lookup,{level=1}) end
+    -- A creature's active effects, classified as one record for what protects it (sense.guard), at
+    -- its level: what its hits cast (on-hit and critical hit effects) counts at the holder's.
+    local function effectsOf(record,level)
+        return spells.classify(record,1,reader.lookup,{level=type(level)=='number' and level>0 and level or 1})
+    end
     -- One active effect on its own (sense.wards), classified once by its fields: its roles. A pause
     -- of six seconds or less on a creature itself is no role, so the key tells short from long.
     local function single(effect)
@@ -10967,15 +11062,15 @@ function M.new(g,options)
     -- A weapon as an attack (combat-intent/weapons.lua's arms), or nil: what sense.arsenal reads for
     -- the one in hand or another, and what a hit casts or applies (the weapon's ability, or the
     -- ammunition a launcher shoots, classified), with the slot, ability number and ammunition
-    -- SelectWeaponAbility takes it up by, the projectile a missile flies as and whether it can
-    -- backstab. A launcher without ammunition is none.
+    -- SelectWeaponAbility takes it up by, the projectile a missile flies as, whether it can backstab
+    -- and the item's category. A launcher without ammunition is none.
     local function arms(a)
         if type(a)~='table' or type(a.item)~='string' or type(a.damage)~='number' or (a.launcher and not a.ammo) then return nil end
         local strike
         if a.ammo then strike=item(a.ammo)[1] else strike=item(a.item)[a.ability] end
         return {item=a.item,damage=a.damage,damageType=a.damageType,apr=a.apr or weapons.baseApr,thac0=a.thac0,
             ranged=a.ranged==true,range=a.range,flags=a.flags,enchantment=a.enchantment,strike=strike,fist=a.fist,
-            slot=a.slot,abilityNum=a.abilityNum,ammo=a.ammo,projectile=a.projectile,backstab=a.backstab}
+            slot=a.slot,abilityNum=a.abilityNum,ammo=a.ammo,projectile=a.projectile,backstab=a.backstab,itemType=a.itemType}
     end
     -- The 'arms' row (see the top) when the weapon in the creature's hand (a, sense.arsenal's) is
     -- another than when last read.

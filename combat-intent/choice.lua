@@ -933,10 +933,23 @@ end
 -- protection stops the weapon, one against what its hit casts stops that part. The hits kill
 -- when those expected reach those needed, as likely as the last one lands (two swings that each
 -- hit four times in five, needing both: 0.6), unless e's minimum holds against them
--- (targeting.floor): then they take what it has above it. The strongest disable a hit brings
--- counts as likelier the more hits land. bs (combat-intent/backstab.lua, optional): the chance the
--- first hit is a backstab, which multiplies the weapon's own damage of that hit (not what it casts);
--- a kill counts as likely as it is with the backstab and without.
+-- (targeting.floor): then they take what it has above it. The strongest disable and the strongest
+-- debuff (F2e) a hit brings count as likelier the more hits that bring them land, the debuff
+-- against the armour class of the caster's side and none on an enemy that carries it already
+-- (harm.carries). A critical hit effect (F2e) comes with the critical hits among the hits
+-- (weapons.critical, by the caster's critical hit points) where no helmet keeps them off
+-- (defence.critOpen): what it deals counts as expected, but not toward a kill, which no one plans on
+-- a critical hit. bs (combat-intent/backstab.lua, optional): the chance the first hit is a
+-- backstab, which multiplies the weapon's own damage of that hit (not what it casts); a kill counts
+-- as likely as it is with the backstab and without.
+local function critPoints(guard)
+    local roles=type(guard)=='table' and type(guard.roles)=='table' and guard.roles or {}
+    local function points(role)
+        local a=type(role)=='table' and role.amounts
+        return type(a)=='table' and number(a.critical) and a.critical or 0
+    end
+    return points(roles.buff)-points(roles.debuff)
+end
 local function hitsOn(input,arms,hits,e,bs)
     local hp,maxHp=e.hp,e.maxHp
     if not number(hits) or hits<=0 or not number(hp) or not number(maxHp) or maxHp<=0 or hp<=0 then return 0,0 end
@@ -945,11 +958,15 @@ local function hitsOn(input,arms,hits,e,bs)
     if type(bs)=='table' and number(bs.chance) and bs.chance>0 and number(bs.multiplier) and bs.multiplier>1 then
         stab,p=(bs.multiplier-1)*per,clamp(bs.chance,0,1)
     end
-    local first,floor,disables=0,targeting.floor(e,nil),{}
-    local function strike(c,once)
+    local guard=input.frame.self.guard
+    local crits=hits*weapons.critical(threat.hitChance(arms.thac0,e.ac),critPoints(guard))*defence.critOpen
+    local first,critical,floor,conditions=0,0,targeting.floor(e,nil),{}
+    local function strike(c,h)
         local roles=type(c)=='table' and spells.view(c,targeting.holds(e)) or nil
         if type(roles)~='table' or targeting.protected(e,c) then return end
         floor=math.min(floor,targeting.floor(e,roles))
+        local times=h and h.critical and crits or hits
+        if h and h.once then times=math.min(1,times) end
         if reaches(roles.damage) then
             local role=roles.damage
             local each=0
@@ -958,16 +975,19 @@ local function hitsOn(input,arms,hits,e,bs)
             end
             local save=M.saveChance(role,e)
             each=each*landing(role,e)*(role.saveForHalf and 1-save/2 or 1-save)
-            if once then first=first+each else per=per+each end
+            if h and h.critical then critical=critical+each*times
+            elseif h and h.once then first=first+each else per=per+each end
         end
-        if reaches(roles.disable) then disables[#disables+1]=roles.disable end
+        if reaches(roles.disable) then conditions[#conditions+1]={role=roles.disable,times=times} end
+        if reaches(roles.debuff) and not harm.carries(e,c,h and h.source) then
+            conditions[#conditions+1]={role=roles.debuff,times=times,debuff=true}
+        end
     end
     strike(arms.strike)
-    local guard=input.frame.self.guard
-    for _,h in ipairs(weapons.payloads(type(guard)=='table' and guard.hits,arms)) do strike(h.strike,h.once) end
+    for _,h in ipairs(weapons.payloads(type(guard)=='table' and guard.hits,arms)) do strike(h.strike,h) end
     local worth,expected=0,0
-    if (per>0 or first>0) and hp>floor then
-        local dealt=hits*per+first*math.min(1,hits)+p*stab
+    if (per>0 or first>0 or critical>0) and hp>floor then
+        local dealt=hits*per+first*math.min(1,hits)+p*stab+critical
         expected=math.min(dealt,hp-floor)
         worth=expected/maxHp
         if floor<=0 then
@@ -986,9 +1006,13 @@ local function hitsOn(input,arms,hits,e,bs)
         if type(plan)=='table' and plan.focus==e.id then worth=worth*(1+input.mind.focusBonus*input.mind.coordination) end
         worth=worth*orders.favour(input,e)
     end
-    local best=0
-    for _,role in ipairs(disables) do best=math.max(best,disableOn(input,{resref=arms.item or ''},role,e,floor)) end
-    return worth+best*math.min(1,hits),expected
+    local best,weak=0,0
+    for _,x in ipairs(conditions) do
+        if x.debuff then
+            weak=math.max(weak,harm.debuff(x.role,e,facing(input,nil))*orders.favour(input,e)*math.min(1,x.times))
+        else best=math.max(best,disableOn(input,{resref=arms.item or ''},x.role,e,floor)*math.min(1,x.times)) end
+    end
+    return worth+best+weak,expected
 end
 
 -- Options of one ready spell that conjures a weapon (arms, combat-intent/weapons.lua): cast on
