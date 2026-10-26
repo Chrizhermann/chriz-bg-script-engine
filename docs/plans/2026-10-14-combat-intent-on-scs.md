@@ -677,9 +677,10 @@ The search now also teleports toward a clue with the creature's own teleports
 the party member; innate powers by anyone, a memorized Dimension Door only by a creature that sees
 its tactics and only for a long walk.
 
-SCS's jumps into the fight, the fiends' silent teleport next to a party member, stand aside since
+SCS's jumps into the fight, the fiends' scripted teleport next to a party member, stand aside since
 2026-10-26 (HOOK-01, rule 8). Christopher wanted a real ability the player sees, instant and
-with a cooldown, not a silent jump. So the installer gives each creature of a hooked script that
+with a cooldown, instead of fiends that suddenly stand somewhere else without a word in the log.
+So the installer gives each creature of a hooked script that
 teleports by script only and has no teleport of its own a real innate Teleport (BGSETELE: instant,
 named in the log, back after 18 seconds); most fiends already carry the game's Teleport Without
 Error. The engine uses either in its search and in fights: a creature that chases with a melee

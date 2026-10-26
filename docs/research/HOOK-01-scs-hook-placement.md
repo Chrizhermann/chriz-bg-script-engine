@@ -145,8 +145,8 @@ Python, and `tests/integration/test_hook_installer.py` checks they agree.
      Planar Travel (`EFF_M09`).
 
    In the SR lab's 1,148 hooked scripts there are 51 jumps in 50 scripts, all of them SCS's fiend
-   jump (`fiend/ssl/jump.ssl`: `ForceSpell(LastSeenBy(Myself),…)` with `DW#FITEL`, SCS's silent
-   copy of the teleport, below the anchor). Until now they ran as copied specials. Copies fall
+   jump (`fiend/ssl/jump.ssl`: `ForceSpell(LastSeenBy(Myself),…)` with `DW#FITEL`, SCS's copy of
+   Teleport Without Error that no creature memorizes, below the anchor). Until now they ran as copied specials. Copies fall
    from 2,914 to 2,506, since the jumps' target picks are no longer copied either, and 16,345
    blocks get the search condition. 65 hooked scripts teleport by script. 123 creatures use them:
    110 have a teleport of their own (94 `SPIN159`, 15 mind flayers `SPIN186`, and the dryad

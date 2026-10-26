@@ -100,17 +100,17 @@
 -- How often a creature sees the chance is its wit (mind.tactics): a clever one always, a normal
 -- one in half its decisions, a dull one never.
 --
--- Jumps into the fight (Christopher, 2026-10-26: a real teleport whose name shows in the log, not
--- SCS's silent jump; SCS's fiends jump to a party member who is weak, a mage or easy to hit, [src]
--- fiend/ssl/jump.ssl, credit DavidW): a creature that walks to any enemy it sees for its melee
--- weapon (mind.chase) may cast a teleport it has (input.teleports, combat-intent/search.lua) at a
--- spot next to an enemy a long walk away instead, picked as the search picks one: an innate
--- teleport for a walk of search.jumpMin or more, a memorized spell from search.jumpSlotMin on, none
--- within search.jumpGap of its last teleport (input.jumped). It is worth the round of hits it brings
--- without the walk, and costs what a spell of its level costs and what standing next to the enemy
--- costs. As it ends next to the enemy like the walk, a creature that always attacks takes it over
--- the walk whenever it is worth more. A tactic (M.tactical): a clever creature always, a normal
--- one when it notices, a dull one never.
+-- Jumps into the fight (Christopher, 2026-10-26: a real ability, named in the log and with a
+-- cooldown, instead of SCS's scripted jump; SCS's fiends jump to a party member who is weak, a mage
+-- or easy to hit, [src] fiend/ssl/jump.ssl, credit DavidW): a creature that walks to any enemy it
+-- sees for its melee weapon (mind.chase) may cast a teleport it has (input.teleports,
+-- combat-intent/search.lua) at a spot next to an enemy a long walk away instead, picked as the
+-- search picks one: an innate teleport for a walk of search.jumpMin or more, a memorized spell
+-- from search.jumpSlotMin on, none within search.jumpGap of its last teleport (input.jumped). It
+-- is worth the round of hits it brings without the walk, and costs what a spell of its level costs
+-- and what standing next to the enemy costs. As it ends next to the enemy like the walk, a creature
+-- that always attacks takes it over the walk whenever it is worth more. A tactic (M.tactical): a
+-- clever creature always, a normal one when it notices, a dull one never.
 local targeting=require('combat-intent.targeting')
 local harm=require('combat-intent.harm')
 local defence=require('combat-intent.defence')

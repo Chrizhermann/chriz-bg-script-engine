@@ -271,15 +271,20 @@ clues coming first. SCS's scripted teleports (the fiends' and Melissan's `dw#fit
 Since 2026-10-26 the installer gives each creature of a hooked script that teleports that way and
 has no teleport of its own a real innate one, BGSETELE ([HOOK-01](HOOK-01-scs-hook-placement.md),
 rule 8); most fiends already carry the game's Teleport Without Error (SPIN159). So a fiend the
-engine drives searches and jumps with a teleport the player sees cast. To see in a lab: searches in
-real fights, whether spell damage sets `m_lHitter` as weapon hits do, what Detect Illusion
-reveals, whether a teleport at a spot the caster does not see goes off or first walks until it
-does, and that SPIN159 and BGSETELE show their names in the log and BGSETELE comes back after 18
-seconds.
+engine drives searches and jumps with a teleport the player sees cast. In the SR lab (2026-10-26,
+`.work/stepT-lab`) the message log named both when cast at a point ("Balor: Teleport Without
+Error"), and SCS's own `ForceSpellRES` of `dw#fitel` too, with its target ("Glabrezu: Teleport
+Without Error : …"). BGSETELE moved its caster 0.4 seconds after the order and came back 18.7
+seconds after its use; Teleport Without Error moved it after about a second (its casting time)
+and was ready again at once, though the next cast waited for the usual pause after a spell. To
+see in a lab: searches in real fights, whether spell damage sets `m_lHitter` as weapon hits do,
+what Detect Illusion reveals, and whether a teleport at a spot the caster does not see goes off
+or first walks until it does.
 
 ### Jumps into the fight (2026-10-26)
 
-Christopher on SCS's silent fiend jumps: "Wenn die so einen Instant-Teleport hätten, der halt
+Christopher on SCS's fiends, which he saw stand somewhere else at once without a word in the log:
+"Wenn die so einen Instant-Teleport hätten, der halt
 irgendwie auf Cooldown geht" (no round lost, but seen: a glow and the name in the log). SCS is the
 blueprint (`fiend/ssl/jump.ssl`, credit DavidW): its fiends jump next to a party member that is
 weak, a mage or easy to hit. The engine (`combat-intent/choice.lua`'s `jumpOptions`) weighs the jump
@@ -306,9 +311,19 @@ against the walk instead:
   than a spell must be. A very weak weapon walks, as the teleport costs more than the few hits the
   jump wins: in the tests a knife of 6 jumps 600 to its enemy, a mace of 4.5 walks.
 - **Log.** A `leap` row (from, to, the teleport, the target, innate or not), `jumps` in the counts,
-  and a `landed` row once it ends, as for a search teleport.
+  and a `landed` row once it ends, as for a search teleport. `jumps` counts decisions, as the other
+  counts do; the `leap` row marks a jump begun.
 
 Asleep in the game until F1e switches fighters and monsters on: mages and priests do not chase.
+
+In the lab's first run (2026-10-26, monsters switched on for the lab) no jump went off. The
+glabrezu's first decision was the jump (Teleport Without Error, worth 0.19 against 0.13 for the
+walk), but SCS's Confusion power went first: a guarded copy above the hook, which fires in a round
+the engine has (Christopher's answer 10). Under the casting pause after it the next decision
+walked the 350 to the enemy (3.4 seconds) rather than wait 5.9 seconds and jump. The
+Suldanessellar balor (`SUDEMON2`) never asked the engine: the first two blocks of its SCS script
+attack neutral creatures (the city's elves) while it senses the party, and the lab's watching PC
+was neutral.
 
 ## Agreed (Christopher, 2026-10-25)
 
