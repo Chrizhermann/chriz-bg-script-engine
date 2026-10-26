@@ -258,9 +258,9 @@ The engine searches with what the creature and its group perceived instead
   Melissan's teleport, a dragon's walk to a party member it does not detect, the walk to the
   nearest enemy on an ally's shout, the walk at the party it does not see out of a cloud, and the
   random walk when an unseen attacker hits it (the hit is a clue for the engine's search instead).
-  An ally's walk after the party stays. So the engine alone searches, also when it has no clue. For
-  now that means mages and priests on the engine's side; fighters and monsters follow with F1e, and
-  a neutral or charmed creature keeps SCS's own hunt.
+  An ally's walk after the party stays. So the engine alone searches, also when it has no clue, for
+  every creature on the engine's side (fighters and monsters too since F1e); a neutral or charmed
+  creature keeps SCS's own hunt.
 - **Log.** Rows `hunt` (a search begins: clues, tactics, patience, guard, wit), `clue` (a hit),
   `search` and `return` (walks), `teleport` and `landed`, `detect`, `reveal`, `gave-up` (why:
   patience, no clue, stuck) and `stuck`; `inspect()` has the search's counts.
@@ -314,7 +314,8 @@ against the walk instead:
   and a `landed` row once it ends, as for a search teleport. `jumps` counts decisions, as the other
   counts do; the `leap` row marks a jump begun.
 
-Asleep in the game until F1e switches fighters and monsters on: mages and priests do not chase.
+Asleep in the game until F1e switched fighters and monsters on (below): mages and priests do not
+chase.
 
 In the lab's first run (2026-10-26, monsters switched on for the lab) no jump went off. The
 glabrezu's first decision was the jump (Teleport Without Error, worth 0.19 against 0.13 for the
@@ -324,6 +325,22 @@ walked the 350 to the enemy (3.4 seconds) rather than wait 5.9 seconds and jump.
 Suldanessellar balor (`SUDEMON2`) never asked the engine: the first two blocks of its SCS script
 attack neutral creatures (the city's elves) while it senses the party, and the lab's watching PC
 was neutral.
+
+### F1e: fighters and monsters switched on (2026-10-26)
+
+The engine takes the rounds of all four families now: the choice (`adapters/eeex/choice.lua`,
+`M.families`) and the director's advice on a member's own casts (`combat-intent/director.lua`)
+cover fighters and monsters as well as mages and priests. Until F2:
+
+- Archers shoot with the weapon in hand at the enemies within its range, from where they stand: no
+  kiting, no switch to a melee weapon (`weapons.reachable`).
+- Thieves fight as fighters do. SCS's backstab plan still sets up above the hook; the engine's own
+  invisibility and backstab plan come with F2.
+- SCS's guarded specials above the hook (a glabrezu's Confusion, for one) still go first in the
+  round they fire in (Christopher's answer 10).
+
+Labs switch families with `api:setFamilies`: `{mage=true,priest=true}` gives fighters and monsters
+back to their scripts, for a comparison with SCS. A lab of mixed fights follows.
 
 ## Agreed (Christopher, 2026-10-25)
 

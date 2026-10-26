@@ -81,8 +81,13 @@ assert(d:advise(mage,frame(40,nil,{enemy(11),enemy(12,{hp=5,mr=50})}),bolt,11,40
 assert(d:advise(mage,frame(40,nil,{enemy(11)}),bolt,11,40).reason=='focus-unseen')
 assert(d:advise(mage,f,bolt,99,40).reason=='original-unseen')
 assert(d:advise(mage,f,ball,11,40).reason=='not-creature-target')
+-- Every family's casts are advised (F1e); a director told to leave a family alone keeps them.
 d:checkIn(fighter,frame(40,nil,{enemy(11)}))
-assert(d:advise(fighter,f,bolt,11,40).reason=='family')
+a=d:advise(fighter,f,bolt,11,40)
+assert(a.action=='redirect' and a.target==12 and a.reason=='focus')
+local casters=director.new({families={mage=true,priest=true}})
+casters:checkIn(fighter,frame(40,nil,{enemy(11)}))
+assert(casters:advise(fighter,f,bolt,11,40).reason=='family')
 groups=groups+1
 
 -- 3. One disabler per target: a free target is kept; a disabled or reserved one gives way

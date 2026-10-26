@@ -311,15 +311,17 @@ assert(claim(m1,'mage','s1',468)==false and root.inspect().choice.reasons.castin
 m1.m_curAction={m_actionID=0}
 local fighter=g.add(sprite(4,0,40,255,{levels={[7]='S3'}}))
 learn(fighter,2,'TESTBOLT')
+-- The engine drives all four families (F1e); labs switch families on and off, and a bad table
+-- changes nothing.
+assert(ch:searches('fighter',4)==true and ch:setFamilies({mage=true,priest=true})==true)
 assert(claim(fighter,'fighter','s3',469)==false and root.inspect().choice.reasons.family==1)
--- Labs switch families on and off (F1e will switch fighters and monsters on); a bad table changes
--- nothing.
 local okF,badF=ch:setFamilies({mage=true,dragon=true})
 assert(okF==false and badF=='dragon' and ch:setFamilies({mage='yes'})==false and ch:setFamilies('mage')==false)
 assert(claim(fighter,'fighter','s3',470)==false and root.inspect().choice.reasons.family==2)
 assert(ch:setFamilies({fighter=true})==true and claim(m1,'mage','s1',470)==false)
 assert(root.inspect().choice.reasons.family==3 and ch:searches('mage',1)==false and ch:searches('fighter',4)==true)
-assert(ch:setFamilies(nil)==true and ch:searches('mage',1)==true and ch:searches('fighter',4)==false)
+assert(ch:setFamilies({mage=true,priest=true})==true and ch:searches('fighter',4)==false)
+assert(ch:setFamilies(nil)==true and ch:searches('mage',1)==true and ch:searches('fighter',4)==true)
 local friend=g.add(sprite(5,0,-40,2))
 learn(friend,2,'TESTBOLT')
 assert(claim(friend,'mage','s1',470)==false and root.inspect().choice.reasons.side==1)

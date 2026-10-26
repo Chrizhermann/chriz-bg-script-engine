@@ -6382,9 +6382,10 @@ local M={}
 -- reserve their targets as soon as they are chosen, before the cast is queued: such a claim
 -- lasts claimTicks at most, until the cast starts. An enemy's heading comes from two sightings at
 -- least headingMin ticks apart; one seen again after more than headingTicks starts without one. An
--- enemy is forgotten forgetTicks after it was last seen.
+-- enemy is forgotten forgetTicks after it was last seen. It advises the casts of the members of
+-- families, all four since F1e.
 M.defaults={memberTicks=150,enemyTicks=90,reserveTicks=225,graceTicks=30,claimTicks=60,forgetTicks=450,
-    headingMin=5,headingTicks=45,logCapacity=256,families={mage=true,priest=true}}
+    headingMin=5,headingTicks=45,logCapacity=256,families={mage=true,priest=true,fighter=true,monster=true}}
 M.ticksPerSecond=15
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
@@ -8883,10 +8884,12 @@ local orders=require('combat-intent.orders')
 local search=require('combat-intent.search')
 local rngs=require('kernel.rng')
 local M={}
-M.families={mage=true,priest=true}
--- Every family a hook asks for (kernel/hook.lua): the ones api:setFamilies takes.
+-- Every family a hook asks for (kernel/hook.lua): the ones api:setFamilies takes. The engine takes
+-- the rounds of all of them (F1e, 2026-10-26: fighters and monsters as well as mages and priests).
 local FAMILIES={}
 for _,family in ipairs(require('kernel.hook').families) do FAMILIES[family]=true end
+M.families={}
+for family in pairs(FAMILIES) do M.families[family]=true end
 -- Game ticks (15 a second). A queued cast that has not started pendingTicks after it was
 -- queued, or after the creature's casting aura was last seen busy, is given up; a started one is
 -- held as long beyond its casting time (decide). outcomeTicks after a cast ends, or after time
@@ -10517,9 +10520,9 @@ function M.new(g,options)
     function api:setWit(value)
         assert(type(value)=='boolean');witOn=value;minds,mindCount={},0
     end
-    -- Labs: the families whose rounds the choice takes (M.families by default: mages and priests
-    -- until F1e switches fighters and monsters on), e.g. {mage=true,priest=true,monster=true}; nil
-    -- restores the default. A bad table changes nothing: false and the first bad entry.
+    -- Labs: the families whose rounds the choice takes (M.families by default: all four), e.g.
+    -- {mage=true,priest=true} to leave fighters and monsters to their scripts; nil restores the
+    -- default. A bad table changes nothing: false and the first bad entry.
     function api:setFamilies(t)
         if t==nil then families=M.families;return true end
         if type(t)~='table' then return false,'families' end

@@ -623,7 +623,7 @@ SCS keeps no rounds any more. Lab batch H tests D3 in game.
 ([FIGHT-01](../research/FIGHT-01-fighter-and-monster-rounds.md))
 
 Christopher (2026-10-25): the engine takes fighters' and monsters' rounds too ("Ich mein das ist
-ja 1000% der Plan sowieso"). Built so far, not yet switched on: own buffs valued by the own
+ja 1000% der Plan sowieso"). Built first, before F1e switched them on: own buffs valued by the own
 weapon (kit abilities, Potion of Power), protection and buff potions as defences, walking to
 the enemy a creature attacks (the walk lowering the worth), and wit by race group, so that ogres
 and trolls never turn clever on Insane ([MIND-01](../research/MIND-01-wit-and-difficulty.md)).
@@ -656,7 +656,7 @@ where it was going, a hit from an unseen attacker, an enemy that vanished on a s
 the detection the creature really has, patience by wit, a boss guarding its post, and giving up
 without forgetting: back to the post, where heals go on, and a full fight at the next sight of an
 enemy. SCS's hunt (its chase, its free detection casts, its door walk) stands aside for every
-creature the engine drives, for now mages and priests.
+creature the engine drives, all four families since F1e.
 
 The sight probe ran on 2026-10-26 ([ACT-05](../research/ACT-05-casts-out-of-sight.md)): a cast
 that has begun goes through when its target walks away, around a corner or out of range, for
@@ -686,12 +686,18 @@ named in the log, back after 18 seconds); most fiends already carry the game's T
 Error. The engine uses either in its search and in fights: a creature that chases with a melee
 weapon jumps next to an enemy a long walk away when the jump is worth more than the walk, a clever
 one always, a normal one when it notices, a dull one never
-([FIGHT-01](../research/FIGHT-01-fighter-and-monster-rounds.md), "Jumps into the fight"). It is
-asleep until F1e, as mages and priests do not chase.
+([FIGHT-01](../research/FIGHT-01-fighter-and-monster-rounds.md), "Jumps into the fight"). It was
+asleep until F1e, as mages and priests do not chase. The lab's first run found every teleport
+named in the message log, SCS's own forced one too, and BGSETELE back 18.7 seconds after its use.
 
-Next: a lab check of the teleports (their names in the log, BGSETELE's recharge), then F1e
-(switching fighters and monsters on) with a lab, then F2. Melissan's own fight is designed with
-Christopher.
+F1e switched fighters and monsters on the same day
+([FIGHT-01](../research/FIGHT-01-fighter-and-monster-rounds.md), "F1e"): the engine takes the
+rounds of all four families, and the director advises their own casts. Until F2 archers shoot
+from where they stand and thieves fight as fighters do.
+
+Next: the teleport lab's second run (an engine jump, SCS's ReallyForceSpellRES form, a cast from
+out of sight) and a lab of mixed fights with fighters and monsters, then F2. Melissan's own fight
+is designed with Christopher.
 
 ## To design with Christopher
 

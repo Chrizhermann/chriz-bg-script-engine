@@ -15,9 +15,10 @@ local M={}
 -- reserve their targets as soon as they are chosen, before the cast is queued: such a claim
 -- lasts claimTicks at most, until the cast starts. An enemy's heading comes from two sightings at
 -- least headingMin ticks apart; one seen again after more than headingTicks starts without one. An
--- enemy is forgotten forgetTicks after it was last seen.
+-- enemy is forgotten forgetTicks after it was last seen. It advises the casts of the members of
+-- families, all four since F1e.
 M.defaults={memberTicks=150,enemyTicks=90,reserveTicks=225,graceTicks=30,claimTicks=60,forgetTicks=450,
-    headingMin=5,headingTicks=45,logCapacity=256,families={mage=true,priest=true}}
+    headingMin=5,headingTicks=45,logCapacity=256,families={mage=true,priest=true,fighter=true,monster=true}}
 M.ticksPerSecond=15
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
