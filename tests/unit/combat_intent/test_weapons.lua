@@ -435,4 +435,38 @@ i.frame.self.alacrity=nil
 assert(#choice.jumpOptions(i)==1)
 groups=groups+1
 
+-- 11. On-hit effects the creature carries (F2a: its guard's hits) come with every hit of a fitting
+-- weapon. A poisoned blade adds 4 poison to each of the mace's 0.8 hits a round; Smite Evil's 1d6
+-- magic comes with the first hit alone, and only on an enemy it works on (one SPLPROT check keeps
+-- it off enemy 11), so the smite draws the attack to enemy 12. Missile ones (249) do not come with
+-- the mace, fists-only ones only with fists.
+RECORDS['EFF:TESTPSEF']={kind='EFF',resref='TESTPSEF',effect=fx(12,{p1=4,p2=32*65536,timing=1})}
+RECORDS['EFF:TESTSMEF']={kind='EFF',resref='TESTSMEF',effect=fx(146,{p2=1,res='TESTSMHT',timing=1})}
+RECORDS['SPL:TESTSMHT']=spl('TESTSMHT',1,{fx(324,{p1=156,p2=104,res='TESTSMHT'}),
+    fx(321,{target=1,res='TESTSMIT',timing=1}),fx(12,{p2=64*65536,dice=1,sides=6,timing=1})})
+local function carrying(effects) return classify(spl('',1,effects,{target=5})).hits end
+local poisoned=carrying({fx(248,{target=1,duration=10,res='TESTPSEF',source='TESTPOIS'})})
+local smiting=carrying({fx(248,{target=1,duration=10,res='TESTSMEF',source='TESTSMIT'})})
+local evil=spells.conditionKey({row=104,value=156})
+pace=6/(6+0.36)
+i=input({mind=mind.forFamily(mind.new(),'fighter')})
+i.frame.self.weapon=MACE
+i.frame.enemies={enemy(11,{x=200,splprot={[evil]=true}}),enemy(12,{x=200,splprot={[evil]=false}})}
+list=choice.weaponOptions(i)
+assert(list[1].target==11 and near(list[1].worth,0.8*4.5/60*pace) and near(list[2].worth,list[1].worth))
+i.frame.self.guard={hits=poisoned}
+o=choice.weaponOptions(i)[1]
+assert(near(o.worth,0.8*8.5/60*pace) and near(o.expected[11],6.8))
+i.frame.self.guard={hits=smiting}
+list=choice.weaponOptions(i)
+assert(smiting[1].once and list[1].target==12 and near(list[1].worth,(3.6+0.8*3.5)/60*pace))
+assert(list[2].target==11 and near(list[2].worth,0.8*4.5/60*pace))
+local arrowsOnly=carrying({fx(249,{target=1,duration=10,res='TESTPSEF'})})
+local fistsOnly=carrying({fx(248,{target=1,duration=10,p2=4,res='TESTPSEF'})})
+i.frame.self.guard={hits={arrowsOnly[1],fistsOnly[1]}}
+assert(near(choice.weaponOptions(i)[1].worth,0.8*4.5/60*pace))
+i.frame.self.weapon={item='TESTFIST',damage=4.5,damageType=2,apr=1,thac0=10,ranged=false,flags=0,enchantment=0,fist=true}
+assert(near(choice.weaponOptions(i)[1].worth,0.8*8.5/60*pace))
+groups=groups+1
+
 return groups

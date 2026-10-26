@@ -587,6 +587,66 @@ c=classify(harm,harmWorld,{weapons=false})
 assert(c.weapons==nil and c.roles.buff.kinds.weapon)
 groups=groups+1
 
+-- On-hit effects (F2a): opcode 248 lands its EFF on each creature a melee hit strikes, 249 on each
+-- a missile strikes; the EFF is read as cast at the creature hit (strike), apart from the spell's
+-- own roles. A Smite Evil whose hit casts 1d6 magic damage and takes the smite off its holder
+-- (opcode 321 on the smite) lasts one hit (once).
+local smiteHit=spl('TESTSMHT',{ability({fx(321,{target=1,res='TESTSMIT',timing=1}),
+    fx(12,{p2=64*65536,dice=1,sides=6,timing=1})})})
+local hitWorld={['EFF:TESTSMEF']={kind='EFF',resref='TESTSMEF',effect=fx(146,{p2=1,res='TESTSMHT',timing=1})},
+    ['SPL:TESTSMHT']=smiteHit}
+local smite=spl('TESTSMIT',{ability({fx(248,{target=1,duration=12,res='TESTSMEF'})},{target=5,range=1})})
+c=classify(smite,world(hitWorld))
+local h=c.hits[1]
+assert(not c.partial and #c.hits==1 and c.roles.buff.kinds.onHit and c.roles.damage==nil)
+assert(h.melee and not h.ranged and h.fists==nil and h.who=='self' and h.seconds==12 and h.once==true and h.eff=='TESTSMEF')
+assert(h.strike.roles.damage.who.target and near(h.strike.roles.damage.types.magic,3.5))
+assert(h.strike.roles.strips.who.self and h.strike.roles.strips.res.TESTSMIT)
+-- A poisoned blade and arrows: every hit poisons (no once), 249 for missiles; fists only by bit 2.
+hitWorld['EFF:TESTPSEF']={kind='EFF',resref='TESTPSEF',effect=fx(12,{p1=4,p2=32*65536,timing=1})}
+c=classify(spl('TESTPOIS',{ability({fx(248,{target=1,duration=30,res='TESTPSEF'}),
+    fx(249,{target=1,duration=30,res='TESTPSEF'}),fx(248,{target=1,duration=30,p2=4,res='TESTPSEF'})},{target=5})}),
+    world(hitWorld))
+assert(#c.hits==3 and c.hits[1].melee and c.hits[2].ranged and not c.hits[2].melee and c.hits[3].fists==true)
+assert(c.hits[1].once==false and c.hits[1].strike.roles.damage.types.poison==4)
+-- An on-hit effect that comes through another spell is spent by a hit that takes off the spell
+-- holding it, not the one that cast that spell (opcode 321 matches an effect's own source).
+hitWorld['SPL:TESTKITB']=spl('TESTKITB',{ability({fx(248,{target=1,duration=12,res='TESTKTEF'})},{target=5})})
+hitWorld['EFF:TESTKTEF']={kind='EFF',resref='TESTKTEF',effect=fx(146,{p2=1,res='TESTKTHT',timing=1})}
+hitWorld['SPL:TESTKTHT']=spl('TESTKTHT',{ability({fx(321,{target=1,res='TESTKITB',timing=1}),fx(45,{duration=12})})})
+local kit=spl('TESTKIT',{ability({fx(146,{target=1,p2=1,res='TESTKITB'})},{target=5})})
+c=classify(kit,world(hitWorld))
+assert(c.hits[1].once==true and c.hits[1].strike.roles.disable.kinds.stun)
+hitWorld['SPL:TESTKTHT'].abilities[1].effects[1].res='TESTKIT'
+assert(classify(kit,world(hitWorld)).hits[1].once==false)
+-- All on-hit effects of one spell go together: one whose hit ends the spell spends the others too
+-- (a kit's Poison Weapon poisons with one and ends with another); another spell's stay.
+hitWorld['EFF:TESTENEF']={kind='EFF',resref='TESTENEF',effect=fx(146,{p2=1,res='TESTENHT',timing=1})}
+hitWorld['SPL:TESTENHT']=spl('TESTENHT',{ability({fx(321,{target=1,res='TESTPWPN',timing=1})})})
+c=classify(spl('TESTPWPN',{ability({fx(248,{target=1,duration=30,res='TESTPSEF'}),fx(248,{target=1,duration=30,res='TESTENEF'})},
+    {target=5})}),world(hitWorld))
+assert(c.hits[1].once==true and c.hits[2].once==true and c.hits[1].own==nil and c.hits[1].ends==nil)
+c=classify(spl('',{ability({fx(248,{target=1,duration=30,res='TESTPSEF',source='TESTPWPN'}),
+    fx(248,{target=1,duration=30,res='TESTENEF',source='TESTPWPN'}),fx(248,{target=1,duration=30,res='TESTPSEF',source='TESTFURY'})},
+    {target=5})}),world(hitWorld))
+assert(c.hits[1].once==true and c.hits[2].once==true and c.hits[3].once==false)
+-- An active effect read from a creature names the spell it comes from (sense.guard).
+local active=spl('',{ability({fx(248,{target=1,timing=0,duration=10,res='TESTSMEF',source='TESTSMIT'})},{target=5})})
+c=classify(active,world(hitWorld))
+assert(c.hits[1].once==true and c.hits[1].who=='self')
+active.abilities[1].effects[1].source=nil
+assert(classify(active,world(hitWorld)).hits[1].once==false)
+-- An EFF that cannot be read leaves the spell whole and the hit unknown; a strike is read without
+-- on-hit effects (options.weapons=false).
+c=classify(spl('TESTLSTH',{ability({fx(248,{target=1,duration=12,res='TESTNONE'})},{target=5})}),world({}))
+assert(not c.partial and c.approximate and c.reasons['missing:EFF:TESTNONE'] and c.hits==nil and c.roles.buff.kinds.onHit)
+assert(classify(smite,world(hitWorld),{weapons=false}).hits==nil)
+-- The adapter asks about the SPLPROT rows of what a hit brings.
+smiteHit.abilities[1].effects[3]=fx(324,{p1=156,p2=104,res='TESTSMHT'})
+c=classify(smite,world(hitWorld))
+assert(c.hits[1].strike.conditions[1].row==104 and spells.rows(c)[spells.conditionKey(c.hits[1].strike.conditions[1])])
+groups=groups+1
+
 -- A release (SCS's sequencers and triggers, D2b): an innate that casts two or more spells at its
 -- target at once and lands nothing else there. It reaches as far as its shortest spell, not the
 -- range written on it, and its spells come together. One spell cast through an innate, a spell

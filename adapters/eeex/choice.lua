@@ -589,7 +589,7 @@ function M.new(g,options)
         local strike
         if a.ammo then strike=item(a.ammo)[1] else strike=item(a.item)[a.ability] end
         return {item=a.item,damage=a.damage,damageType=a.damageType,apr=a.apr or weapons.baseApr,thac0=a.thac0,
-            ranged=a.ranged==true,range=a.range,flags=a.flags,enchantment=a.enchantment,strike=strike}
+            ranged=a.ranged==true,range=a.range,flags=a.flags,enchantment=a.enchantment,strike=strike,fist=a.fist}
     end
     -- A summoned creature as a fighter (combat-intent/summons.lua), read once: its CRE file, the
     -- weapon in its first weapon slot and, for a launcher, the ammunition in its first filled
@@ -666,14 +666,11 @@ function M.new(g,options)
         return rows,carried
     end
 
-    -- The engine's answers to the SPLPROT checks of the spells the creature has ready, for each
+    -- The engine's answers to the SPLPROT checks of the spells the creature has ready, and of what
+    -- its own hits bring (its weapon's strike and the on-hit effects it carries, F2a), for each
     -- enemy it sees. A check the engine does not answer stays unknown; the first such failure is
     -- recorded, the rest counted.
-    local function mark(sprite,frame,rows)
-        local wanted={}
-        for _,row in ipairs(rows) do
-            if row.spell and type(row.ready)=='number' and row.ready>0 and row.usable then spells.rows(row.spell,wanted) end
-        end
+    local function ask(sprite,frame,wanted)
         local read,bad,last=sense.splprot(g,sprite,frame,wanted)
         counts.marks=counts.marks+read
         if bad>0 then
@@ -683,6 +680,23 @@ function M.new(g,options)
                 record({kind='error',where='splprot',error=markError})
             end
         end
+    end
+    local function mark(sprite,frame,rows)
+        local wanted={}
+        for _,row in ipairs(rows) do
+            if row.spell and type(row.ready)=='number' and row.ready>0 and row.usable then spells.rows(row.spell,wanted) end
+        end
+        ask(sprite,frame,wanted)
+    end
+    local function markHits(sprite,frame)
+        local wanted={}
+        local w=frame.self.weapon
+        if type(w)=='table' then spells.rows(w.strike,wanted) end
+        local guard=frame.self.guard
+        for _,h in ipairs(type(guard)=='table' and type(guard.hits)=='table' and guard.hits or {}) do
+            if type(h)=='table' then spells.rows(h.strike,wanted) end
+        end
+        ask(sprite,frame,wanted)
     end
 
     -- Time Stop: while one runs, every creature but its caster is frozen, and what reaches a
@@ -1246,8 +1260,9 @@ function M.new(g,options)
 
     -- What the creature knows of the fight beyond its frame, added to it: its ready spells' SPLPROT
     -- marks, what protects each friend and the weapons around (sense.defend), what a removal could
-    -- take from each enemy, the enemies' casts that damage can break (casts), and its own Improved
-    -- Alacrity, THAC0, touch charge, magic weapon slot, casting aura and weapon.
+    -- take from each enemy, the enemies' casts that damage can break (casts), its own Improved
+    -- Alacrity, THAC0, touch charge, magic weapon slot, casting aura and weapon, and the marks of
+    -- what its hits bring (markHits).
     local function situate(sprite,frame,rows,tick)
         mark(sprite,frame,rows)
         local bad,last=sense.defend(g,frame,tick,reader,effectsOf)
@@ -1300,6 +1315,7 @@ function M.new(g,options)
                 record({kind='error',where='weapon',error=weaponError})
             end
         end
+        markHits(sprite,frame)
     end
 
     -- With no enemy in sight: the engine's search (adapters/eeex/search.lua) as the gate's decision,

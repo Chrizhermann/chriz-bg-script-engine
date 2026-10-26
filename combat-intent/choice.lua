@@ -700,41 +700,54 @@ end
 
 -- The worth of hits of weapon arms on e (hits: those expected, over one round or more), and the
 -- hit points e is expected to take. A hit deals the weapon's own damage, which neither magic
--- resistance nor a save lessens, and what it casts or applies, which both do; no spell
+-- resistance nor a save lessens, and what it casts or applies, which both do; so do the on-hit
+-- effects the caster carries (its guard's hits, F2a: Smite Evil, a poisoned blade) that fit the
+-- weapon (weapons.payloads), one the hit takes off again on the first hit alone. No spell
 -- protection stops the weapon, one against what its hit casts stops that part. The hits kill
 -- when those expected reach those needed, as likely as the last one lands (two swings that each
 -- hit four times in five, needing both: 0.6), unless e's minimum holds against them
--- (targeting.floor): then they take what it has above it. The hit's disable counts as likelier
--- the more hits land.
+-- (targeting.floor): then they take what it has above it. The strongest disable a hit brings
+-- counts as likelier the more hits land.
 local function hitsOn(input,arms,hits,e)
     local hp,maxHp=e.hp,e.maxHp
     if not number(hits) or hits<=0 or not number(hp) or not number(maxHp) or maxHp<=0 or hp<=0 then return 0,0 end
     local per=number(arms.damage) and arms.damage>0 and arms.damage*resisted(e,weapons.DAMAGE[arms.damageType] or '') or 0
-    local roles=type(arms.strike)=='table' and spells.view(arms.strike,targeting.holds(e)) or nil
-    if type(roles)~='table' or targeting.protected(e,arms.strike) then roles=nil end
-    local floor=targeting.floor(e,roles)
-    if roles and reaches(roles.damage) then
-        local role=roles.damage
-        local each=0
-        for label,v in pairs(type(role.types)=='table' and role.types or {}) do
-            if number(v) then each=each+v*resisted(e,label) end
+    local first,floor,disables=0,targeting.floor(e,nil),{}
+    local function strike(c,once)
+        local roles=type(c)=='table' and spells.view(c,targeting.holds(e)) or nil
+        if type(roles)~='table' or targeting.protected(e,c) then return end
+        floor=math.min(floor,targeting.floor(e,roles))
+        if reaches(roles.damage) then
+            local role=roles.damage
+            local each=0
+            for label,v in pairs(type(role.types)=='table' and role.types or {}) do
+                if number(v) then each=each+v*resisted(e,label) end
+            end
+            local save=M.saveChance(role,e)
+            each=each*landing(role,e)*(role.saveForHalf and 1-save/2 or 1-save)
+            if once then first=first+each else per=per+each end
         end
-        local save=M.saveChance(role,e)
-        per=per+each*landing(role,e)*(role.saveForHalf and 1-save/2 or 1-save)
+        if reaches(roles.disable) then disables[#disables+1]=roles.disable end
     end
+    strike(arms.strike)
+    local guard=input.frame.self.guard
+    for _,h in ipairs(weapons.payloads(type(guard)=='table' and guard.hits,arms)) do strike(h.strike,h.once) end
     local worth,expected=0,0
-    if per>0 and hp>floor then
-        expected=math.min(hits*per,hp-floor)
+    if (per>0 or first>0) and hp>floor then
+        local dealt=hits*per+first*math.min(1,hits)
+        expected=math.min(dealt,hp-floor)
         worth=expected/maxHp
-        if floor<=0 then worth=worth+input.mind.killBonus*clamp(hits-math.ceil(hp/per)+1,0,1) end
+        if floor<=0 then
+            local need=per>0 and math.max(1,math.ceil(math.max(0,hp-first)/per)) or (first>=hp and 1 or math.huge)
+            worth=worth+input.mind.killBonus*clamp(hits-need+1,0,1)
+        end
         local plan=input.plan
         if type(plan)=='table' and plan.focus==e.id then worth=worth*(1+input.mind.focusBonus*input.mind.coordination) end
         worth=worth*orders.favour(input,e)
     end
-    if roles and reaches(roles.disable) then
-        worth=worth+disableOn(input,{resref=arms.item or ''},roles.disable,e,floor)*math.min(1,hits)
-    end
-    return worth,expected
+    local best=0
+    for _,role in ipairs(disables) do best=math.max(best,disableOn(input,{resref=arms.item or ''},role,e,floor)) end
+    return worth+best*math.min(1,hits),expected
 end
 
 -- Options of one ready spell that conjures a weapon (arms, combat-intent/weapons.lua): cast on

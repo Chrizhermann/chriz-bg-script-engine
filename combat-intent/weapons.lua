@@ -40,6 +40,23 @@ function M.onHit(ability)
     return total
 end
 
+-- The on-hit effects of a list (combat-intent/spells.lua's hits, F2a) that a hit with weapon w
+-- brings: melee ones (opcode 248) with a melee weapon, those for fists only when w is the fist;
+-- ranged ones (249) with missiles and thrown weapons.
+function M.payloads(hits,w)
+    local out={}
+    if type(hits)~='table' or type(w)~='table' then return out end
+    for _,h in ipairs(hits) do
+        if type(h)=='table' and type(h.strike)=='table' then
+            local fits
+            if w.ranged then fits=h.ranged==true
+            else fits=h.melee==true and (not h.fists or w.fist==true) end
+            if fits then out[#out+1]=h end
+        end
+    end
+    return out
+end
+
 -- Whether an immunity to weapons (opcode 120, by its type p2) keeps weapon w off (its flags and
 -- enchantment). Type 0 keeps off weapons up to +p1, as combat-intent/defence.lua reads it; a
 -- weapon is magical with the flag or an enchantment (SR's Chill Touch hand is neither). Unknown

@@ -695,6 +695,9 @@ F1e switched fighters and monsters on the same day
 rounds of all four families, and the director advises their own casts. Until F2 archers shoot
 from where they stand and thieves fight as fighters do.
 
+F2 began with on-hit enhancers (F2a, FIGHT-01): Smite Evil, Poison Weapon, Power Attack and the
+like count by what one hit brings, in buffs and in each swing.
+
 Next: the teleport lab's second run (an engine jump, SCS's ReallyForceSpellRES form, a cast from
 out of sight) and a lab of mixed fights with fighters and monsters, then F2. Melissan's own fight
 is designed with Christopher.

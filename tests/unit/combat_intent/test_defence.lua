@@ -422,4 +422,55 @@ rejected={}
 assert(#defence.options(i,rejected)==0 and rejected.redefend==2)
 groups=groups+1
 
+-- 12. On-hit effects (F2a): a buff whose opcode 248 lands an EFF on each creature a melee hit
+-- strikes is worth what that does on the hits the weapon lands: Smite Evil's 1d6 magic on its first
+-- hit alone (the hit takes the smite off), a poisoned blade's 4 poison on every hit, a stun once.
+-- Fists-only ones need fists, missile ones (249) a missile weapon; Mirror Images and skins take
+-- hits first; one already on the creature is not cast again.
+local hitWorld={
+    ['EFF:TESTSMEF']={kind='EFF',resref='TESTSMEF',effect=fx(146,{p2=1,res='TESTSMHT',timing=1,target=2,duration=0})},
+    ['SPL:TESTSMHT']=sub('TESTSMHT',{fx(321,{target=1,res='TESTSMIT',timing=1,duration=0}),
+        fx(12,{p2=64*65536,dice=1,sides=6,timing=1,target=2,duration=0})},1),
+    ['EFF:TESTPSEF']={kind='EFF',resref='TESTPSEF',effect=fx(12,{p1=4,p2=32*65536,timing=1,target=2,duration=0})},
+    ['EFF:TESTSTEF']={kind='EFF',resref='TESTSTEF',effect=fx(45,{target=2,duration=12})}}
+local function onHits(resref,effects)
+    local r={kind='SPL',resref=resref,name=0,flags=0,spellType=4,exclusion=0,school=0,secondary=0,level=1,
+        abilities={{form=1,flags=0,location=2,target=5,targetCount=0,range=1,minLevel=1,speed=0,projectile=1,
+        effects=effects}},casting={}}
+    return spells.classify(r,1,function(kind,key) return hitWorld[kind..':'..tostring(key)] end,{level=10})
+end
+local smite=onHits('TESTSMIT',{fx(248,{duration=12,res='TESTSMEF'})})
+local poison=onHits('TESTPOIS',{fx(248,{duration=30,res='TESTPSEF'})})
+local stun=onHits('TESTSTUN',{fx(248,{duration=12,res='TESTSTEF'})})
+local fists=onHits('TESTFSTS',{fx(248,{duration=30,p2=4,res='TESTPSEF'})})
+local arrows=onHits('TESTARRW',{fx(249,{duration=30,res='TESTPSEF'})})
+i=input({fighter(11,130)},{row('TESTSMIT',smite,1),row('TESTPOIS',poison,1),row('TESTSTUN',stun,1),
+    row('TESTFSTS',fists,1),row('TESTARRW',arrows,1)},{mind=mind.new({ownWeapon=true})})
+i.frame.self.weapon={damage=10,damageType=3,apr=2,thac0=10}
+rejected={}
+opts=defence.options(i,rejected)
+-- Two swings hit three times in four: 3 hits in Smite Evil's two rounds, 4.5 in the poison's three.
+assert(#opts==3 and rejected['no-worth']==2)
+assert(near(find(opts,'TESTSMIT').worth,3.5/60) and near(find(opts,'TESTPOIS').worth,4.5*4/60))
+assert(near(find(opts,'TESTSTUN').worth,(12/18)*1))
+i.frame.self.weapon.fist=true
+assert(near(find(defence.options(i,{}),'TESTFSTS').worth,4.5*4/60))
+i.frame.self.weapon={damage=10,damageType=4,apr=2,thac0=10,ranged=true,range=400}
+opts=defence.options(i,{})
+assert(near(find(opts,'TESTARRW').worth,4.5*4/60) and find(opts,'TESTPOIS')==nil and find(opts,'TESTSMIT')==nil)
+-- Six Mirror Images take six of the 4.5 hits: none lands; one hit is enough for the smite's.
+i.frame.self.weapon={damage=10,damageType=3,apr=2,thac0=10}
+i.frame.enemies[1].mirror=6
+assert(find(defence.options(i,{}),'TESTPOIS')==nil)
+i.frame.enemies[1].mirror=2
+assert(near(find(defence.options(i,{}),'TESTPOIS').worth,2.5*4/60) and near(find(defence.options(i,{}),'TESTSMIT').worth,3.5/60))
+i.frame.enemies[1].mirror=nil
+i.frame.self.guard={sources={TESTPOIS=true}}
+assert(find(defence.options(i,{}),'TESTPOIS')==nil)
+-- A caster that casts does not swing.
+i.frame.self.guard={}
+i.mind=mind.new()
+assert(#defence.options(i,{})==0)
+groups=groups+1
+
 return groups

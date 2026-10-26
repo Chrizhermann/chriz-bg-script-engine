@@ -50,8 +50,9 @@ M.timedEffect=4096
 -- held strength, proficiency and the weapon's own bonus to hit (probe F: a fighter with 18
 -- strength, specialised in a Short Sword +1, had THAC0BONUSRIGHT 3).
 M.combat={ac=2,thac0=7,apr=8,damageBonus=50,thac0Right=84,damageRight=86,stoneskins=88,hitBonus=151}
--- The quiver slots, whose ammunition a launcher shoots (SLOTS.IDS).
+-- The quiver slots, whose ammunition a launcher shoots, and the fist slot (SLOTS.IDS).
 M.quiver={11,12,13}
+M.fistSlot=10
 -- An effect that ends within this many seconds no longer protects.
 M.expiring=6
 -- Opcodes that deliver other effects; what they delivered is in the list already.
@@ -266,7 +267,8 @@ end
 -- Magical Weapons). A launcher hits with the ammunition in the first filled quiver slot; their
 -- to-hit bonuses add up, the ammunition's damage type counts, and the higher enchantment. For the
 -- caster's own weapon attack (combat-intent/weapons.lua) also the item and its ability (1 for
--- the first), the ammunition, the damage type and the hitting item's flags and enchantment.
+-- the first), the ammunition, the damage type, the hitting item's flags and enchantment, and
+-- whether it fights with its fists (the fist slot selected: on-hit effects for fists only).
 -- Without a readable weapon, damage and magic stay unknown.
 function M.attack(g,sprite,reader)
     local apr=stat(g,sprite,M.combat.apr)
@@ -285,6 +287,7 @@ function M.attack(g,sprite,reader)
     local toHit=number(ability.thac0)
     out.item,out.ability,out.damageType=resref,index,ability.damageType
     out.flags,out.enchantment=number(record.flags),number(record.enchantment)
+    out.fist=number(equipment.m_selectedWeapon)==M.fistSlot or nil
     if ability.attackType==4 then
         out.ranged,out.launcher=true,true
         for _,slot in ipairs(M.quiver) do
@@ -314,8 +317,9 @@ end
 -- their roles, the engine's counts of Stoneskin skins and Mirror Images, the spells its effects
 -- come from, the spells opcode 206 keeps off it, and the conditions on it a cure takes away
 -- with the seconds each has left (math.huge for one without an end) and the hit points its
--- poison will still take. Effects that end within M.expiring seconds and delayed ones that have
--- not started are left out of its roles.
+-- poison will still take; hits: the on-hit effects it carries (each effect names the spell it
+-- comes from, for one that its first hit ends). Effects that end within M.expiring seconds and
+-- delayed ones that have not started are left out of its roles.
 function M.guard(g,sprite,tick,classify)
     local list,sources,recast,conditions={},{},{},{}
     local poison=0
@@ -356,7 +360,8 @@ function M.guard(g,sprite,tick,classify)
                 if not M.delivered[op] then
                     list[#list+1]={opcode=op,target=1,power=number(e.m_spellLevel),p1=number(e.m_effectAmount),
                         p2=number(e.m_dWFlags),timing=timing,resist=0,duration=duration,prob1=100,prob2=0,res=res,
-                        dice=number(e.m_numDice),sides=number(e.m_diceSize),save=0,saveBonus=0,special=number(e.m_special)}
+                        dice=number(e.m_numDice),sides=number(e.m_diceSize),save=0,saveBonus=0,special=number(e.m_special),
+                        source=source}
                 end
             end
         end)
@@ -367,7 +372,8 @@ function M.guard(g,sprite,tick,classify)
     local classified=classify(record)
     local mirror=sprite.m_nMirrorImages
     return {roles=type(classified)=='table' and classified.roles or {},stoneskins=stat(g,sprite,M.combat.stoneskins),
-        mirror=type(mirror)=='number' and mirror or 0,sources=sources,recast=recast,conditions=conditions,poison=poison}
+        mirror=type(mirror)=='number' and mirror or 0,sources=sources,recast=recast,conditions=conditions,poison=poison,
+        hits=type(classified)=='table' and classified.hits or nil}
 end
 
 -- What a removal can take from a creature (combat-intent/removal.lua): each of its active effects

@@ -20,8 +20,10 @@
 --   nothing: SCS keeps "at least one" up.
 -- - A buff is worth the share of an enemy its receivers' extra weapon damage takes: more attacks,
 --   hits, damage and critical hits, less what the spell puts on its own receiver (Whirlwind
---   Attack's penalties). The caster's own weapon counts only when its profile fights with it
---   (mind.ownWeapon: fighters and monsters); a caster that casts does not swing.
+--   Attack's penalties), and what its on-hit effects do on the hits they land (F2a: Smite Evil's
+--   first hit, every hit of a poisoned blade). The caster's own weapon counts only when its
+--   profile fights with it (mind.ownWeapon: fighters and monsters); a caster that casts does not
+--   swing.
 -- Harm comes from combat-intent/threat.lua: weapons, spells aimed at one creature, areas and
 -- disables, as the caster perceives them.
 -- In the caster's own Time Stop (D2a) nothing threatens it until time resumes: a cast that ends
@@ -30,6 +32,8 @@ local targeting=require('combat-intent.targeting')
 local threat=require('combat-intent.threat')
 local openers=require('combat-intent.openers')
 local weapons=require('combat-intent.weapons')
+local spells=require('combat-intent.spells')
+local harm=require('combat-intent.harm')
 local M={}
 M.ROUND=6
 -- Worth of a round a friend is in the fight, as a share of it (attacks count a hold for the full
@@ -299,10 +303,48 @@ local function swing(h,d,crit)
     local q=clamp((1+crit)/20,0.05,1)
     return d*(math.max(h,q)+(q-0.05)*M.critOpen)
 end
+local function reaches(role) return type(role)=='table' and type(role.who)=='table' and (role.who.target or role.who.area) end
+-- What on-hit effects (hits, combat-intent/spells.lua) bring through the hits of weapon held over
+-- r rounds, swung apr times a round with thac0, as a share of an enemy: for each living enemy, what
+-- one hit's payload does there (combat-intent/harm.lua): its damage on every hit that lands past
+-- Mirror Images and Stoneskin skins, on the first alone for a payload the hit takes off again
+-- (once), and its disable once; the mean over the enemies. What an enemy's spell protections keep
+-- out counts nothing.
+local function payload(hits,held,apr,thac0,frame,r)
+    local list=weapons.payloads(hits,held)
+    if #list==0 then return 0 end
+    local total,n=0,0
+    for _,e in ipairs(type(frame.enemies)=='table' and frame.enemies or {}) do
+        if targeting.alive(e) then
+            n=n+1
+            local maxHp=number(e.maxHp) and e.maxHp>0 and e.maxHp or M.enemyHp
+            local hp=number(e.hp) and e.hp>0 and e.hp or maxHp
+            local absorbed=(number(e.mirror) and e.mirror>0 and e.mirror or 0)+(number(e.skins) and e.skins>0 and e.skins or 0)
+            local landed=math.max(0,apr*threat.hitChance(thac0,number(e.ac) and e.ac or M.enemyAc)*r-absorbed)
+            local dealt,disabled=0,0
+            for _,h in ipairs(list) do
+                local roles=spells.view(h.strike,targeting.holds(e))
+                if type(roles)=='table' and not targeting.protected(e,h.strike) then
+                    local floor=targeting.floor(e,roles)
+                    if reaches(roles.damage) then
+                        local _,each=harm.damage(roles.damage,e,0,floor)
+                        dealt=dealt+each*(h.once and math.min(1,landed) or landed)
+                    end
+                    if reaches(roles.disable) then
+                        disabled=math.max(disabled,harm.disable(roles.disable,e,0,floor)*math.min(1,landed))
+                    end
+                end
+            end
+            total=total+math.min(dealt,hp)/maxHp+disabled
+        end
+    end
+    return n>0 and total/n or 0
+end
 -- The share of an enemy a buff's extra weapon damage takes through friend f over r rounds; only
 -- friends with attack data and an enemy within a round's walk fight. held: the attack data f
--- swings with (f.attack when nil); own: what the spell puts on f itself (its debuff role).
-function M.offense(buff,f,frame,r,held,own)
+-- swings with (f.attack when nil); own: what the spell puts on f itself (its debuff role); hits:
+-- the on-hit effects it gives f (payload).
+function M.offense(buff,f,frame,r,held,own,hits)
     held=held or f.attack
     if type(buff)~='table' or type(held)~='table' then return 0 end
     local ac,hp,n=enemies(frame)
@@ -321,7 +363,7 @@ function M.offense(buff,f,frame,r,held,own)
     local d=math.max(0,a.damage+damage-less+a.damage*(percent-fewer)/100)
     local before=a.apr*swing(threat.hitChance(a.thac0,ac),a.damage,0)
     local after=apr*swing(threat.hitChance(a.thac0-hit+lost,ac),d,crit-blunt)
-    return math.max(0,after-before)*r/hp
+    return math.max(0,after-before)*r/hp+payload(hits,held,apr,a.thac0-hit+lost,frame,r)
 end
 
 -- Whether a role of a beneficial spell reaches friends: the caster, its area (an area that
@@ -375,10 +417,12 @@ function M.defence(spell)
             return nil,'role-'..name
         end
     end
-    -- own: what the spell puts on the caster itself besides (Whirlwind Attack's penalties).
+    -- own: what the spell puts on the caster itself besides (Whirlwind Attack's penalties); hits:
+    -- its on-hit effects (combat-intent/spells.lua).
     local d=spell.roles.debuff
     local own=type(d)=='table' and type(d.who)=='table' and d.who.self and d or nil
-    return {protection=forFriends(p) and p or nil,buff=forFriends(b) and b or nil,own=own}
+    return {protection=forFriends(p) and p or nil,buff=forFriends(b) and b or nil,own=own,
+        hits=type(spell.hits)=='table' and spell.hits or nil}
 end
 
 local function seconds(role)
@@ -389,6 +433,18 @@ end
 local function guarded(friend,resref)
     local guard=type(friend.guard)=='table' and friend.guard or {}
     return (type(guard.recast)=='table' and guard.recast[resref]) or (type(guard.sources)=='table' and guard.sources[resref])
+end
+-- The on-hit effects of a spell (hits) that friend f gets from a cast aimed at aim: those on the
+-- caster only for the caster, those on the creature it is cast at only for that one, the rest
+-- (areas) for every friend the cast reaches.
+local function hitsFor(hits,f,caster,aim)
+    local out={}
+    for _,h in ipairs(type(hits)=='table' and hits or {}) do
+        if (h.who=='self' and f==caster) or (h.who=='target' and aim.friend==f) or (h.who~='self' and h.who~='target') then
+            out[#out+1]=h
+        end
+    end
+    return out
 end
 
 -- Who the spell reaches, aimed as it is cast: the caster for a spell on itself, the friends
@@ -512,8 +568,9 @@ function M.options(input,rejected)
                         local now=heldOf(f)
                         gain=M.loss(now,f,t,rounds,killBonus)-M.loss(M.union(now,shield),f,t,rounds,killBonus)
                     end
-                    if f~=caster then gain=gain+M.offense(gives.buff,f,frame,rounds)
-                    elseif wielded then gain=gain+M.offense(gives.buff,f,frame,rounds,wielded,gives.own) end
+                    local own=hitsFor(gives.hits,f,caster,aim)
+                    if f~=caster then gain=gain+M.offense(gives.buff,f,frame,rounds,nil,nil,own)
+                    elseif wielded then gain=gain+M.offense(gives.buff,f,frame,rounds,wielded,gives.own,own) end
                     if gain>0 then worth=worth+gain;hits[#hits+1]=f.id end
                 end
             end

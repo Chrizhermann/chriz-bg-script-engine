@@ -342,6 +342,32 @@ cover fighters and monsters as well as mages and priests. Until F2:
 Labs switch families with `api:setFamilies`: `{mage=true,priest=true}` gives fighters and monsters
 back to their scripts, for a comparison with SCS. A lab of mixed fights follows.
 
+### F2a: on-hit enhancers (2026-10-26)
+
+Spells and items that make the next hits do more (opcode 248 for melee hits, 249 for missiles and
+thrown weapons) count by what one hit brings (`combat-intent/spells.lua`, `c.hits`): the EFF each
+hit lands, read as if cast at the creature hit, with its saving throw and the enemy's own spell
+protections (their SPLPROT rows are asked for each enemy, as for a weapon's own effects). An
+effect for fists only (opcode 248, parameter 2 bit 2) counts when the creature fights with its
+fists (slot 10 selected, `sense.attack`).
+
+- **A buff** (`defence.offense`): for each enemy the creature sees, the hits that land while the
+  buff runs (attacks a round, chance to hit, rounds, less Mirror Images and Stoneskin skins) times
+  what one hit deals, and the best disable once; the mean over the enemies.
+- **A swing** (`choice.hitsOn`): on-hit effects already on the creature (its active effects,
+  `sense.guard`) add to each attack: their damage per hit, counted for the kill, and the best
+  disable.
+- **Once:** a hit that takes its own spell off again (opcode 321 on the spell that holds the
+  on-hit effect) is that spell's only one, and so for all on-hit effects of the spell: Smite Evil
+  counts for the next hit alone, and a kit's Poison Weapon, which poisons with one 248 and ends
+  with another, too.
+
+The Spell Revisions lab at level 12 reads: Smite Evil (`C0PAL02`) 21 magic damage on the next hit;
+the assassin's Poison Weapon (`SPCL423`) 22 poison on every hit for 30 seconds, save vs death;
+Power Attack (`SPCL906`) a stun, save vs death; Smite (`SPCL909`) a stun and a knockback without a
+save. An on-hit EFF that cannot be read leaves the spell approximate, with its reason, and the rest
+of it whole.
+
 ## Agreed (Christopher, 2026-10-25)
 
 1. **Target choice by worth, with overrides.** Not SCS's fixed list ("Ich würde es nicht eins zu
@@ -377,8 +403,8 @@ difficulty.
 
 Known gaps, for later:
 
-- On-hit enhancers (opcodes 248 and 249: Power Attack, Smite, an assassin's poison, Stunning Blow)
-  are not valued yet (F2): one hit's worth of the effect they add.
+- Critical hit effects (opcode 341) and on-hit effects that only weaken (debuffs) count nothing
+  yet; on-hit damage and disables do (F2a).
 - Barbarian Rage's armour class penalty does not count against what it protects; per-cent maximum
   hit points (opcode 18, mode 2) give no hit points; helmets are not read.
 - Movement speed is not read (haste, slow, boots of speed), only the default.

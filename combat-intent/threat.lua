@@ -172,7 +172,7 @@ function M.wielded(caster)
     if type(w)~='table' or not number(w.damage) then return false end
     local flags=number(w.flags) and w.flags or 0
     return {apr=number(w.apr) and w.apr or caster.apr,thac0=number(w.thac0) and w.thac0 or caster.thac0,
-        damage=w.damage,ranged=w.ranged==true,range=w.range,damageType=w.damageType,
+        damage=w.damage,ranged=w.ranged==true,range=w.range,damageType=w.damageType,fist=w.fist==true or nil,
         magical=(number(w.enchantment) and w.enchantment>0) or math.floor(flags/64)%2==1}
 end
 

@@ -675,6 +675,51 @@ local function weapon(c,state,e,p)
         seconds=seconds(e),chance=p,strike=M.classify(item,1,state.lookup,{level=state.level,weapons=false})}
 end
 
+-- An on-hit effect (opcode 248 for melee hits, 249 for missiles and thrown weapons; F2a): while it
+-- lasts, the EFF it names lands on each creature its holder's weapon hits, with the file's own
+-- timing and duration; 248 with bit 2 of parameter 2 only on hits with fists (IESDP). c.hits lists
+-- them: how the holder must hit, who holds it (who), the chance and seconds, and what one hit
+-- delivers (strike: the EFF classified as cast at the creature hit). A hit that takes the spell
+-- holding the on-hit effect off its holder again, by opcode 321 (the game matches the spell an
+-- effect comes from, not the spells that cast that one), is its only one (once), and so for every
+-- on-hit effect of that spell, as they go together (spent): Smite Evil ends with its first hit, and
+-- a kit's Poison Weapon poisons with one 248 and ends with another. An active effect read from a
+-- creature names that spell as its source. An EFF that cannot be read leaves the spell as it is
+-- (its roles are whole) and only the hit unknown: approximate, with the reason.
+local function onHit(c,state,e,p,who)
+    local eff=state.lookup('EFF',e.res)
+    if type(eff)~='table' or type(eff.effect)~='table' then
+        c.approximate=true;c.reasons['missing:EFF:'..tostring(e.res)]=true
+        return
+    end
+    local inner={}
+    for k,v in pairs(eff.effect) do inner[k]=v end
+    inner.target=2
+    local strike=M.classify({kind='EFF',resref=e.res,abilities={{target=1,range=0,projectile=0,effects={inner}}}},1,
+        state.lookup,{level=state.level,weapons=false})
+    local own={}
+    for _,res in ipairs({c.owner,e.source}) do
+        if type(res)=='string' and res~='' then own[res:upper()]=true end
+    end
+    local ends={}
+    local strips=strike.roles.strips
+    if type(strips)=='table' and type(strips.who)=='table' and strips.who.self and type(strips.res)=='table' then
+        for res in pairs(strips.res) do ends[res]=true end
+    end
+    c.hits=c.hits or {}
+    c.hits[#c.hits+1]={eff=e.res,melee=e.opcode==248,ranged=e.opcode==249,
+        fists=(e.opcode==248 and math.floor(e.p2/4)%2==1) or nil,who=who,chance=p,seconds=seconds(e),once=false,
+        strike=strike,own=own,ends=ends}
+end
+local function spent(hits)
+    for _,h in ipairs(hits or {}) do
+        for _,k in ipairs(hits) do
+            for res in pairs(k.ends) do if h.own[res] then h.once=true end end
+        end
+    end
+    for _,h in ipairs(hits or {}) do h.own=nil;h.ends=nil end
+end
+
 -- A cure the spell itself brings later to the creatures it gave that condition is no cure: it
 -- ends the spell's own condition. ownEnds finds such ends (condition label and receiver, from
 -- when the condition lands to the first cure after it); M.classify walks the spell again with
@@ -901,6 +946,7 @@ walk=function(c,state,effects,where,depth,p,key,owner)
                     elseif H[e.opcode] then
                         H[e.opcode](c,e,who,q)
                         if e.opcode==111 and e.res~='' and who=='self' and state.weapons then weapon(c,state,e,q) end
+                        if (e.opcode==248 or e.opcode==249) and e.res~='' and state.weapons then onHit(c,state,e,q,who) end
                         -- The log replays what reaches others for one creature (M.view).
                         if who~='self' then
                             local when=c.when
@@ -998,6 +1044,7 @@ function M.classify(record,index,lookup,options)
     end
     local reach=releaseRange(record,ability,state,where)
     if reach then c.release=true;c.ownRange=c.range;c.range=reach end
+    spent(c.hits)
     c.times=nil;c.owner=nil;c.node=nil;c.when=nil;c.inherit=nil;c.conditionAt=nil;c.delay=nil;c.filter=nil
     c.marks=nil
     -- Without conditions every creature gets the same roles, and no view needs the log.
@@ -1069,8 +1116,8 @@ end
 local function never() return false end
 -- The roles for a creature that meets none of the spell's conditions.
 function M.common(c) return (M.view(c,never)) end
--- The SPLPROT rows among the spell's conditions and those of its weapons' strikes, added to
--- rows by key: what the adapter asks the engine about each enemy.
+-- The SPLPROT rows among the spell's conditions and those of its weapons' and on-hit effects'
+-- strikes, added to rows by key: what the adapter asks the engine about each enemy.
 function M.rows(c,rows)
     rows=rows or {}
     if type(c)=='table' and type(c.conditions)=='table' then
@@ -1078,8 +1125,10 @@ function M.rows(c,rows)
             if type(f)=='table' and f.row~=nil then rows[M.conditionKey(f)]=f end
         end
     end
-    if type(c)=='table' and type(c.weapons)=='table' then
-        for _,w in ipairs(c.weapons) do M.rows(w.strike,rows) end
+    for _,field in ipairs({'weapons','hits'}) do
+        if type(c)=='table' and type(c[field])=='table' then
+            for _,w in ipairs(c[field]) do M.rows(w.strike,rows) end
+        end
     end
     return rows
 end
