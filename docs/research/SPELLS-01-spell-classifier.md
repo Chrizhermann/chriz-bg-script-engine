@@ -107,7 +107,7 @@ files alone, whatever Spell Revisions, SCS or other mods changed?
   and 98, which keep levels there too, and lacked 331 and 333). An EFF file keeps them in fields
   of its own (0x54, 0x58; both readers return them as `minLevel` and `maxLevel`), and its dice
   are only dice. The classifier read neither the EFF fields nor a delivery's levels, and merged
-  the tiers of one spell into one range: Holy Word's death up to level 4 and confusion up to 9
+  the tiers of one spell into one range: Unholy Word's death up to level 4 and confusion up to 9
   became one disable up to level 4, so its confusion counted for no one above. Now levels are
   creature conditions, as IDS
   entries and SPLPROT rows are, for every effect and delivery that reaches others: each creature
@@ -115,8 +115,9 @@ files alone, whatever Spell Revisions, SCS or other mods changed?
   level), Deathblow's on-hit slay (`SPCL902`, its EFF up to level 10) included. What lands on the
   caster by a preset target is checked against the caster level the spell is classified at; a
   self-targeted effect is not checked. At caster level 12, 57 spells of the SR lab reach
-  creatures by level and 35 of them reach levels differently: Color Spray, Holy Word, Cloudkill,
-  Prismatic Spray, Sleep and SCS's tiered spells among them.
+  creatures by level and 35 of them reach levels differently: Color Spray, Holy Word, Unholy
+  Word, Cloudkill, Prismatic Spray, Sleep, Artisan's Kitpack's Deathless Master's Touch and Bardic
+  Wonders' Legionnaire's March among them.
 - An empty item reference in opcode 111 creates no weapon and is no missing file
   (2026-10-20); IESDP warns that the game can crash on it. A kit mod in the SR lab gives one kit
   (SPLPROT row 418, the kit check) the charge of a touch spell in the fist instead, through a

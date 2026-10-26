@@ -1046,8 +1046,9 @@ local function within(when,n)
     return out
 end
 -- when, and e's own levels: a creature outside them never gets e, nor what e delivers. Spell
--- Revisions' Color Spray puts only creatures of level 1 to sleep and blinds up to the caster's
--- level plus two; SCS casts one of four spells by the target's level.
+-- Revisions' Color Spray weakens creatures of level 1 further and blinds up to the caster's level
+-- plus two; Artisan's Kitpack's Deathless Master's Touch casts one of four spells by the target's
+-- level.
 local function leveled(c,e,when)
     local lo,hi=levels(e)
     if not (lo or hi) then return when end

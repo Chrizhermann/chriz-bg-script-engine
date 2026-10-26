@@ -359,10 +359,12 @@ fists (slot 10 selected, `sense.attack`).
   disable.
 - **Once:** a hit that takes its own spell off again (opcode 321 on the spell that holds the
   on-hit effect) is that spell's only one, and so for all on-hit effects of the spell: Smite Evil
-  counts for the next hit alone, and a kit's Poison Weapon, which poisons with one 248 and ends
+  counts for the next hit alone, and Artisan's Kitpack's Poison Weapon (`C0AS#P1`), which poisons
+  with one 248 and ends
   with another, too.
 
-The Spell Revisions lab at level 12 reads: Smite Evil (`C0PAL02`) 21 magic damage on the next hit;
+The Spell Revisions lab at level 12 reads: Artisan's Kitpack's Smite Evil (`C0PAL02`) 21 magic
+damage on the next hit;
 the assassin's Poison Weapon (`SPCL423`) 22 poison on every hit for 30 seconds, save vs death;
 Power Attack (`SPCL906`) a stun, save vs death; Smite (`SPCL909`) a stun and a knockback without a
 save; Deathblow (`SPCL902`) a slay up to level 10, Greater Deathblow up to 12 (the hit's EFF keeps

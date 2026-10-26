@@ -699,7 +699,7 @@ F2 began with on-hit enhancers (F2a, FIGHT-01): Smite Evil, Poison Weapon, Power
 like count by what one hit brings, in buffs and in each swing. Deathblow showed that the
 classifier ignored level limits in EFF files and deliveries and merged a spell's tiers; now each
 creature sees what reaches its level (SPELLS-01, "Levels"): Holy Word kills only up to level 4
-and confuses up to 9, Cloudkill kills only up to level 6.
+and stuns up to 9, Cloudkill kills only up to level 6.
 
 Next: the teleport lab's second run (an engine jump, SCS's ReallyForceSpellRES form, a cast from
 out of sight) and a lab of mixed fights with fighters and monsters, then F2. Melissan's own fight

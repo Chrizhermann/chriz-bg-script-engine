@@ -768,9 +768,9 @@ c=classify(spl('TESTDB',{ability({fx(248,{target=1,duration=12,res='TESTDBEF'})}
 local strike=c.hits[1].strike
 assert(spells.view(strike,atLevel(1)).disable.slays and spells.view(strike,atLevel(10)).disable.kinds.death)
 assert(spells.view(strike,atLevel(11)).disable==nil and strike.roles.disable.maxLevel==10)
--- A delivery reaches only creatures within its levels, and so does what it brings: Spell
--- Revisions' Color Spray puts level 1 to sleep through a 146 and blinds up to level 3; SCS casts
--- one of two spells by the target's level (326).
+-- A delivery reaches only creatures within its levels, and so does what it brings: a sleep for
+-- level 1 through a 146 and a blindness up to level 3 (as Spell Revisions' Color Spray tiers its
+-- effects); a kit power that casts one of two spells by the target's level (326).
 c=classify(spl('TESTCS',{ability({fx(146,{p2=1,res='TESTCSSL',dice=1}),fx(74,{dice=3,duration=18})})}),world(levelWorld))
 assert(spells.view(c,atLevel(1)).disable.kinds.sleep and spells.view(c,atLevel(2)).disable==nil)
 assert(spells.view(c,atLevel(3)).debuff.kinds.blind and spells.view(c,atLevel(4)).debuff==nil)
