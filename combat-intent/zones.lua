@@ -457,7 +457,8 @@ function M.escape(input)
 end
 
 -- An option with the zones counted: a melee attack or a strike gains what walking to its target
--- is worth (M.delta: out of harm, or into it); a cast where the caster stands loses what the zones
+-- is worth (M.delta: out of harm, or into it), a walk behind an enemy (F2d, 'flank') what walking
+-- to the spot behind it is worth; a cast where the caster stands loses what the zones
 -- around it may break (the chance it finishes kept as finish, for the log); a jump into the fight
 -- (a teleport next to an enemy, combat-intent/choice.lua) both: what landing there is worth
 -- (M.leap) when its casting is not broken. Changes the option's worth and score in place. A dull
@@ -468,6 +469,8 @@ function M.adjust(input,o,enemyAt)
     if o.kind=='strike' or (o.kind=='weapon' and o.melee) then
         local e=enemyAt and enemyAt[o.target]
         if e then o.worth=o.worth+M.delta(input,e) end
+    elseif o.kind=='flank' then
+        if type(o.point)=='table' then o.worth=o.worth+M.delta(input,o.point) end
     elseif o.kind=='teleport' and o.melee then
         local cast=(number(o.speed) and o.speed or 0)*M.speedSeconds
         local finish=1

@@ -139,6 +139,17 @@
 -- so that a lab can hold the two against each other. A step away is MoveToPoint to the first open
 -- spot of its step and exits, held like a way out of a zone, with a 'kite' row; a 'kited' row logs
 -- where it ended and how close the nearest enemy stands then.
+--
+-- Backstabs (F2d, combat-intent/backstab.lua): each weapon comes with whether it can backstab
+-- (combat-intent/arsenal.lua), and every creature in the frame with its backstab multiplier, its
+-- immunity and the way it faces (sense.actor). A walk behind an enemy (a flank) is MoveToPoint to
+-- the nearest open spot by the spot behind it, the weapon taken up first when the choice switches
+-- (SelectWeaponAbility), held while the creature walks, with a 'flank' row; a 'flanked' row logs
+-- where it ended, whether it stands behind its enemy and is still hidden, and how far from it. Then
+-- the engine decides again, mostly the swing. Choice, 'swing' and 'attack' rows carry the chance
+-- that the first hit is a backstab, and a choice row for a hide (a potion or spell of invisibility)
+-- what the backstab after it adds (opening). SCS's own hide (a thief that sees no enemy turns
+-- invisible) stays SCS's, above the hook (FIGHT-01).
 local sense=require('adapters.eeex.sense')
 local creature=require('adapters.eeex.creature')
 local resources=require('adapters.eeex.resources')
@@ -154,6 +165,7 @@ local zones=require('combat-intent.zones')
 local mind=require('combat-intent.mind')
 local orders=require('combat-intent.orders')
 local search=require('combat-intent.search')
+local backstab=require('combat-intent.backstab')
 local rngs=require('kernel.rng')
 local M={}
 -- Every family a hook asks for (kernel/hook.lua): the ones api:setFamilies takes. The engine takes
@@ -232,8 +244,10 @@ M.rageStates={34,39,76,77,78,104}
 -- Casts remembered per caster in its own Time Stop.
 M.stopCastLimit=32
 -- MoveToPoint (ACTION.IDS); a way out is held while the creature walks it, or for moveGrace ticks
--- until the walk starts, and for twice its seconds and a margin at most.
+-- until the walk starts, and for twice its seconds and a margin at most. A flank is held as well
+-- while the creature takes up its weapon (SelectWeaponAbility).
 M.MOVE=23
+M.SELECT=92
 M.moveGrace=8
 M.moveMargin=30
 -- Game ticks a second, for the projectile's counters (lab batch H measured 15.00).
@@ -271,10 +285,18 @@ function M.castBegan(a,timer,tick)
         tick-timer>=a.started then a.cast=tick-timer end
 end
 
+-- The weapon a decision takes up first (decision.slot, abilityNum) as the start of its response:
+-- '' for none, nil for a bad one.
+local function takeUp(decision)
+    if decision.slot==nil then return '' end
+    if not M.WEAPON_SLOTS[decision.slot] or not whole(decision.abilityNum) then return nil end
+    return 'SelectWeaponAbility('..decision.slot..','..decision.abilityNum..') '
+end
 -- The response that casts decision's spell (a release with ForceSpellRES), or strikes with the
 -- charge or attacks with a weapon (one not in hand taken up first: decision.slot, abilityNum), or
--- drinks the item, or walks out of a zone or away from melee enemies, or nil. SCS's round timer is
--- no part of it (see the top).
+-- drinks the item, or walks out of a zone, away from melee enemies or behind an enemy (a flank,
+-- its weapon taken up first as for an attack), or nil. SCS's round timer is no part of it (see the
+-- top).
 function M.response(decision)
     if type(decision)~='table' or not valid(decision.resref) then return nil end
     if decision.use then
@@ -284,17 +306,18 @@ function M.response(decision)
     if decision.kind=='strike' or decision.kind=='weapon' then
         local t=decision.target
         if type(t)~='number' or t<0 or t%1~=0 then return nil end
-        local attack='AttackOneRound(EEex_Target("'..M.targetName..'"))'
-        if decision.kind=='weapon' and decision.slot~=nil then
-            if not M.WEAPON_SLOTS[decision.slot] or not whole(decision.abilityNum) then return nil end
-            return 'SelectWeaponAbility('..decision.slot..','..decision.abilityNum..') '..attack
-        end
-        return attack
+        local first=''
+        if decision.kind=='weapon' then first=takeUp(decision) end
+        if not first then return nil end
+        return first..'AttackOneRound(EEex_Target("'..M.targetName..'"))'
     end
-    if decision.kind=='escape' or decision.kind=='kite' then
+    if decision.kind=='escape' or decision.kind=='kite' or decision.kind=='flank' then
         local p=decision.point
         if type(p)~='table' or not whole(p.x) or not whole(p.y) then return nil end
-        return 'MoveToPoint(['..p.x..'.'..p.y..'])'
+        local first=''
+        if decision.kind=='flank' then first=takeUp(decision) end
+        if not first then return nil end
+        return first..'MoveToPoint(['..p.x..'.'..p.y..'])'
     end
     local cast=decision.release and 'ForceSpell' or 'Spell'
     if decision.point then
@@ -399,7 +422,7 @@ function M.new(g,options)
         guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0,arms=0,attacks=0,attackHits=0,
         weaponFailures=0,releases=0,heals=0,cures=0,potions=0,cared=0,uncared=0,summons=0,conjured=0,
         unconjured=0,removals=0,stripped=0,unstripped=0,wardFailures=0,revealed=0,unrevealed=0,landed=0,unlanded=0,
-        jumps=0,debuffs=0,switches=0,kites=0,kited=0}
+        jumps=0,debuffs=0,switches=0,kites=0,kited=0,flanks=0,flanked=0}
     local reasons={}
     local log,nextRow,size={},1,0
     local root,sink,lastError,markError,guardError,weaponError,wardError,zoneError,witError,tableError
@@ -617,15 +640,15 @@ function M.new(g,options)
     -- A weapon as an attack (combat-intent/weapons.lua's arms), or nil: what sense.arsenal reads for
     -- the one in hand or another, and what a hit casts or applies (the weapon's ability, or the
     -- ammunition a launcher shoots, classified), with the slot, ability number and ammunition
-    -- SelectWeaponAbility takes it up by and the projectile a missile flies as. A launcher without
-    -- ammunition is none.
+    -- SelectWeaponAbility takes it up by, the projectile a missile flies as and whether it can
+    -- backstab. A launcher without ammunition is none.
     local function arms(a)
         if type(a)~='table' or type(a.item)~='string' or type(a.damage)~='number' or (a.launcher and not a.ammo) then return nil end
         local strike
         if a.ammo then strike=item(a.ammo)[1] else strike=item(a.item)[a.ability] end
         return {item=a.item,damage=a.damage,damageType=a.damageType,apr=a.apr or weapons.baseApr,thac0=a.thac0,
             ranged=a.ranged==true,range=a.range,flags=a.flags,enchantment=a.enchantment,strike=strike,fist=a.fist,
-            slot=a.slot,abilityNum=a.abilityNum,ammo=a.ammo,projectile=a.projectile}
+            slot=a.slot,abilityNum=a.abilityNum,ammo=a.ammo,projectile=a.projectile,backstab=a.backstab}
     end
     -- The 'arms' row (see the top) when the weapon in the creature's hand (a, sense.arsenal's) is
     -- another than when last read.
@@ -940,7 +963,8 @@ function M.new(g,options)
         end
         record({kind='strike',tick=tick,member=s.caster,item=s.item,spell=s.spell,target=s.target,hit=hit,started=s.tick})
     end
-    -- A weapon attack that is over: whether its target lost hit points meanwhile (from any hand).
+    -- A weapon attack that is over: whether its target lost hit points meanwhile (from any hand), and
+    -- the chance its first hit was a backstab when it was chosen.
     local function attacked(s,tick)
         strikes[s.caster]=nil
         local target=any(s.target)
@@ -948,7 +972,7 @@ function M.new(g,options)
         local hit=s.hp~=nil and type(hp)=='number' and hp<s.hp
         if hit then counts.attackHits=counts.attackHits+1 end
         record({kind='attack',tick=tick,member=s.caster,item=s.item,target=s.target,hit=hit,
-            lost=hit and s.hp-hp or 0,started=s.tick})
+            lost=hit and s.hp-hp or 0,started=s.tick,backstab=s.backstab})
     end
 
     -- Danger zones. Whether they can be read: EEex offers what M.zoneRequired names and no read
@@ -1169,10 +1193,21 @@ function M.new(g,options)
     end
     -- A way out that is over: whether the creature stands outside every zone it left. A step away
     -- from melee enemies that is over: where it ended and how close the nearest enemy it sees
-    -- stands then.
+    -- stands then. A walk behind an enemy that is over: whether the creature stands behind it now
+    -- (nil while the enemy's facing is unknown or it is gone), is still hidden, and how far from it.
     local function moved(m,sprite,tick)
         moves[sprite.m_id]=nil
         local at={x=sprite.m_pos.x,y=sprite.m_pos.y}
+        if m.flank then
+            local self=sense.actor(g,sprite)
+            local target=get(m.flank)
+            local enemy=target and sense.actor(g,target)
+            counts.flanked=counts.flanked+1
+            record({kind='flanked',tick=tick,member=sprite.m_id,target=m.flank,to=m.point,at=at,took=tick-m.tick,
+                behind=enemy and backstab.behind(self,enemy) or nil,hidden=backstab.hidden(self),
+                near=enemy and math.floor(targeting.distance(enemy,at)+0.5) or nil})
+            return
+        end
         if m.kite then
             local frame=sense.frame(g,sprite,tick,false)
             local near=math.huge
@@ -1480,10 +1515,12 @@ function M.new(g,options)
                 return hold()
             else strikes[id]=nil end
         end
-        -- A way out of a zone runs while the creature walks it; then it is judged.
+        -- A way out of a zone, a step away or a walk behind an enemy runs while the creature walks it
+        -- (a flank also while it takes up its weapon); then it is judged.
         local m=moves[id]
         if m then
-            if tick-m.tick<m.limit and (sprite.m_curAction.m_actionID==M.MOVE or tick-m.tick<M.moveGrace) then
+            local doing=sprite.m_curAction.m_actionID
+            if tick-m.tick<m.limit and (doing==M.MOVE or (m.flank and doing==M.SELECT) or tick-m.tick<M.moveGrace) then
                 return hold()
             end
             moved(m,sprite,tick)
@@ -1580,16 +1617,18 @@ function M.new(g,options)
             return hold()
         end
         if d.kind=='escape' then return escaping(d,frame,id,tick,family,why,input.mind) end
-        -- A step away from melee enemies: walked and held like a way out (prepare).
-        if d.kind=='kite' then
+        -- A step away from melee enemies, or a walk behind an enemy: walked and held like a way out
+        -- (prepare).
+        if d.kind=='kite' or d.kind=='flank' then
             local response=M.response(d)
             if not response then return decline('bad-response') end
             counts.claims=counts.claims+1
             record({kind='choice',tick=tick,member=id,family=family,spell=d.resref,castKind=d.kind,mode=d.mode,point=d.point,
-                score=d.score,worth=d.worth,walk=d.walk,how=why,top=top,wit=input.mind.wit})
+                score=d.score,worth=d.worth,walk=d.walk,how=why,top=top,wit=input.mind.wit,target=d.target,
+                backstab=d.backstab,slot=d.slot})
             if director then director:release(id,tick) end
-            return {own=true,response=response,spell=d.resref,kind='kite',mode=d.mode,point=d.point,exits=d.exits,
-                walk=d.walk,hits={}}
+            return {own=true,response=response,spell=d.resref,kind=d.kind,mode=d.mode,point=d.point,exits=d.exits,
+                walk=d.walk,hits={},target=d.target,backstab=d.backstab,slot=d.slot,abilityNum=d.abilityNum}
         end
         local response=M.response(d)
         if not response then return decline('bad-response') end
@@ -1612,7 +1651,7 @@ function M.new(g,options)
             alacrity=frame.self.alacrity or nil,release=d.release,use=d.use,creatures=d.creatures,count=d.count,
             rest=d.rest,slots=input.slots,finish=d.finish,aura=frame.self.aura~=0 and frame.self.aura or nil,
             inZones=zoneView(input,d),lasting=d.lasting,wit=input.mind.wit,walk=d.walk,interrupt=d.interrupt,
-            ordered=d.ordered,slot=d.slot})
+            ordered=d.ordered,slot=d.slot,backstab=d.backstab,opening=d.opening})
         -- A disable claims its targets in the group at once, so that another member deciding
         -- before this cast starts leaves them alone, and a debuff the enemies it weakens for its
         -- spell; any other decision gives earlier claims back.
@@ -1664,7 +1703,8 @@ function M.new(g,options)
             sources=sources,expected=d.expected,disable=disable,charge=d.kind=='strike' and d.spell or nil,
             use=d.use,before=before,count=d.count,creatures=d.creatures,monsters=d.monsters,known=seen,cover=cover,
             walk=d.walk,melee=d.kind=='teleport' and d.melee or nil,innate=d.kind=='teleport' and d.innate or nil,
-            slot=d.kind=='weapon' and d.slot or nil}
+            slot=d.kind=='weapon' and d.slot or nil,abilityNum=d.kind=='weapon' and d.abilityNum or nil,
+            backstab=d.kind=='weapon' and d.backstab or nil}
     end
     -- From the gate, each time a hooked script asks: nil (the creature's script has the round),
     -- {hold=true,own=true} while the engine's queued cast has not started, its own action runs or
@@ -1716,20 +1756,24 @@ function M.new(g,options)
             record({kind='swing',tick=tick,member=object.m_id,item=decision.spell,target=decision.target})
         elseif decision.kind=='weapon' then
             strikes[object.m_id]={caster=object.m_id,item=decision.spell,weapon=true,target=decision.target,hp=hp,tick=tick,
-                known=known}
+                known=known,backstab=decision.backstab}
             counts.attacks=counts.attacks+1
             if decision.slot then counts.switches=counts.switches+1 end
             record({kind='swing',tick=tick,member=object.m_id,item=decision.spell,target=decision.target,weapon=true,
-                slot=decision.slot})
-        elseif decision.kind=='escape' or decision.kind=='kite' then
+                slot=decision.slot,backstab=decision.backstab})
+        elseif decision.kind=='escape' or decision.kind=='kite' or decision.kind=='flank' then
             -- A way out: to the nearest open spot that still lies outside the zones it leaves. A step
-            -- away from melee enemies: to the first open spot of its step and exits.
+            -- away from melee enemies: to the first open spot of its step and exits. A walk behind an
+            -- enemy: to the nearest open spot by the spot behind it, its weapon taken up first.
             local point=walkable(object,decision)
             if not point then return 'skipped' end
-            decision.response='MoveToPoint(['..point.x..'.'..point.y..'])'
-            local kite=decision.kind=='kite'
+            local kite,flank=decision.kind=='kite',decision.kind=='flank'
+            local first=''
+            if flank then first=takeUp(decision) end
+            if not first then return 'skipped' end
+            decision.response=first..'MoveToPoint(['..point.x..'.'..point.y..'])'
             moves[object.m_id]={tick=tick,point=point,zones=type(decision.zones)=='table' and decision.zones or {},
-                limit=M.walkTicks(decision.walk)+M.moveMargin,kite=kite or nil}
+                limit=M.walkTicks(decision.walk)+M.moveMargin,kite=kite or nil,flank=flank and decision.target or nil}
             if kite then
                 if kited[object.m_id]==nil then
                     if kitedCount>=M.cacheLimit then kited,kitedCount={},0 end
@@ -1738,8 +1782,13 @@ function M.new(g,options)
                 kited[object.m_id]=tick
                 counts.kites=counts.kites+1
             end
-            record({kind=kite and 'kite' or 'move',tick=tick,member=object.m_id,from={x=object.m_pos.x,y=object.m_pos.y},
-                to=point})
+            if flank then
+                counts.flanks=counts.flanks+1
+                if decision.slot then counts.switches=counts.switches+1 end
+            end
+            record({kind=kite and 'kite' or flank and 'flank' or 'move',tick=tick,member=object.m_id,
+                from={x=object.m_pos.x,y=object.m_pos.y},to=point,target=flank and decision.target or nil,
+                backstab=flank and decision.backstab or nil,slot=flank and decision.slot or nil})
         elseif decision.kind=='search' or decision.kind=='return' then
             -- A search walk or the way back: to the nearest open spot (no zones to keep out of).
             local point=walkable(object,{point=decision.point})

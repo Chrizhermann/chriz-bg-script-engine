@@ -104,7 +104,7 @@ local function itm(v,resref)
             effects=effects(v,fxOff,v.u16(at+0x20),v.u16(at+0x1E))}
     end
     return {kind='ITM',resref=resref,name=v.u32(0x08),identifiedName=v.u32(0x0C),
-        flags=v.u32(0x18),itemType=v.u16(0x1C),proficiency=v.u8(0x31),stack=v.u16(0x38),
+        flags=v.u32(0x18),itemType=v.u16(0x1C),usability=v.u32(0x1E),proficiency=v.u8(0x31),stack=v.u16(0x38),
         enchantment=v.u32(0x60),abilities=abilities,equipping=effects(v,fxOff,v.u16(0x6E),v.u16(0x70))}
 end
 

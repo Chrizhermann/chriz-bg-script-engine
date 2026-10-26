@@ -157,6 +157,24 @@ m2.state=0x400000
 f=sense.frame(g,m1,100,false)
 assert(#f.allies==1 and f.allies[1].id==2 and f.allies[1].state==0x400000 and #f.enemies==3)
 m2.state=0
+-- What a backstab needs (F2d): the multiplier, who cannot be backstabbed (IMMUNITY_TO_BACKSTAB,
+-- or a barbarian by its kit's two halves) and the direction each one faces, nil when the engine
+-- gives none it could mean.
+m1.stats[56]=3
+g.objects[11].stats[175]=1
+local stats12=g.objects[12].m_baseStats
+g.objects[12].m_baseStats={m_hitPoints=5,m_generalState=0,m_mageSpecUpperWord=0x4000,m_mageSpecialization=0}
+g.objects[13].m_nDirection=12
+g.objects[11].m_nDirection=16
+f=sense.frame(g,m1,100,false)
+assert(f.self.backstab==3 and f.allies[1].backstab==0)
+assert(f.enemies[1].backstabImmune==true and f.enemies[2].backstabImmune==true and f.enemies[3].backstabImmune==false)
+assert(f.enemies[3].facing==12 and f.enemies[1].facing==nil and f.enemies[2].facing==nil and f.self.facing==nil)
+-- Another kit is no barbarian (TRUECLASS sits in the lower half).
+g.objects[12].m_baseStats={m_hitPoints=5,m_generalState=0,m_mageSpecUpperWord=0,m_mageSpecialization=0x4000}
+assert(sense.frame(g,m1,100,false).enemies[2].backstabImmune==false)
+m1.stats[56],g.objects[11].stats[175],g.objects[12].m_baseStats=nil,nil,stats12
+g.objects[13].m_nDirection,g.objects[11].m_nDirection=nil,nil
 -- Each friend's spell protections come with its guard (lab batch H: an ally's globe kept the
 -- engine's Remove Paralysis out).
 m2.m_timedEffectList={effect(102,3,0)}

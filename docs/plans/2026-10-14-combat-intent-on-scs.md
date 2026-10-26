@@ -693,7 +693,7 @@ named in the message log, SCS's own forced one too, and BGSETELE back 18.7 secon
 F1e switched fighters and monsters on the same day
 ([FIGHT-01](../research/FIGHT-01-fighter-and-monster-rounds.md), "F1e"): the engine takes the
 rounds of all four families, and the director advises their own casts. Until F2c archers shot
-from where they stood, and until F2d thieves fight as fighters do.
+from where they stood, and until F2d thieves fought as fighters do.
 
 F2 began with on-hit enhancers (F2a, FIGHT-01): Smite Evil, Poison Weapon, Power Attack and the
 like count by what one hit brings, in buffs and in each swing. Deathblow showed that the
@@ -721,9 +721,18 @@ its missiles cannot hurt (Protection from Normal Missiles, a Physical Mirror). B
 that the engine read a bow wrongly: it took the arrows for the weapon and counted an item's bonus
 to hit twice and strength's bonus to damage not at all.
 
+F2d gave thieves SCS's backstab plan (FIGHT-01, "F2d"): a hidden creature's first hit with a
+weapon that can backstab counts with its backstab multiplier when it strikes from behind and the
+enemy is not immune. A clever thief walks behind its enemy first (a normal one when it notices, a
+dull one never), and a clever one that is not hidden counts what the backstab after a potion or
+spell of invisibility adds. SCS's own hide, a thief that sees no enemy turns invisible for free,
+stays SCS's: it happens before the engine's turn and out of the party's sight. The game's backstab
+rule comes from GemRB's reading of the game, so the lab still has to show it in EE.
+
 Next: the teleport lab's second run (an engine jump, SCS's ReallyForceSpellRES form, a cast from
-out of sight) and a lab of mixed fights with fighters, archers and monsters, then thieves (F2d).
-Melissan's own fight is designed with Christopher.
+out of sight) and a lab of mixed fights with fighters, archers, thieves and monsters, then
+critical hit effects (opcode 341) and debuffs that weapons deliver on a hit. Melissan's own fight
+is designed with Christopher.
 
 ## To design with Christopher
 

@@ -35,6 +35,14 @@ M.STRENGTH_DAMAGE=0x5
 M.MAGICAL=0x40
 -- Item ability attack types: melee, ranged (thrown or ammunition), launcher.
 M.MELEE,M.RANGED,M.LAUNCHES=1,2,4
+-- The item's usability bit "unusable by thieves" (IESDP, ITM). A backstab lands only with a melee
+-- weapon whose bit is clear, whoever wields it (GemRB's reading of the game, [src]
+-- core/Inventory.cpp; Use Any Item does not change it). GemRB also reads ability flag bit 24 and
+-- ToBEx bit 25 as backstab switches; IESDP lists neither for EE, so neither counts here. Mods
+-- move this bit: Tweaks Anthology's "Thieves Can Backstab With More Weapons" clears it on daggers,
+-- staves, swords and clubs, and in Christopher's game nearly every melee weapon has it clear (their
+-- class limits sit in opcode 319), so the item read decides, never a list of weapon kinds.
+M.THIEF=0x400000
 -- Attacks a round of a weapon taken up: at least a half, at most what haste allows.
 M.minApr,M.maxApr=0.5,10
 
@@ -233,12 +241,13 @@ end
 -- shoots and how far (a launcher's own range, else the ammunition's), the item, its ability (1 for
 -- the first) and the ammunition, the damage type and the hitting item's flags and enchantment
 -- (plain ammunition from a magical launcher hits as magical), the projectile a missile flies as,
--- and slot and abilityNum for SelectWeaponAbility.
+-- slot and abilityNum for SelectWeaponAbility, and whether it can backstab (M.THIEF).
 local function attack(c,s,hit,damage)
     local stats=c.stats
     local melee=not s.ranged
     local out={item=s.item,ability=s.number+1,slot=s.slot,abilityNum=s.number,ammo=s.ammo,ranged=s.ranged,
         launcher=s.launcher,fist=s.slot==M.FIST or nil}
+    if melee and number(s.record.usability) and not targeting.has(s.record.usability,M.THIEF) then out.backstab=true end
     out.thac0=value(stats.thac0)-hit-value(stats.hitBonus)-value(melee and stats.meleeHit or stats.missileHit)
     out.damage=math.max(0,damage+value(stats.damageBonus)+value(melee and stats.meleeDamage or stats.missileDamage))
     local hitting=s.ammoRecord or s.record

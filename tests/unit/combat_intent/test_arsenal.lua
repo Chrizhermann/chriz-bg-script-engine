@@ -141,4 +141,23 @@ hand=arsenal.hand(TABLES,{stats={thac0=15,apr=1,thac0Right=2},items={}})
 assert(hand.item==nil and hand.apr==1 and hand.thac0==13)
 groups=groups+1
 
+-- 6. Backstabs (F2d): a melee weapon whose item leaves the usability bit "unusable by thieves"
+-- clear can backstab, whoever wields it (a fist too); one with the bit set cannot, nor can a weapon
+-- thrown or shot, and an item whose usability was not read says nothing.
+c=fighter(35,0,{apr=2,thac0Right=3,damageRight=2})
+c.items[35].record=item({proficiency=89,usability=0x20000000},{ability({dice=1,sides=6})})
+c.items[36].record=item({itemType=15,proficiency=104,usability=0},{ability({attackType=4,range=100})})
+c.items[37]={resref='GREAT',record=item({itemType=20,proficiency=93,usability=0x604cd780},{ability({dice=2,sides=6})})}
+c.items[38]={resref='AXE',record=item({itemType=25,proficiency=95,usability=0},AXE.abilities)}
+hand=arsenal.hand(TABLES,c)
+assert(hand.backstab==true)
+others=arsenal.others(TABLES,c)
+assert(find(others,'BOW').backstab==nil and find(others,'GREAT').backstab==nil)
+assert(find(others,'AXE',0).backstab==true and find(others,'AXE',1).backstab==nil)
+c.items[10].record=item({itemType=28,usability=0},FIST.abilities)
+assert(arsenal.hand(TABLES,fighter(10,0,{apr=1})).backstab==nil and arsenal.hand(TABLES,c).backstab==true)
+c.selected=10
+assert(arsenal.hand(TABLES,c).backstab==true)
+groups=groups+1
+
 return groups

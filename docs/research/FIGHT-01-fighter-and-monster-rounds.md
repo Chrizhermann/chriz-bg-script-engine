@@ -334,8 +334,8 @@ cover fighters and monsters as well as mages and priests. Until F2:
 
 - Archers shot with the weapon in hand at the enemies within its range, from where they stood: no
   kiting, no switch to a melee weapon. F2c (below) gives them both.
-- Thieves fight as fighters do. SCS's backstab plan still sets up above the hook; the engine's own
-  invisibility and backstab plan come with F2d.
+- Thieves fought as fighters do. SCS's backstab plan still sets up above the hook; F2d (below)
+  gives the engine its own hiding and backstabs.
 - SCS's guarded specials above the hook (a glabrezu's Confusion, for one) still go first in the
   round they fire in (Christopher's answer 10).
 
@@ -526,6 +526,76 @@ arrows off at all, as its projectile entries miss them (the engine skips plain m
 creature in its spell state, as SCS's archers do, and shoots magical ones); whether enemies
 follow a kite, and whether kiting plays well or annoys.
 
+### F2d: thieves, hiding and backstabs (2026-10-26)
+
+SCS's blueprint (credit: DavidW; read in its source): a thief that sees no enemy turns invisible
+for free (`genai/ssl/initial.ssl`: `ApplySpellRES("dw#silin",Myself)`, SCS's own Invisibility,
+when it is not invisible, blind or disabled and detects no enemy and no party member; also once
+when it is created, in sight of the party or not), above the hook. In a fight it drinks
+invisibility or reads its scroll when it sees an enemy and is not invisible
+(`genai/ssl/backstab.ssl`, potions `dw#ptn10` and `potn10`, scroll `scrl90`), then stabs the weakest
+close enemy that has no Mirror Images and no Stoneskin (`dw#wtacor.ssl`, `BackstabSafe` in
+`ssl/library.slb`), going a little way for a good one while no enemy sees through invisibility (its
+`backstabplan`).
+
+- **The game's rule** (`combat-intent/backstab.lua`, as GemRB reads BG2: `GetBackstabDamage`,
+  `IsBehind`; [learned.md](../learned.md)): the attacker is invisible (Improved Invisibility alone
+  does not count), its weapon can backstab, the target is not immune (`IMMUNITY_TO_BACKSTAB`, stat
+  175, or a barbarian), and the attacker stands behind it: the target faces within two of the 16
+  directions of the way from the attacker to it. The hit's damage is multiplied by the attacker's
+  `BACKSTABDAMAGEMULTIPLIER` (stat 56); attacking ends invisibility, so only the first hit can be one.
+- **Which weapon can backstab** (`combat-intent/arsenal.lua`): a melee weapon whose "unusable by
+  thieves" bit (item usability `0x400000`) is clear, whoever wields it. Mods move that bit, so the
+  engine reads it from the item: Tweaks Anthology's "Thieves Can Backstab With More Weapons" clears it
+  on daggers, staves, swords and clubs, and in Christopher's game nearly every melee weapon has it
+  clear (its class limits sit in opcode 319). Both resource readers take the usability field now.
+- **What the engine reads** (`sense.actor`): every creature's backstab multiplier, its immunity
+  (stat 175 or the barbarian kit, `m_mageSpecUpperWord` and `m_mageSpecialization` as EEex builds the
+  kit) and the direction it faces (`m_nDirection`, 0 to 15; anything else counts as unknown).
+- **Worth** (`choice.hitsOn`): every attack with a weapon that can backstab counts the backstab as
+  likely as its first swing lands from behind: by the target's facing, 5 in 16 when that is unknown,
+  certain once the creature stands behind it. A backstab adds the weapon's damage times the
+  multiplier less one, and the kill counts both ways (with and without it).
+- **Going behind** (`choice.flankOptions`), a tactic by wit: a hidden creature next to an enemy that
+  faces it may first walk to the spot 48 behind it (`backstab.spot`, opposite the way the enemy
+  faces) and stab from there; worth the round with the backstab, lowered by the walk (and a weapon
+  switch) as a walk lowers any attack, plus what breaking a spell is worth, less what standing next
+  to the enemy costs. Danger zones at the spot count as for kiting (`zones.delta`). A clever creature
+  always, a normal one when it notices (a backstab within reach counts toward noticing), a dull one
+  never.
+- **Hiding first** (`choice.hideOpening`, `defence.lua`), a tactic by wit: a potion, scroll or spell
+  that makes the creature invisible (plain invisibility, on itself) counts what the backstab after
+  it gains over the same round without one, less the part of a round the walk to the enemy takes
+  (to the spot behind it when the enemy faces the creature). A potion counts no casting time. A
+  defence must reach the minimum worth to beat a free swing, so a thief with a short sword swings,
+  one with a long sword and a multiplier of 5 drinks first (in the tests).
+- **SCS's free hide stays SCS's** (Christopher's answer 11: powers a creature gives itself are its own
+  abilities; above the hook stays SCS's, as listed at the top). It happens only while the thief sees
+  no enemy, so nobody would see a named ability being used either. The engine takes the hidden
+  thief from there: it searches, goes behind and stabs. The same holds for SCS's other free
+  invisibilities: fiends out of sight (`DEMPIT`, `ERINYES`, `KARASH`, `TELPIT1`, `DEMMAU01`, …), mind
+  flayers' Improved Invisibility (`dw#illin`, above the illithid difficulty's normal setting) and the
+  vampires' forms. SCS's helper scripts that walk a thief, hiding, to a party member an ally called
+  for help against (`dw#gphlp`, `drdsht01`) are not hooked and run as before.
+- **In game** (`adapters/eeex/choice.lua`): a walk behind an enemy is `MoveToPoint` to the nearest
+  open spot by the spot behind it, the weapon taken up first when the choice switches
+  (`SelectWeaponAbility`), held while the creature walks or takes up its weapon, with a `flank` row
+  and, once it is over, a `flanked` row (whether it stands behind its enemy and is still hidden, how
+  far from it); `flanks` and `flanked` count them. Then the engine decides again, mostly the swing.
+  Choice, `swing` and `attack` rows carry the chance that the first hit is a backstab (`backstab`),
+  so a lab can hold the hit points lost against it; a choice row for a hide carries what the
+  backstab after it adds (`opening`).
+
+Tests: `backstab` (7 groups), `arsenal` group 6, `zones` group 13, the director's sense test, the
+choice adapter's group 36 (also a walk behind that takes up another weapon first, and the potion
+first with its opening).
+
+To see in a lab: whether EE needs the attacker behind its target at all and how wide behind is;
+which way `m_nDirection` counts; whether Improved Invisibility alone allows a backstab; whether a
+barbarian has stat 175 set; whether a backstab leaves its target immune for a while; that a
+fighter-thief stabs with a two-handed sword whose thieves' bit a mod cleared; and whether a
+hidden thief reaches the spot behind a moving enemy in time.
+
 ## Agreed (Christopher, 2026-10-25)
 
 1. **Target choice by worth, with overrides.** Not SCS's fixed list ("Ich würde es nicht eins zu
@@ -581,6 +651,9 @@ Known gaps, for later:
   weapon in hand. A thrown weapon counts strength's bonus to hit beside dexterity's when its flag
   says so (not measured). The walk into a missile's range does not count danger zones on the way.
   Conjured weapons still take the caster's THAC0 with the bonus to hit of the weapon it held.
+- Backstabs (F2d): only potions, scrolls and spells of invisibility hide a creature for a backstab;
+  the thieves' own Hide in Shadows counts nothing. The spot behind an enemy is where it stands now,
+  not where a walking enemy will be. A backstab counts the weapon's average damage, not its dice.
 - Barbarian Rage's armour class penalty does not count against what it protects; per-cent maximum
   hit points (opcode 18, mode 2) give no hit points; helmets are not read.
 - Movement speed is not read (haste, slow, boots of speed), only the default.

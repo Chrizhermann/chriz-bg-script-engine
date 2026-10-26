@@ -498,4 +498,22 @@ do
     assert(why=='best' and d.kind=='teleport' and d.target==6 and d.point.x==248 and d.point.y==100)
     groups=groups+1
 end
+
+-- 13. A walk behind an enemy (F2d, combat-intent/choice.lua): to a spot behind it out of the cloud
+-- it gains what walking out is worth, to one inside the cloud it costs that; a dull one counts none.
+do
+    local i=input({zones={zone(fire)}})
+    local q={x=400,y=100}
+    local out={resref='FLANK',kind='flank',melee=true,worth=0.3,cost=0.01,score=0.29,speed=0,point=q,target=5}
+    zones.adjust(i,out,{})
+    assert(zones.delta(i,q)>0 and near(out.worth,0.3+zones.delta(i,q)) and near(out.score,out.worth-0.01))
+    local away=input({zones={zone(fire)}},{x=600})
+    local into={resref='FLANK',kind='flank',melee=true,worth=0.3,cost=0,score=0.3,speed=0,point={x=100,y=100},target=6}
+    zones.adjust(away,into,{})
+    assert(into.worth<0.3)
+    local dull={resref='FLANK',kind='flank',melee=true,worth=0.3,cost=0,score=0.3,speed=0,point={x=100,y=100},target=6}
+    zones.adjust(input({zones={zone(fire)},mind=mind.new({wit='dull'})},{x=600}),dull,{})
+    assert(dull.worth==0.3)
+    groups=groups+1
+end
 return groups

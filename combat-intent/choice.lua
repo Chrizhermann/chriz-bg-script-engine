@@ -150,6 +150,16 @@
 -- off for the seconds of the step (its caution weighs them), when that beats the part of a round of
 -- its best attack the step costs. A tactic (M.tactical): a clever creature always, a normal one when
 -- it notices, a dull one never.
+--
+-- Backstabs (F2d; SCS's thieves drink invisibility when they see an enemy, then stab the weakest
+-- close enemy without Mirror Images or Stoneskin, [src] genai/ssl/backstab.ssl, dw#wtacor.ssl,
+-- credit DavidW): an invisible creature's first hit from behind its target multiplies the weapon's
+-- damage (combat-intent/backstab.lua). Every attack with a weapon that can backstab counts it, as
+-- likely as the first swing lands from behind (by the target's facing; 5 in 16 when unknown). Going
+-- behind an enemy that faces the creature first (a walk to the spot behind it, M.flankOptions), and
+-- hiding to backstab next round (an invisibility potion, scroll or spell counts what the backstab
+-- after it gains, M.hideOpening) are tactics (M.tactical): a clever creature always, a normal one
+-- when it notices, a dull one never.
 local targeting=require('combat-intent.targeting')
 local harm=require('combat-intent.harm')
 local defence=require('combat-intent.defence')
@@ -164,6 +174,7 @@ local weapons=require('combat-intent.weapons')
 local spells=require('combat-intent.spells')
 local orders=require('combat-intent.orders')
 local search=require('combat-intent.search')
+local backstab=require('combat-intent.backstab')
 local M={}
 M.rangeUnit=targeting.rangeUnit
 -- Allies keep this much room beyond an area's edge; positions are up to a check-in old.
@@ -694,6 +705,18 @@ end
 local function kiting(input)
     return input.mind.weapons==true and #pressing(input)>0 and shooting(input)
 end
+-- Whether a backstab is there to notice (M.flankOptions, M.hideOpening): the caster can backstab
+-- with a weapon it carries and sees an enemy it could stab, and it is hidden (going behind) or not
+-- (hiding first).
+local function stabbing(input)
+    local caster=input.frame.self
+    if input.mind.weapons~=true then return false end
+    local able=false
+    for _,arms in ipairs(M.arsenal(caster)) do if backstab.able(caster,arms) then able=true;break end end
+    if not able then return false end
+    for _,e in ipairs(input.frame.enemies) do if backstab.open(e) then return true end end
+    return false
+end
 -- Whether an opening is there to notice: a ready attack spell's debuff lowers an enemy's defences.
 local function opener(input)
     for _,row in ipairs(type(input.spells)=='table' and input.spells or {}) do
@@ -704,8 +727,8 @@ local function opener(input)
 end
 -- Draws once a decision whether the creature sees a tactic's chance (mind.tactics), and only when
 -- there is one to see (an enemy casts, a jump into the fight is there, a debuff opens an enemy's
--- defences, or a melee enemy close by can be stepped away from), so that other decisions draw
--- nothing. Without input.rng: when its chance is a half or more.
+-- defences, a melee enemy close by can be stepped away from, or a backstab is there), so that other
+-- decisions draw nothing. Without input.rng: when its chance is a half or more.
 function M.notices(input)
     local p=number(input.mind.tactics) and input.mind.tactics or 1
     if p>=1 then return true end
@@ -714,7 +737,7 @@ function M.notices(input)
     for _,e in ipairs(input.frame.enemies) do
         if type(e)=='table' and type(e.cast)=='table' then any=true;break end
     end
-    if not any and not leaping(input) and not opener(input) and not kiting(input) then return false end
+    if not any and not leaping(input) and not opener(input) and not kiting(input) and not stabbing(input) then return false end
     local rng=input.rng
     if not rng then return p>=0.5 end
     return rng:nextInt(1,1000)<=math.floor(p*1000+0.5)
@@ -911,11 +934,17 @@ end
 -- when those expected reach those needed, as likely as the last one lands (two swings that each
 -- hit four times in five, needing both: 0.6), unless e's minimum holds against them
 -- (targeting.floor): then they take what it has above it. The strongest disable a hit brings
--- counts as likelier the more hits land.
-local function hitsOn(input,arms,hits,e)
+-- counts as likelier the more hits land. bs (combat-intent/backstab.lua, optional): the chance the
+-- first hit is a backstab, which multiplies the weapon's own damage of that hit (not what it casts);
+-- a kill counts as likely as it is with the backstab and without.
+local function hitsOn(input,arms,hits,e,bs)
     local hp,maxHp=e.hp,e.maxHp
     if not number(hits) or hits<=0 or not number(hp) or not number(maxHp) or maxHp<=0 or hp<=0 then return 0,0 end
     local per=number(arms.damage) and arms.damage>0 and arms.damage*resisted(e,weapons.DAMAGE[arms.damageType] or '') or 0
+    local stab,p=0,0
+    if type(bs)=='table' and number(bs.chance) and bs.chance>0 and number(bs.multiplier) and bs.multiplier>1 then
+        stab,p=(bs.multiplier-1)*per,clamp(bs.chance,0,1)
+    end
     local first,floor,disables=0,targeting.floor(e,nil),{}
     local function strike(c,once)
         local roles=type(c)=='table' and spells.view(c,targeting.holds(e)) or nil
@@ -938,12 +967,20 @@ local function hitsOn(input,arms,hits,e)
     for _,h in ipairs(weapons.payloads(type(guard)=='table' and guard.hits,arms)) do strike(h.strike,h.once) end
     local worth,expected=0,0
     if (per>0 or first>0) and hp>floor then
-        local dealt=hits*per+first*math.min(1,hits)
+        local dealt=hits*per+first*math.min(1,hits)+p*stab
         expected=math.min(dealt,hp-floor)
         worth=expected/maxHp
         if floor<=0 then
-            local need=per>0 and math.max(1,math.ceil(math.max(0,hp-first)/per)) or (first>=hp and 1 or math.huge)
-            worth=worth+input.mind.killBonus*clamp(hits-need+1,0,1)
+            local function need(extra)
+                if per>0 then return math.max(1,math.ceil(math.max(0,hp-first-extra)/per)) end
+                return first+extra>=hp and 1 or math.huge
+            end
+            local kill=clamp(hits-need(0)+1,0,1)
+            if p>0 then
+                local n=need(stab)
+                kill=(1-p)*kill+p*(n<=1 and 1 or clamp(hits-n+1,0,1))
+            end
+            worth=worth+input.mind.killBonus*kill
         end
         local plan=input.plan
         if type(plan)=='table' and plan.focus==e.id then worth=worth*(1+input.mind.focusBonus*input.mind.coordination) end
@@ -1167,7 +1204,8 @@ function M.weaponOptions(input,rejected)
             if ok and weapons.missileBlocked(e,arms) then ok,why=false,'missile-blocked' end
             if ok then
                 local hits,raw,absorbed=weapons.hits(arms.apr,arms.thac0,e)
-                local worth,expected=hitsOn(input,arms,hits,e)
+                local bs=not arms.ranged and backstab.chance(caster,arms,e) or nil
+                local worth,expected=hitsOn(input,arms,hits,e,bs)
                 if worth>0 then
                     local cost=0
                     if not arms.ranged then
@@ -1182,13 +1220,106 @@ function M.weaponOptions(input,rejected)
                         cost=cost,score=worth-cost,hits={e.id},slack=0,expected={[e.id]=expected},speed=0,
                         melee=not arms.ranged or nil,walk=walk>0 and walk or nil,interrupt=stop>0 and stop or nil,
                         slot=switch and arms.slot or nil,abilityNum=switch and arms.abilityNum or nil,
-                        ammo=switch and arms.ammo or nil}
+                        ammo=switch and arms.ammo or nil,backstab=bs and bs.chance or nil}
                 else reject(hits<=0 and 'absorbed' or 'no-worth') end
             else reject(why) end
         end
     end
     table.sort(out,better)
     return out
+end
+
+-- Going behind (see the top): for an invisible caster that can backstab, a walk to the spot behind
+-- each enemy whose facing it knows and that walking straight at it would not bring it behind
+-- (backstab.spot), then a round of hits there whose first one is a backstab as likely as it lands,
+-- for each weapon it can backstab with. Worth: as weaponOptions counts the round, less the part of
+-- it the walk to that spot and a weapon switch take; on a casting enemy what breaking its spell is
+-- worth with the hits after those. Cost: what standing next to the enemy costs, times caution. None
+-- for a creature that cannot walk, holds a touch charge, is in its own Time Stop or under Improved
+-- Alacrity, or does not see the tactic (M.tactical). rejected (a table, optional) counts why an
+-- enemy got none: 'flank-' and the reason.
+function M.flankOptions(input,rejected)
+    local out={}
+    local function reject(why) if rejected then rejected['flank-'..why]=(rejected['flank-'..why] or 0)+1 end end
+    local frame=input.frame
+    local caster=frame.self
+    local mind=input.mind
+    if not backstab.hidden(caster) or caster.rooted==true or type(caster.charge)=='table' or weaponsOut(input) then return out end
+    local list={}
+    for _,arms in ipairs(M.arsenal(caster)) do if backstab.able(caster,arms) then list[#list+1]=arms end end
+    if #list==0 then return out end
+    if not M.tactical(input) then reject('unnoticed');return out end
+    local maxHp=number(caster.maxHp) and caster.maxHp>0 and caster.maxHp or nil
+    for _,arms in ipairs(list) do
+        local switch=arms~=caster.weapon
+        for _,e in ipairs(frame.enemies) do
+            local ok,why=weapons.reachable(caster,e,mind,arms)
+            if ok and weapons.immuneTo(e,arms) then ok,why=false,'weapon-immunity' end
+            if ok and not backstab.open(e) then ok,why=false,'closed' end
+            local spot=ok and backstab.spot(e) or nil
+            if ok and not spot then ok,why=false,'facing-unknown' end
+            if ok and backstab.behind(caster,e)~=false then ok,why=false,'behind' end
+            local walk=ok and weapons.approach(caster,spot,0) or nil
+            if ok and not walk then ok,why=false,'no-walk' end
+            if ok then
+                local hits,raw,absorbed=weapons.hits(arms.apr,arms.thac0,e)
+                local bs=backstab.chance(caster,arms,e,true)
+                local worth,expected=hitsOn(input,arms,hits,e,bs)
+                if worth>0 then
+                    local delay=walk+(switch and weapons.switchSeconds or 0)
+                    worth=worth*weapons.paced(delay)
+                    local stop=expected>0 and M.interruption(input,e,{from=delay,rate=raw,absorbed=absorbed}) or 0
+                    worth=worth+stop
+                    local cost=maxHp and mind.caution*weapons.exposure(frame,e)/maxHp or 0
+                    out[#out+1]={resref='FLANK',kind='flank',mode='point',point=spot,target=e.id,worth=worth,cost=cost,
+                        score=worth-cost,hits={e.id},slack=0,expected={[e.id]=expected},speed=0,melee=true,walk=walk,
+                        interrupt=stop>0 and stop or nil,backstab=bs and bs.chance or nil,item=arms.item,
+                        slot=switch and arms.slot or nil,abilityNum=switch and arms.abilityNum or nil}
+                else reject('no-worth') end
+            else reject(why) end
+        end
+    end
+    table.sort(out,better)
+    return out
+end
+-- What hiding is worth to a creature that can backstab (see the top): the most the first hit of a
+-- round after it gains as a backstab on an enemy it could stab, over that round's hits without one
+-- (hitsOn), less the part of the round the walk to the enemy takes (to the spot behind it when
+-- walking straight at it would not bring it behind, as the creature then goes behind): {worth,
+-- target}, or nil. None for a creature that does not fight with its weapons, is hidden already,
+-- holds a touch charge, is in its own Time Stop or under Improved Alacrity, or does not see the
+-- tactic (M.tactical). The time the hide itself takes is the defence's to count
+-- (combat-intent/defence.lua, input.hideOpening).
+function M.hideOpening(input)
+    local frame=input.frame
+    local caster=frame.self
+    if input.mind.weapons~=true or backstab.hidden(caster) or type(caster.charge)=='table' or weaponsOut(input) then
+        return nil
+    end
+    local best,at=0,nil
+    for _,arms in ipairs(M.arsenal(caster)) do
+        if backstab.able(caster,arms) then
+            local switch=arms~=caster.weapon and weapons.switchSeconds or 0
+            for _,e in ipairs(frame.enemies) do
+                if weapons.reachable(caster,e,input.mind,arms) and not weapons.immuneTo(e,arms) and backstab.open(e) then
+                    local behind=backstab.behind(caster,e)
+                    local walk=weapons.walk(caster,e)
+                    if behind==false then
+                        local spot=backstab.spot(e)
+                        walk=spot and weapons.approach(caster,spot,0) or nil
+                    end
+                    if walk then
+                        local hits=weapons.hits(arms.apr,arms.thac0,e)
+                        local bs=backstab.chance(caster,arms,e,behind==false or nil,true)
+                        local gain=(hitsOn(input,arms,hits,e,bs)-hitsOn(input,arms,hits,e))*weapons.paced(walk+switch)
+                        if gain>best or (gain==best and gain>0 and e.id<at) then best,at=gain,e.id end
+                    end
+                end
+            end
+        end
+    end
+    if best<=0 or not M.tactical(input) then return nil end
+    return {worth=best,target=at}
 end
 
 -- Kiting (see the top): steps of kiteSeconds at the caster's speed (zones.walkSpeed without one)
@@ -1410,6 +1541,14 @@ local function pick(input)
     end
     input=M.frozen(input)
     if input.frame.self.alacrity==true then input=M.unreleased(input) end
+    -- What a hide is worth for the backstab after it (M.hideOpening) counts in the defences that
+    -- hide the caster.
+    if input.hideOpening==nil and mind.weapons then
+        local view={}
+        for k,v in pairs(input) do view[k]=v end
+        view.hideOpening=M.hideOpening(input) or false
+        input=view
+    end
     local options=M.options(input,rejected)
     for _,o in ipairs(defence.options(input,rejected)) do options[#options+1]=o end
     for _,o in ipairs(care.options(input,rejected)) do options[#options+1]=o end
@@ -1419,8 +1558,12 @@ local function pick(input)
         for _,o in ipairs(M.jumpOptions(input,rejected)) do options[#options+1]=o end
     end
     -- A weapon attack spends nothing: it needs no minimum worth, and it is taken over a spell
-    -- only when it is worth more.
+    -- only when it is worth more. Going behind an enemy first is one of them.
     local swings=mind.weapons and M.weaponOptions(input,rejected) or {}
+    if mind.weapons then
+        for _,o in ipairs(M.flankOptions(input,rejected)) do swings[#swings+1]=o end
+        table.sort(swings,better)
+    end
     if zoned then
         local at=placed(input)
         for _,o in ipairs(options) do zones.adjust(input,o,at) end

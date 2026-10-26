@@ -3193,6 +3193,14 @@ M.STRENGTH_DAMAGE=0x5
 M.MAGICAL=0x40
 -- Item ability attack types: melee, ranged (thrown or ammunition), launcher.
 M.MELEE,M.RANGED,M.LAUNCHES=1,2,4
+-- The item's usability bit "unusable by thieves" (IESDP, ITM). A backstab lands only with a melee
+-- weapon whose bit is clear, whoever wields it (GemRB's reading of the game, [src]
+-- core/Inventory.cpp; Use Any Item does not change it). GemRB also reads ability flag bit 24 and
+-- ToBEx bit 25 as backstab switches; IESDP lists neither for EE, so neither counts here. Mods
+-- move this bit: Tweaks Anthology's "Thieves Can Backstab With More Weapons" clears it on daggers,
+-- staves, swords and clubs, and in Christopher's game nearly every melee weapon has it clear (their
+-- class limits sit in opcode 319), so the item read decides, never a list of weapon kinds.
+M.THIEF=0x400000
 -- Attacks a round of a weapon taken up: at least a half, at most what haste allows.
 M.minApr,M.maxApr=0.5,10
 
@@ -3391,12 +3399,13 @@ end
 -- shoots and how far (a launcher's own range, else the ammunition's), the item, its ability (1 for
 -- the first) and the ammunition, the damage type and the hitting item's flags and enchantment
 -- (plain ammunition from a magical launcher hits as magical), the projectile a missile flies as,
--- and slot and abilityNum for SelectWeaponAbility.
+-- slot and abilityNum for SelectWeaponAbility, and whether it can backstab (M.THIEF).
 local function attack(c,s,hit,damage)
     local stats=c.stats
     local melee=not s.ranged
     local out={item=s.item,ability=s.number+1,slot=s.slot,abilityNum=s.number,ammo=s.ammo,ranged=s.ranged,
         launcher=s.launcher,fist=s.slot==M.FIST or nil}
+    if melee and number(s.record.usability) and not targeting.has(s.record.usability,M.THIEF) then out.backstab=true end
     out.thac0=value(stats.thac0)-hit-value(stats.hitBonus)-value(melee and stats.meleeHit or stats.missileHit)
     out.damage=math.max(0,damage+value(stats.damageBonus)+value(melee and stats.meleeDamage or stats.missileDamage))
     local hitting=s.ammoRecord or s.record
@@ -3473,6 +3482,105 @@ function M.others(tables,c)
         end
     end
     return out
+end
+return M
+end
+factories["combat-intent.backstab"]=function(require)
+-- Backstabs (F2d; Christopher, 2026-10-26: thieves next, SCS as the blueprint): what the first hit
+-- of an invisible creature from behind its target is worth. SCS's thieves drink invisibility or read
+-- its scroll when they see an enemy, then stab the weakest close enemy that has no Mirror Images and
+-- no Stoneskin, going a little way for a good one while no enemy sees through invisibility ([src]
+-- genai/ssl/backstab.ssl, dw#wtacor.ssl; BackstabSafe in ssl/library.slb; credit DavidW).
+--
+-- The game's rule, as GemRB reads BG2 ([src] core/Scriptable/Actor.cpp, GetBackstabDamage and
+-- IsBehind; core/Inventory.cpp): the attacker is invisible, the weapon can backstab (a melee weapon
+-- thieves may use, combat-intent/arsenal.lua), the target is not immune (IMMUNITY_TO_BACKSTAB, a
+-- barbarian), and the attacker stands behind the target: the target faces within behindArc of the
+-- 16 directions of the way from the attacker to it (where the attacker faces does not matter). The
+-- hit's damage is then multiplied by the attacker's BACKSTABDAMAGEMULTIPLIER; attacking ends plain
+-- invisibility, so only the first hit can be one. What EE does of this is not measured yet (whether
+-- it needs the attacker behind, how wide behind is, whether Improved Invisibility counts); a lab is
+-- to, and these values follow it. Plain values only; nothing here touches the engine.
+local targeting=require('combat-intent.targeting')
+local threat=require('combat-intent.threat')
+local M={}
+-- Directions a creature faces (DIR.IDS: 0 south, 4 west, 8 north, 12 east, turning clockwise on
+-- the screen), and how many on either side of the way to the target still count as behind it.
+M.DIRECTIONS=16
+M.behindArc=2
+-- Whether the attacker must stand behind (BG2's rule; BG1's needs none).
+M.needsBehind=true
+-- STATE_INVISIBLE, which a backstab needs, and STATE_IMPROVEDINVISIBILITY, which alone does not
+-- count (BG2's rule as players know it; not measured in EE yet).
+M.INVISIBLE=targeting.STATE.invisible
+M.IMPROVED=targeting.STATE.improvedInvisible
+-- A spot behind a target lies this far from it, within a weapon's reach (threat.reach).
+M.behindDistance=48
+
+local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
+local atan2=math.atan2 or math.atan
+
+-- The direction (M.DIRECTIONS) of the way from a to b on the screen, or nil when either has no spot
+-- or they share one.
+function M.direction(a,b)
+    if type(a)~='table' or type(b)~='table' or not number(a.x) or not number(a.y) or not number(b.x) or
+        not number(b.y) then return nil end
+    local dx,dy=b.x-a.x,b.y-a.y
+    if dx==0 and dy==0 then return nil end
+    return math.floor(atan2(-dx,dy)/(2*math.pi/M.DIRECTIONS)+0.5)%M.DIRECTIONS
+end
+-- Whether attacker stands behind target (see the top), or nil when the target's facing is unknown.
+function M.behind(attacker,target)
+    local f=type(target)=='table' and target.facing
+    local d=M.direction(attacker,target)
+    if not number(f) or d==nil then return nil end
+    local diff=(f-d)%M.DIRECTIONS
+    return math.min(diff,M.DIRECTIONS-diff)<=M.behindArc
+end
+-- The share of directions behind a creature: the chance to stand behind one whose facing is unknown.
+function M.prior() return (2*M.behindArc+1)/M.DIRECTIONS end
+-- The spot far (world units, M.behindDistance without) behind target, opposite the way it faces, or
+-- nil when its facing is unknown. The screen's height counts 3/4 of a world unit, as distances do.
+function M.spot(target,far)
+    local f=type(target)=='table' and target.facing
+    if not number(f) or not number(target.x) or not number(target.y) then return nil end
+    far=number(far) and far or M.behindDistance
+    local turn=f*2*math.pi/M.DIRECTIONS
+    return {x=math.floor(target.x+math.sin(turn)*far+0.5),y=math.floor(target.y-math.cos(turn)*far*3/4+0.5)}
+end
+
+-- Whether the creature is invisible as a backstab needs it (M.INVISIBLE without M.IMPROVED).
+function M.hidden(creature)
+    local state=type(creature)=='table' and creature.state
+    return targeting.has(state,M.INVISIBLE) and not targeting.has(state,M.IMPROVED)
+end
+-- Whether the caster could backstab with weapon arms at all: a backstab multiplier above 1 and a
+-- weapon that can backstab.
+function M.able(caster,arms)
+    return type(caster)=='table' and number(caster.backstab) and caster.backstab>1 and type(arms)=='table' and
+        arms.backstab==true and not arms.ranged
+end
+-- Whether e can be backstabbed: alive, not immune, and no Mirror Image or Stoneskin skin to take
+-- the first hit (SCS's BackstabSafe).
+function M.open(e)
+    return type(e)=='table' and targeting.alive(e) and e.backstabImmune~=true and
+        not (number(e.mirror) and e.mirror>0) and not (number(e.skins) and e.skins>0)
+end
+-- The backstab the caster's first hit with weapon arms on e would be: {chance, multiplier}, the
+-- chance its first swing lands as one (the swing hits, and the caster stands behind e: by e's
+-- facing, M.prior when unknown, certain when behind is true), or nil and why there is none. hidden:
+-- count the caster as invisible (for a hide it has yet to take).
+function M.chance(caster,arms,e,behind,hidden)
+    if not M.able(caster,arms) then return nil,'unable' end
+    if not hidden and not M.hidden(caster) then return nil,'seen' end
+    if not M.open(e) then return nil,'closed' end
+    local back=1
+    if M.needsBehind and behind~=true then
+        local b=M.behind(caster,e)
+        if b==nil then back=M.prior() elseif b then back=1 else back=0 end
+    end
+    if back<=0 then return nil,'front' end
+    return {chance=threat.hitChance(arms.thac0,e.ac)*back,multiplier=caster.backstab}
 end
 return M
 end
@@ -4082,6 +4190,9 @@ end
 -- (the protection and buff potions SCS's fighters drink) works on the caster itself while it has
 -- uses left, costs as a first-level spell and is not interrupted (as care.lua's potions). What a
 -- spell's area weakens of enemies (weakens) adds to what it gives its side, which caution weighs.
+-- A defence that leaves the caster invisible as a backstab needs (plain invisibility, F2d) adds what
+-- the backstab after it gains (input.hideOpening, combat-intent/choice.lua), less the part of a
+-- round its casting takes (weapons.paced); such an option carries hides and that opening.
 function M.options(input,rejected)
     local out={}
     local function reject(why) if rejected then rejected[why]=(rejected[why] or 0)+1 end end
@@ -4115,12 +4226,17 @@ function M.options(input,rejected)
         local shield=M.shield(gives)
         local length=math.max(seconds(gives.protection),seconds(gives.buff))
         local rounds=math.max(0,math.min(horizon,length-stop))/M.ROUND
+        local cast=(number(spell.speed) and spell.speed or 0)*M.speedSeconds
+        local hide=input.hideOpening
+        local opening=type(hide)=='table' and number(hide.worth) and hide.worth>0 and shield.invisible and
+            not shield.improved and hide.worth*weapons.paced(row.item and 0 or cast) or 0
         local best,unknown
         local list=row.item and {{self=true,friend=caster,point=spell.area and {x=caster.x,y=caster.y} or nil}}
             or aims(input,row,spell)
         for _,aim in ipairs(list) do
-            local worth,hits=0,{}
+            local worth,hits,open=0,{},0
             for _,f in ipairs(receivers(input,row,spell,aim)) do
+                if f==caster then open=opening end
                 -- What protects a friend whose effects could not be read is unknown: it gets
                 -- nothing rather than a second copy.
                 if f.guard==false then unknown=true
@@ -4137,16 +4253,20 @@ function M.options(input,rejected)
                     if gain>0 then worth=worth+gain;hits[#hits+1]=f.id end
                 end
             end
+            if open>0 then
+                local listed=false
+                for _,id in ipairs(hits) do if id==caster.id then listed=true end end
+                if not listed then table.insert(hits,1,caster.id) end
+            end
             -- Caution weighs what it gives the side; a profile without any (labs) still sees it.
             local weak=row.item and 0 or weakens(input,row,spell,aim,ac)
-            local total=worth*caution+weak
-            if worth+weak>0 and (not best or total>best.total or (total==best.total and worth>best.worth)) then
-                best={aim=aim,total=total,worth=worth,hits=hits}
+            local total=worth*caution+weak+open
+            if worth+weak+open>0 and (not best or total>best.total or (total==best.total and worth>best.worth)) then
+                best={aim=aim,total=total,worth=worth,hits=hits,open=open}
             end
         end
         if not best then return false,unknown and 'unknown-guard' or 'no-worth' end
         -- Casting time: harm while casting can interrupt a cast (not a drink); long casts also cost.
-        local cast=(number(spell.speed) and spell.speed or 0)*M.speedSeconds
         local through=row.item and 1 or M.through(input,ct,cast)
         local level=row.item and M.itemLevel or slots(input)*(number(row.level) and row.level or
             number(spell.level) and spell.level or 1)
@@ -4155,7 +4275,7 @@ function M.options(input,rejected)
         local worth=best.total*through
         local option={resref=row.resref,kind='defence',worth=worth,cost=cost,score=worth-cost,
             hits=best.hits,slack=0,speed=number(spell.speed) and spell.speed or 0,release=spell.release or nil,
-            use=row.item or nil}
+            use=row.item or nil,hides=best.open>0 or nil,opening=best.open>0 and best.open or nil}
         local aim=best.aim
         if aim.self then option.self=true;option.mode='self'
         elseif aim.friend then option.target=aim.friend.id;option.mode='ally'
@@ -5906,7 +6026,8 @@ function M.escape(input)
 end
 
 -- An option with the zones counted: a melee attack or a strike gains what walking to its target
--- is worth (M.delta: out of harm, or into it); a cast where the caster stands loses what the zones
+-- is worth (M.delta: out of harm, or into it), a walk behind an enemy (F2d, 'flank') what walking
+-- to the spot behind it is worth; a cast where the caster stands loses what the zones
 -- around it may break (the chance it finishes kept as finish, for the log); a jump into the fight
 -- (a teleport next to an enemy, combat-intent/choice.lua) both: what landing there is worth
 -- (M.leap) when its casting is not broken. Changes the option's worth and score in place. A dull
@@ -5917,6 +6038,8 @@ function M.adjust(input,o,enemyAt)
     if o.kind=='strike' or (o.kind=='weapon' and o.melee) then
         local e=enemyAt and enemyAt[o.target]
         if e then o.worth=o.worth+M.delta(input,e) end
+    elseif o.kind=='flank' then
+        if type(o.point)=='table' then o.worth=o.worth+M.delta(input,o.point) end
     elseif o.kind=='teleport' and o.melee then
         local cast=(number(o.speed) and o.speed or 0)*M.speedSeconds
         local finish=1
@@ -6084,6 +6207,16 @@ factories["combat-intent.choice"]=function(require)
 -- off for the seconds of the step (its caution weighs them), when that beats the part of a round of
 -- its best attack the step costs. A tactic (M.tactical): a clever creature always, a normal one when
 -- it notices, a dull one never.
+--
+-- Backstabs (F2d; SCS's thieves drink invisibility when they see an enemy, then stab the weakest
+-- close enemy without Mirror Images or Stoneskin, [src] genai/ssl/backstab.ssl, dw#wtacor.ssl,
+-- credit DavidW): an invisible creature's first hit from behind its target multiplies the weapon's
+-- damage (combat-intent/backstab.lua). Every attack with a weapon that can backstab counts it, as
+-- likely as the first swing lands from behind (by the target's facing; 5 in 16 when unknown). Going
+-- behind an enemy that faces the creature first (a walk to the spot behind it, M.flankOptions), and
+-- hiding to backstab next round (an invisibility potion, scroll or spell counts what the backstab
+-- after it gains, M.hideOpening) are tactics (M.tactical): a clever creature always, a normal one
+-- when it notices, a dull one never.
 local targeting=require('combat-intent.targeting')
 local harm=require('combat-intent.harm')
 local defence=require('combat-intent.defence')
@@ -6098,6 +6231,7 @@ local weapons=require('combat-intent.weapons')
 local spells=require('combat-intent.spells')
 local orders=require('combat-intent.orders')
 local search=require('combat-intent.search')
+local backstab=require('combat-intent.backstab')
 local M={}
 M.rangeUnit=targeting.rangeUnit
 -- Allies keep this much room beyond an area's edge; positions are up to a check-in old.
@@ -6628,6 +6762,18 @@ end
 local function kiting(input)
     return input.mind.weapons==true and #pressing(input)>0 and shooting(input)
 end
+-- Whether a backstab is there to notice (M.flankOptions, M.hideOpening): the caster can backstab
+-- with a weapon it carries and sees an enemy it could stab, and it is hidden (going behind) or not
+-- (hiding first).
+local function stabbing(input)
+    local caster=input.frame.self
+    if input.mind.weapons~=true then return false end
+    local able=false
+    for _,arms in ipairs(M.arsenal(caster)) do if backstab.able(caster,arms) then able=true;break end end
+    if not able then return false end
+    for _,e in ipairs(input.frame.enemies) do if backstab.open(e) then return true end end
+    return false
+end
 -- Whether an opening is there to notice: a ready attack spell's debuff lowers an enemy's defences.
 local function opener(input)
     for _,row in ipairs(type(input.spells)=='table' and input.spells or {}) do
@@ -6638,8 +6784,8 @@ local function opener(input)
 end
 -- Draws once a decision whether the creature sees a tactic's chance (mind.tactics), and only when
 -- there is one to see (an enemy casts, a jump into the fight is there, a debuff opens an enemy's
--- defences, or a melee enemy close by can be stepped away from), so that other decisions draw
--- nothing. Without input.rng: when its chance is a half or more.
+-- defences, a melee enemy close by can be stepped away from, or a backstab is there), so that other
+-- decisions draw nothing. Without input.rng: when its chance is a half or more.
 function M.notices(input)
     local p=number(input.mind.tactics) and input.mind.tactics or 1
     if p>=1 then return true end
@@ -6648,7 +6794,7 @@ function M.notices(input)
     for _,e in ipairs(input.frame.enemies) do
         if type(e)=='table' and type(e.cast)=='table' then any=true;break end
     end
-    if not any and not leaping(input) and not opener(input) and not kiting(input) then return false end
+    if not any and not leaping(input) and not opener(input) and not kiting(input) and not stabbing(input) then return false end
     local rng=input.rng
     if not rng then return p>=0.5 end
     return rng:nextInt(1,1000)<=math.floor(p*1000+0.5)
@@ -6845,11 +6991,17 @@ end
 -- when those expected reach those needed, as likely as the last one lands (two swings that each
 -- hit four times in five, needing both: 0.6), unless e's minimum holds against them
 -- (targeting.floor): then they take what it has above it. The strongest disable a hit brings
--- counts as likelier the more hits land.
-local function hitsOn(input,arms,hits,e)
+-- counts as likelier the more hits land. bs (combat-intent/backstab.lua, optional): the chance the
+-- first hit is a backstab, which multiplies the weapon's own damage of that hit (not what it casts);
+-- a kill counts as likely as it is with the backstab and without.
+local function hitsOn(input,arms,hits,e,bs)
     local hp,maxHp=e.hp,e.maxHp
     if not number(hits) or hits<=0 or not number(hp) or not number(maxHp) or maxHp<=0 or hp<=0 then return 0,0 end
     local per=number(arms.damage) and arms.damage>0 and arms.damage*resisted(e,weapons.DAMAGE[arms.damageType] or '') or 0
+    local stab,p=0,0
+    if type(bs)=='table' and number(bs.chance) and bs.chance>0 and number(bs.multiplier) and bs.multiplier>1 then
+        stab,p=(bs.multiplier-1)*per,clamp(bs.chance,0,1)
+    end
     local first,floor,disables=0,targeting.floor(e,nil),{}
     local function strike(c,once)
         local roles=type(c)=='table' and spells.view(c,targeting.holds(e)) or nil
@@ -6872,12 +7024,20 @@ local function hitsOn(input,arms,hits,e)
     for _,h in ipairs(weapons.payloads(type(guard)=='table' and guard.hits,arms)) do strike(h.strike,h.once) end
     local worth,expected=0,0
     if (per>0 or first>0) and hp>floor then
-        local dealt=hits*per+first*math.min(1,hits)
+        local dealt=hits*per+first*math.min(1,hits)+p*stab
         expected=math.min(dealt,hp-floor)
         worth=expected/maxHp
         if floor<=0 then
-            local need=per>0 and math.max(1,math.ceil(math.max(0,hp-first)/per)) or (first>=hp and 1 or math.huge)
-            worth=worth+input.mind.killBonus*clamp(hits-need+1,0,1)
+            local function need(extra)
+                if per>0 then return math.max(1,math.ceil(math.max(0,hp-first-extra)/per)) end
+                return first+extra>=hp and 1 or math.huge
+            end
+            local kill=clamp(hits-need(0)+1,0,1)
+            if p>0 then
+                local n=need(stab)
+                kill=(1-p)*kill+p*(n<=1 and 1 or clamp(hits-n+1,0,1))
+            end
+            worth=worth+input.mind.killBonus*kill
         end
         local plan=input.plan
         if type(plan)=='table' and plan.focus==e.id then worth=worth*(1+input.mind.focusBonus*input.mind.coordination) end
@@ -7101,7 +7261,8 @@ function M.weaponOptions(input,rejected)
             if ok and weapons.missileBlocked(e,arms) then ok,why=false,'missile-blocked' end
             if ok then
                 local hits,raw,absorbed=weapons.hits(arms.apr,arms.thac0,e)
-                local worth,expected=hitsOn(input,arms,hits,e)
+                local bs=not arms.ranged and backstab.chance(caster,arms,e) or nil
+                local worth,expected=hitsOn(input,arms,hits,e,bs)
                 if worth>0 then
                     local cost=0
                     if not arms.ranged then
@@ -7116,13 +7277,106 @@ function M.weaponOptions(input,rejected)
                         cost=cost,score=worth-cost,hits={e.id},slack=0,expected={[e.id]=expected},speed=0,
                         melee=not arms.ranged or nil,walk=walk>0 and walk or nil,interrupt=stop>0 and stop or nil,
                         slot=switch and arms.slot or nil,abilityNum=switch and arms.abilityNum or nil,
-                        ammo=switch and arms.ammo or nil}
+                        ammo=switch and arms.ammo or nil,backstab=bs and bs.chance or nil}
                 else reject(hits<=0 and 'absorbed' or 'no-worth') end
             else reject(why) end
         end
     end
     table.sort(out,better)
     return out
+end
+
+-- Going behind (see the top): for an invisible caster that can backstab, a walk to the spot behind
+-- each enemy whose facing it knows and that walking straight at it would not bring it behind
+-- (backstab.spot), then a round of hits there whose first one is a backstab as likely as it lands,
+-- for each weapon it can backstab with. Worth: as weaponOptions counts the round, less the part of
+-- it the walk to that spot and a weapon switch take; on a casting enemy what breaking its spell is
+-- worth with the hits after those. Cost: what standing next to the enemy costs, times caution. None
+-- for a creature that cannot walk, holds a touch charge, is in its own Time Stop or under Improved
+-- Alacrity, or does not see the tactic (M.tactical). rejected (a table, optional) counts why an
+-- enemy got none: 'flank-' and the reason.
+function M.flankOptions(input,rejected)
+    local out={}
+    local function reject(why) if rejected then rejected['flank-'..why]=(rejected['flank-'..why] or 0)+1 end end
+    local frame=input.frame
+    local caster=frame.self
+    local mind=input.mind
+    if not backstab.hidden(caster) or caster.rooted==true or type(caster.charge)=='table' or weaponsOut(input) then return out end
+    local list={}
+    for _,arms in ipairs(M.arsenal(caster)) do if backstab.able(caster,arms) then list[#list+1]=arms end end
+    if #list==0 then return out end
+    if not M.tactical(input) then reject('unnoticed');return out end
+    local maxHp=number(caster.maxHp) and caster.maxHp>0 and caster.maxHp or nil
+    for _,arms in ipairs(list) do
+        local switch=arms~=caster.weapon
+        for _,e in ipairs(frame.enemies) do
+            local ok,why=weapons.reachable(caster,e,mind,arms)
+            if ok and weapons.immuneTo(e,arms) then ok,why=false,'weapon-immunity' end
+            if ok and not backstab.open(e) then ok,why=false,'closed' end
+            local spot=ok and backstab.spot(e) or nil
+            if ok and not spot then ok,why=false,'facing-unknown' end
+            if ok and backstab.behind(caster,e)~=false then ok,why=false,'behind' end
+            local walk=ok and weapons.approach(caster,spot,0) or nil
+            if ok and not walk then ok,why=false,'no-walk' end
+            if ok then
+                local hits,raw,absorbed=weapons.hits(arms.apr,arms.thac0,e)
+                local bs=backstab.chance(caster,arms,e,true)
+                local worth,expected=hitsOn(input,arms,hits,e,bs)
+                if worth>0 then
+                    local delay=walk+(switch and weapons.switchSeconds or 0)
+                    worth=worth*weapons.paced(delay)
+                    local stop=expected>0 and M.interruption(input,e,{from=delay,rate=raw,absorbed=absorbed}) or 0
+                    worth=worth+stop
+                    local cost=maxHp and mind.caution*weapons.exposure(frame,e)/maxHp or 0
+                    out[#out+1]={resref='FLANK',kind='flank',mode='point',point=spot,target=e.id,worth=worth,cost=cost,
+                        score=worth-cost,hits={e.id},slack=0,expected={[e.id]=expected},speed=0,melee=true,walk=walk,
+                        interrupt=stop>0 and stop or nil,backstab=bs and bs.chance or nil,item=arms.item,
+                        slot=switch and arms.slot or nil,abilityNum=switch and arms.abilityNum or nil}
+                else reject('no-worth') end
+            else reject(why) end
+        end
+    end
+    table.sort(out,better)
+    return out
+end
+-- What hiding is worth to a creature that can backstab (see the top): the most the first hit of a
+-- round after it gains as a backstab on an enemy it could stab, over that round's hits without one
+-- (hitsOn), less the part of the round the walk to the enemy takes (to the spot behind it when
+-- walking straight at it would not bring it behind, as the creature then goes behind): {worth,
+-- target}, or nil. None for a creature that does not fight with its weapons, is hidden already,
+-- holds a touch charge, is in its own Time Stop or under Improved Alacrity, or does not see the
+-- tactic (M.tactical). The time the hide itself takes is the defence's to count
+-- (combat-intent/defence.lua, input.hideOpening).
+function M.hideOpening(input)
+    local frame=input.frame
+    local caster=frame.self
+    if input.mind.weapons~=true or backstab.hidden(caster) or type(caster.charge)=='table' or weaponsOut(input) then
+        return nil
+    end
+    local best,at=0,nil
+    for _,arms in ipairs(M.arsenal(caster)) do
+        if backstab.able(caster,arms) then
+            local switch=arms~=caster.weapon and weapons.switchSeconds or 0
+            for _,e in ipairs(frame.enemies) do
+                if weapons.reachable(caster,e,input.mind,arms) and not weapons.immuneTo(e,arms) and backstab.open(e) then
+                    local behind=backstab.behind(caster,e)
+                    local walk=weapons.walk(caster,e)
+                    if behind==false then
+                        local spot=backstab.spot(e)
+                        walk=spot and weapons.approach(caster,spot,0) or nil
+                    end
+                    if walk then
+                        local hits=weapons.hits(arms.apr,arms.thac0,e)
+                        local bs=backstab.chance(caster,arms,e,behind==false or nil,true)
+                        local gain=(hitsOn(input,arms,hits,e,bs)-hitsOn(input,arms,hits,e))*weapons.paced(walk+switch)
+                        if gain>best or (gain==best and gain>0 and e.id<at) then best,at=gain,e.id end
+                    end
+                end
+            end
+        end
+    end
+    if best<=0 or not M.tactical(input) then return nil end
+    return {worth=best,target=at}
 end
 
 -- Kiting (see the top): steps of kiteSeconds at the caster's speed (zones.walkSpeed without one)
@@ -7344,6 +7598,14 @@ local function pick(input)
     end
     input=M.frozen(input)
     if input.frame.self.alacrity==true then input=M.unreleased(input) end
+    -- What a hide is worth for the backstab after it (M.hideOpening) counts in the defences that
+    -- hide the caster.
+    if input.hideOpening==nil and mind.weapons then
+        local view={}
+        for k,v in pairs(input) do view[k]=v end
+        view.hideOpening=M.hideOpening(input) or false
+        input=view
+    end
     local options=M.options(input,rejected)
     for _,o in ipairs(defence.options(input,rejected)) do options[#options+1]=o end
     for _,o in ipairs(care.options(input,rejected)) do options[#options+1]=o end
@@ -7353,8 +7615,12 @@ local function pick(input)
         for _,o in ipairs(M.jumpOptions(input,rejected)) do options[#options+1]=o end
     end
     -- A weapon attack spends nothing: it needs no minimum worth, and it is taken over a spell
-    -- only when it is worth more.
+    -- only when it is worth more. Going behind an enemy first is one of them.
     local swings=mind.weapons and M.weaponOptions(input,rejected) or {}
+    if mind.weapons then
+        for _,o in ipairs(M.flankOptions(input,rejected)) do swings[#swings+1]=o end
+        table.sort(swings,better)
+    end
     if zoned then
         local at=placed(input)
         for _,o in ipairs(options) do zones.adjust(input,o,at) end
@@ -8462,7 +8728,7 @@ local function itm(v,resref)
             effects=effects(v,fxOff,v.u16(at+0x20),v.u16(at+0x1E))}
     end
     return {kind='ITM',resref=resref,name=v.u32(0x08),identifiedName=v.u32(0x0C),
-        flags=v.u32(0x18),itemType=v.u16(0x1C),proficiency=v.u8(0x31),stack=v.u16(0x38),
+        flags=v.u32(0x18),itemType=v.u16(0x1C),usability=v.u32(0x1E),proficiency=v.u8(0x31),stack=v.u16(0x38),
         enchantment=v.u32(0x60),abilities=abilities,equipping=effects(v,fxOff,v.u16(0x6E),v.u16(0x70))}
 end
 
@@ -8630,6 +8896,14 @@ M.stats={maxHp=1,mr=18,held=58,sanctuary=63,seeInvisible=81,trueSight=118,levelD
 M.minimumHp=208
 -- STATE_INVISIBLE and STATE_IMPROVEDINVISIBILITY; STATE_BLIND.
 M.unseen,M.blind=0x400010,0x40000
+-- What a backstab needs to know (F2d): STATS.IDS BACKSTABDAMAGEMULTIPLIER and
+-- IMMUNITY_TO_BACKSTAB (opcode 292 sets it), and KIT.IDS BARBARIAN, a kit the engine makes immune
+-- by itself (GemRB does the same, [src] core/Scriptable/Actor.cpp), read as EEex builds a kit from
+-- its two halves (docs/learned.md).
+M.backstab={multiplier=56,immune=175}
+M.barbarian=0x40000000
+-- Directions a creature can face (DIR.IDS: 0 south, 4 west, 8 north, 12 east).
+M.directions=16
 -- STATS.IDS: the saving throws, resistances and levels SCS's attack blocks read about their
 -- targets; the engine's own choice reads the same (Christopher, 2026-10-18: as much as SCS).
 M.saves={death=9,wand=10,poly=11,breath=12,spell=13}
@@ -8727,11 +9001,29 @@ function M.minimumSources(g,sprite)
     return from
 end
 
+-- The direction a creature faces (M.directions), or nil when the engine gives none it could mean.
+local function facing(sprite)
+    local ok,v=pcall(function() return sprite.m_nDirection end)
+    if ok and type(v)=='number' and v>=0 and v<M.directions and v%1==0 then return v end
+    return nil
+end
+-- Whether a creature is a barbarian (M.barbarian), by its kit's two halves; false when unread.
+local function barbarian(sprite)
+    local ok,v=pcall(function()
+        local base=sprite.m_baseStats
+        local upper,lower=base.m_mageSpecUpperWord,base.m_mageSpecialization
+        if type(upper)~='number' or type(lower)~='number' then return nil end
+        return upper*65536+lower
+    end)
+    return ok and v==M.barbarian
+end
+
 -- The plain facts every frame carries for one creature: also its armour class, the creature
 -- its current action is aimed at (-1 for none), its Stoneskin skins and Mirror Images, the
--- levels drained from it, whether it is webbed or entangled (rooted: it cannot walk), and the hit
+-- levels drained from it, whether it is webbed or entangled (rooted: it cannot walk), the hit
 -- points it cannot drop below (minHp, 0 without a minimum) with where they come from (minHpFrom,
--- M.minimumSources).
+-- M.minimumSources), what its backstab multiplies a first hit by (backstab, 0 for none), whether
+-- it cannot be backstabbed (backstabImmune) and the direction it faces (facing, nil unknown).
 function M.actor(g,sprite)
     local state=g.EEex_Sprite_GetState(sprite)
     local action=sprite.m_curAction
@@ -8745,7 +9037,9 @@ function M.actor(g,sprite)
         actee=type(actee)=='number' and actee or -1,skins=stat(g,sprite,M.combat.stoneskins),
         mirror=type(mirror)=='number' and mirror or 0,drained=stat(g,sprite,M.stats.levelDrain),
         rooted=stat(g,sprite,M.stats.entangle)>0 or stat(g,sprite,M.stats.web)>0,
-        minHp=minimum>0 and minimum or 0,minHpFrom=minimum>0 and M.minimumSources(g,sprite) or nil}
+        minHp=minimum>0 and minimum or 0,minHpFrom=minimum>0 and M.minimumSources(g,sprite) or nil,
+        backstab=stat(g,sprite,M.backstab.multiplier),
+        backstabImmune=stat(g,sprite,M.backstab.immune)>0 or barbarian(sprite),facing=facing(sprite)}
 end
 -- A creature's THAC0 with its right-hand and general hit bonuses (as M.attack counts it).
 function M.thac0(g,sprite)
@@ -10172,6 +10466,17 @@ factories["adapters.eeex.choice"]=function(require)
 -- so that a lab can hold the two against each other. A step away is MoveToPoint to the first open
 -- spot of its step and exits, held like a way out of a zone, with a 'kite' row; a 'kited' row logs
 -- where it ended and how close the nearest enemy stands then.
+--
+-- Backstabs (F2d, combat-intent/backstab.lua): each weapon comes with whether it can backstab
+-- (combat-intent/arsenal.lua), and every creature in the frame with its backstab multiplier, its
+-- immunity and the way it faces (sense.actor). A walk behind an enemy (a flank) is MoveToPoint to
+-- the nearest open spot by the spot behind it, the weapon taken up first when the choice switches
+-- (SelectWeaponAbility), held while the creature walks, with a 'flank' row; a 'flanked' row logs
+-- where it ended, whether it stands behind its enemy and is still hidden, and how far from it. Then
+-- the engine decides again, mostly the swing. Choice, 'swing' and 'attack' rows carry the chance
+-- that the first hit is a backstab, and a choice row for a hide (a potion or spell of invisibility)
+-- what the backstab after it adds (opening). SCS's own hide (a thief that sees no enemy turns
+-- invisible) stays SCS's, above the hook (FIGHT-01).
 local sense=require('adapters.eeex.sense')
 local creature=require('adapters.eeex.creature')
 local resources=require('adapters.eeex.resources')
@@ -10187,6 +10492,7 @@ local zones=require('combat-intent.zones')
 local mind=require('combat-intent.mind')
 local orders=require('combat-intent.orders')
 local search=require('combat-intent.search')
+local backstab=require('combat-intent.backstab')
 local rngs=require('kernel.rng')
 local M={}
 -- Every family a hook asks for (kernel/hook.lua): the ones api:setFamilies takes. The engine takes
@@ -10265,8 +10571,10 @@ M.rageStates={34,39,76,77,78,104}
 -- Casts remembered per caster in its own Time Stop.
 M.stopCastLimit=32
 -- MoveToPoint (ACTION.IDS); a way out is held while the creature walks it, or for moveGrace ticks
--- until the walk starts, and for twice its seconds and a margin at most.
+-- until the walk starts, and for twice its seconds and a margin at most. A flank is held as well
+-- while the creature takes up its weapon (SelectWeaponAbility).
 M.MOVE=23
+M.SELECT=92
 M.moveGrace=8
 M.moveMargin=30
 -- Game ticks a second, for the projectile's counters (lab batch H measured 15.00).
@@ -10304,10 +10612,18 @@ function M.castBegan(a,timer,tick)
         tick-timer>=a.started then a.cast=tick-timer end
 end
 
+-- The weapon a decision takes up first (decision.slot, abilityNum) as the start of its response:
+-- '' for none, nil for a bad one.
+local function takeUp(decision)
+    if decision.slot==nil then return '' end
+    if not M.WEAPON_SLOTS[decision.slot] or not whole(decision.abilityNum) then return nil end
+    return 'SelectWeaponAbility('..decision.slot..','..decision.abilityNum..') '
+end
 -- The response that casts decision's spell (a release with ForceSpellRES), or strikes with the
 -- charge or attacks with a weapon (one not in hand taken up first: decision.slot, abilityNum), or
--- drinks the item, or walks out of a zone or away from melee enemies, or nil. SCS's round timer is
--- no part of it (see the top).
+-- drinks the item, or walks out of a zone, away from melee enemies or behind an enemy (a flank,
+-- its weapon taken up first as for an attack), or nil. SCS's round timer is no part of it (see the
+-- top).
 function M.response(decision)
     if type(decision)~='table' or not valid(decision.resref) then return nil end
     if decision.use then
@@ -10317,17 +10633,18 @@ function M.response(decision)
     if decision.kind=='strike' or decision.kind=='weapon' then
         local t=decision.target
         if type(t)~='number' or t<0 or t%1~=0 then return nil end
-        local attack='AttackOneRound(EEex_Target("'..M.targetName..'"))'
-        if decision.kind=='weapon' and decision.slot~=nil then
-            if not M.WEAPON_SLOTS[decision.slot] or not whole(decision.abilityNum) then return nil end
-            return 'SelectWeaponAbility('..decision.slot..','..decision.abilityNum..') '..attack
-        end
-        return attack
+        local first=''
+        if decision.kind=='weapon' then first=takeUp(decision) end
+        if not first then return nil end
+        return first..'AttackOneRound(EEex_Target("'..M.targetName..'"))'
     end
-    if decision.kind=='escape' or decision.kind=='kite' then
+    if decision.kind=='escape' or decision.kind=='kite' or decision.kind=='flank' then
         local p=decision.point
         if type(p)~='table' or not whole(p.x) or not whole(p.y) then return nil end
-        return 'MoveToPoint(['..p.x..'.'..p.y..'])'
+        local first=''
+        if decision.kind=='flank' then first=takeUp(decision) end
+        if not first then return nil end
+        return first..'MoveToPoint(['..p.x..'.'..p.y..'])'
     end
     local cast=decision.release and 'ForceSpell' or 'Spell'
     if decision.point then
@@ -10432,7 +10749,7 @@ function M.new(g,options)
         guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0,arms=0,attacks=0,attackHits=0,
         weaponFailures=0,releases=0,heals=0,cures=0,potions=0,cared=0,uncared=0,summons=0,conjured=0,
         unconjured=0,removals=0,stripped=0,unstripped=0,wardFailures=0,revealed=0,unrevealed=0,landed=0,unlanded=0,
-        jumps=0,debuffs=0,switches=0,kites=0,kited=0}
+        jumps=0,debuffs=0,switches=0,kites=0,kited=0,flanks=0,flanked=0}
     local reasons={}
     local log,nextRow,size={},1,0
     local root,sink,lastError,markError,guardError,weaponError,wardError,zoneError,witError,tableError
@@ -10650,15 +10967,15 @@ function M.new(g,options)
     -- A weapon as an attack (combat-intent/weapons.lua's arms), or nil: what sense.arsenal reads for
     -- the one in hand or another, and what a hit casts or applies (the weapon's ability, or the
     -- ammunition a launcher shoots, classified), with the slot, ability number and ammunition
-    -- SelectWeaponAbility takes it up by and the projectile a missile flies as. A launcher without
-    -- ammunition is none.
+    -- SelectWeaponAbility takes it up by, the projectile a missile flies as and whether it can
+    -- backstab. A launcher without ammunition is none.
     local function arms(a)
         if type(a)~='table' or type(a.item)~='string' or type(a.damage)~='number' or (a.launcher and not a.ammo) then return nil end
         local strike
         if a.ammo then strike=item(a.ammo)[1] else strike=item(a.item)[a.ability] end
         return {item=a.item,damage=a.damage,damageType=a.damageType,apr=a.apr or weapons.baseApr,thac0=a.thac0,
             ranged=a.ranged==true,range=a.range,flags=a.flags,enchantment=a.enchantment,strike=strike,fist=a.fist,
-            slot=a.slot,abilityNum=a.abilityNum,ammo=a.ammo,projectile=a.projectile}
+            slot=a.slot,abilityNum=a.abilityNum,ammo=a.ammo,projectile=a.projectile,backstab=a.backstab}
     end
     -- The 'arms' row (see the top) when the weapon in the creature's hand (a, sense.arsenal's) is
     -- another than when last read.
@@ -10973,7 +11290,8 @@ function M.new(g,options)
         end
         record({kind='strike',tick=tick,member=s.caster,item=s.item,spell=s.spell,target=s.target,hit=hit,started=s.tick})
     end
-    -- A weapon attack that is over: whether its target lost hit points meanwhile (from any hand).
+    -- A weapon attack that is over: whether its target lost hit points meanwhile (from any hand), and
+    -- the chance its first hit was a backstab when it was chosen.
     local function attacked(s,tick)
         strikes[s.caster]=nil
         local target=any(s.target)
@@ -10981,7 +11299,7 @@ function M.new(g,options)
         local hit=s.hp~=nil and type(hp)=='number' and hp<s.hp
         if hit then counts.attackHits=counts.attackHits+1 end
         record({kind='attack',tick=tick,member=s.caster,item=s.item,target=s.target,hit=hit,
-            lost=hit and s.hp-hp or 0,started=s.tick})
+            lost=hit and s.hp-hp or 0,started=s.tick,backstab=s.backstab})
     end
 
     -- Danger zones. Whether they can be read: EEex offers what M.zoneRequired names and no read
@@ -11202,10 +11520,21 @@ function M.new(g,options)
     end
     -- A way out that is over: whether the creature stands outside every zone it left. A step away
     -- from melee enemies that is over: where it ended and how close the nearest enemy it sees
-    -- stands then.
+    -- stands then. A walk behind an enemy that is over: whether the creature stands behind it now
+    -- (nil while the enemy's facing is unknown or it is gone), is still hidden, and how far from it.
     local function moved(m,sprite,tick)
         moves[sprite.m_id]=nil
         local at={x=sprite.m_pos.x,y=sprite.m_pos.y}
+        if m.flank then
+            local self=sense.actor(g,sprite)
+            local target=get(m.flank)
+            local enemy=target and sense.actor(g,target)
+            counts.flanked=counts.flanked+1
+            record({kind='flanked',tick=tick,member=sprite.m_id,target=m.flank,to=m.point,at=at,took=tick-m.tick,
+                behind=enemy and backstab.behind(self,enemy) or nil,hidden=backstab.hidden(self),
+                near=enemy and math.floor(targeting.distance(enemy,at)+0.5) or nil})
+            return
+        end
         if m.kite then
             local frame=sense.frame(g,sprite,tick,false)
             local near=math.huge
@@ -11513,10 +11842,12 @@ function M.new(g,options)
                 return hold()
             else strikes[id]=nil end
         end
-        -- A way out of a zone runs while the creature walks it; then it is judged.
+        -- A way out of a zone, a step away or a walk behind an enemy runs while the creature walks it
+        -- (a flank also while it takes up its weapon); then it is judged.
         local m=moves[id]
         if m then
-            if tick-m.tick<m.limit and (sprite.m_curAction.m_actionID==M.MOVE or tick-m.tick<M.moveGrace) then
+            local doing=sprite.m_curAction.m_actionID
+            if tick-m.tick<m.limit and (doing==M.MOVE or (m.flank and doing==M.SELECT) or tick-m.tick<M.moveGrace) then
                 return hold()
             end
             moved(m,sprite,tick)
@@ -11613,16 +11944,18 @@ function M.new(g,options)
             return hold()
         end
         if d.kind=='escape' then return escaping(d,frame,id,tick,family,why,input.mind) end
-        -- A step away from melee enemies: walked and held like a way out (prepare).
-        if d.kind=='kite' then
+        -- A step away from melee enemies, or a walk behind an enemy: walked and held like a way out
+        -- (prepare).
+        if d.kind=='kite' or d.kind=='flank' then
             local response=M.response(d)
             if not response then return decline('bad-response') end
             counts.claims=counts.claims+1
             record({kind='choice',tick=tick,member=id,family=family,spell=d.resref,castKind=d.kind,mode=d.mode,point=d.point,
-                score=d.score,worth=d.worth,walk=d.walk,how=why,top=top,wit=input.mind.wit})
+                score=d.score,worth=d.worth,walk=d.walk,how=why,top=top,wit=input.mind.wit,target=d.target,
+                backstab=d.backstab,slot=d.slot})
             if director then director:release(id,tick) end
-            return {own=true,response=response,spell=d.resref,kind='kite',mode=d.mode,point=d.point,exits=d.exits,
-                walk=d.walk,hits={}}
+            return {own=true,response=response,spell=d.resref,kind=d.kind,mode=d.mode,point=d.point,exits=d.exits,
+                walk=d.walk,hits={},target=d.target,backstab=d.backstab,slot=d.slot,abilityNum=d.abilityNum}
         end
         local response=M.response(d)
         if not response then return decline('bad-response') end
@@ -11645,7 +11978,7 @@ function M.new(g,options)
             alacrity=frame.self.alacrity or nil,release=d.release,use=d.use,creatures=d.creatures,count=d.count,
             rest=d.rest,slots=input.slots,finish=d.finish,aura=frame.self.aura~=0 and frame.self.aura or nil,
             inZones=zoneView(input,d),lasting=d.lasting,wit=input.mind.wit,walk=d.walk,interrupt=d.interrupt,
-            ordered=d.ordered,slot=d.slot})
+            ordered=d.ordered,slot=d.slot,backstab=d.backstab,opening=d.opening})
         -- A disable claims its targets in the group at once, so that another member deciding
         -- before this cast starts leaves them alone, and a debuff the enemies it weakens for its
         -- spell; any other decision gives earlier claims back.
@@ -11697,7 +12030,8 @@ function M.new(g,options)
             sources=sources,expected=d.expected,disable=disable,charge=d.kind=='strike' and d.spell or nil,
             use=d.use,before=before,count=d.count,creatures=d.creatures,monsters=d.monsters,known=seen,cover=cover,
             walk=d.walk,melee=d.kind=='teleport' and d.melee or nil,innate=d.kind=='teleport' and d.innate or nil,
-            slot=d.kind=='weapon' and d.slot or nil}
+            slot=d.kind=='weapon' and d.slot or nil,abilityNum=d.kind=='weapon' and d.abilityNum or nil,
+            backstab=d.kind=='weapon' and d.backstab or nil}
     end
     -- From the gate, each time a hooked script asks: nil (the creature's script has the round),
     -- {hold=true,own=true} while the engine's queued cast has not started, its own action runs or
@@ -11749,20 +12083,24 @@ function M.new(g,options)
             record({kind='swing',tick=tick,member=object.m_id,item=decision.spell,target=decision.target})
         elseif decision.kind=='weapon' then
             strikes[object.m_id]={caster=object.m_id,item=decision.spell,weapon=true,target=decision.target,hp=hp,tick=tick,
-                known=known}
+                known=known,backstab=decision.backstab}
             counts.attacks=counts.attacks+1
             if decision.slot then counts.switches=counts.switches+1 end
             record({kind='swing',tick=tick,member=object.m_id,item=decision.spell,target=decision.target,weapon=true,
-                slot=decision.slot})
-        elseif decision.kind=='escape' or decision.kind=='kite' then
+                slot=decision.slot,backstab=decision.backstab})
+        elseif decision.kind=='escape' or decision.kind=='kite' or decision.kind=='flank' then
             -- A way out: to the nearest open spot that still lies outside the zones it leaves. A step
-            -- away from melee enemies: to the first open spot of its step and exits.
+            -- away from melee enemies: to the first open spot of its step and exits. A walk behind an
+            -- enemy: to the nearest open spot by the spot behind it, its weapon taken up first.
             local point=walkable(object,decision)
             if not point then return 'skipped' end
-            decision.response='MoveToPoint(['..point.x..'.'..point.y..'])'
-            local kite=decision.kind=='kite'
+            local kite,flank=decision.kind=='kite',decision.kind=='flank'
+            local first=''
+            if flank then first=takeUp(decision) end
+            if not first then return 'skipped' end
+            decision.response=first..'MoveToPoint(['..point.x..'.'..point.y..'])'
             moves[object.m_id]={tick=tick,point=point,zones=type(decision.zones)=='table' and decision.zones or {},
-                limit=M.walkTicks(decision.walk)+M.moveMargin,kite=kite or nil}
+                limit=M.walkTicks(decision.walk)+M.moveMargin,kite=kite or nil,flank=flank and decision.target or nil}
             if kite then
                 if kited[object.m_id]==nil then
                     if kitedCount>=M.cacheLimit then kited,kitedCount={},0 end
@@ -11771,8 +12109,13 @@ function M.new(g,options)
                 kited[object.m_id]=tick
                 counts.kites=counts.kites+1
             end
-            record({kind=kite and 'kite' or 'move',tick=tick,member=object.m_id,from={x=object.m_pos.x,y=object.m_pos.y},
-                to=point})
+            if flank then
+                counts.flanks=counts.flanks+1
+                if decision.slot then counts.switches=counts.switches+1 end
+            end
+            record({kind=kite and 'kite' or flank and 'flank' or 'move',tick=tick,member=object.m_id,
+                from={x=object.m_pos.x,y=object.m_pos.y},to=point,target=flank and decision.target or nil,
+                backstab=flank and decision.backstab or nil,slot=flank and decision.slot or nil})
         elseif decision.kind=='search' or decision.kind=='return' then
             -- A search walk or the way back: to the nearest open spot (no zones to keep out of).
             local point=walkable(object,{point=decision.point})

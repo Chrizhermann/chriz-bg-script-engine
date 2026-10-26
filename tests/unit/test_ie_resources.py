@@ -66,6 +66,7 @@ def build_itm(abilities, effects, equipping=(0, 0)):
     struct.pack_into('<II', head, 0x08, 10, 11)
     struct.pack_into('<I', head, 0x18, 0x0A)
     struct.pack_into('<H', head, 0x1C, 20)
+    struct.pack_into('<I', head, 0x1E, 0x80400001)
     head[0x31] = 33
     struct.pack_into('<H', head, 0x38, 5)
     struct.pack_into('<I', head, 0x60, 2)
@@ -208,9 +209,11 @@ def test_itm_two_abilities_prove_stride_56():
                                                              projectile=21)]
     itm = ie.parse_itm(build_itm(abilities, effects, equipping=(2, 1)), 'potn08')
     assert set(itm) == {'kind', 'resref', 'name', 'identifiedName', 'flags', 'itemType',
-                        'proficiency', 'stack', 'enchantment', 'abilities', 'equipping'}
+                        'usability', 'proficiency', 'stack', 'enchantment', 'abilities',
+                        'equipping'}
     assert (itm['resref'], itm['name'], itm['identifiedName'], itm['itemType']) == (
         'POTN08', 10, 11, 20)
+    assert itm['usability'] == 0x80400001
     assert (itm['flags'], itm['proficiency'], itm['stack'], itm['enchantment']) == (10, 33, 5, 2)
     assert [e['opcode'] for e in itm['equipping']] == [12]
     first, second = itm['abilities']

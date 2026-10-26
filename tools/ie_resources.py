@@ -312,7 +312,8 @@ def parse_itm(data, resref):
     return {
         'kind': 'ITM', 'resref': resref.upper(), 'name': _unpack('<I', data, 0x08)[0],
         'identifiedName': _unpack('<I', data, 0x0C)[0], 'flags': _unpack('<I', data, 0x18)[0],
-        'itemType': _unpack('<H', data, 0x1C)[0], 'proficiency': data[0x31],
+        'itemType': _unpack('<H', data, 0x1C)[0], 'usability': _unpack('<I', data, 0x1E)[0],
+        'proficiency': data[0x31],
         'stack': _unpack('<H', data, 0x38)[0], 'enchantment': _unpack('<I', data, 0x60)[0],
         'abilities': abilities, 'equipping': _effects(data, fx_off, equip_index, equip_count),
     }

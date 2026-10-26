@@ -541,6 +541,9 @@ end
 -- (the protection and buff potions SCS's fighters drink) works on the caster itself while it has
 -- uses left, costs as a first-level spell and is not interrupted (as care.lua's potions). What a
 -- spell's area weakens of enemies (weakens) adds to what it gives its side, which caution weighs.
+-- A defence that leaves the caster invisible as a backstab needs (plain invisibility, F2d) adds what
+-- the backstab after it gains (input.hideOpening, combat-intent/choice.lua), less the part of a
+-- round its casting takes (weapons.paced); such an option carries hides and that opening.
 function M.options(input,rejected)
     local out={}
     local function reject(why) if rejected then rejected[why]=(rejected[why] or 0)+1 end end
@@ -574,12 +577,17 @@ function M.options(input,rejected)
         local shield=M.shield(gives)
         local length=math.max(seconds(gives.protection),seconds(gives.buff))
         local rounds=math.max(0,math.min(horizon,length-stop))/M.ROUND
+        local cast=(number(spell.speed) and spell.speed or 0)*M.speedSeconds
+        local hide=input.hideOpening
+        local opening=type(hide)=='table' and number(hide.worth) and hide.worth>0 and shield.invisible and
+            not shield.improved and hide.worth*weapons.paced(row.item and 0 or cast) or 0
         local best,unknown
         local list=row.item and {{self=true,friend=caster,point=spell.area and {x=caster.x,y=caster.y} or nil}}
             or aims(input,row,spell)
         for _,aim in ipairs(list) do
-            local worth,hits=0,{}
+            local worth,hits,open=0,{},0
             for _,f in ipairs(receivers(input,row,spell,aim)) do
+                if f==caster then open=opening end
                 -- What protects a friend whose effects could not be read is unknown: it gets
                 -- nothing rather than a second copy.
                 if f.guard==false then unknown=true
@@ -596,16 +604,20 @@ function M.options(input,rejected)
                     if gain>0 then worth=worth+gain;hits[#hits+1]=f.id end
                 end
             end
+            if open>0 then
+                local listed=false
+                for _,id in ipairs(hits) do if id==caster.id then listed=true end end
+                if not listed then table.insert(hits,1,caster.id) end
+            end
             -- Caution weighs what it gives the side; a profile without any (labs) still sees it.
             local weak=row.item and 0 or weakens(input,row,spell,aim,ac)
-            local total=worth*caution+weak
-            if worth+weak>0 and (not best or total>best.total or (total==best.total and worth>best.worth)) then
-                best={aim=aim,total=total,worth=worth,hits=hits}
+            local total=worth*caution+weak+open
+            if worth+weak+open>0 and (not best or total>best.total or (total==best.total and worth>best.worth)) then
+                best={aim=aim,total=total,worth=worth,hits=hits,open=open}
             end
         end
         if not best then return false,unknown and 'unknown-guard' or 'no-worth' end
         -- Casting time: harm while casting can interrupt a cast (not a drink); long casts also cost.
-        local cast=(number(spell.speed) and spell.speed or 0)*M.speedSeconds
         local through=row.item and 1 or M.through(input,ct,cast)
         local level=row.item and M.itemLevel or slots(input)*(number(row.level) and row.level or
             number(spell.level) and spell.level or 1)
@@ -614,7 +626,7 @@ function M.options(input,rejected)
         local worth=best.total*through
         local option={resref=row.resref,kind='defence',worth=worth,cost=cost,score=worth-cost,
             hits=best.hits,slack=0,speed=number(spell.speed) and spell.speed or 0,release=spell.release or nil,
-            use=row.item or nil}
+            use=row.item or nil,hides=best.open>0 or nil,opening=best.open>0 and best.open or nil}
         local aim=best.aim
         if aim.self then option.self=true;option.mode='self'
         elseif aim.friend then option.target=aim.friend.id;option.mode='ally'

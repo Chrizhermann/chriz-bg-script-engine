@@ -2248,6 +2248,51 @@ assert(ch:inspect().counts.debuffs==2 and ch:inspect().counts.wardFailures==0)
 end)()
 groups=groups+1
 
+-- The game's weapon tables (F2c, F2d) as EEex's 2DA functions give them: labels as strings, the
+-- width counting the row labels too, a missing cell the table's default. One local for the whole
+-- file (the main chunk is near Lua's limit of 200).
+local tablesOf=(function()
+    local function twoda(columns,list)
+        local t={columns={},labels={},cells={}}
+        for n,c in ipairs(columns) do t.columns[c]=n-1 end
+        for n,r in ipairs(list) do
+            t.labels[n-1]=r[1];t.cells[n-1]={}
+            for k=2,#r do t.cells[n-1][k-2]=tostring(r[k]) end
+        end
+        t.width,t.height=#columns+1,#list
+        return t
+    end
+    local function attacks(label,low,mid,high)
+        local r={label}
+        for level=1,12 do r[#r+1]=level<7 and low or level<13 and mid or high end
+        return r
+    end
+    local LEVELS={'LEVEL1'}
+    for level=2,12 do LEVELS[#LEVELS+1]=tostring(level) end
+    local GAME2DA={
+        WSPECIAL=twoda({'HIT','DAMAGE','SPEED'},{{'0',0,0,0},{'1',0,0,0},{'2',1,2,0},{'3',3,3,0},{'4',3,4,-1},{'5',3,5,-3}}),
+        WSPATCK=twoda(LEVELS,{attacks('0',0,-1),attacks('1',0,-1),attacks('2',-1,1),attacks('3',-1,1),attacks('4',-1,1),
+            attacks('5',-2,2)}),
+        STRMOD=twoda({'TO_HIT','DAMAGE'},{{'16',0,1},{'17',1,1},{'18',1,2}}),
+        STRMODEX=twoda({'TO_HIT','DAMAGE'},{{'0',0,0}}),
+        DEXMOD=twoda({'REACTION','MISSILE','AC'},{{'16',1,1,-2}}),
+        CLSWPBON=twoda({'GETS_PROF_APR','UNARMED_DIVISOR','ZERO_SKILL_THAC0'},{{'MAGE',0,0,5},{'FIGHTER',1,0,2}})}
+    return function(g)
+        g.EEex_Resource_Load2DA=function(name) return GAME2DA[name] or twoda({},{}) end
+        g.EEex_Resource_Get2DADimensions=function(t) return t.width,t.height end
+        g.EEex_Resource_Get2DARowLabel=function(t,n) return t.labels[n] or '' end
+        g.EEex_Resource_Find2DARowLabel=function(t,label)
+            for n=0,t.height-1 do if t.labels[n]==label:upper() then return n end end
+            return -1
+        end
+        g.EEex_Resource_GetAt2DAPoint=function(t,x,y) return t.cells[y] and t.cells[y][x] or '*' end
+        g.EEex_Resource_GetAt2DALabels=function(t,column,row)
+            local x,y=t.columns[column],g.EEex_Resource_Find2DARowLabel(t,row)
+            return x and y>=0 and t.cells[y][x] or '*'
+        end
+    end
+end)()
+
 -- 35. Weapon choice and kiting (F2c). The game's tables come through EEex's 2DA functions (labels
 -- as strings, the width counting the row labels too, a missing cell the table's default). An archer
 -- (a fighter's profile) at lab probe F's numbers: level 8, strength 18, dexterity 16, a longbow +1
@@ -2261,45 +2306,6 @@ groups=groups+1
 -- hand alone.
 ;(function()
 local profiles=require('combat-intent.mind')
-local function twoda(columns,list)
-    local t={columns={},labels={},cells={}}
-    for n,c in ipairs(columns) do t.columns[c]=n-1 end
-    for n,r in ipairs(list) do
-        t.labels[n-1]=r[1];t.cells[n-1]={}
-        for k=2,#r do t.cells[n-1][k-2]=tostring(r[k]) end
-    end
-    t.width,t.height=#columns+1,#list
-    return t
-end
-local function attacks(label,low,mid,high)
-    local r={label}
-    for level=1,12 do r[#r+1]=level<7 and low or level<13 and mid or high end
-    return r
-end
-local LEVELS={'LEVEL1'}
-for level=2,12 do LEVELS[#LEVELS+1]=tostring(level) end
-local GAME2DA={
-    WSPECIAL=twoda({'HIT','DAMAGE','SPEED'},{{'0',0,0,0},{'1',0,0,0},{'2',1,2,0},{'3',3,3,0},{'4',3,4,-1},{'5',3,5,-3}}),
-    WSPATCK=twoda(LEVELS,{attacks('0',0,-1),attacks('1',0,-1),attacks('2',-1,1),attacks('3',-1,1),attacks('4',-1,1),
-        attacks('5',-2,2)}),
-    STRMOD=twoda({'TO_HIT','DAMAGE'},{{'16',0,1},{'17',1,1},{'18',1,2}}),
-    STRMODEX=twoda({'TO_HIT','DAMAGE'},{{'0',0,0}}),
-    DEXMOD=twoda({'REACTION','MISSILE','AC'},{{'16',1,1,-2}}),
-    CLSWPBON=twoda({'GETS_PROF_APR','UNARMED_DIVISOR','ZERO_SKILL_THAC0'},{{'MAGE',0,0,5},{'FIGHTER',1,0,2}})}
-local function tablesOf(g)
-    g.EEex_Resource_Load2DA=function(name) return GAME2DA[name] or twoda({},{}) end
-    g.EEex_Resource_Get2DADimensions=function(t) return t.width,t.height end
-    g.EEex_Resource_Get2DARowLabel=function(t,n) return t.labels[n] or '' end
-    g.EEex_Resource_Find2DARowLabel=function(t,label)
-        for n=0,t.height-1 do if t.labels[n]==label:upper() then return n end end
-        return -1
-    end
-    g.EEex_Resource_GetAt2DAPoint=function(t,x,y) return t.cells[y] and t.cells[y][x] or '*' end
-    g.EEex_Resource_GetAt2DALabels=function(t,column,row)
-        local x,y=t.columns[column],g.EEex_Resource_Find2DARowLabel(t,row)
-        return x and y>=0 and t.cells[y][x] or '*'
-    end
-end
 ITEMS.TESTLBOW=weapon('TESTLBOW',{itemType=15,proficiency=104,equipping={fx(1,{p1=2,p2=1,target=1,timing=2})}},
     {attackType=4,dice=0,sides=0,thac0=1,damageBonus=1,range=100})
 ITEMS.TESTARR1=weapon('TESTARR1',{flags=0,enchantment=1},{attackType=2,launcher=1,dice=1,sides=6,thac0=1,damageBonus=1,
@@ -2404,6 +2410,137 @@ for _,r in ipairs(rows2) do
     if r.kind=='choice' and r.castKind=='weapon' then swings=swings+1 end
 end
 assert(errors==1 and swings==0 and type(ch2:inspect().tableError)=='string' and ch:inspect().tableError==false)
+end)()
+groups=groups+1
+
+-- 36. Backstabs (F2d). A hidden thief (a fighter's profile, clever) with a short sword that can
+-- backstab (its "unusable by thieves" bit clear) and a backstab multiplier of 3, west of an ogre
+-- that faces it: the engine walks it behind the ogre (MoveToPoint to the spot 48 behind it, a
+-- 'flank' row), holds it while it walks, logs where it ended ('flanked': behind the ogre, still
+-- hidden, 48 away) and then attacks; choice, 'swing' and 'attack' rows carry the chance that the
+-- first hit is a backstab. A sword with the bit set, or an ogre whose facing is unknown, gets no
+-- walk behind it. A flank that takes up another weapon first starts with SelectWeaponAbility and is
+-- held while the thief takes it up. A seen thief whose backstab multiplies by five drinks a potion of
+-- invisibility first; its choice row carries what the backstab after it adds.
+;(function()
+local profiles=require('combat-intent.mind')
+assert(choices.response({resref='FLANK',kind='flank',point={x=248,y=100}})=='MoveToPoint([248.100])')
+assert(choices.response({resref='FLANK',kind='flank',point={x=248,y=100},slot=36,abilityNum=0})==
+    'SelectWeaponAbility(36,0) MoveToPoint([248.100])')
+assert(choices.response({resref='FLANK',kind='flank',point={x=248,y=100},slot=11,abilityNum=0})==nil)
+assert(choices.response({resref='FLANK',kind='flank',point={x=248,y=100},slot=36})==nil)
+ITEMS.TESTSTAB=weapon('TESTSTAB',{flags=0,usability=0x20000000},{dice=1,sides=8,damageBonus=0})
+ITEMS.TESTNOST=weapon('TESTNOST',{flags=0,usability=0x00400000},{dice=1,sides=8,damageBonus=0})
+ITEMS.TESTLONG=weapon('TESTLONG',{flags=0,usability=0x20000000},{dice=1,sides=14,damageBonus=0})
+ITEMS.TESTINVP={kind='ITM',resref='TESTINVP',flags=0,abilities={{form=3,flags=0,location=3,target=5,range=1,speed=0,
+    projectile=1,effects={fx(20,{p2=0,duration=120,target=1})}}}}
+local function thief(id,x,y,resref,opts)
+    opts=opts or {}
+    local s=sprite(id,x,y,255,{state=opts.state or 0x10})
+    s.items[35]={cResRef=str(resref)};s.m_equipment.m_selectedWeapon=35
+    if opts.spare then s.items[36]={cResRef=str(opts.spare)} end
+    if opts.potion then s.items[18]={cResRef=str(opts.potion),m_useCount1=1} end
+    s.stats[8],s.stats[7],s.stats[56]=1,10,opts.multiplier or 3
+    return s
+end
+local function ogre(id,x,y,facing)
+    local s=sprite(id,x,y,2,{m_nDirection=facing})
+    s.stats[2],s.stats[1]=5,60;s.m_baseStats.m_hitPoints=60
+    return s
+end
+local function scene(resref,facing,opts)
+    local g=world()
+    local stabber=g.add(thief(1,100,100,resref,opts))
+    local foe=g.add(ogre(11,200,100,facing))
+    local dir=directors.new(g,{reader=reader})
+    local ch=choices.new(g,{reader=reader,director=dir,seed=59,
+        mindFor=function() return profiles.forFamily(profiles.new(),'fighter') end})
+    local rows={}
+    ch:setSink(function(row) rows[#rows+1]=row end)
+    runtime.install(g,{director=dir,choice=ch,version='test'})
+    local function last(kind,member)
+        for n=#rows,1,-1 do
+            if rows[n].kind==kind and (member==nil or rows[n].member==member) then return rows[n] end
+        end
+    end
+    local function claim(tick) g.ticks=tick;return g.BGSE_Claim(stabber,'mage','s1') end
+    return g,stabber,foe,ch,last,claim
+end
+-- What the engine reads: the sword can backstab, the thief multiplies by 3, the ogre faces west.
+local g,stabber,foe,ch,last,claim=scene('TESTSTAB',4)
+local own=sense.arsenal(g,stabber,reader)
+assert(own.item=='TESTSTAB' and own.backstab==true and own.thac0==10)
+local seen=sense.actor(g,stabber)
+assert(seen.backstab==3 and seen.state==0x10 and sense.actor(g,foe).facing==4)
+assert(claim(100)==true)
+local c=last('choice',1)
+assert(c.castKind=='flank' and c.spell=='FLANK' and c.target==11 and c.point.x==248 and c.point.y==100)
+assert(near(c.backstab,0.8) and near(c.walk,1.48) and c.slot==nil)
+g.BGSE_Act(stabber)
+assert(g.queued[#g.queued].text=='MoveToPoint([248.100])')
+local f=last('flank',1)
+assert(f.target==11 and f.to.x==248 and f.from.x==100 and near(f.backstab,0.8) and ch:inspect().counts.flanks==1)
+-- Held while it walks; then the 'flanked' row and the swing with its backstab.
+stabber.m_curAction={m_actionID=23}
+local holds=ch:inspect().counts.holds
+assert(claim(120)==true and ch:inspect().counts.holds==holds+1)
+stabber.m_curAction={m_actionID=0};stabber.m_pos={x=248,y=100}
+assert(claim(130)==true)
+local done=last('flanked',1)
+assert(done.target==11 and done.behind==true and done.hidden==true and done.near==48 and done.took==30)
+assert(ch:inspect().counts.flanked==1)
+c=last('choice',1)
+assert(c.castKind=='weapon' and c.spell=='TESTSTAB' and c.target==11 and near(c.backstab,0.8))
+g.BGSE_Act(stabber)
+assert(g.queued[#g.queued].text=='AttackOneRound(EEex_Target("BGSE"))' and stabber.aux.EEex_Target.BGSE==11)
+assert(near(last('swing',1).backstab,0.8))
+-- The stab lands for 13 (three times a hit); the attack is over a round later.
+stabber.m_curAction={m_actionID=105};foe.m_baseStats.m_hitPoints=47
+assert(claim(150)==true)
+stabber.m_curAction={m_actionID=0}
+assert(claim(225)==true)
+local a=last('attack',1)
+assert(a.hit==true and a.lost==13 and near(a.backstab,0.8))
+-- A sword with the thieves' bit set cannot backstab: the thief attacks from the front.
+g,stabber,foe,ch,last,claim=scene('TESTNOST',4)
+assert(sense.arsenal(g,stabber,reader).backstab==nil)
+assert(claim(100)==true)
+c=last('choice',1)
+assert(c.castKind=='weapon' and c.backstab==nil and ch:inspect().counts.flanks==0)
+-- An ogre whose facing the engine cannot read: no walk behind it; the swing counts the chance of
+-- happening to stand behind it (5 of 16 directions).
+g,stabber,foe,ch,last,claim=scene('TESTSTAB',16)
+assert(sense.actor(g,foe).facing==nil)
+assert(claim(100)==true)
+c=last('choice',1)
+assert(c.castKind=='weapon' and near(c.backstab,0.8*5/16) and ch:inspect().counts.flanks==0)
+-- The sword in hand cannot backstab, the spare one in slot 36 can: the walk behind the ogre takes it
+-- up first and is held while the thief does (SelectWeaponAbility, action 92), then while it walks.
+g,stabber,foe,ch,last,claim=scene('TESTNOST',4,{spare='TESTSTAB'})
+tablesOf(g)
+assert(claim(100)==true)
+c=last('choice',1)
+assert(c.castKind=='flank' and c.slot==36 and near(c.backstab,0.8))
+g.BGSE_Act(stabber)
+assert(g.queued[#g.queued].text=='SelectWeaponAbility(36,0) MoveToPoint([248.100])')
+f=last('flank',1)
+assert(f.slot==36 and ch:inspect().counts.flanks==1 and ch:inspect().counts.switches==1)
+stabber.m_curAction={m_actionID=92}
+holds=ch:inspect().counts.holds
+assert(claim(120)==true and ch:inspect().counts.holds==holds+1)
+stabber.m_curAction={m_actionID=23}
+assert(claim(130)==true and ch:inspect().counts.holds==holds+2)
+-- Seen, with a long sword (7.5 a hit) and a backstab of five against an ogre that faces away: the
+-- potion first, for two thirds of the ogre's hit points as likely as the stab lands (with the bonus
+-- for the group's focus, the ogre), less the walk.
+g,stabber,foe,ch,last,claim=scene('TESTLONG',12,{state=0,multiplier=5,potion='TESTINVP'})
+assert(claim(100)==true)
+c=last('choice',1)
+local fighter=profiles.forFamily(profiles.new(),'fighter')
+local focus=1+fighter.focusBonus*fighter.coordination
+assert(c.castKind=='defence' and c.spell=='TESTINVP' and c.use==true and near(c.opening,0.8*30/60*focus*6/(6+0.36)))
+g.BGSE_Act(stabber)
+assert(g.queued[#g.queued].text:find('UseItem%("TESTINVP",Myself%)')~=nil)
 end)()
 groups=groups+1
 

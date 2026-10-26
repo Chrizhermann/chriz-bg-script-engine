@@ -28,6 +28,14 @@ M.stats={maxHp=1,mr=18,held=58,sanctuary=63,seeInvisible=81,trueSight=118,levelD
 M.minimumHp=208
 -- STATE_INVISIBLE and STATE_IMPROVEDINVISIBILITY; STATE_BLIND.
 M.unseen,M.blind=0x400010,0x40000
+-- What a backstab needs to know (F2d): STATS.IDS BACKSTABDAMAGEMULTIPLIER and
+-- IMMUNITY_TO_BACKSTAB (opcode 292 sets it), and KIT.IDS BARBARIAN, a kit the engine makes immune
+-- by itself (GemRB does the same, [src] core/Scriptable/Actor.cpp), read as EEex builds a kit from
+-- its two halves (docs/learned.md).
+M.backstab={multiplier=56,immune=175}
+M.barbarian=0x40000000
+-- Directions a creature can face (DIR.IDS: 0 south, 4 west, 8 north, 12 east).
+M.directions=16
 -- STATS.IDS: the saving throws, resistances and levels SCS's attack blocks read about their
 -- targets; the engine's own choice reads the same (Christopher, 2026-10-18: as much as SCS).
 M.saves={death=9,wand=10,poly=11,breath=12,spell=13}
@@ -125,11 +133,29 @@ function M.minimumSources(g,sprite)
     return from
 end
 
+-- The direction a creature faces (M.directions), or nil when the engine gives none it could mean.
+local function facing(sprite)
+    local ok,v=pcall(function() return sprite.m_nDirection end)
+    if ok and type(v)=='number' and v>=0 and v<M.directions and v%1==0 then return v end
+    return nil
+end
+-- Whether a creature is a barbarian (M.barbarian), by its kit's two halves; false when unread.
+local function barbarian(sprite)
+    local ok,v=pcall(function()
+        local base=sprite.m_baseStats
+        local upper,lower=base.m_mageSpecUpperWord,base.m_mageSpecialization
+        if type(upper)~='number' or type(lower)~='number' then return nil end
+        return upper*65536+lower
+    end)
+    return ok and v==M.barbarian
+end
+
 -- The plain facts every frame carries for one creature: also its armour class, the creature
 -- its current action is aimed at (-1 for none), its Stoneskin skins and Mirror Images, the
--- levels drained from it, whether it is webbed or entangled (rooted: it cannot walk), and the hit
+-- levels drained from it, whether it is webbed or entangled (rooted: it cannot walk), the hit
 -- points it cannot drop below (minHp, 0 without a minimum) with where they come from (minHpFrom,
--- M.minimumSources).
+-- M.minimumSources), what its backstab multiplies a first hit by (backstab, 0 for none), whether
+-- it cannot be backstabbed (backstabImmune) and the direction it faces (facing, nil unknown).
 function M.actor(g,sprite)
     local state=g.EEex_Sprite_GetState(sprite)
     local action=sprite.m_curAction
@@ -143,7 +169,9 @@ function M.actor(g,sprite)
         actee=type(actee)=='number' and actee or -1,skins=stat(g,sprite,M.combat.stoneskins),
         mirror=type(mirror)=='number' and mirror or 0,drained=stat(g,sprite,M.stats.levelDrain),
         rooted=stat(g,sprite,M.stats.entangle)>0 or stat(g,sprite,M.stats.web)>0,
-        minHp=minimum>0 and minimum or 0,minHpFrom=minimum>0 and M.minimumSources(g,sprite) or nil}
+        minHp=minimum>0 and minimum or 0,minHpFrom=minimum>0 and M.minimumSources(g,sprite) or nil,
+        backstab=stat(g,sprite,M.backstab.multiplier),
+        backstabImmune=stat(g,sprite,M.backstab.immune)>0 or barbarian(sprite),facing=facing(sprite)}
 end
 -- A creature's THAC0 with its right-hand and general hit bonuses (as M.attack counts it).
 function M.thac0(g,sprite)
