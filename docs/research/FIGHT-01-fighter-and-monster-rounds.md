@@ -733,6 +733,10 @@ level-10 thief `RETHIE01`, each with its own Hide in Shadows and Move Silently i
 - `Hide()` works for a creature outside the party. A success sets the stealth mode
   (`m_nModalState` 3) and STATE_INVISIBLE (0x10) within a tick, and the action ends after 3 ticks;
   a failed try ends with the mode at 0. In sight of an enemy it never hides (0 of 8 at 265/260).
+- A failed try greys the creature's stealth out for a round: `m_nStealthGreyOut` reads 90 right
+  after it and falls by one a tick (all 25 failed tries, 8 of them in the PC's sight, followed for
+  33 ticks), 6 seconds at 15 ticks a second; a success leaves it at 0. The engine's own rule waits
+  as long (one try a round).
 - The creature file holds the points; the game adds race and dexterity to the derived stats
   `STEALTH` (27) and `HIDEINSHADOWS` (135): `RETHIE01`'s copies read 15 and 10 with 0 in the file.
 - Both skills count, Move Silently more. In the game's numbers (Move Silently / Hide in Shadows):
@@ -744,8 +748,8 @@ level-10 thief `RETHIE01`, each with its own Hide in Shadows and Move Silently i
 - A hidden thief walked up to the PC unseen (14 samples, the PC never saw it) and hit it; whether
   that hit was a backstab stays open (3 hit points from behind, 11 from the front, at 12).
 
-Still to see: light and shadow, armour, the grey-out after a failed try, and whether rangers,
-monks and shadowdancers hide the same way.
+Still to see (a second hide probe is built): light and shadow, armour, whether the game refuses a
+try inside the grey-out, and whether rangers, monks and shadowdancers hide the same way.
 
 ### A new decision replaces the engine's own running action (2026-10-28)
 
