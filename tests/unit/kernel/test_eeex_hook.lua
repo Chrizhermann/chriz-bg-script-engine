@@ -304,6 +304,16 @@ respond(brute)
 assert(brute.m_curAction.m_actionID==106 and brute.m_queuedActions.m_nCount==1)
 answer={response='MoveToPoint([1.2])'}
 assert(claim()==true and brute.m_curResponseSetNum==1 and #heard==4)
+-- A claim whose kind went missing (a wrapper around the gate that passes on its first answer only,
+-- as lab batch J's did) leaves them running: every hold would otherwise stop the engine's own attack.
+run('AttackOneRound(X)')
+local priorClaim=wroot.gate.claim
+wroot.gate.claim=function(self,actor,family) return (priorClaim(self,actor,family)) end
+answer={hold=true}
+assert(claim()==true and brute.m_curResponseSetNum==1 and #heard==4)
+answer={response='MoveToPoint([1.2])'}
+assert(claim()==true and brute.m_curResponseSetNum==1 and #heard==4)
+wroot.gate.claim=priorClaim
 -- A sprite that cannot be read is counted, and the claim keeps its answer; a listener that fails
 -- changes nothing.
 run('AttackOneRound(X)')

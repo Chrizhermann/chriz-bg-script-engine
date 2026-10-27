@@ -13590,12 +13590,15 @@ function M.install(g,options)
             if type(list)=='table' then gate:setHooked(list);registered=true end
         end
     end
+    -- Only a claim that names a decision or an idle hold makes the engine's own running actions give
+    -- way: a hold, or a claim whose kind went missing (lab batch J's wrapper around the gate passed
+    -- on its first answer only), leaves them running.
     g.BGSE_Claim=function(object,family,script)
         local ok,result,kind=pcall(function()
             register()
             return gate:claim(actor(object,script),family)
         end)
-        if ok and result==true and kind~='hold' then release(object,kind) end
+        if ok and result==true and (kind=='decision' or kind=='idle') then release(object,kind) end
         return ok and result==true
     end
     -- True while the engine weighs danger zones for the creature: its gate would ask the engine

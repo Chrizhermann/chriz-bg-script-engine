@@ -777,9 +777,11 @@ and none of it happened.
   on) or an idle hold (a wait or a look around: the creature stands still). For a decision or an
   idle hold the hook adapter (`adapters/eeex/hook.lua`) clears the response set number while the
   actions the hook's last response queued still run as queued, and the game interrupts them by its
-  own rules in the same pass. Never for a plain hold, and never when anything else sits in the
-  creature's queue (a story's action behind the engine's), when another block's actions run, after
-  a load, or when the response ran outside a script block. The choice ends a weapon or touch
+  own rules in the same pass. Never for a plain hold, nor for a claim whose kind went missing (lab
+  batch J's first run wrapped the gate and passed on its first answer only: every hold then stopped
+  the engine's own attack, and its fighters stood idle most of each round), and never when anything
+  else sits in the creature's queue (a story's action behind the engine's), when another block's
+  actions run, after a load, or when the response ran outside a script block. The choice ends a weapon or touch
   attack's hold as soon as its target dies; a charge still in hand goes to the next choice.
 - **Log.** A `replace` row (the action that gave way, the actions left of it, the claim's kind),
   `replaced` in the choice's counts, and the hook's own count with its errors (`inspect().replaced`).
