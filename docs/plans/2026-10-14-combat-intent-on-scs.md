@@ -790,9 +790,9 @@ Christopher, 2026-10-28: first exactly SCS's prebuffs, then rebuild them). Its p
 contingencies, sequencers and chain contingencies run as SCS has them, unless a creature's orders
 hold them back (`prep`, `prepSkip`), and each tells the engine what ran. SCS's first-round cast is
 the engine's: for a creature it drives, the engine holds it and chooses that round itself, and a twin
-block still ends SCS's preparation as the cast would have. SCS's prebuffed Haste and Improved Haste
-keep their area, so they already reach allies nearby; what more "area buffs as area buffs" should do
-is phase 2, with Christopher.
+block still ends SCS's preparation as the cast would have. SCS's prebuffed Haste (and Improved Haste
+with Spell Revisions, where it is an area spell) keeps its area, so it already reaches allies nearby;
+what more "area buffs as area buffs" should do is phase 2, with Christopher.
 
 Next, in the order agreed with Christopher on 2026-10-27 for the first release: kill chance by the
 dice; a big lab round (the teleport run
@@ -1020,8 +1020,8 @@ Christopher's ideas so far (living list; more will follow):
 - **Prebuffed area buffs reach the allies, not only the caster.** Designed in August; one
   lab probe on `codex/aoe-prebuff-design` cast SCS's Haste prebuff for real and both the
   caster and a nearby ally got it. Since 2026-10-28 SCS's prebuffs run through the engine (phase
-  1), and SCS's Haste and Improved Haste prebuffs keep their area projectile; what more phase 2
-  should do is Christopher's call.
+  1), and SCS's Haste prebuff keeps Haste's area projectile (Improved Haste too with Spell
+  Revisions); what more phase 2 should do is Christopher's call.
 - **Smart enemies dodge slow area spells** (clouds, webs, dragon breath and the like) when
   they could see the cast. Recorded as later work on Oct 12: ground-targeted, delayed
   effects are the best candidates; homing projectiles can't be outrun.

@@ -925,9 +925,10 @@ wir Dinge um". Contingencies and sequencers come along.
   a creature's preparation; `prepSkip` holds back what it names, a kind (`prebuff`, `contingency`,
   `chain`, `opener`) or a spell as SCS's blocks write it, the cast (`DWSW408`) or the spell spent
   (`WIZARD_STONE_SKIN`), in any case. Names SCS left unfilled reach the engine as ''.
-- **Area buffs:** SCS's prebuffed Haste (`DWSW305`) and Improved Haste (`DWSW613`) keep their spells'
-  area projectile (158), so they already reach allies nearby. What "AoE as AoE" should add beyond
-  that is for Christopher to decide (phase 2).
+- **Area buffs:** SCS's prebuffed Haste (`DWSW305`) keeps Haste's area projectile, which reaches the
+  caster's allies, in both labs; Improved Haste (`DWSW613`) does with Spell Revisions, where it is an
+  area spell (without it is single-target). So they already reach allies nearby. What "AoE as AoE"
+  should add beyond that is for Christopher to decide (phase 2).
 - **Log:** a `prep` row with `held` true once per creature, kind and spell the engine holds back, and
   one with `held` false for each block that ran, with kind, cast and spell spent. Counts: `prepHolds`,
   `preps`.

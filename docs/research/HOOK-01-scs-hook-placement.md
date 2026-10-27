@@ -282,8 +282,13 @@ Python, and `tests/integration/test_hook_installer.py` checks they agree.
     also a count of level-9 spells; `redefend` is read only below the anchor. All 204 blocks that check the
     `CONTINGENCY_TRIGGERED` state are contingencies by this rule. Without Spell Revisions 602 of the
     823 hooked scripts have 5,054 (4,073 prebuffs, 226 contingencies, 229 chains, 526 openers; 4,528
-    notices, 526 twins). SCS's area prebuffs, Haste (`DWSW305`) and Improved Haste (`DWSW613`), keep their area
-    projectile (158, `INAREAPA`), so they already reach allies nearby; a lab check is planned.
+    notices, 526 twins). SCS's prebuff helpers keep the target type and projectile of the spells they
+    copy: Haste (`DWSW305`) has Haste's area projectile, which reaches only the caster's allies (158
+    `INAREAPA`, area flags 192, in the SR lab; 160 `SPARBLPA` without SR), so it already reaches allies
+    nearby; Improved Haste (`DWSW613`) is an area spell like that only with Spell Revisions (158), a
+    single-target one without. SCS's `DWAP…` and `DWAW…` helpers are pre-cast summons (Animate Dead,
+    Animal Summoning, Aerial Servant, Invisible Stalker, Conjure Fire Elemental), not area buffs. A lab
+    check of Haste on allies is planned.
 
 `BGSE_Zones`, `BGSE_Search`, `BGSE_Hide` and `BGSE_Prep` go by the script that decides for the creature: the
 first hooked script in its stack, since a lower script runs only after every higher one let the
