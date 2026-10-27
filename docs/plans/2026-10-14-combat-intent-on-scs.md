@@ -747,14 +747,20 @@ Christopher, 2026-10-27). With no enemy in sight a thief tries the game's own Hi
 game makes against its skill, before it searches: a clever one always, a normal one in half its
 stretches out of sight, a dull one never, one try a round. SCS's free invisibility stands aside
 for every thief the engine drives, and the installer gives SCS's thieves Hide in Shadows and Move
-Silently of a quarter of a player thief's skill points at their level (level 9: 60 each). Fiends,
-mind flayers and the sirine keep SCS's invisibility until it becomes a real innate ability of
-theirs. Building it showed that a rogue's Find Traps for its Detect Illusion never ran.
+Silently of half of a player thief's skill points at their level, all a player could put into the
+two (level 9: 120 each; Christopher, 2026-10-27: "gerne eher höher als niedriger"). Fiends, mind
+flayers and the sirine keep SCS's invisibility until it becomes a real innate ability of theirs.
+Building it showed that a rogue's Find Traps for its Detect Illusion never ran.
 
-Next: the hide probe (how EE's Hide() works for a creature outside the party), the teleport lab's
-second run (an engine jump, SCS's ReallyForceSpellRES form, a cast from out of sight) and a lab of
-mixed fights with fighters, archers, thieves and monsters, then the monsters' invisibility as real
-innate abilities (F2f-5). Melissan's own fight is designed with Christopher.
+The hide probe showed that Hide() works for creatures outside the party and that both skills
+count, Move Silently more (FIGHT-01). The lab of mixed fights ran without errors, but its party
+lost every fight, so it tells little about the engine against SCS. The teleport lab's second run
+stopped at its first console command.
+
+Next: the monsters' invisibility as real innate abilities (F2f-5; Christopher, 2026-10-27: SCS's
+free Improved Invisibility becomes the real spell cast faster), light and shadow in a second hide
+probe, the teleport run again, a stronger party for the mixed fights and a lab of thieves in whole
+fights. Melissan's own fight is designed with Christopher.
 
 ## To design with Christopher
 

@@ -35,7 +35,7 @@ CREATURES = {'B-HKFND': (['', 'B-HKMON', '', '', ''], ['B-HKPOW']),
 # level gives, a fighter/thief by its thief level and a shadowdancer), and ones that keep their skills
 # (a joinable NPC, a fighter and a thief whose scripts do not do that).
 THIEVES = {'B-HKTH1': (['', 'B-HKTHF', '', '', ''], 4, (9, 0, 0), 0x4000, 10, 50, 'HKTH1'),
-           'B-HKTH2': (['B-HKTHF', '', '', '', ''], 4, (9, 0, 0), 0x400A, 45, 0, 'HKTH2'),
+           'B-HKTH2': (['B-HKTHF', '', '', '', ''], 4, (9, 0, 0), 0x400A, 75, 0, 'HKTH2'),
            'B-HKTH3': (['', '', 'B-HKTHF', '', ''], 9, (10, 7, 0), 0, 5, 5, ''),
            'B-HKTH4': (['', 'B-HKTHF', '', '', ''], 4, (5, 0, 0), 0x4021, 0, 0, 'HKTH4'),
            'B-HKNPC': (['', 'B-HKTHF', '', '', ''], 4, (9, 0, 0), 0, 10, 10, 'B-HKNPC'),
@@ -356,8 +356,8 @@ def test_installer_matches_reference_and_is_reversible(tmp_path: Path) -> None:
             assert new[:0x45] + new[0x46:0x68] + new[0x69:] == old[:0x45] + old[0x46:0x68] + old[0x69:], name
         else:
             assert new == old, name
-    assert [installed[f'override/b-hkth{i}.cre'][0x45] for i in range(1, 5)] == [60, 45, 47, 27]
-    assert [installed[f'override/b-hkth{i}.cre'][0x68] for i in range(1, 5)] == [60, 30, 47, 27]
+    assert [installed[f'override/b-hkth{i}.cre'][0x45] for i in range(1, 5)] == [120, 75, 95, 55]
+    assert [installed[f'override/b-hkth{i}.cre'][0x68] for i in range(1, 5)] == [120, 60, 95, 55]
 
     hooked = _decompile(tmp_path, HOOKED)
     for name, (family, copies) in HOOKED.items():

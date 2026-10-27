@@ -420,10 +420,11 @@ def raises_skills(scripts, hiders, name, party):
 
 
 def hide_skill(cls, levels, kit, points, kits):
-    """The Hide in Shadows and Move Silently a thief SCS makes invisible for free gets at least: a quarter
-    of the skill points a player thief of its kit (else its class, else THIEF) has at its thief level.
-    points maps THIEFSKL.2DA rows to (the first level's points, each later level's), kits KIT.IDS values
-    to KITLIST.2DA row names; levels are its three class levels. None without thief levels."""
+    """The Hide in Shadows and Move Silently a thief SCS makes invisible for free gets at least: half of
+    the skill points a player thief of its kit (else its class, else THIEF) has at its thief level, all
+    it could put into the two. points maps THIEFSKL.2DA rows to (the first level's points, each later
+    level's), kits KIT.IDS values to KITLIST.2DA row names; levels are its three class levels. None
+    without thief levels."""
     if cls not in THIEF_LEVEL:
         return None
     at, row = THIEF_LEVEL[cls]
@@ -436,7 +437,7 @@ def hide_skill(cls, levels, kit, points, kits):
     first, each = points[row]
     total = first + each * (max(levels[at], 1) - 1)
     # As WeiDU divides: towards zero.
-    return min(255, int(total / 4))
+    return min(255, int(total / 2))
 
 
 def is_anchor(block):

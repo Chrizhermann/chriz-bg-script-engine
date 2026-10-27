@@ -672,14 +672,19 @@ innate abilities later (F2f-5), each as often as SCS gives it.
   free invisibility ask `BGSE_Hide` and stand aside while the engine hides the creature its own
   way, and raises SCS's thieves' skills: a creature with thief levels (CLASS.IDS 4, 9, 10, 13, 15)
   whose script slots name a script with such a block, and that no PDIALOG row names (no joinable
-  NPC), gets Hide in Shadows and Move Silently of at least a quarter of all the thief skill points
-  a player of its class or kit has at its thief level: (START_POINTS + LEVEL_POINTS × (level − 1)) / 4
-  by THIEFSKL.2DA, at most 255, never lowered. Columns go by name; a kit's row by its KITLIST name.
-  In the Spell Revisions lab 214 creatures are raised, 31 have that much already, and 83 that carry
-  such a script have no thief levels (fiends, mind flayers and others, which keep SCS's own). For
-  example: level-9 thieves 60 each, assassins of level 20 (`GORDECK5` and others) from 0 to 57,
-  `ALATOS` (level 19) from 0 to 122, `CHALCY02` (level 25) from 140 and 100 to 160 each, a
-  fighter/thief of thief level 1 (`CALAHA`) to 10.
+  NPC), gets Hide in Shadows and Move Silently of at least half of all the thief skill points a
+  player of its class or kit has at its thief level, all a player could put into the two:
+  (START_POINTS + LEVEL_POINTS × (level − 1)) / 2 by THIEFSKL.2DA, at most 255, never lowered.
+  Christopher, 2026-10-27, on a quarter: "das ist glaube ich alles etwas low"; "gerne eher höher als
+  niedriger", as high as a rogue could legally have it. Columns go by name; a kit's row by its
+  KITLIST name. The game adds race and dexterity to these points (the hide probe below). In the
+  Spell Revisions lab 239 creatures are raised, 6 have that much already, and 83 that carry such a
+  script have no thief levels (fiends, mind flayers and others, which keep SCS's own); 17 reach 200
+  in both before those bonuses. For example: level-9 thieves 120 each, assassins of level 20
+  (`GORDECK5` and others) from 0 to 115, `ALATOS` (level 19) from 0 to 245, `CHALCY02` (level 25)
+  from 140 and 100 to 255 each, a fighter/thief of thief level 1 (`CALAHA`) to 20. The difficulty
+  leaves the skills alone and acts through wit (more clever thieves on Insane). Even so a thief is
+  invisible less often than SCS made it: only out of sight, never when dull, and its roll can fail.
 - **The engine's hide** (`combat-intent/stealth.lua`, `adapters/eeex/stealth.lua`): with no enemy in
   sight, once no zone hurts it and no friend in sight needs a heal or cure worth casting, a thief
   hides before it searches: `Hide()`, the game's own action, whose roll the game makes against the
@@ -711,11 +716,26 @@ the hook adapter's group 9, `test_hook_rule.py` (the free invisibility rule and 
 and the installer test (fixture `B-HKTHF` and seven thief creatures: kits, a multiclass, THIEFSKL's
 columns swapped, a joinable NPC, a fighter, a creature without such a script); 12 mutations checked.
 
-To see in a lab (the hide probe): how EE's `Hide()` works for a creature outside the party: which
-skill it rolls (Hide in Shadows, Move Silently or both) with which bonuses (dexterity, race, armour,
-shadows), how long a try takes, whether a failed one leaves the stealth mode on, whether it sets
-STATE_INVISIBLE, whether walking ends it, whether the grey-out applies, and whether rangers, monks
-and shadowdancers hide the same way.
+The hide probe (2026-10-27, Spell Revisions lab, BD0072): six scriptless copies of the
+level-10 thief `RETHIE01`, each with its own Hide in Shadows and Move Silently in the creature file,
+12 tries each, every try a new creature 736 away from the PC and out of each other's sight.
+
+- `Hide()` works for a creature outside the party. A success sets the stealth mode
+  (`m_nModalState` 3) and STATE_INVISIBLE (0x10) within a tick, and the action ends after 3 ticks;
+  a failed try ends with the mode at 0. In sight of an enemy it never hides (0 of 8 at 265/260).
+- The creature file holds the points; the game adds race and dexterity to the derived stats
+  `STEALTH` (27) and `HIDEINSHADOWS` (135): `RETHIE01`'s copies read 15 and 10 with 0 in the file.
+- Both skills count, Move Silently more. In the game's numbers (Move Silently / Hide in Shadows):
+  15/10 hid 3 of 12, 65/60 8 of 12, 15/110 8 of 12, 115/10 12 of 12, 115/110 and 265/260 12 of 12.
+  Players report an average of the two with a malus in bright light and a bonus in shadow (Beamdog
+  forum); a plain average would give 15/110 and 115/10 the same chance, which these counts make
+  unlikely (12 of 12 at 62.5 per cent: 0.4 per cent). Light was not varied; whether bright light
+  halves the skills (Christopher: 200 in both to hide in light without fail) is still to measure.
+- A hidden thief walked up to the PC unseen (14 samples, the PC never saw it) and hit it; whether
+  that hit was a backstab stays open (3 hit points from behind, 11 from the front, at 12).
+
+Still to see: light and shadow, armour, the grey-out after a failed try, and whether rangers,
+monks and shadowdancers hide the same way.
 
 ## Agreed (Christopher, 2026-10-25)
 

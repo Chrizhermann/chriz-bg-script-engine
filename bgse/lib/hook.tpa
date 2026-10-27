@@ -1308,11 +1308,11 @@ END
 // Give the thief in the patch buffer (a CRE V1.0) hide skills that fit its level when one of its
 // scripts is a hooked script that makes its creature invisible for free (bgse_hiders, |script|
 // entries in lower case; Christopher, 2026-10-26: thieves hide with their own Hide in Shadows, and
-// their skill fits it). Hide in Shadows and Move Silently each get a quarter of the skill points a
-// player thief of its kit (else its class) has at its thief level (bgse_points from THIEFSKL.2DA:
-// the first level's points and those of each level after it; bgse_kits maps KIT.IDS values to kit
-// names), never less than it has. Joinable NPCs (bgse_party) keep their skills. bgse_raised is 1
-// when a skill went up.
+// their skill fits it; 2026-10-27: as high as a rogue could legally have it). Hide in Shadows and
+// Move Silently each get half of the skill points a player thief of its kit (else its class) has at
+// its thief level, all it could put into the two (bgse_points from THIEFSKL.2DA: the first level's
+// points and those of each level after it; bgse_kits maps KIT.IDS values to kit names), never less
+// than it has. Joinable NPCs (bgse_party) keep their skills. bgse_raised is 1 when a skill went up.
 DEFINE_PATCH_FUNCTION bgse_raise_skills
   STR_VAR bgse_hiders = ~|~
           bgse_points = ~|~
@@ -1387,7 +1387,7 @@ BEGIN
           PATCH_IF (IS_AN_INT start_points) AND (IS_AN_INT level_points) BEGIN
             READ_BYTE at level
             SET level = (level < 1) ? 1 : level
-            SET target = (start_points + level_points * (level - 1)) / 4
+            SET target = (start_points + level_points * (level - 1)) / 2
             SET target = (target > 255) ? 255 : target
             FOR (s = 0; s < 2; s += 1) BEGIN
               SET skill = (s = 0) ? 0x45 : 0x68

@@ -526,14 +526,15 @@ KITS = {0x400A: 'ASSASIN', 0x4021: 'SHADOWDANCER', 0x4001: 'BERSERKER'}
 @pytest.mark.parametrize('cls,levels,kit,skill', [
     # A thief, an assassin and a shadowdancer by their own rows; a fighter/thief by its thief level
     # (the second); a mage/thief whose row the table lacks by the thief's; a kit without a row of its
-    # own by its class; level 0 as level 1; at most 255.
-    (4, (9, 0, 0), 0x4000, 60),
-    (4, (9, 0, 0), 0x400A, 30),
-    (4, (5, 0, 0), 0x4021, 27),
-    (9, (10, 7, 0), 0, 47),
-    (13, (12, 3, 0), 0, 22),
-    (4, (9, 0, 0), 0x4001, 60),
-    (4, (0, 0, 0), 0, 10),
+    # own by its class; level 0 as level 1; an odd sum halved towards zero; at most 255.
+    (4, (9, 0, 0), 0x4000, 120),
+    (4, (9, 0, 0), 0x400A, 60),
+    (4, (5, 0, 0), 0x4021, 55),
+    (9, (10, 7, 0), 0, 95),
+    (13, (12, 3, 0), 0, 45),
+    (4, (9, 0, 0), 0x4001, 120),
+    (4, (0, 0, 0), 0, 20),
+    (4, (2, 0, 0), 0, 32),
     (4, (60, 0, 0), 0, 255),
     # No thief levels: a fighter, a monk.
     (2, (9, 0, 0), 0, None),
