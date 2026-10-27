@@ -33,13 +33,18 @@ OUTER_TEXT_SPRINT bgse_registry ~~
 OUTER_TEXT_SPRINT bgse_teleports ~|~
 OUTER_TEXT_SPRINT bgse_checked ~|~
 OUTER_TEXT_SPRINT bgse_teleporters ~|~
-// The spells known to make their target invisible, those of Improved Invisibility, those looked up
-// so far, and the hooked scripts that make their creature invisible for free (bgse/lib/hook.tpa).
+// The spells known to make their target invisible, those of Improved Invisibility, those whose files
+// say innate, those looked up so far, the hooked scripts that make their creature invisible for free
+// and the real abilities that stand in for that, by script (bgse/lib/hook.tpa). SCS's timers may name
+// the game's timer lengths (GTIMES.IDS).
 OUTER_TEXT_SPRINT bgse_invisible ~|~
 OUTER_TEXT_SPRINT bgse_improved ~|~
+OUTER_TEXT_SPRINT bgse_innate ~|~
 OUTER_TEXT_SPRINT bgse_looked ~|~
 OUTER_TEXT_SPRINT bgse_hiders ~|~
+OUTER_TEXT_SPRINT bgse_gifts_of ~|~
 OUTER_SET bgse_hidden = 0
+LAF bgse_times_list RET bgse_times END
 ACTION_BASH_FOR ~override~ ~^.+\.bcs$~ BEGIN
   COPY_EXISTING ~%BASH_FOR_FILE%~ ~override~
     // SCS scripts carry its castspell round timer and its DMWW_ difficulty settings.
@@ -49,9 +54,10 @@ ACTION_BASH_FOR ~override~ ~^.+\.bcs$~ BEGIN
       TO_LOWER bgse_script
       LPF bgse_hook_bcs STR_VAR bgse_script = EVAL ~%bgse_script%~ bgse_teleports = EVAL ~%bgse_teleports%~
           bgse_checked = EVAL ~%bgse_checked%~ bgse_invisible = EVAL ~%bgse_invisible%~
-          bgse_improved = EVAL ~%bgse_improved%~ bgse_looked = EVAL ~%bgse_looked%~
-        RET bgse_result bgse_family bgse_copies bgse_clouds bgse_hunts bgse_jumps bgse_hides bgse_teleporter bgse_hider
-            bgse_teleports bgse_checked bgse_invisible bgse_improved bgse_looked END
+          bgse_improved = EVAL ~%bgse_improved%~ bgse_innate = EVAL ~%bgse_innate%~ bgse_looked = EVAL ~%bgse_looked%~
+          bgse_times = EVAL ~%bgse_times%~
+        RET bgse_result bgse_family bgse_copies bgse_clouds bgse_hunts bgse_jumps bgse_hides bgse_teleporter bgse_hider bgse_gifts
+            bgse_teleports bgse_checked bgse_invisible bgse_improved bgse_innate bgse_looked END
       PATCH_IF (~%bgse_result%~ STRING_EQUAL_CASE ~hooked~) BEGIN
         SET bgse_hooked += 1
         SET bgse_copied += bgse_copies
@@ -66,6 +72,11 @@ ACTION_BASH_FOR ~override~ ~^.+\.bcs$~ BEGIN
         PATCH_IF (bgse_hider = 1) BEGIN
           TEXT_SPRINT bgse_hiders ~%bgse_hiders%%bgse_script%|~
         END
+        INNER_PATCH ~%bgse_gifts%~ BEGIN
+          REPLACE_EVALUATE CASE_SENSITIVE ~\([RI]:[^|]+\)~ BEGIN
+            TEXT_SPRINT bgse_gifts_of ~%bgse_gifts_of%%bgse_script%>%MATCH1%|~
+          END ~%MATCH0%~
+        END
         PATCH_LOG ~BGSE hook: %BASH_FOR_RES% (%bgse_family%, %bgse_copies% guarded SCS blocks, %bgse_clouds% SCS cloud blocks, %bgse_hunts% SCS hunting blocks, %bgse_jumps% SCS jumps, %bgse_hides% SCS free invisibility blocks)~
       END ELSE PATCH_IF NOT (~%bgse_result%~ STRING_EQUAL_CASE ~not-scs~) BEGIN
         SET bgse_skipped += 1
@@ -78,9 +89,13 @@ END
 // like any spell (Christopher, 2026-10-26); one with a teleport of its own (most fiends have the
 // game's Teleport Without Error) keeps that one. Thieves SCS makes invisible for free hide with
 // their own Hide in Shadows instead, and get hide skills that fit their level (Christopher,
-// 2026-10-26).
+// 2026-10-26). Every creature SCS makes invisible for free gets real innate abilities for that, as
+// often as SCS gives it (Christopher, 2026-10-27), but a thief no plain invisibility.
 OUTER_SET bgse_granted = 0
 OUTER_SET bgse_skilled = 0
+OUTER_SET bgse_gifted = 0
+OUTER_SET bgse_made = 0
+OUTER_TEXT_SPRINT bgse_copies ~|~
 ACTION_IF (STRING_LENGTH ~%bgse_teleporters%~ > 1) OR (STRING_LENGTH ~%bgse_hiders%~ > 1) BEGIN
   LAF bgse_skill_tables RET bgse_points bgse_kits bgse_party END
   COPY_EXISTING_REGEXP GLOB ~^.+\.cre$~ ~override~
@@ -102,10 +117,23 @@ ACTION_IF (STRING_LENGTH ~%bgse_teleporters%~ > 1) OR (STRING_LENGTH ~%bgse_hide
         PATCH_LOG ~BGSE hide: %SOURCE_RES% got hide skills for its level~
       END
     END
+    PATCH_IF (STRING_LENGTH ~%bgse_gifts_of%~ > 1) BEGIN
+      LPF bgse_grant_gifts STR_VAR bgse_gifts_of = EVAL ~%bgse_gifts_of%~ bgse_party = EVAL ~%bgse_party%~
+          bgse_looked = EVAL ~%bgse_looked%~ bgse_invisible = EVAL ~%bgse_invisible%~ bgse_improved = EVAL ~%bgse_improved%~
+          bgse_innate = EVAL ~%bgse_innate%~ bgse_copies = EVAL ~%bgse_copies%~
+        RET bgse_given bgse_looked bgse_invisible bgse_improved bgse_innate bgse_copies END
+      PATCH_IF (STRING_LENGTH ~%bgse_given%~ > 0) BEGIN
+        SET bgse_gifted += 1
+        PATCH_LOG ~BGSE gift: %SOURCE_RES% got %bgse_given%~
+      END
+    END
   BUT_ONLY_IF_IT_CHANGES
 END
 ACTION_IF (bgse_granted > 0) BEGIN
   LAF bgse_create_teleport END
+END
+ACTION_IF (STRING_LENGTH ~%bgse_copies%~ > 1) BEGIN
+  LAF bgse_create_gifts STR_VAR bgse_copies = EVAL ~%bgse_copies%~ RET bgse_made END
 END
 // The engine reads which scripts carry the hook, to tell a creature's hooked scripts from
 // others in its script slots (adapters/eeex/hook.lua).
@@ -119,3 +147,4 @@ COPY ~.../bgse-inline/M_BGSEHK.lua~ ~override~ EVALUATE_BUFFER
 PRINT ~BGSE hook: %bgse_hooked% SCS scripts hooked, %bgse_copied% SCS blocks guarded, %bgse_aside% SCS cloud blocks yield to the engine, %bgse_hunted% SCS hunting blocks yield to the engine's search, %bgse_skipped% left as they are.~
 PRINT ~BGSE teleport: %bgse_jumped% SCS jumps into the fight yield to the creatures' own teleports, %bgse_granted% creatures that teleport only by script got the innate teleport BGSETELE.~
 PRINT ~BGSE hide: %bgse_hidden% SCS blocks of free invisibility yield where the engine hides the creature its own way, %bgse_skilled% thieves got hide skills for their level.~
+PRINT ~BGSE gift: %bgse_gifted% creatures SCS makes invisible for free got real innate abilities for it, %bgse_made% innate copies of spells made.~

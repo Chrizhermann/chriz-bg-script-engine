@@ -54,7 +54,17 @@ Shadows stands in for plain invisibility only), and for every other creature SCS
 before. A copy above the hook takes the condition too. Which spells make their target invisible,
 and whether improved (Improved Invisibility lasts through attacks), comes from the game's spell
 files (hides: upper-case resrefs, SPELL.IDS names and numbers, to 'plain' or 'improved'). The thieves
-whose scripts do that get hide skills that fit their level (hide_skill; bgse_raise_skills).
+whose scripts do that get hide skills that fit their level (hide_skill; bgse_raise_skills). SCS's
+contingencies and sequencers that fire an invisibility (they check the CONTINGENCY_TRIGGERED spell
+state) are its preparation, which stays SCS's: no condition.
+
+Every other creature whose scripts make it invisible for free gets real abilities instead (F2f-5;
+Christopher, 2026-10-27: such powers become real innate abilities, as often as SCS gives them):
+each spell such a block casts or applies at the creature becomes an innate ability of its own (gifts),
+an invisibility that is no innate ability the game's own Invisibility or Improved Invisibility. It
+comes back after the block's own timer, or after a round when SCS gives it whenever it fits; when SCS
+counts its uses, the creature gets that many (frequency). A creature keeps an innate invisibility of
+its own of the same kind, and a thief hides by its skill instead of a plain one (creature_gifts).
 
 Run it on a folder of decompiled scripts to see what an install would do:
     python tools/hook_rule.py <folder-with-baf> [report.json] [teleports.txt] [hides.txt]
@@ -149,6 +159,27 @@ SELF_CAST = re.compile(r'^ {4}(?:(?:ApplySpellRES|ForceSpellRES|ReallyForceSpell
                        r'(?:ApplySpell|ForceSpell|ReallyForceSpell|SpellNoDec)\(Myself,([^,()" ]+)\)) *$')
 HIDE_BOOKKEEPING = {'SetGlobal', 'SetGlobalTimer', 'SetGlobalTimerRandom', 'IncrementGlobal', 'Continue',
                     'DisplayString', 'DisplayStringHead'}
+# SCS's contingencies and sequencers fire when the CONTINGENCY_TRIGGERED spell state is not set yet.
+CONTINGENCY = re.compile(r'^ +!?CheckSpellState\(Myself,CONTINGENCY_TRIGGERED\) *$', re.M)
+# How often SCS gives a free invisibility (frequency): a counter of its uses, a variable it checks for 0
+# and then sets, or a timer of its own that it checks for having run out and sets again (not the
+# round timer).
+COUNTER = re.compile(r'^ +GlobalLT\("([^"]+)","LOCALS",(\d+)\) *$', re.M)
+COUNT_UP = re.compile(r'^ {4}IncrementGlobal\("([^"]+)","LOCALS",1\) *$', re.M)
+UNSET = re.compile(r'^ +(?:!GlobalGT\("([^"]+)","LOCALS",0\)|Global\("([^"]+)","LOCALS",0\)) *$', re.M)
+SET = re.compile(r'^ {4}SetGlobal\("([^"]+)","LOCALS",(\d+)\) *$', re.M)
+TIMER_CHECK = re.compile(r'^ +(?:!GlobalTimerNotExpired|GlobalTimerExpired)\("([^"]+)","LOCALS"\) *$', re.M)
+TIMER_SET = re.compile(r'^ {4}SetGlobalTimer\("([^"]+)","LOCALS",([A-Za-z0-9_]+)\) *$', re.M)
+ROUND_TIMER = 'castspell'
+# A gift comes back after a round when SCS gives it whenever it fits; a recharge goes into a gift's
+# name as two base-36 digits of seconds (gift_name), so it is at most 1295 seconds.
+ROUND = 6
+MAX_RECHARGE = 1295
+# The game's own invisibility of each kind (Invisibility and Improved Invisibility), for one that is no
+# innate ability (gifts).
+INVISIBILITY = {'plain': 'SPWI206', 'improved': 'SPWI405'}
+BASE36 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+SPELL_TAG = re.compile(r'^SP(WI|PR|IN|CL)(\d{3})$')
 
 
 def guard(family, script):
@@ -368,9 +399,10 @@ def free_hide(block, hides):
     triggers check no spellbook, every action is bookkeeping (HIDE_BOOKKEEPING) or a spellbook-free
     cast or application at the creature itself (SELF_CAST: no RemoveSpell, no wait, nothing at anyone
     else), and at least one of those casts a spell that makes its target invisible (hides);
-    'improved' when one such spell is Improved Invisibility."""
+    'improved' when one such spell is Improved Invisibility. Not SCS's contingencies and sequencers
+    (CONTINGENCY): they are its preparation."""
     trig, resp = split(COMMENT.sub('', block))
-    if SPELLBOOK_GATE.search(trig):
+    if SPELLBOOK_GATE.search(trig) or CONTINGENCY.search(trig):
         return None
     kind = None
     for line in resp.split('\n'):
@@ -394,6 +426,113 @@ def hiding(text, spans, hides):
         kind = free_hide(text[a:b], hides)
         if kind:
             out[i] = kind
+    return out
+
+
+def seconds(value, times):
+    """The seconds of a timer's value as WeiDU writes it: a number, or a GTIMES.IDS name (times maps
+    names in upper case to seconds); None when unknown."""
+    if value.isdigit():
+        return int(value)
+    return times.get(value.upper())
+
+
+def frequency(block, times):
+    """(charges, recharge) of the free invisibility a block gives: when SCS counts its uses, charges is
+    their number (a GlobalLT counter the block raises by one: its limit; a variable it checks for 0 and
+    sets: one) and recharge None; else charges is None and recharge the seconds of the block's own timer
+    (one it checks for having run out and sets again, not the round timer; times as in seconds), at most
+    MAX_RECHARGE, or a round."""
+    trig, resp = split(COMMENT.sub('', block))
+    raised = {m.group(1).lower() for m in COUNT_UP.finditer(resp)}
+    for m in COUNTER.finditer(trig):
+        if m.group(1).lower() in raised and int(m.group(2)) > 0:
+            return int(m.group(2)), None
+    sets = {m.group(1).lower() for m in SET.finditer(resp) if int(m.group(2)) > 0}
+    for m in UNSET.finditer(trig):
+        if (m.group(1) or m.group(2)).lower() in sets:
+            return 1, None
+    timers = {}
+    for m in TIMER_SET.finditer(resp):
+        timers.setdefault(m.group(1).lower(), m.group(2))
+    for m in TIMER_CHECK.finditer(trig):
+        name = m.group(1).lower()
+        if name != ROUND_TIMER and name in timers:
+            t = seconds(timers[name], times)
+            if t:
+                return None, min(t, MAX_RECHARGE)
+    return None, ROUND
+
+
+def gifts(block, hides, innates, times=None):
+    """The real abilities that stand in for a block's free invisibility (free_hide), each once, in the
+    block's order: (spell, kind, charges, recharge) for every spell it casts or applies at the creature
+    (in upper case as written), an invisibility that is no innate ability (innates: the spells whose
+    files say innate, as hides keys them) as the game's own of its kind (INVISIBILITY, by resref); kind
+    is that of the spell's invisibility (hides) or None; charges and recharge as frequency gives them."""
+    if not free_hide(block, hides):
+        return []
+    charges, recharge = frequency(block, times or {})
+    out = []
+    for line in COMMENT.sub('', block).split('\n'):
+        spell = cast_at_self(line)
+        if not spell:
+            continue
+        kind = hides.get(spell)
+        if kind and spell not in innates:
+            spell = INVISIBILITY[kind]
+        gift = (spell, kind, charges, recharge)
+        if gift not in out:
+            out.append(gift)
+    return out
+
+
+def script_gifts(text, hides, innates, times=None):
+    """A script's gifts (gifts), each once, in the order of its blocks."""
+    text = text.replace('\r', '')
+    out = []
+    for a, b in blocks(text):
+        for gift in gifts(text[a:b], hides, innates, times):
+            if gift not in out:
+                out.append(gift)
+    return out
+
+
+def gift_name(resref, recharge):
+    """The name of the innate copy of a spell (its resref) that comes back after recharge seconds (0:
+    never): BG, the spell's tag (W, P, N or C and its number for SPWI, SPPR, SPIN and SPCL spells, else
+    the first four characters of its resref) and the recharge as two base-36 digits."""
+    resref = resref.upper()
+    m = SPELL_TAG.match(resref)
+    tag = ({'WI': 'W', 'PR': 'P', 'IN': 'N', 'CL': 'C'}[m.group(1)] + m.group(2)) if m else resref[:4]
+    r = max(0, min(recharge or 0, MAX_RECHARGE))
+    return 'BG' + tag + BASE36[r // 36] + BASE36[r % 36]
+
+
+def grant_resref(resref, innate, recharge):
+    """The resref a creature gets for a gift of a spell (its resref): the spell itself when it is an
+    innate ability and SCS counts its uses (no recharge), else its innate copy (gift_name)."""
+    if innate and recharge is None:
+        return resref.upper()
+    return gift_name(resref, recharge)
+
+
+def creature_gifts(scripts, gifts_of, thief, own, name, party):
+    """The gifts a creature gets (each once, in the order of its script slots): those of its scripts
+    (gifts_of maps hooked scripts, lower case, to their script_gifts), but no plain invisibility for a
+    thief (thief: it has thief levels; it hides by its skill), no invisibility of a kind it has an innate
+    ability of its own for (own: those kinds) and nothing for a joinable NPC (party: the script names
+    PDIALOG.2DA lists, upper case; name is its own)."""
+    if name and name.upper() in party:
+        return []
+    out = []
+    for s in scripts:
+        for gift in gifts_of.get((s or '').lower(), []):
+            kind = gift[1]
+            if (kind == 'plain' and thief) or (kind and kind in own):
+                continue
+            if gift not in out:
+                out.append(gift)
     return out
 
 
@@ -587,6 +726,16 @@ def read_hides(path):
     return out
 
 
+def read_times(path):
+    """A GTIMES.IDS file: names in upper case to seconds."""
+    out = {}
+    for line in Path(path).read_text(encoding='latin-1').splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[0].isdigit():
+            out[parts[1].upper()] = int(parts[0])
+    return out
+
+
 def main():
     folder = Path(sys.argv[1])
     teleports = frozenset()
@@ -594,6 +743,10 @@ def main():
         teleports = frozenset(line.strip().upper() for line in Path(sys.argv[3]).read_text(encoding='utf-8').splitlines()
                               if line.strip())
     hides = read_hides(sys.argv[4]) if len(sys.argv) > 4 else {}
+    # The spells whose files say innate, one a line as hides keys them, and the game's GTIMES.IDS.
+    innates = frozenset(line.strip().upper() for line in Path(sys.argv[5]).read_text(encoding='utf-8').splitlines()
+                        if line.strip()) if len(sys.argv) > 5 else frozenset()
+    times = read_times(sys.argv[6]) if len(sys.argv) > 6 else {}
     rows = []
     for path in sorted(folder.glob('*.baf')):
         text = path.read_text(encoding='latin-1')
@@ -606,7 +759,8 @@ def main():
         hidden = len(hiding(text, spans, hides)) if patched else 0
         rows.append({'script': path.stem, 'family': fam, 'result': reason, 'copies': copies, 'clouds': cloudy,
                      'hunts': hunting, 'jumps': jumping, 'hides': hidden,
-                     'teleporter': bool(patched) and teleporter(text, teleports)})
+                     'teleporter': bool(patched) and teleporter(text, teleports),
+                     'gifts': script_gifts(text, hides, innates, times) if patched else []})
     summary = {}
     for row in rows:
         key = f"{row['family']}/{row['result']}"

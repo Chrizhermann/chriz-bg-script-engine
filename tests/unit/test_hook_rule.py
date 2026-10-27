@@ -510,6 +510,122 @@ def test_free_invisibility_is_a_spellbook_free_cast_at_itself_and_bookkeeping(tr
     assert hook_rule.free_hide(block, HIDES) == kind
 
 
+@pytest.mark.parametrize('trigger', ['!CheckSpellState(Myself,CONTINGENCY_TRIGGERED)',
+                                     'CheckSpellState(Myself,CONTINGENCY_TRIGGERED)'])
+def test_scs_contingencies_are_its_preparation_not_free_invisibility(trigger):
+    # SCS's mages fire a contingency's or sequencer's Improved Invisibility or Mislead once they detect
+    # an enemy: its preparation, which stays SCS's.
+    block = ('IF\n  Global("ContingencyFired","LOCALS",0)\n  ' + trigger + '\n  Detect(NearestEnemyOf(Myself))\n'
+             'THEN\n  RESPONSE #100\n    SetGlobal("ContingencyFired","LOCALS",1)\n    DisplayString(Myself,25942)\n'
+             '    ReallyForceSpell(Myself,WIZARD_IMPROVED_INVISIBILITY)\nEND\n')
+    assert hook_rule.free_hide(block, HIDES) is None
+    assert hook_rule.gifts(block, HIDES, set()) == []
+    assert hook_rule.free_hide(block.replace(trigger, 'CheckSpellState(Myself,TIME_STOP)'), HIDES) == 'improved'
+
+
+# GTIMES.IDS as the game names some times.
+TIMES = {'ONE_ROUND': 6, 'TWO_ROUNDS': 12, 'FOUR_ROUNDS': 24, 'ONE_MINUTE': 5}
+
+
+def free(triggers, actions):
+    lines = ''.join(f'  {t}\n' for t in triggers)
+    response = ''.join(f'    {a}\n' for a in actions)
+    return f'IF\n{lines}THEN\n  RESPONSE #100\n{response}END\n'
+
+
+@pytest.mark.parametrize('triggers,actions,expected', [
+    # Whenever it fits (a fiend that sees no enemy): a round.
+    (['!See(NearestEnemyOf(Myself))'], ['ApplySpellRES("b-hksil",Myself)'], (None, 6)),
+    # Its own timer, by seconds or a GTIMES name, checked either way; not the round timer; a timer it
+    # does not set again, or one of unknown length, counts for nothing; at most 1295 seconds.
+    (['See(NearestEnemyOf(Myself))', '!GlobalTimerNotExpired("prep","LOCALS")'],
+     ['SetGlobalTimer("prep","LOCALS",1000)', 'ApplySpellRES("b-hksil",Myself)', 'Continue()'], (None, 1000)),
+    (['GlobalTimerExpired("hidetimer","LOCALS")'], ['SetGlobalTimer("hidetimer","LOCALS",TWO_ROUNDS)',
+                                                    'ReallyForceSpellRES("b-hksil",Myself)'], (None, 12)),
+    (['!GlobalTimerNotExpired("castspell","LOCALS")'], ['SetGlobalTimer("castspell","LOCALS",ONE_ROUND)',
+                                                        'SpellNoDec(Myself,WIZARD_IMPROVED_INVISIBILITY)'], (None, 6)),
+    (['!GlobalTimerNotExpired("prep","LOCALS")'], ['ApplySpellRES("b-hksil",Myself)'], (None, 6)),
+    (['!GlobalTimerNotExpired("prep","LOCALS")'], ['SetGlobalTimer("prep","LOCALS",ONE_AGE)',
+                                                   'ApplySpellRES("b-hksil",Myself)'], (None, 6)),
+    (['!GlobalTimerNotExpired("prep","LOCALS")'], ['SetGlobalTimer("prep","LOCALS",7200)',
+                                                   'ApplySpellRES("b-hksil",Myself)'], (None, 1295)),
+    # Counted uses: a counter it raises by one (over its timer), a variable it checks for 0 and sets
+    # (either check); not a counter it does not raise, nor a variable it sets to 0.
+    (['GlobalLT("EtherealCount","LOCALS",5)', '!GlobalTimerNotExpired("Ethereal","LOCALS")'],
+     ['SetGlobalTimer("Ethereal","LOCALS",FOUR_ROUNDS)', 'IncrementGlobal("EtherealCount","LOCALS",1)',
+      'ForceSpellRES("b-hksil",Myself)'], (5, None)),
+    (['!GlobalGT("sirinv","LOCALS",0)'], ['SetGlobal("sirinv","LOCALS",1)', 'ApplySpellRES("b-hksil",Myself)'], (1, None)),
+    (['Global("hidden","LOCALS",0)'], ['SetGlobal("hidden","LOCALS",1)', 'ApplySpellRES("b-hksil",Myself)'], (1, None)),
+    (['GlobalLT("count","LOCALS",5)'], ['ApplySpellRES("b-hksil",Myself)'], (None, 6)),
+    (['Global("hidden","LOCALS",0)'], ['SetGlobal("hidden","LOCALS",0)', 'ApplySpellRES("b-hksil",Myself)'], (None, 6)),
+])
+def test_gifts_come_back_as_often_as_scs_gives_them(triggers, actions, expected):
+    assert hook_rule.frequency(free(triggers, actions), TIMES) == expected
+
+
+def test_each_spell_of_a_free_invisibility_becomes_a_gift_the_game_own_for_a_non_innate_invisibility():
+    hides = dict(HIDES, **{'DW#SILIN': 'plain', 'DW#ILLIN': 'improved', 'B-HKETH': 'improved'})
+    innates = {'B-HKSIL', 'B-HKETH'}
+    # SCS's maurezhi: Improved Invisibility and Blur on sight, once in 1000 seconds; the improved one is
+    # the game's own Improved Invisibility, Blur stays itself and has no kind.
+    maurezhi = free(['See(NearestEnemyOf(Myself))', '!GlobalTimerNotExpired("prep","LOCALS")'],
+                    ['SetGlobalTimer("prep","LOCALS",1000)', 'ApplySpell(Myself,WIZARD_IMPROVED_INVISIBILITY)',
+                     'ApplySpell(Myself,WIZARD_BLUR)', 'Continue()'])
+    assert hook_rule.gifts(maurezhi, hides, innates, TIMES) == [
+        ('SPWI405', 'improved', None, 1000), ('WIZARD_BLUR', None, None, 1000)]
+    # SCS's own copies of the game's invisibilities become the game's own; an innate one stays itself,
+    # each gift once.
+    fiend = free(['!See(NearestEnemyOf(Myself))'], ['ApplySpellRES("dw#silin",Myself)', 'ApplySpellRES("dw#illin",Myself)',
+                                                     'ApplySpellRES("b-hketh",Myself)', 'ApplySpellRES("dw#silin",Myself)'])
+    assert hook_rule.gifts(fiend, hides, innates, TIMES) == [
+        ('SPWI206', 'plain', None, 6), ('SPWI405', 'improved', None, 6), ('B-HKETH', 'improved', None, 6)]
+    # A block that gives no free invisibility gives nothing.
+    assert hook_rule.gifts(free(['True()'], ['ApplySpell(Myself,WIZARD_BLUR)']), hides, innates, TIMES) == []
+    assert hook_rule.gifts(free(['HaveSpellRES("dw#silin")'], ['ApplySpellRES("dw#silin",Myself)']), hides, innates) == []
+    # A script's gifts, each once, in block order.
+    script = fiend + '\n' + maurezhi + '\n' + fiend
+    assert hook_rule.script_gifts(script, hides, innates, TIMES) == [
+        ('SPWI206', 'plain', None, 6), ('SPWI405', 'improved', None, 6), ('B-HKETH', 'improved', None, 6),
+        ('SPWI405', 'improved', None, 1000), ('WIZARD_BLUR', None, None, 1000)]
+
+
+@pytest.mark.parametrize('resref,innate,recharge,name', [
+    ('SPWI206', False, 6, 'BGW20606'),
+    ('spwi405', False, 1000, 'BGW405RS'),
+    ('SPWI201', False, 1000, 'BGW201RS'),
+    ('SPIN687', True, 6, 'BGN68706'),
+    ('SPPR409', False, 36, 'BGP40910'),
+    ('SPCL900', True, 1295, 'BGC900ZZ'),
+    ('SPWI206', False, None, 'BGW20600'),
+    ('DW#SILIN', False, 6, 'BGDW#S06'),
+    ('SPWI2061', False, 6, 'BGSPWI06'),
+    # An innate ability whose uses SCS counts is given as it is.
+    ('ILLAINV', True, None, 'ILLAINV'),
+    ('ILLAINV', True, 6, 'BGILLA06'),
+])
+def test_a_gift_is_the_innate_itself_or_its_innate_copy_named_by_its_spell_and_recharge(resref, innate, recharge, name):
+    assert hook_rule.grant_resref(resref, innate, recharge) == name
+
+
+def test_creatures_get_their_scripts_gifts_but_keep_their_own_and_thieves_hide_by_skill():
+    plain = ('SPWI206', 'plain', None, 6)
+    improved = ('SPWI405', 'improved', None, 1000)
+    blur = ('WIZARD_BLUR', None, None, 1000)
+    gifts_of = {'b-hkfen': [plain, improved, blur], 'b-hkoth': [blur, ('SPIN687', 'improved', 3, None)]}
+    party = {'B-HKFE4'}
+    # Every gift of its scripts, each once, in the order of its slots, whatever their case.
+    assert hook_rule.creature_gifts(['', 'B-HKFEN', '', 'b-hkoth', ''], gifts_of, False, set(), 'HKFE1', party) == [
+        plain, improved, blur, ('SPIN687', 'improved', 3, None)]
+    # An innate invisibility of its own keeps a gift of that kind away, not one of the other kind.
+    assert hook_rule.creature_gifts(['B-HKFEN'], gifts_of, False, {'plain'}, '', party) == [improved, blur]
+    assert hook_rule.creature_gifts(['B-HKFEN'], gifts_of, False, {'improved'}, '', party) == [plain, blur]
+    # A thief hides by its skill instead of a plain invisibility.
+    assert hook_rule.creature_gifts(['B-HKFEN'], gifts_of, True, set(), '', party) == [improved, blur]
+    # A joinable NPC gets nothing, nor a creature whose scripts give nothing.
+    assert hook_rule.creature_gifts(['B-HKFEN'], gifts_of, False, set(), 'b-hkfe4', party) == []
+    assert hook_rule.creature_gifts(['B-HKMAG', ''], gifts_of, False, set(), '', party) == []
+
+
 def test_self_spells_name_casts_at_the_creature_itself_as_written():
     source = ('IF\n  True()\nTHEN\n  RESPONSE #100\n    ApplySpellRES("dw#silin",Myself)  // Invisibility\n'
               '    ReallyForceSpell(Myself,WIZARD_IMPROVED_INVISIBILITY)\n    ForceSpellRES("dw#silin",Myself)\n'

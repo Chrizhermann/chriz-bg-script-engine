@@ -165,24 +165,67 @@ Python, and `tests/integration/test_hook_installer.py` checks they agree.
    `Myself`), and one of those spells makes its target invisible: an ability effect with opcode 20
    at target 1 or 2, improved invisibility with parameter 2 at 1 (improved wins when a block gives
    both). The installer reads that from the game's spell files (`bgse_hides_target`, SPELL.IDS names
-   included); `tools/hook_rule.py` takes the list of such spells as a file. Each such block, above
+   included); `tools/hook_rule.py` takes the list of such spells as a file. Not SCS's contingencies
+   and sequencers that fire an invisibility: their triggers check the `CONTINGENCY_TRIGGERED` spell
+   state, and they are SCS's preparation, which stays SCS's (2026-10-28). Each such block, above
    or below the anchor and in its copy above the hook, gets the condition
    `!EEex_LuaTrigger(...BGSE_Hide(...,'plain')...)` or `'improved'`: last, or first when its
    triggers end in an OR group that lacks members (rule 6), and after the cloud's and the hunt's
    conditions. It stands aside while the engine hides the creature its own way: plain invisibility
-   for every thief the engine drives that has a Hide in Shadows skill; improved invisibility stays
-   SCS's for now. A creature with thief levels whose script slots name a script with such a block,
-   and that no PDIALOG row names (no joinable NPC), gets thief skills for its level (FIGHT-01,
-   "F2f").
+   for every thief the engine drives that has a Hide in Shadows skill, and for every creature that
+   got an innate invisibility for it (rule 10). A creature with thief levels whose script slots name
+   a script with such a block, and that no PDIALOG row names (no joinable NPC), gets thief skills for
+   its level (FIGHT-01, "F2f").
 
-   In the SR lab's 1,148 hooked scripts 158 blocks in 70 scripts give free invisibility (69 plain,
-   89 improved; 34 mage, 22 general AI and 14 monster scripts): 148 above the anchor, 10 below it,
-   all of those copied, so 168 conditions in all. The lab's 12 spells that make their target
-   invisible: plain `DW#SILIN` (SCS's thieves and fiends), `DW#VMHID`, `DW#VMMIS` (vampires) and
-   `WIZARD_INVISIBILITY`; improved `DW#ILLIN` (mind flayers), `DW#MISLD`, `DWSW405`, `DWSW505`,
-   `BALTH10`, `ILLAINV`, `SHADOW_DRAGON_SHADOWS` and `WIZARD_IMPROVED_INVISIBILITY`. Without Spell
-   Revisions (823 hooked scripts, 10 such spells: no `BALTH10` and `ILLAINV`) 99 blocks in 65
-   scripts (56 plain, 43 improved), 95 above the anchor and 4 copied.
+   In the SR lab's 1,148 hooked scripts 124 blocks in 36 scripts give free invisibility (69 plain,
+   55 improved; 22 general AI and 14 monster scripts): 114 above the anchor, 10 below it, all of
+   those copied, so 134 conditions in all. Before contingencies were left out (2026-10-27) there
+   were 158 blocks in 70 scripts: the 34 left out are all mage contingencies. The lab's 12 spells
+   that make their target invisible: plain `DW#SILIN` (SCS's thieves and fiends), `DW#VMHID`,
+   `DW#VMMIS` (vampires) and `WIZARD_INVISIBILITY`; improved `DW#ILLIN` (mind flayers), `DW#MISLD`,
+   `DWSW405`, `DWSW505`, `BALTH10`, `ILLAINV`, `SHADOW_DRAGON_SHADOWS` and
+   `WIZARD_IMPROVED_INVISIBILITY`. Without Spell Revisions (823 hooked scripts, 10 such spells: no
+   `BALTH10` and `ILLAINV`) 63 blocks in 29 scripts (56 plain, 7 improved), 59 above the anchor and
+   4 copied; 36 contingencies left out.
+10. Real abilities for SCS's free invisibility (2026-10-27, Christopher: such powers become real
+    innate abilities, as often as SCS gives them; FIGHT-01, "F2f-5"). Each spell a rule-9 block casts
+    or applies at the creature becomes an innate ability of its own, a gift. An invisibility that is
+    no innate ability becomes the game's own spell of its kind: Invisibility (`SPWI206`) or Improved
+    Invisibility (`SPWI405`); anything else stays itself (Maurezhi's Blur). How often comes from the
+    block (`frequency`, `bgse_frequency`):
+    - a counter it raises by one (`GlobalLT` and `IncrementGlobal` by 1): that many charges
+      (Illasera's 5 Ethereal);
+    - a variable it checks for 0 (`Global(…,0)` or `!GlobalGT(…,0)`) and sets above 0: one charge
+      (the sirine's);
+    - else its own timer, checked as run out (`!GlobalTimerNotExpired` or `GlobalTimerExpired`, not the
+      round timer `castspell`) and set again: back after that many seconds, a number or a name of
+      the game's GTIMES.IDS, at most 1295 (Maurezhi's 1000);
+    - else back after a round, 6 seconds (SCS gives it whenever it fits: the fiends').
+
+    A creature whose script slots name scripts with gifts gets each once (`creature_gifts`,
+    `bgse_grant_gifts`), but no plain invisibility when it has thief levels (it hides by its skill),
+    no invisibility of a kind it has a memorized innate ability of its own for (mind flayers keep
+    Psionic Superior Invisibility, Erinyes their Invisibility), and nothing as a joinable NPC. A gift
+    is the spell itself when it is an innate ability with charges, else its innate copy, named
+    `BG`, the spell's tag (`W`, `P`, `N` or `C` and the number of an `SPWI`, `SPPR`, `SPIN` or `SPCL`
+    spell, else the first four characters of its resref) and the recharge in seconds as two base-36
+    digits (`00` for none): `BGW20606` is Invisibility back after a round, `BGW405RS` Improved
+    Invisibility back after 1000 seconds. The creature knows it and has it memorized as an innate
+    ability, once or as many times as it has charges. A copy (`bgse_create_gift`) is the spell made an
+    innate ability of the first level on the innate bar, `SPWI405` cast at speed 2 at most
+    (2026-10-27), its references to itself renamed to the copy; with a recharge it removes itself when
+    used and comes back after it (172, and 171 delayed), and a removal and return of its own give way
+    to those. A gift is left out when the game lacks its spell, when another mod's file already has
+    its copy's name, or when another spell's copy took that name first.
+
+    In the SR lab 33 creatures get gifts (host run of the rule on the lab's files): 16 get
+    Invisibility back after a round (`BGW20606`: Pit Fiends, Bone Fiends, Maurezhi, Ka'rashur, two
+    fighters and a drow under SCS's assassin and stalker scripts, Tellan), the three Maurezhi also
+    Improved Invisibility and Blur back after 1000 seconds, three vampiric illithids Improved
+    Invisibility back after a round (`BGW40506`), two shadow dragons their Create Shadows back after a
+    round (`BGN68706`), Illasera her Ethereal 5 times, eight sirines Invisibility once (`BGW20600`),
+    the brown dragon and Draconis Invisibility (`BGW20600`) and Non-Detection (`BGW31000`) 6 times
+    each.
 
 `BGSE_Zones`, `BGSE_Search` and `BGSE_Hide` go by the script that decides for the creature: the
 first hooked script in its stack, since a lower script runs only after every higher one let the
@@ -198,7 +241,10 @@ must match. On the SR lab's 1,241 decompiled scripts (1,148 hooked) all agree by
 the teleport rule, given the lab's 48 names of spells that move their caster as a fourth argument:
 51 jumps, 65 scripts that teleport by script; on 2026-10-27 with the free invisibility rule, given
 the lab's 12 names of spells that make their target invisible, with their kind, as a fifth: 158
-blocks in 70 scripts; and on the no-SR lab's 878 decompiled scripts, 99 blocks in 65 scripts).
+blocks in 70 scripts; and on the no-SR lab's 878 decompiled scripts, 99 blocks in 65 scripts). On
+2026-10-28 with the gifts, given the names of those spells whose files say innate as a sixth and the
+game's GTIMES.IDS as a seventh argument, both labs agree again, gifts included (5.5 minutes for the
+SR lab: 124 blocks in 36 scripts; no-SR lab 63 blocks in 29 scripts).
 
 The claim is cached per creature and game tick, so the copies and the hook ask once per
 script pass and get the same answer. When the engine declines or is switched off, every

@@ -48,7 +48,18 @@
 // condition that holds when BGSE_Hide says no (first in an OR group that lacks members, as above),
 // in place and in its copy above the hook: the engine hides the creature its own way, and for every
 // other creature SCS's block runs as before. The thieves whose hooked scripts do that get hide skills
-// for their level (bgse_raise_skills, bgse/setup-bgse.tp2).
+// for their level (bgse_raise_skills, bgse/setup-bgse.tp2). SCS's contingencies and sequencers that
+// fire an invisibility (they check the CONTINGENCY_TRIGGERED spell state) are its preparation, which
+// stays SCS's: no condition.
+//
+// Every other creature whose hooked scripts make it invisible for free gets real abilities instead
+// (F2f-5; Christopher, 2026-10-27: such powers become real innate abilities, as often as SCS gives
+// them): each spell such a block casts or applies at the creature becomes an innate ability of its own,
+// an invisibility that is no innate ability the game's own Invisibility or Improved Invisibility
+// (bgse_block_gifts). It comes back after the block's own timer, or after a round when SCS gives it
+// whenever it fits; when SCS counts its uses, the creature gets that many (bgse_frequency). A creature
+// keeps an innate invisibility of its own of the same kind, and a thief hides by its skill instead of a
+// plain one (bgse_grant_gifts, bgse_create_gifts).
 //
 // tools/hook_rule.py is the reference version of this rule. Keep the two in step;
 // tests/integration/test_hook_installer.py compares them.
@@ -200,13 +211,15 @@ END
 
 // Whether a spell makes its target invisible: 1 when an ability has opcode 20 (Invisibility) on
 // the caster or on the spell's target (target 1 or 2), 2 when one such is Improved Invisibility
-// (parameter 2 is 1); 0 for a spell the game lacks. bgse_form as in bgse_spell_res.
+// (parameter 2 is 1); 0 for a spell the game lacks. bgse_innate_spell is 1 when its file says it is
+// an innate ability (type 4). bgse_form as in bgse_spell_res.
 DEFINE_PATCH_FUNCTION bgse_hides_target
   STR_VAR bgse_form = ~R~
           bgse_spell = ~~
-  RET bgse_hiding
+  RET bgse_hiding bgse_innate_spell
 BEGIN
   SET bgse_hiding = 0
+  SET bgse_innate_spell = 0
   LPF bgse_spell_res STR_VAR bgse_form = EVAL ~%bgse_form%~ bgse_spell = EVAL ~%bgse_spell%~ RET bgse_res END
   TEXT_SPRINT res ~%bgse_res%~
   PATCH_IF (STRING_LENGTH ~%res%~ > 0) AND (STRING_LENGTH ~%res%~ <= 8) BEGIN
@@ -215,6 +228,8 @@ BEGIN
         PATCH_IF (BUFFER_LENGTH >= 0x72) BEGIN
           READ_ASCII 0 signature (8)
           PATCH_IF (~%signature%~ STRING_EQUAL ~SPL V1  ~) BEGIN
+            READ_SHORT 0x1c spell_type
+            SET bgse_innate_spell = (spell_type = 4) ? 1 : 0
             READ_LONG 0x64 abilities
             READ_SHORT 0x68 ability_count
             READ_LONG 0x6a effects
@@ -243,6 +258,35 @@ BEGIN
           END
         END
       END
+    END
+  END
+END
+
+// Look a spell up in the game once (bgse_hides_target): bgse_looked lists the spells looked up so
+// far, bgse_invisible those that make their target invisible, bgse_improved those of Improved
+// Invisibility and bgse_innate those whose files say innate (|NAME| entries in upper case, as scripts
+// name them; bgse_form as in bgse_spell_res).
+DEFINE_PATCH_FUNCTION bgse_look_spell
+  STR_VAR bgse_form = ~R~
+          bgse_spell = ~~
+          bgse_looked = ~|~
+          bgse_invisible = ~|~
+          bgse_improved = ~|~
+          bgse_innate = ~|~
+  RET bgse_looked bgse_invisible bgse_improved bgse_innate
+BEGIN
+  PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%bgse_spell%|~ ~%bgse_looked%~) < 0) BEGIN
+    LPF bgse_hides_target STR_VAR bgse_form = EVAL ~%bgse_form%~ bgse_spell = EVAL ~%bgse_spell%~
+      RET bgse_hiding bgse_innate_spell END
+    TEXT_SPRINT bgse_looked ~%bgse_looked%%bgse_spell%|~
+    PATCH_IF (bgse_hiding > 0) BEGIN
+      TEXT_SPRINT bgse_invisible ~%bgse_invisible%%bgse_spell%|~
+    END
+    PATCH_IF (bgse_hiding = 2) BEGIN
+      TEXT_SPRINT bgse_improved ~%bgse_improved%%bgse_spell%|~
+    END
+    PATCH_IF (bgse_innate_spell = 1) BEGIN
+      TEXT_SPRINT bgse_innate ~%bgse_innate%%bgse_spell%|~
     END
   END
 END
@@ -282,7 +326,8 @@ END
 // SetGlobalTimer, SetGlobalTimerRandom, IncrementGlobal, Continue, DisplayString, DisplayStringHead)
 // or a cast or application at the creature itself without a spellbook, and at least one of those
 // casts a spell that makes its target invisible (bgse_invisible; bgse_improved those of Improved
-// Invisibility, |NAME| entries in upper case). Comments go first.
+// Invisibility, |NAME| entries in upper case). Not SCS's contingencies and sequencers, which check the
+// CONTINGENCY_TRIGGERED spell state: they are its preparation. Comments go first.
 DEFINE_PATCH_FUNCTION bgse_hide_block
   STR_VAR bgse_block = ~~
           bgse_invisible = ~|~
@@ -303,7 +348,8 @@ BEGIN
     END
   END
   PATCH_IF (STRING_LENGTH ~%resp%~ > 0)
-      AND ((~%trig%~ STRING_CONTAINS_REGEXP ~[^A-Za-z0-9_]\(HaveSpell\|HaveSpellRES\|HasItem\|KnowSpell\)(~) != 0) BEGIN
+      AND ((~%trig%~ STRING_CONTAINS_REGEXP ~[^A-Za-z0-9_]\(HaveSpell\|HaveSpellRES\|HasItem\|KnowSpell\)(~) != 0)
+      AND ((~%trig%~ STRING_CONTAINS_REGEXP ~^ +!?CheckSpellState(Myself,CONTINGENCY_TRIGGERED) *$~) != 0) BEGIN
     SET kind = 0
     SET foreign = 0
     INNER_PATCH ~%resp%~ BEGIN
@@ -343,6 +389,238 @@ BEGIN
     END
     SET bgse_hide = (foreign = 0) ? kind : 0
   END
+END
+
+// How often SCS gives a block's free invisibility (tools/hook_rule.py: frequency). When SCS counts its
+// uses, bgse_charges is their number (a GlobalLT counter the block raises by one: its limit; a variable
+// it checks for 0 and sets above 0: one) and bgse_recharge 0; else bgse_charges is 0 and bgse_recharge
+// the seconds of the block's own timer (one it checks for having run out and sets again, not the round
+// timer castspell), at most 1295, or a round (6). A timer's value is a number or a name of the game's
+// GTIMES.IDS (bgse_times, |NAME=SECONDS| entries in upper case; the last one of a name counts). Comments
+// go first.
+DEFINE_PATCH_FUNCTION bgse_frequency
+  STR_VAR bgse_block = ~~
+          bgse_times = ~|~
+  RET bgse_charges bgse_recharge
+BEGIN
+  SET bgse_charges = 0
+  SET bgse_recharge = 0
+  INNER_PATCH_SAVE text ~%bgse_block%~ BEGIN
+    REPLACE_TEXTUALLY CASE_SENSITIVE ~ *//.*$~ ~~
+  END
+  TEXT_SPRINT trig ~~
+  TEXT_SPRINT resp ~~
+  INNER_PATCH ~%text%~ BEGIN
+    SET then = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~%LNL%THEN%LNL%~)
+    PATCH_IF (then > 0) BEGIN
+      READ_ASCII 0 trig (then)
+      READ_ASCII then resp (BUFFER_LENGTH - then)
+    END
+  END
+  // A counter of its uses: the first GlobalLT whose variable the block raises by one.
+  TEXT_SPRINT raised ~|~
+  INNER_PATCH ~%resp%~ BEGIN
+    REPLACE_EVALUATE CASE_SENSITIVE ~^    IncrementGlobal("\([^"]+\)","LOCALS",1) *$~ BEGIN
+      TEXT_SPRINT name ~%MATCH1%~
+      TO_LOWER name
+      TEXT_SPRINT raised ~%raised%%name%|~
+    END ~%MATCH0%~
+  END
+  INNER_PATCH ~%trig%~ BEGIN
+    REPLACE_EVALUATE CASE_SENSITIVE ~^ +GlobalLT("\([^"]+\)","LOCALS",\([0-9]+\)) *$~ BEGIN
+      TEXT_SPRINT name ~%MATCH1%~
+      TO_LOWER name
+      SET limit = MATCH2
+      PATCH_IF (bgse_charges = 0) AND (limit > 0) AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%name%|~ ~%raised%~) >= 0) BEGIN
+        SET bgse_charges = limit
+      END
+    END ~%MATCH0%~
+  END
+  // A variable it checks for 0 and then sets: once.
+  PATCH_IF (bgse_charges = 0) BEGIN
+    TEXT_SPRINT sets ~|~
+    INNER_PATCH ~%resp%~ BEGIN
+      REPLACE_EVALUATE CASE_SENSITIVE ~^    SetGlobal("\([^"]+\)","LOCALS",\([0-9]+\)) *$~ BEGIN
+        TEXT_SPRINT name ~%MATCH1%~
+        TO_LOWER name
+        SET value = MATCH2
+        PATCH_IF (value > 0) BEGIN
+          TEXT_SPRINT sets ~%sets%%name%|~
+        END
+      END ~%MATCH0%~
+    END
+    INNER_PATCH ~%trig%~ BEGIN
+      REPLACE_EVALUATE CASE_SENSITIVE ~^ +\(!GlobalGT\|Global\)("\([^"]+\)","LOCALS",0) *$~ BEGIN
+        TEXT_SPRINT name ~%MATCH2%~
+        TO_LOWER name
+        PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%name%|~ ~%sets%~) >= 0) BEGIN
+          SET bgse_charges = 1
+        END
+      END ~%MATCH0%~
+    END
+  END
+  // Else its own timer, the first one it checks that it sets, with its first value; else a round.
+  PATCH_IF (bgse_charges = 0) BEGIN
+    TEXT_SPRINT timers ~|~
+    INNER_PATCH ~%resp%~ BEGIN
+      REPLACE_EVALUATE CASE_SENSITIVE ~^    SetGlobalTimer("\([^"]+\)","LOCALS",\([A-Za-z0-9_]+\)) *$~ BEGIN
+        TEXT_SPRINT name ~%MATCH1%~
+        TO_LOWER name
+        PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%name%=~ ~%timers%~) < 0) BEGIN
+          TEXT_SPRINT timers ~%timers%%name%=%MATCH2%|~
+        END
+      END ~%MATCH0%~
+    END
+    INNER_PATCH ~%trig%~ BEGIN
+      REPLACE_EVALUATE CASE_SENSITIVE ~^ +\(!GlobalTimerNotExpired\|GlobalTimerExpired\)("\([^"]+\)","LOCALS") *$~ BEGIN
+        TEXT_SPRINT name ~%MATCH2%~
+        TO_LOWER name
+        SET p = INDEX (CASE_SENSITIVE EXACT_MATCH ~|%name%=~ ~%timers%~)
+        PATCH_IF (bgse_recharge = 0) AND (p >= 0) AND NOT (~%name%~ STRING_EQUAL ~castspell~) BEGIN
+          SET from = p + STRING_LENGTH ~|%name%=~
+          INNER_PATCH ~%timers%~ BEGIN
+            SET to = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~|~ from)
+            READ_ASCII from value (to - from)
+          END
+          SET seconds = 0
+          PATCH_IF ((~%value%~ STRING_MATCHES_REGEXP ~^[0-9]+$~) = 0) BEGIN
+            SET seconds = value
+          END ELSE BEGIN
+            TEXT_SPRINT key ~%value%~
+            TO_UPPER key
+            SET q = RINDEX (CASE_SENSITIVE EXACT_MATCH ~|%key%=~ ~%bgse_times%~)
+            PATCH_IF (q >= 0) BEGIN
+              SET from = q + STRING_LENGTH ~|%key%=~
+              INNER_PATCH ~%bgse_times%~ BEGIN
+                SET to = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~|~ from)
+                READ_ASCII from number (to - from)
+              END
+              SET seconds = number
+            END
+          END
+          PATCH_IF (seconds > 0) BEGIN
+            SET bgse_recharge = (seconds > 1295) ? 1295 : seconds
+          END
+        END
+      END ~%MATCH0%~
+    END
+    PATCH_IF (bgse_recharge = 0) BEGIN
+      SET bgse_recharge = 6
+    END
+  END
+END
+
+// The real abilities that stand in for the free invisibility of a block bgse_hide_block says gives it
+// (tools/hook_rule.py: gifts), each once in the block's order, as |FORM:SPELL:KIND:CHARGES:RECHARGE|
+// entries: every spell the block casts or applies at the creature itself without a spellbook (FORM R
+// for a resref, I for a SPELL.IDS name or number; SPELL in upper case as written), an invisibility that
+// is no innate ability as the game's own of its kind (Invisibility SPWI206 or Improved Invisibility
+// SPWI405, by resref). KIND is plain or improved for an invisibility (bgse_invisible, bgse_improved as
+// in bgse_hide_block), else -; bgse_innate lists the spells whose files say innate (|NAME| entries in
+// upper case as written); CHARGES and RECHARGE are as bgse_frequency gives them (bgse_times), - for none.
+// The same gift written another way counts once. Comments go first.
+DEFINE_PATCH_FUNCTION bgse_block_gifts
+  STR_VAR bgse_block = ~~
+          bgse_invisible = ~|~
+          bgse_improved = ~|~
+          bgse_innate = ~|~
+          bgse_times = ~|~
+  RET bgse_gifts
+BEGIN
+  TEXT_SPRINT bgse_gifts ~|~
+  LPF bgse_frequency STR_VAR bgse_block = EVAL ~%bgse_block%~ bgse_times = EVAL ~%bgse_times%~
+    RET bgse_charges bgse_recharge END
+  TEXT_SPRINT charges ~-~
+  TEXT_SPRINT recharge ~-~
+  PATCH_IF (bgse_charges > 0) BEGIN
+    TEXT_SPRINT charges ~%bgse_charges%~
+  END
+  PATCH_IF (bgse_recharge > 0) BEGIN
+    TEXT_SPRINT recharge ~%bgse_recharge%~
+  END
+  INNER_PATCH_SAVE text ~%bgse_block%~ BEGIN
+    REPLACE_TEXTUALLY CASE_SENSITIVE ~ *//.*$~ ~~
+  END
+  INNER_PATCH ~%text%~ BEGIN
+    REPLACE_EVALUATE CASE_SENSITIVE ~^    [A-Za-z_][A-Za-z0-9_]*(.*$~ BEGIN
+      TEXT_SPRINT line ~%MATCH0%~
+      TEXT_SPRINT form ~~
+      TEXT_SPRINT name ~~
+      PATCH_IF ((~%line%~ STRING_MATCHES_REGEXP ~^    \(ApplySpellRES\|ForceSpellRES\|ReallyForceSpellRES\|SpellNoDecRES\)("[^"]*",Myself) *$~) = 0) BEGIN
+        TEXT_SPRINT form ~R~
+        INNER_PATCH ~%line%~ BEGIN
+          REPLACE_EVALUATE CASE_SENSITIVE ~"\([^"]*\)"~ BEGIN
+            TEXT_SPRINT name ~%MATCH1%~
+          END ~%MATCH0%~
+        END
+      END ELSE PATCH_IF ((~%line%~ STRING_MATCHES_REGEXP ~^    \(ApplySpell\|ForceSpell\|ReallyForceSpell\|SpellNoDec\)(Myself,[^,()" ]+) *$~) = 0) BEGIN
+        TEXT_SPRINT form ~I~
+        INNER_PATCH ~%line%~ BEGIN
+          REPLACE_EVALUATE CASE_SENSITIVE ~(Myself,\([^,()" ]+\))~ BEGIN
+            TEXT_SPRINT name ~%MATCH1%~
+          END ~%MATCH0%~
+        END
+      END
+      PATCH_IF (STRING_LENGTH ~%name%~ > 0) BEGIN
+        TO_UPPER name
+        TEXT_SPRINT kind ~-~
+        PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%name%|~ ~%bgse_improved%~) >= 0) BEGIN
+          TEXT_SPRINT kind ~improved~
+        END ELSE PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%name%|~ ~%bgse_invisible%~) >= 0) BEGIN
+          TEXT_SPRINT kind ~plain~
+        END
+        PATCH_IF (STRING_LENGTH ~%kind%~ > 1) AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%name%|~ ~%bgse_innate%~) < 0) BEGIN
+          TEXT_SPRINT form ~R~
+          TEXT_SPRINT name ~SPWI206~
+          PATCH_IF (~%kind%~ STRING_EQUAL ~improved~) BEGIN
+            TEXT_SPRINT name ~SPWI405~
+          END
+        END
+        PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~:%name%:%kind%:%charges%:%recharge%|~ ~%bgse_gifts%~) < 0) BEGIN
+          TEXT_SPRINT bgse_gifts ~%bgse_gifts%%form%:%name%:%kind%:%charges%:%recharge%|~
+        END
+      END
+    END ~%MATCH0%~
+  END
+END
+
+// The name of the innate copy of a spell (bgse_res, a resref) that comes back bgse_recharge seconds
+// after each use, 0 for never (tools/hook_rule.py: gift_name): BG, the spell's tag (W, P, N or C and
+// its number for SPWI, SPPR, SPIN and SPCL spells, else the first four characters of its resref) and
+// the recharge, at most 1295 seconds, as two base-36 digits.
+DEFINE_PATCH_FUNCTION bgse_gift_name
+  INT_VAR bgse_recharge = 0
+  STR_VAR bgse_res = ~~
+  RET bgse_name
+BEGIN
+  TEXT_SPRINT res ~%bgse_res%~
+  TO_UPPER res
+  PATCH_IF ((~%res%~ STRING_MATCHES_REGEXP ~^SP\(WI\|PR\|IN\|CL\)[0-9][0-9][0-9]$~) = 0) BEGIN
+    INNER_PATCH ~%res%~ BEGIN
+      READ_ASCII 2 kind (2)
+      READ_ASCII 4 number (3)
+    END
+    TEXT_SPRINT tag ~C%number%~
+    PATCH_IF (~%kind%~ STRING_EQUAL ~WI~) BEGIN
+      TEXT_SPRINT tag ~W%number%~
+    END ELSE PATCH_IF (~%kind%~ STRING_EQUAL ~PR~) BEGIN
+      TEXT_SPRINT tag ~P%number%~
+    END ELSE PATCH_IF (~%kind%~ STRING_EQUAL ~IN~) BEGIN
+      TEXT_SPRINT tag ~N%number%~
+    END
+  END ELSE PATCH_IF (STRING_LENGTH ~%res%~ > 4) BEGIN
+    INNER_PATCH ~%res%~ BEGIN
+      READ_ASCII 0 tag (4)
+    END
+  END ELSE BEGIN
+    TEXT_SPRINT tag ~%res%~
+  END
+  SET r = (bgse_recharge < 0) ? 0 : ((bgse_recharge > 1295) ? 1295 : bgse_recharge)
+  INNER_PATCH ~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ~ BEGIN
+    READ_ASCII (r / 36) high (1)
+    READ_ASCII (r - (r / 36) * 36) low (1)
+  END
+  TEXT_SPRINT bgse_name ~BG%tag%%high%%low%~
 END
 
 // A block's scripted teleports (tools/hook_rule.py: scripted_teleports, is_jump): how many casts
@@ -690,20 +968,25 @@ BEGIN
 END
 
 // Hook one decompiled SCS script; bgse_script is its resref in lower case, bgse_teleports the
-// spells that move their caster, bgse_invisible those that make their target invisible and
-// bgse_improved those of Improved Invisibility (|NAME| entries in upper case: resrefs, SPELL.IDS
-// names and numbers). bgse_result is hooked, not-scs, unsafe-name, no-castspell, already-hooked or
+// spells that move their caster, bgse_invisible those that make their target invisible,
+// bgse_improved those of Improved Invisibility and bgse_innate those whose files say innate (|NAME|
+// entries in upper case: resrefs, SPELL.IDS names and numbers); bgse_times the game's timer names
+// (bgse_times_list). bgse_result is hooked, not-scs, unsafe-name, no-castspell, already-hooked or
 // no-anchor; only "hooked" changes bgse_baf. bgse_clouds counts the cloud blocks that stand aside,
 // bgse_hunts the hunting blocks, bgse_jumps the scripted jumps into the fight, bgse_hides the blocks
 // that give the creature free invisibility; bgse_teleporter is 1 when a hooked script teleports its
-// creature by script, bgse_hider when it makes its creature invisible for free.
+// creature by script, bgse_hider when it makes its creature invisible for free, and bgse_gifts lists
+// the real abilities that stand in for that (bgse_block_gifts), each once, in the order of its blocks.
 DEFINE_PATCH_FUNCTION bgse_hook_baf
   STR_VAR bgse_baf = ~~
           bgse_script = ~~
           bgse_teleports = ~|~
           bgse_invisible = ~|~
           bgse_improved = ~|~
-  RET bgse_result bgse_family bgse_copies bgse_clouds bgse_hunts bgse_jumps bgse_hides bgse_teleporter bgse_hider bgse_baf
+          bgse_innate = ~|~
+          bgse_times = ~|~
+  RET bgse_result bgse_family bgse_copies bgse_clouds bgse_hunts bgse_jumps bgse_hides bgse_teleporter bgse_hider bgse_gifts
+      bgse_baf
 BEGIN
   TEXT_SPRINT bgse_result ~not-scs~
   TEXT_SPRINT bgse_family ~~
@@ -714,6 +997,8 @@ BEGIN
   SET bgse_hides = 0
   SET bgse_teleporter = 0
   SET bgse_hider = 0
+  TEXT_SPRINT bgse_gifts ~|~
+  TEXT_SPRINT gifts ~|~
   SET teleporting = 0
   INNER_PATCH_SAVE bgse_baf ~%bgse_baf%~ BEGIN
     REPLACE_TEXTUALLY CASE_SENSITIVE EXACT_MATCH ~%MNL%~ ~~
@@ -784,6 +1069,19 @@ BEGIN
             LPF bgse_hide_block STR_VAR bgse_block = EVAL ~%block%~ bgse_invisible = EVAL ~%bgse_invisible%~
               bgse_improved = EVAL ~%bgse_improved%~ RET bgse_hide END
             SET $bgse_hide(~%n%~) = bgse_hide
+            PATCH_IF (bgse_hide > 0) BEGIN
+              // The real abilities that stand in for it, each once in the script.
+              LPF bgse_block_gifts STR_VAR bgse_block = EVAL ~%block%~ bgse_invisible = EVAL ~%bgse_invisible%~
+                  bgse_improved = EVAL ~%bgse_improved%~ bgse_innate = EVAL ~%bgse_innate%~ bgse_times = EVAL ~%bgse_times%~
+                RET bgse_gifts END
+              INNER_PATCH ~%bgse_gifts%~ BEGIN
+                REPLACE_EVALUATE CASE_SENSITIVE ~\([RI]\):\([^|]+\)~ BEGIN
+                  PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~:%MATCH2%|~ ~%gifts%~) < 0) BEGIN
+                    TEXT_SPRINT gifts ~%gifts%%MATCH1%:%MATCH2%|~
+                  END
+                END ~%MATCH0%~
+              END
+            END
           END
           PATCH_IF (INDEX (CASE_INSENSITIVE EXACT_MATCH ~chas~ ~%block%~) >= 0)
               OR (INDEX (CASE_INSENSITIVE EXACT_MATCH ~teleportpursuetimer~ ~%block%~) >= 0)
@@ -881,6 +1179,7 @@ BEGIN
       END
     END
     SET $bgse_book(~%n%~) = 0
+    TEXT_SPRINT bgse_gifts ~|~
     PATCH_IF (anchor < 0) BEGIN
       TEXT_SPRINT bgse_result ~no-anchor~
     END ELSE BEGIN
@@ -1041,6 +1340,7 @@ BEGIN
       END
       SET bgse_teleporter = teleporting
       SET bgse_hider = (bgse_hides > 0) ? 1 : 0
+      TEXT_SPRINT bgse_gifts ~%gifts%~
       TEXT_SPRINT bgse_baf ~%head%%insert%IF%LNL%  %guard%%LNL%THEN%LNL%  RESPONSE #100%LNL%    EEex_LuaAction("if BGSE_Act then BGSE_Act(EEex_LuaAction_Object) end")%LNL%END%LNL%%LNL%%tail%~
       TEXT_SPRINT bgse_result ~hooked~
     END
@@ -1052,18 +1352,22 @@ END
 // bgse_teleports and bgse_checked (|NAME| entries in upper case) are the spells known to move
 // their caster and all spells looked up so far for that: the spells of the script's casts without a
 // spellbook are looked up in the game once each (bgse_moves_caster), and both come back with them.
-// bgse_invisible, bgse_improved and bgse_looked do the same for the spells known to make their
-// target invisible, those of Improved Invisibility and all spells looked up for that, from the
-// script's casts and applications at the creature itself (bgse_hides_target).
+// bgse_invisible, bgse_improved, bgse_innate and bgse_looked do the same for the spells known to make
+// their target invisible, those of Improved Invisibility, those whose files say innate and all spells
+// looked up for that, from the script's casts and applications at the creature itself
+// (bgse_look_spell). bgse_times are the game's timer names (bgse_times_list); bgse_gifts as in
+// bgse_hook_baf.
 DEFINE_PATCH_FUNCTION bgse_hook_bcs
   STR_VAR bgse_script = ~~
           bgse_teleports = ~|~
           bgse_checked = ~|~
           bgse_invisible = ~|~
           bgse_improved = ~|~
+          bgse_innate = ~|~
           bgse_looked = ~|~
-  RET bgse_result bgse_family bgse_copies bgse_clouds bgse_hunts bgse_jumps bgse_hides bgse_teleporter bgse_hider
-      bgse_teleports bgse_checked bgse_invisible bgse_improved bgse_looked
+          bgse_times = ~|~
+  RET bgse_result bgse_family bgse_copies bgse_clouds bgse_hunts bgse_jumps bgse_hides bgse_teleporter bgse_hider bgse_gifts
+      bgse_teleports bgse_checked bgse_invisible bgse_improved bgse_innate bgse_looked
 BEGIN
   TEXT_SPRINT bgse_result ~failed~
   TEXT_SPRINT bgse_family ~~
@@ -1074,6 +1378,7 @@ BEGIN
   SET bgse_hides = 0
   SET bgse_teleporter = 0
   SET bgse_hider = 0
+  TEXT_SPRINT bgse_gifts ~|~
   READ_ASCII 0 bcs (BUFFER_LENGTH)
   PATCH_TRY
     INNER_PATCH_SAVE baf ~%bcs%~ BEGIN
@@ -1096,23 +1401,16 @@ BEGIN
     LPF bgse_self_spells STR_VAR bgse_baf = EVAL ~%baf%~ RET bgse_spells END
     INNER_PATCH ~%bgse_spells%~ BEGIN
       REPLACE_EVALUATE CASE_SENSITIVE ~\([RI]\)=\([^|]+\)~ BEGIN
-        TEXT_SPRINT form ~%MATCH1%~
-        TEXT_SPRINT name ~%MATCH2%~
-        PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%name%|~ ~%bgse_looked%~) < 0) BEGIN
-          LPF bgse_hides_target STR_VAR bgse_form = EVAL ~%form%~ bgse_spell = EVAL ~%name%~ RET bgse_hiding END
-          TEXT_SPRINT bgse_looked ~%bgse_looked%%name%|~
-          PATCH_IF (bgse_hiding > 0) BEGIN
-            TEXT_SPRINT bgse_invisible ~%bgse_invisible%%name%|~
-          END
-          PATCH_IF (bgse_hiding = 2) BEGIN
-            TEXT_SPRINT bgse_improved ~%bgse_improved%%name%|~
-          END
-        END
+        LPF bgse_look_spell STR_VAR bgse_form = EVAL ~%MATCH1%~ bgse_spell = EVAL ~%MATCH2%~ bgse_looked = EVAL ~%bgse_looked%~
+            bgse_invisible = EVAL ~%bgse_invisible%~ bgse_improved = EVAL ~%bgse_improved%~ bgse_innate = EVAL ~%bgse_innate%~
+          RET bgse_looked bgse_invisible bgse_improved bgse_innate END
       END ~%MATCH0%~
     END
     LPF bgse_hook_baf STR_VAR bgse_baf = EVAL ~%baf%~ bgse_script = EVAL ~%bgse_script%~ bgse_teleports = EVAL ~%bgse_teleports%~
-        bgse_invisible = EVAL ~%bgse_invisible%~ bgse_improved = EVAL ~%bgse_improved%~
-      RET bgse_result bgse_family bgse_copies bgse_clouds bgse_hunts bgse_jumps bgse_hides bgse_teleporter bgse_hider bgse_baf END
+        bgse_invisible = EVAL ~%bgse_invisible%~ bgse_improved = EVAL ~%bgse_improved%~ bgse_innate = EVAL ~%bgse_innate%~
+        bgse_times = EVAL ~%bgse_times%~
+      RET bgse_result bgse_family bgse_copies bgse_clouds bgse_hunts bgse_jumps bgse_hides bgse_teleporter bgse_hider bgse_gifts
+          bgse_baf END
     PATCH_IF (~%bgse_result%~ STRING_EQUAL_CASE ~hooked~) BEGIN
       DELETE_BYTES 0 BUFFER_LENGTH
       INSERT_BYTES 0 (STRING_LENGTH ~%bgse_baf%~)
@@ -1128,6 +1426,7 @@ BEGIN
     SET bgse_hides = 0
     SET bgse_teleporter = 0
     SET bgse_hider = 0
+    TEXT_SPRINT bgse_gifts ~|~
     DELETE_BYTES 0 BUFFER_LENGTH
     INSERT_BYTES 0 (STRING_LENGTH ~%bcs%~)
     WRITE_ASCIIE 0 ~%bcs%~
@@ -1402,6 +1701,298 @@ BEGIN
       END
     END
   END
+END
+
+// The game's timer names (GTIMES.IDS), read once, as |NAME=SECONDS| entries in upper case: each line
+// of two words whose first is a number (tools/hook_rule.py: read_times). Empty when the game lacks the
+// file.
+DEFINE_ACTION_FUNCTION bgse_times_list
+  RET bgse_times
+BEGIN
+  OUTER_TEXT_SPRINT bgse_times ~|~
+  ACTION_IF (FILE_EXISTS_IN_GAME ~gtimes.ids~) BEGIN
+    COPY_EXISTING ~gtimes.ids~ ~override~
+      REPLACE_EVALUATE CASE_SENSITIVE ~^[ %TAB%]*\([0-9]+\)[ %TAB%]+\([^ %TAB%%LNL%%MNL%]+\)[ %TAB%%MNL%]*$~ BEGIN
+        TEXT_SPRINT name ~%MATCH2%~
+        TO_UPPER name
+        TEXT_SPRINT bgse_times ~%bgse_times%%name%=%MATCH1%|~
+      END ~%MATCH0%~
+    BUT_ONLY_IF_IT_CHANGES
+  END
+END
+
+// Give the creature in the patch buffer (a CRE V1.0) the real abilities that stand in for SCS's free
+// invisibility (tools/hook_rule.py: creature_gifts, grant_resref): the gifts of its scripts
+// (bgse_gifts_of, |script>FORM:SPELL:KIND:CHARGES:RECHARGE| entries, scripts in lower case and gifts as
+// bgse_hook_baf lists them), each once in the order of its script slots, but no plain invisibility for
+// a thief (it has thief levels: it hides by its skill), no invisibility of a kind it has a memorized
+// innate ability of its own for, and nothing for a joinable NPC (bgse_party, as bgse_skill_tables reads
+// it). A gift is the spell itself when it is an innate ability whose uses SCS counts, else its innate
+// copy (bgse_gift_name). The creature knows it and has it memorized as an innate ability as often as SCS
+// gives it (once when it comes back by itself; the most of two gifts of the same name). Each copy goes
+// into bgse_copies (|NAME>RESREF:RECHARGE| entries) for bgse_create_gifts. A gift whose spell the game
+// lacks is left out, and so is one whose copy would take a name the game already has (another mod's
+// file) or another spell's copy has. Spells are looked up once each (bgse_look_spell). bgse_given lists
+// what the creature got, for the log. A creature file WeiDU cannot add the spells to is left exactly as
+// it was.
+DEFINE_PATCH_FUNCTION bgse_grant_gifts
+  STR_VAR bgse_gifts_of = ~|~
+          bgse_party = ~|~
+          bgse_looked = ~|~
+          bgse_invisible = ~|~
+          bgse_improved = ~|~
+          bgse_innate = ~|~
+          bgse_copies = ~|~
+  RET bgse_given bgse_looked bgse_invisible bgse_improved bgse_innate bgse_copies
+BEGIN
+  TEXT_SPRINT bgse_given ~~
+  TEXT_SPRINT gifts ~|~
+  PATCH_IF (BUFFER_LENGTH >= 0x2d4) BEGIN
+    READ_ASCII 0 signature (8)
+    PATCH_IF (~%signature%~ STRING_EQUAL ~CRE V1.0~) BEGIN
+      // Its scripts' gifts; the same gift written another way counts once.
+      FOR (o = 0x248; o < 0x270; o += 8) BEGIN
+        READ_ASCII o script (8) NULL
+        TO_LOWER script
+        PATCH_IF (STRING_LENGTH ~%script%~ > 0) BEGIN
+          INNER_PATCH ~%bgse_gifts_of%~ BEGIN
+            SET p = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~|%script%>~)
+            WHILE (p >= 0) BEGIN
+              SET from = p + STRING_LENGTH ~|%script%>~
+              SET to = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~|~ from)
+              READ_ASCII from gift (to - from)
+              READ_ASCII (from + 1) key (to - from - 1)
+              PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~%key%|~ ~%gifts%~) < 0) BEGIN
+                TEXT_SPRINT gifts ~%gifts%%gift%|~
+              END
+              SET p = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~|%script%>~ to)
+            END
+          END
+        END
+      END
+    END
+    PATCH_IF (STRING_LENGTH ~%gifts%~ > 1) BEGIN
+      READ_ASCII 0x280 name (32) NULL
+      TO_UPPER name
+      PATCH_IF (STRING_LENGTH ~%name%~ > 0) AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%name%|~ ~%bgse_party%~) >= 0) BEGIN
+        TEXT_SPRINT gifts ~|~
+      END
+    END
+    PATCH_IF (STRING_LENGTH ~%gifts%~ > 1) BEGIN
+      // Thief levels, and the kinds of its memorized innate invisibilities.
+      READ_BYTE 0x273 class
+      SET thief = ((class = 4) OR (class = 9) OR (class = 10) OR (class = 13) OR (class = 15)) ? 1 : 0
+      SET own_plain = 0
+      SET own_improved = 0
+      READ_LONG 0x2b0 at
+      READ_LONG 0x2b4 count
+      FOR (i = 0; i < count; i += 1) BEGIN
+        PATCH_IF (at + 12 * i + 8 <= BUFFER_LENGTH) BEGIN
+          READ_ASCII (at + 12 * i) spell (8) NULL
+          TO_UPPER spell
+          PATCH_IF (STRING_LENGTH ~%spell%~ > 0) BEGIN
+            LPF bgse_look_spell STR_VAR bgse_form = ~R~ bgse_spell = EVAL ~%spell%~ bgse_looked = EVAL ~%bgse_looked%~
+                bgse_invisible = EVAL ~%bgse_invisible%~ bgse_improved = EVAL ~%bgse_improved%~ bgse_innate = EVAL ~%bgse_innate%~
+              RET bgse_looked bgse_invisible bgse_improved bgse_innate END
+            PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%spell%|~ ~%bgse_innate%~) >= 0) BEGIN
+              PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%spell%|~ ~%bgse_improved%~) >= 0) BEGIN
+                SET own_improved = 1
+              END ELSE PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%spell%|~ ~%bgse_invisible%~) >= 0) BEGIN
+                SET own_plain = 1
+              END
+            END
+          END
+        END
+      END
+      // What each gift gives (grants, |NAME| entries, with how often in bgse_times_of) and the copies
+      // that makes (made, NAME>RESREF:RECHARGE| entries).
+      TEXT_SPRINT grants ~|~
+      TEXT_SPRINT made ~~
+      SET pos = 1
+      WHILE (pos < STRING_LENGTH ~%gifts%~) BEGIN
+        INNER_PATCH ~%gifts%~ BEGIN
+          SET to = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~|~ pos)
+          READ_ASCII pos gift (to - pos)
+        END
+        SET pos = to + 1
+        TEXT_SPRINT form ~~
+        INNER_PATCH ~%gift%~ BEGIN
+          REPLACE_EVALUATE CASE_SENSITIVE ~^\([RI]\):\([^:]+\):\([^:]+\):\([^:]+\):\([^:]+\)$~ BEGIN
+            TEXT_SPRINT form ~%MATCH1%~
+            TEXT_SPRINT spell ~%MATCH2%~
+            TEXT_SPRINT kind ~%MATCH3%~
+            TEXT_SPRINT charges ~%MATCH4%~
+            TEXT_SPRINT recharge ~%MATCH5%~
+          END ~%MATCH0%~
+        END
+        SET keep = (STRING_LENGTH ~%form%~ > 0) ? 1 : 0
+        PATCH_IF (keep = 1) AND (~%kind%~ STRING_EQUAL ~plain~) AND ((thief = 1) OR (own_plain = 1)) BEGIN
+          SET keep = 0
+        END
+        PATCH_IF (keep = 1) AND (~%kind%~ STRING_EQUAL ~improved~) AND (own_improved = 1) BEGIN
+          SET keep = 0
+        END
+        PATCH_IF (keep = 1) BEGIN
+          LPF bgse_spell_res STR_VAR bgse_form = EVAL ~%form%~ bgse_spell = EVAL ~%spell%~ RET bgse_res END
+          TEXT_SPRINT res ~%bgse_res%~
+          TO_UPPER res
+          SET keep = 0
+          PATCH_IF (STRING_LENGTH ~%res%~ > 0) AND (STRING_LENGTH ~%res%~ <= 8) BEGIN
+            PATCH_IF (FILE_EXISTS_IN_GAME ~%res%.spl~) BEGIN
+              SET keep = 1
+            END
+          END
+        END
+        PATCH_IF (keep = 1) BEGIN
+          LPF bgse_look_spell STR_VAR bgse_form = ~R~ bgse_spell = EVAL ~%res%~ bgse_looked = EVAL ~%bgse_looked%~
+              bgse_invisible = EVAL ~%bgse_invisible%~ bgse_improved = EVAL ~%bgse_improved%~ bgse_innate = EVAL ~%bgse_innate%~
+            RET bgse_looked bgse_invisible bgse_improved bgse_innate END
+          SET seconds = 0
+          PATCH_IF (IS_AN_INT recharge) BEGIN
+            SET seconds = recharge
+          END
+          SET times = 1
+          PATCH_IF (IS_AN_INT charges) BEGIN
+            SET times = charges
+          END
+          PATCH_IF (seconds = 0) AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%res%|~ ~%bgse_innate%~) >= 0) BEGIN
+            TEXT_SPRINT grant ~%res%~
+          END ELSE BEGIN
+            LPF bgse_gift_name INT_VAR bgse_recharge = seconds STR_VAR bgse_res = EVAL ~%res%~ RET bgse_name END
+            TEXT_SPRINT grant ~%bgse_name%~
+            TEXT_SPRINT listed ~%bgse_copies%%made%~
+            PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%grant%>~ ~%listed%~) >= 0) BEGIN
+              PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%grant%>%res%:~ ~%listed%~) < 0) BEGIN
+                SET keep = 0
+              END
+            END ELSE PATCH_IF (FILE_EXISTS_IN_GAME ~%grant%.spl~) BEGIN
+              SET keep = 0
+            END ELSE BEGIN
+              TEXT_SPRINT made ~%made%%grant%>%res%:%seconds%|~
+            END
+          END
+        END
+        PATCH_IF (keep = 1) BEGIN
+          PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%grant%|~ ~%grants%~) < 0) BEGIN
+            TEXT_SPRINT grants ~%grants%%grant%|~
+            SET $bgse_times_of(~%grant%~) = times
+          END ELSE PATCH_IF (times > $bgse_times_of(~%grant%~)) BEGIN
+            SET $bgse_times_of(~%grant%~) = times
+          END
+        END
+      END
+      PATCH_IF (STRING_LENGTH ~%grants%~ > 1) BEGIN
+        READ_ASCII 0 cre (BUFFER_LENGTH)
+        PATCH_TRY
+          SET pos = 1
+          WHILE (pos < STRING_LENGTH ~%grants%~) BEGIN
+            INNER_PATCH ~%grants%~ BEGIN
+              SET to = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~|~ pos)
+              READ_ASCII pos grant (to - pos)
+            END
+            SET pos = to + 1
+            SET times = $bgse_times_of(~%grant%~)
+            SET known = 0
+            READ_LONG 0x2a0 at
+            READ_LONG 0x2a4 count
+            FOR (i = 0; i < count; i += 1) BEGIN
+              PATCH_IF (at + 12 * i + 12 <= BUFFER_LENGTH) BEGIN
+                READ_ASCII (at + 12 * i) spell (8) NULL
+                READ_SHORT (at + 12 * i + 10) type
+                PATCH_IF (type = 2) AND (~%spell%~ STRING_EQUAL_CASE ~%grant%~) BEGIN
+                  SET known = 1
+                END
+              END
+            END
+            PATCH_IF (known = 0) BEGIN
+              ADD_KNOWN_SPELL ~%grant%~ #0 ~innate~
+            END
+            ADD_MEMORIZED_SPELL ~%grant%~ #0 ~innate~ (times)
+            PATCH_IF (STRING_LENGTH ~%bgse_given%~ > 0) BEGIN
+              TEXT_SPRINT bgse_given ~%bgse_given%, ~
+            END
+            TEXT_SPRINT bgse_given ~%bgse_given%%grant% (%times%)~
+          END
+          TEXT_SPRINT bgse_copies ~%bgse_copies%%made%~
+        WITH DEFAULT
+          TEXT_SPRINT bgse_given ~~
+          DELETE_BYTES 0 BUFFER_LENGTH
+          INSERT_BYTES 0 (STRING_LENGTH ~%cre%~)
+          WRITE_ASCIIE 0 ~%cre%~
+        END
+      END
+    END
+  END
+END
+
+// Make the innate copies bgse_grant_gifts gave creatures (bgse_copies, |NAME>RESREF:RECHARGE| entries;
+// bgse_create_gift). bgse_made counts them.
+DEFINE_ACTION_FUNCTION bgse_create_gifts
+  STR_VAR bgse_copies = ~|~
+  RET bgse_made
+BEGIN
+  OUTER_SET bgse_made = 0
+  OUTER_SET pos = 1
+  OUTER_WHILE (pos < STRING_LENGTH ~%bgse_copies%~) BEGIN
+    OUTER_TEXT_SPRINT name ~~
+    OUTER_PATCH ~%bgse_copies%~ BEGIN
+      SET to = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~|~ pos)
+      READ_ASCII pos entry (to - pos)
+      SET pos = to + 1
+      INNER_PATCH ~%entry%~ BEGIN
+        REPLACE_EVALUATE CASE_SENSITIVE ~^\([^>]+\)>\([^:]+\):\([0-9]+\)$~ BEGIN
+          TEXT_SPRINT name ~%MATCH1%~
+          TEXT_SPRINT res ~%MATCH2%~
+          SET recharge = MATCH3
+        END ~%MATCH0%~
+      END
+    END
+    ACTION_IF (STRING_LENGTH ~%name%~ > 0) BEGIN
+      LAF bgse_create_gift INT_VAR bgse_recharge = recharge STR_VAR bgse_res = EVAL ~%res%~ bgse_name = EVAL ~%name%~ END
+      OUTER_SET bgse_made += 1
+    END
+  END
+END
+
+// The innate copy (bgse_name) of a spell (bgse_res) that comes back bgse_recharge seconds after each
+// use, 0 for never (Christopher, 2026-10-27: such powers become real innate abilities): an innate
+// ability of the first level in each of its abilities, the game's own Improved Invisibility (SPWI405)
+// no slower than speed 2, its references to itself (such as one that ends an earlier casting) to the
+// copy. A removal and return of the spell itself (opcodes 172 and 171) gives way to the copy's own: it is
+// gone when used and back after the recharge (172, and a delayed 171), as the game's mind flayers'
+// Planar Travel recharges.
+DEFINE_ACTION_FUNCTION bgse_create_gift
+  INT_VAR bgse_recharge = 0
+  STR_VAR bgse_res = ~~
+          bgse_name = ~~
+BEGIN
+  COPY_EXISTING ~%bgse_res%.spl~ ~override/%bgse_name%.spl~
+    PATCH_IF (BUFFER_LENGTH >= 0x72) BEGIN
+      WRITE_SHORT 0x1c 4                    // innate
+      WRITE_LONG  0x34 1
+      READ_LONG  0x64 abilities
+      READ_SHORT 0x68 ability_count
+      FOR (a = 0; a < ability_count; a += 1) BEGIN
+        SET at = abilities + 0x28 * a
+        PATCH_IF (at + 0x28 <= BUFFER_LENGTH) BEGIN
+          WRITE_SHORT (at + 0x02) 4         // on the innate ability bar
+          PATCH_IF (~%bgse_res%~ STRING_EQUAL_CASE ~SPWI405~) BEGIN
+            READ_SHORT (at + 0x12) speed
+            PATCH_IF (speed > 2) BEGIN
+              WRITE_SHORT (at + 0x12) 2
+            END
+          END
+        END
+      END
+      LPF DELETE_EFFECT INT_VAR check_globals = 1 match_opcode = 172 STR_VAR match_resource = EVAL ~%bgse_res%~ END
+      LPF DELETE_EFFECT INT_VAR check_globals = 1 match_opcode = 171 STR_VAR match_resource = EVAL ~%bgse_res%~ END
+      LPF ALTER_EFFECT INT_VAR check_globals = 1 silent = 1 STR_VAR match_resource = EVAL ~%bgse_res%~ resource = EVAL ~%bgse_name%~ END
+      PATCH_IF (bgse_recharge > 0) BEGIN
+        LPF ADD_SPELL_EFFECT INT_VAR opcode = 172 target = 1 timing = 1 STR_VAR resource = EVAL ~%bgse_name%~ END
+        LPF ADD_SPELL_EFFECT INT_VAR opcode = 171 target = 1 timing = 4 duration = bgse_recharge
+          STR_VAR resource = EVAL ~%bgse_name%~ END
+      END
+    END
 END
 
 // The innate teleport the installer gives creatures that SCS lets teleport only by script

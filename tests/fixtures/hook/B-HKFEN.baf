@@ -1,0 +1,61 @@
+IF
+  INI("DMWW_fiend_difficulty",0)
+  !See(NearestEnemyOf(Myself))
+THEN
+  RESPONSE #100
+    ReallyForceSpellRES("b-hkinv",Myself)
+END
+
+IF
+  See(NearestEnemyOf(Myself))
+  !GlobalTimerNotExpired("shadows","LOCALS")
+THEN
+  RESPONSE #100
+    SetGlobalTimer("shadows","LOCALS",1000)
+    ReallyForceSpell(Myself,WIZARD_IMPROVED_INVISIBILITY)
+    ReallyForceSpell(Myself,WIZARD_BLUR)
+END
+
+IF
+  !See(NearestEnemyOf(Myself))
+  GlobalTimerExpired("veil","LOCALS")
+THEN
+  RESPONSE #100
+    SetGlobalTimer("veil","LOCALS",TWO_ROUNDS)
+    ApplySpellRES("b-hkshd",Myself)
+END
+
+IF
+  HPPercentLT(Myself,50)
+  GlobalLT("ethereal","LOCALS",3)
+THEN
+  RESPONSE #100
+    IncrementGlobal("ethereal","LOCALS",1)
+    ReallyForceSpellRES("b-hketh",Myself)
+END
+
+IF
+  !See(NearestEnemyOf(Myself))
+  !GlobalGT("vanished","LOCALS",0)
+THEN
+  RESPONSE #100
+    SetGlobal("vanished","LOCALS",1)
+    ReallyForceSpellRES("b-hkinv",Myself)
+END
+
+IF
+  HPPercentLT(Myself,25)
+  !CheckSpellState(Myself,CONTINGENCY_TRIGGERED)
+THEN
+  RESPONSE #100
+    ReallyForceSpell(Myself,WIZARD_IMPROVED_INVISIBILITY)
+END
+
+IF
+  !GlobalTimerNotExpired("castspell","LOCALS")
+  See(NearestEnemyOf(Myself))
+THEN
+  RESPONSE #100
+    SetGlobalTimer("castspell","LOCALS",6)
+    AttackReevaluate(NearestEnemyOf(Myself),30)
+END
