@@ -808,7 +808,7 @@ lab round (light and shadow in a second hide probe, and a party of the same stre
 fights, which also show the replacement in whole fights, thieves in whole fights, the veil in game,
 the prebuffs in game); then the boss fights, designed with Christopher one by one (Melissan's own
 among them). The Erinyes' withdrawal
-comes with a later "disengage" step. After the release: traps, scripted encounter phases, a harder
+comes with a later "disengage" step (SCS's blueprint for it: FIGHT-01, "Disengage"). After the release: traps, scripted encounter phases, a harder
 Insane, groups that share spells, quests.
 
 ## To design with Christopher

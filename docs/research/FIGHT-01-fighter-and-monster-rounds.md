@@ -957,6 +957,39 @@ labs agree byte for byte, twins included; 16 mutations checked.
 Still to see in game: the `prep` rows, the engine's first round right after a held first-round
 cast, the prebuffed Haste reaching allies, and SCS's long conditions in compiled scripts.
 
+### Disengage: SCS's blueprint (2026-10-28, nothing built)
+
+Step 5 of the order agreed on 2026-10-27; the gameplay design is Christopher's. Read in SCS 35.21's
+source (credit DavidW) and the SR lab's spell files:
+
+- **Out of melee:** the Erinyes, an archer, jumps with its Teleport Without Error (`SPIN159`, a real
+  innate that moves its caster to the target) next to an enemy farther than 15 when one stands within
+  8, at most every 12 seconds (`fiend/ssl/erinyes.ssl`); invisible, it runs from an enemy within 15.
+  Other fiends, mind flayers and phase spiders teleport only toward enemies, as the engine's fight
+  jumps do. No mage script escapes melee: SCS's Dimension Doors chase enemies, and Mislead is a
+  prebuff.
+- **Badly hurt:** below a quarter of its hit points and in sight of an enemy, the Erinyes casts
+  `DRYAD_TELEPORT` (`SPWI995`) at itself by script (`ForceSpell`): a glow, and opcode 68 removes it
+  from the game 2 seconds later. The party gets neither experience nor loot, and nothing brings it
+  back. Ascension's allies of Melissan (`ascension/ssl/fin*.ssl`) leave the same way below 15 %, once,
+  and only while their nearest enemy has more than a fifth of its hit points left; there Balors and
+  succubi destroy themselves (`DestroySelf`). No difficulty setting gates any of it.
+- **Rest:** a creature with SCS's `lib/ssl/common_rest.ssl` (fiends, mind flayers, dragons, the
+  Shade Lord and others) that has detected no enemy for 2,400 game seconds (8 game hours, 40
+  minutes of play) heals to full by script (`SPIN746`, poison and disease too) and rests.
+- **Summons** go back to their summoner when no enemy is in sight and the summoner is farther than
+  30: fiends by a free Teleport (`ReallyForceSpell`), others on foot.
+- **Morale:** SCS sets none; it reads panic only to choose targets (beholders, Melissan). Fear and
+  panic come from the game's own morale and from spells.
+- **Story exits** at low hit points (Bodhi's and Abazigal's dialogues, a dragon turning neutral)
+  belong to their encounters, not to this step.
+
+Open for Christopher: whether badly hurt creatures leave at all, and if so whether they come back
+later healed or leave for good (the player then loses their experience and loot); whether casters
+free themselves from melee with their own spells (Dimension Door, Mislead, Invisibility); and whether
+morale should make dull creatures run, for example when their leader falls. Settled by his rules:
+real, visible abilities only (no free teleports), and every tactic by wit.
+
 ## Agreed (Christopher, 2026-10-25)
 
 1. **Target choice by worth, with overrides.** Not SCS's fixed list ("Ich würde es nicht eins zu
