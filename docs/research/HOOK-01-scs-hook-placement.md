@@ -171,9 +171,12 @@ Python, and `tests/integration/test_hook_installer.py` checks they agree.
    or below the anchor and in its copy above the hook, gets the condition
    `!EEex_LuaTrigger(...BGSE_Hide(...,'plain')...)` or `'improved'`: last, or first when its
    triggers end in an OR group that lacks members (rule 6), and after the cloud's and the hunt's
-   conditions. It stands aside while the engine hides the creature its own way: plain invisibility
-   for every thief the engine drives that has a Hide in Shadows skill, and for every creature that
-   got an innate invisibility for it (rule 10). A creature with thief levels whose script slots name
+   conditions. It stands aside while the engine hides the creature its own way (`api:hides`, for a
+   creature the engine drives): a plain one when the creature can hide by its skill (a thief with a
+   Hide in Shadows skill) or has an innate invisibility it may veil itself with (a plain one, or an
+   improved one that comes back within a minute: a gift of rule 10 or its own, such as the mind
+   flayers' Psionic Superior Invisibility); an improved one when it has an improved innate
+   invisibility. One it used counts while it comes back (FIGHT-01, "F2f-5"). A creature with thief levels whose script slots name
    a script with such a block, and that no PDIALOG row names (no joinable NPC), gets thief skills for
    its level (FIGHT-01, "F2f").
 

@@ -997,4 +997,31 @@ assert(h.strike.conditions[1].caster==true)
 end)()
 groups=groups+1
 
+-- When an ability is back after its use (recharge): a 171 that gives the spell itself back to its
+-- caster, delayed by its duration (the installer's innate copies, Planar Travel) or at once
+-- (Teleport Without Error), in its effects or its casting effects, whatever the case of its name.
+-- None without one (spent until the caster rests), for a 171 of another spell or one that gives the
+-- spell to the creature it is cast at; the shortest of two counts.
+;(function()
+local function veil(effects,fields,casting)
+    local r=spl('BGW20606',{ability(effects,fields)},{spellType=4})
+    r.casting=casting or {}
+    return classify(r,world({}))
+end
+local invisible=fx(20,{target=1,timing=1})
+local gone=fx(172,{target=1,timing=1,res='BGW20606'})
+local c=veil({invisible,gone,fx(171,{target=1,timing=4,duration=6,res='BGW20606'})},{target=5})
+assert(c.recharge==6 and c.roles.protection.kinds.invisible and c.spellType==4)
+assert(veil({invisible,gone,fx(171,{target=1,timing=1,res='BGW20606'})},{target=5}).recharge==0)
+assert(veil({invisible,fx(171,{target=1,timing=4,duration=1000,res='bgw20606'})},{target=5}).recharge==1000)
+assert(veil({invisible},{target=5}).recharge==nil)
+assert(veil({invisible,fx(171,{target=1,timing=4,duration=6,res='SPWI206'})},{target=5}).recharge==nil)
+assert(veil({invisible,fx(171,{target=2,timing=4,duration=6,res='BGW20606'})},{target=1}).recharge==nil)
+assert(veil({invisible,fx(171,{target=2,timing=4,duration=6,res='BGW20606'})},{target=5}).recharge==6)
+assert(veil({invisible},{target=5},{fx(171,{target=1,timing=3,duration=12,res='BGW20606'})}).recharge==12)
+assert(veil({invisible,fx(171,{target=1,timing=4,duration=18,res='BGW20606'}),
+    fx(171,{target=1,timing=4,duration=30,res='BGW20606'})},{target=5}).recharge==18)
+end)()
+groups=groups+1
+
 return groups

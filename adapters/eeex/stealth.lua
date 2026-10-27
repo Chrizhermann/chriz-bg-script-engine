@@ -1,12 +1,16 @@
--- EEex side of a thief's own hide (combat-intent/stealth.lua), for the choice adapter
--- (adapters/eeex/choice.lua). It reads what the rule needs of the creature (its class, its Hide in
--- Shadows skill and the game's modal state), keeps for each creature whether its stretch out of
--- sight draws the hide and when it last tried, and holds a try: while the creature runs the game's
--- Hide() action (graceTicks until it starts) or stays in the game's stealth mode, until it is hidden
--- and hideTicks at most, never once an enemy shows or the creature is hurt. Then the try is judged:
--- a 'hidden' row tells whether the creature came out invisible (STATE_INVISIBLE, which the game's
--- hiding in shadows sets as players know it; a lab is to measure it) and what the game's own hiding
--- fields read, where the engine offers them. Session-local; a load forgets it all.
+-- EEex side of a thief's own hide and a monster's veil (combat-intent/stealth.lua), for the choice
+-- adapter (adapters/eeex/choice.lua). It reads what the rule needs of the creature (its class, its
+-- Hide in Shadows skill and the game's modal state), keeps for each creature whether its stretch out
+-- of sight draws the hide or veil and when it last tried, and holds a hide: while the creature runs
+-- the game's Hide() action (graceTicks until it starts) or stays in the game's stealth mode, until it
+-- is hidden and hideTicks at most, never once an enemy shows or the creature is hurt. Then the try is
+-- judged: a 'hidden' row tells whether the creature came out invisible (STATE_INVISIBLE, which the
+-- game's hiding in shadows sets as players know it; a lab is to measure it) and what the game's own
+-- hiding fields read, where the engine offers them. A veil is a cast of the creature's innate
+-- invisibility at itself, which the choice adapter queues, holds and judges as its other casts: a
+-- 'veil' row when it is queued and a 'veiled' row with whether the creature is invisible after it.
+-- Which kinds of innate invisibility a creature has (owns) also counts those coming back after their
+-- use. Session-local; a load forgets it all.
 local sense=require('adapters.eeex.sense')
 local stealth=require('combat-intent.stealth')
 local search=require('combat-intent.search')
@@ -19,7 +23,13 @@ M.skillStat=135
 M.graceTicks=8
 M.hideTicks=45
 M.cacheLimit=1024
+-- Give Innate Ability (opcode 171), and the live m_durationType of a delayed effect while its delay
+-- runs: 6 for a delayed limited one, 7 for a delayed permanent one (ie-duration, BG2:EE 2.7.3.0). An
+-- innate ability that comes back after its use waits so in its user's timed effects.
+M.GIVE=171
+M.PENDING={[6]=true,[7]=true}
 local INVISIBLE=targeting.STATE.invisible
+local UNSEEN=targeting.STATE.invisible+targeting.STATE.improvedInvisible
 
 -- A field of the sprite, or nil when the engine does not offer it.
 local function field(sprite,name)
@@ -27,13 +37,17 @@ local function field(sprite,name)
     if ok and (type(v)=='number' or type(v)=='boolean') then return v end
     return nil
 end
+local function text(value) return (value:match('^[^%z]*'):upper()) end
 
+-- options: record (the log), rng, classify(resref) (a spell's classification, combat-intent/
+-- spells.lua, or nil).
 function M.new(g,options)
     options=options or {}
     local record=type(options.record)=='function' and options.record or function() end
+    local classify=type(options.classify)=='function' and options.classify or function() return nil end
     local rng=options.rng
     local states,stateCount={},0
-    local counts={hides=0,hidden=0,unhidden=0,draws=0}
+    local counts={hides=0,hidden=0,unhidden=0,draws=0,veils=0,veiled=0,unveiled=0}
     local hider={}
     local function state(id)
         local s=states[id]
@@ -56,22 +70,56 @@ function M.new(g,options)
     end
     -- Whether the creature can hide by its own skill (stealth.able).
     function hider:able(sprite) return stealth.able(read(sprite,{})) end
+    -- The kinds of innate invisibility the creature has (stealth.kind), ready or used, and those coming
+    -- back to it after their use (a delayed 171 in its timed effects, M.PENDING): {plain, improved,
+    -- veil: one of them may veil it (stealth.veiling)}. Asked once a tick per creature at most.
+    function hider:owns(sprite,tick)
+        local s=state(sprite.m_id)
+        if s.owned and s.ownedAt==tick then return s.owned end
+        local out={}
+        local function note(resref)
+            if resref=='' then return end
+            local c=classify(resref)
+            local kind=stealth.kind(c)
+            if not kind then return end
+            out[kind]=true
+            if stealth.veiling({kind=kind,recharge=c.recharge}) then out.veil=true end
+        end
+        g.EEex_Utility_IterateCPtrList(sprite.m_memorizedSpellsInnate:getReference(0),function(spell)
+            note(text(spell.m_spellId:get()))
+        end)
+        local seen=0
+        g.EEex_Utility_IterateCPtrList(sprite.m_timedEffectList,function(e)
+            seen=seen+1
+            if seen>sense.maxEffects then return true end
+            if e.m_effectId==M.GIVE and M.PENDING[e.m_durationType] then note(text(e.m_res:get())) end
+        end)
+        s.owned,s.ownedAt=out,tick
+        return out
+    end
     -- An enemy in sight: the stretch out of sight is over, and the next draws afresh.
     function hider:fight(id)
         local s=states[id]
         if s then s.tactical=nil end
     end
     -- With no enemy in sight: the rule's decision (stealth.decide), or nil and why. m: the creature's
-    -- profile; orders: its designer's orders. A creature that could hide draws once a stretch whether
-    -- it thinks of it (search.draw, by its wit).
-    function hider:decide(sprite,frame,tick,m,orders)
+    -- profile; orders: its designer's orders; rows: its ready spells and innate abilities, classified
+    -- (for its veils). A creature that could hide or veil itself draws once a stretch whether it
+    -- thinks of it (search.draw, by its wit).
+    function hider:decide(sprite,frame,tick,m,orders,rows)
         local self=read(sprite,frame.self)
         local s=state(self.id)
-        if s.tactical==nil and stealth.able(self) and type(m)=='table' and m.hide~=false then
+        local able=stealth.able(self)
+        local veils=not able and stealth.veils(rows) or nil
+        if s.tactical==nil and (able or stealth.pick(veils)~=nil) and type(m)=='table' and m.hide~=false then
             s.tactical=search.draw(m,rng);counts.draws=counts.draws+1
         end
-        local d,why=stealth.decide({tick=tick,frame=frame,mind=m,orders=orders,tactical=s.tactical,tried=s.tried})
-        if d then d.skill,d.tactical,d.wit=self.hideSkill,s.tactical,type(m)=='table' and m.wit or nil end
+        local d,why=stealth.decide({tick=tick,frame=frame,veils=veils,mind=m,orders=orders,tactical=s.tactical,
+            tried=s.tried})
+        if d then
+            d.skill=d.kind=='hide' and self.hideSkill or nil
+            d.tactical,d.wit=s.tactical,type(m)=='table' and m.wit or nil
+        end
         return d,why
     end
     -- The try queued at tick (Hide()): held from here, with a 'hide' row.
@@ -83,6 +131,21 @@ function M.new(g,options)
         counts.hides=counts.hides+1
         record({kind='hide',tick=tick,member=id,skill=decision.skill,wit=decision.wit,tactical=decision.tactical,
             ordered=decision.ordered,greyed=field(sprite,'m_nStealthGreyOut')})
+    end
+    -- A veil queued at tick (its cast, which the choice adapter holds): a 'veil' row, and the try
+    -- counts for the round.
+    function hider:veil(sprite,decision,tick)
+        state(sprite.m_id).tried=tick
+        counts.veils=counts.veils+1
+        record({kind='veil',tick=tick,member=sprite.m_id,spell=decision.spell,improved=decision.improved,
+            recharge=decision.recharge,wit=decision.wit,tactical=decision.tactical,ordered=decision.ordered})
+    end
+    -- A veil's cast once it is over (the choice adapter's judgement): a 'veiled' row with whether its
+    -- caster is invisible now.
+    function hider:judge(sprite,cast)
+        local hidden=targeting.has(g.EEex_Sprite_GetState(sprite),UNSEEN)
+        if hidden then counts.veiled=counts.veiled+1 else counts.unveiled=counts.unveiled+1 end
+        record({kind='veiled',tick=cast.ended,member=cast.caster,spell=cast.resref,hidden=hidden})
     end
     -- Whether the try goes on (see the top); once it is over it is judged.
     function hider:holding(sprite,id,tick)

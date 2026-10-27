@@ -701,8 +701,8 @@ innate abilities later (F2f-5), each as often as SCS gives it.
   where EEex offers them). The hidden thief then searches, goes behind its enemy and stabs (F2d).
 - **Who stands aside** (`api:hides`): SCS's plain free invisibility, for every creature the engine
   drives (as for its search) that can hide by its skill, whatever its wit: a dull thief no longer
-  turns invisible at all. Improved invisibility and every creature that cannot hide by its skill
-  keep SCS's. A creature off the engine's side, the engine switched off or an error: SCS's block
+  turns invisible at all. Since F2f-5 (below) also for every creature with an innate invisibility
+  of its own. A creature off the engine's side, the engine switched off or an error: SCS's block
   runs.
 - **One mode at a time:** a rogue hiding in shadows keeps its hide rather than switch to the Find
   Traps mode for its Detect Illusion.
@@ -779,6 +779,77 @@ creatures' records), the choice adapter's groups 3 and 33 (waits and looks are i
 dead-target case; 12 mutations checked.
 Still to see in game: the fix inside whole fights.
 
+### F2f-5: monsters' free invisibility becomes real abilities (2026-10-28)
+
+Christopher, 2026-10-27: SCS's script-only powers become real, named innate abilities the player can
+see, as often as SCS gives them, with a cooldown that recharges by itself or charges; gameplay
+numbers are his. Agreed per creature: the fiends' invisibility out of sight comes back after a round;
+mind flayers turn invisible out of sight only; Pit Fiends and Bone Fiends get no escape and cast
+their real Improved Invisibility in fights; the Maurezhi gets Improved Invisibility and Blur about
+once per 1,000 seconds, the sirine one charge per rest, the shadow dragons a real recharge and
+Illasera five charges. Mages keep their contingency invisibility and Mislead (SCS's preparation).
+The Erinyes' withdrawal moves to a later step ("disengage").
+
+- **SCS's blocks** (decompiled scripts of the Spell Revisions lab, credit DavidW): fiends (`DEMPIT`,
+  `DW#BONEF`, `ERINYES`, `KARASH`, `TELPIT1`, `DEMMAU01`, `OBSDEM04`) cast `DW#SILIN` whenever they
+  see no enemy and are not invisible; mind flayers (`FLAYER01`, `FLAYER02`, `FLAYUN`) `DW#ILLIN`, SCS's
+  copy of the game's Psionic Superior Invisibility, the same way; the Maurezhi Improved Invisibility
+  and Blur when it sees an enemy, every 1,000 seconds; shadow dragons their Create Shadows whenever
+  they are not invisible; Illasera Ethereal in sight of a PC, five times; the sirine Invisibility once;
+  the brown dragon (`DRAGBROW`) Invisibility and Non-Detection near its enemy, six times. SCS's Pit
+  Fiend block for Improved Invisibility checks `SPWI405`, which Pit Fiends lack: it never fires.
+- **The installer** ([HOOK-01](HOOK-01-scs-hook-placement.md), rule 10) gives each such creature
+  those spells as innate abilities (gifts), as often as the block fires: Invisibility back after a
+  round for fiends (`BGW20606`), Improved Invisibility and Blur back after 1,000 seconds for the
+  Maurezhi, Improved Invisibility back after a round for vampiric illithids, Create Shadows back
+  after a round for shadow dragons, Ethereal five times for Illasera, Invisibility once for the
+  sirines. Not a thief (it hides by its skill), not a kind of invisibility the creature has an innate
+  ability of its own for, nothing for a joinable NPC. In the Spell Revisions lab 33 creatures.
+- **The game's own innates** these creatures carry (host run of the classifier on both labs' files):
+  Pit Fiends' and the Bone Fiend's Improved Invisibility (`SPIN137` with Spell Revisions, `SPIN129`
+  without) and the Erinyes' Invisibility (`SPIN167`, `SPIN147`) remove and give themselves back at
+  once (opcodes 172 and 171), so they never run out; the mind flayers' Psionic Superior
+  Invisibility (`SPIN544`) comes back after 12 seconds.
+- **When an ability comes back** (`combat-intent/spells.lua`, `recharge`): a 171 that gives the
+  spell itself back to its caster, at once (0) or delayed by its duration; nil when it is spent until
+  the creature rests.
+- **The engine's veil** (`combat-intent/stealth.lua`, `adapters/eeex/stealth.lua`): a creature that
+  cannot hide by its skill and sees no enemy, once no zone hurts it and no friend in sight needs a
+  heal or cure, casts an innate invisibility it has ready at itself (`SpellRES(…,Myself)`), with the
+  game's normal casting time, like the engine's other casts. Which: what its effects do counts (an
+  opcode 20 on the creature it is cast at, aimed at itself or a creature), plain before improved,
+  plain whatever its charges (it lasts until the creature acts), improved only when it comes back
+  within 60 seconds (`veilRecharge`): a vampiric illithid's after a round and a mind flayer's after
+  12 seconds veil, the Maurezhi's after 1,000 seconds and Illasera's five charges stay for the
+  fight, where the choice weighs them as defences. One that comes back before one that is spent,
+  the sooner the better, then the faster cast. Wit, orders and one try a round as for the hide.
+  Right before it is queued: a creature that turned invisible meanwhile needs none. A `veil` row
+  logs it (spell, kind, recharge, wit, draw, orders), a `veiled` row two seconds after the cast
+  whether the creature is invisible.
+- **Who stands aside** (`api:hides`, for a creature the engine drives, whatever its wit): SCS's plain
+  free invisibility when it can hide by its skill or has an innate invisibility it may veil itself
+  with; SCS's improved one when it has an improved innate invisibility. One it used counts while it
+  comes back: its 171 waits in the creature's timed effects with the live timing 7 (6 for a delayed
+  limited one) until its delay is over. Without that, SCS's Maurezhi block, whose timer never ran,
+  would give a free Improved Invisibility right after the creature's real one. Asked once a tick per
+  creature at most.
+
+In the two labs the engine sees the gifts as meant (host run of `combat-intent/stealth.lua` on the
+copies as the installer makes them): `BGW20606` plain, back after 6 seconds, veils; `BGW405RS`
+improved, back after 1,000 seconds, no veil; `BGW40506` and Create Shadows' `BGN68706` improved,
+back after 6 seconds, veil; `BGW20600` plain with charges, veils; `ILLAINV` improved with charges, no
+veil; Blur and Non-Detection no invisibility.
+
+Tests: `spells` group 40 (recharge), `stealth` groups 5 to 7 (kind, the creature's veils, the pick,
+the decision), the choice adapter's group 39 (the veil cast, held and judged, the recharge counting
+for `BGSE_Hide`, no second cast while invisible, the 1,000-second Improved Invisibility kept for the
+fight, a vampiric illithid's veil, a lost cast and the round after it, a thief, dull and ordered
+fiends, the check before it is queued, `BGSE_Hide` for each kind) and the installer test of HOOK-01
+rule 10; 24 mutations checked.
+Still to see in game: the copies' recharge (172 and the delayed 171 after a real cast), the
+delayed 171 in the timed effects after a cast as after `EEex_GameObject_ApplyEffect`, and fiends
+veiling themselves in whole fights.
+
 ## Agreed (Christopher, 2026-10-25)
 
 1. **Target choice by worth, with overrides.** Not SCS's fixed list ("Ich würde es nicht eins zu
@@ -842,8 +913,10 @@ Known gaps, for later:
   weighs walking out of sight to hide. The spot behind an enemy is where it stands now, not where a
   walking enemy will be. A backstab counts the weapon's average damage, not its dice.
 - Hiding (F2f): only thieves hide by their skill (rangers, monks and shadowdancers wait for the hide
-  probe); SCS's improved free invisibility and the free invisibility of creatures that cannot hide
-  by their skill (fiends, mind flayers, djinn, the sirine) stay SCS's until F2f-5.
+  probe). A veil (F2f-5) uses innate abilities only, not a mage's memorized Invisibility (that is
+  for the prebuffs), and leaves out invisibilities that reach an area. A creature without an innate
+  invisibility, or whose last one is gone for good, keeps SCS's free one (a creature file the
+  installer did not see, a spell another mod took away).
 - Barbarian Rage's armour class penalty does not count against what it protects; per-cent maximum
   hit points (opcode 18, mode 2) give no hit points; helmets are not read.
 - Movement speed is not read (haste, slow, boots of speed), only the default.

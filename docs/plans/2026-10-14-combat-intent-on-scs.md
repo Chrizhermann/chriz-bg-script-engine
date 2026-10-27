@@ -765,11 +765,28 @@ its own rules. Now a new decision, or a wait, replaces the engine's own running 
 only while that action still runs as the engine queued it, and an attack's hold ends when its target
 dies (FIGHT-01, "A new decision replaces the engine's own running action").
 
-Next: the monsters' invisibility as real innate abilities (F2f-5; Christopher, 2026-10-27: SCS's
-free Improved Invisibility becomes the real spell cast faster), light and shadow in a second hide
-probe, the teleport run again, a stronger party for the mixed fights (which also show the
-replacement in whole fights) and a lab of thieves in whole fights. Melissan's own fight is designed
-with Christopher.
+F2f-5 turned the monsters' free invisibility into real innate abilities (FIGHT-01, "F2f-5";
+Christopher, 2026-10-27). The installer gives each creature whose SCS block casts a free
+invisibility the real spell as an innate ability, as often as the block fires: the fiends'
+Invisibility comes back after a round, the Maurezhi's Improved Invisibility and Blur after 1,000
+seconds, the shadow dragons' Create Shadows after a round, Illasera's Ethereal five times, the
+sirine's Invisibility once. With no enemy in sight, a creature that cannot hide by its skill casts
+such an ability at itself with the game's casting time (a clever one always, a normal one when it
+notices, a dull one never): plain before improved, an improved one only when it comes back within a
+minute (a mind flayer's own Psionic Superior Invisibility does); the others stay for the fight.
+SCS's free invisibility stands aside for every creature with such an ability, also while a used one
+comes back. Writing it down showed that Pit Fiends carry the game's own Improved Invisibility at
+will, and that SCS's block for it never fires.
+
+Next, in the order agreed with Christopher on 2026-10-27 for the first release: casters use the
+casting pause to walk into position, with one walk rule for heals and attacks; SCS's prebuffs
+rebuilt in the engine as SCS casts them, except that area buffs really reach the group (phase 1,
+contingencies and sequencers with them); kill chance by the dice; a big lab round (the teleport run
+again, light and shadow in a second hide probe, a stronger party for the mixed fights, which also
+show the replacement in whole fights, thieves in whole fights, the veil in game); then the boss
+fights, designed with Christopher one by one (Melissan's own among them). The Erinyes' withdrawal
+comes with a later "disengage" step. After the release: traps, scripted encounter phases, a harder
+Insane, groups that share spells, quests.
 
 ## To design with Christopher
 

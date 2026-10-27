@@ -2757,4 +2757,151 @@ assert(q7==nil or (q7.text~='FindTraps()' and q7.text~='Hide()'))
 end)()
 groups=groups+1
 
+-- 39. A monster's veil (F2f-5, combat-intent/stealth.lua, adapters/eeex/stealth.lua). A fiend (no
+-- thief) with the installer's innate Invisibility that comes back after a round (172 and a delayed
+-- 171 of itself) sees no enemy: it casts it at itself like the engine's other casts, with a 'veil'
+-- row, held while it runs; once it is over and the fiend is invisible, a 'veiled' row says so, and
+-- it stays invisible without a second cast. Its Improved Invisibility that comes back after 1000
+-- seconds stays for the fight; one back after a round veils. A thief with an innate invisibility
+-- hides instead; a dull fiend does not think of it unless its orders say so; one that turned
+-- invisible before its cast is queued needs none. BGSE_Hide: plain for one that may veil itself,
+-- improved for one with an improved innate invisibility, also while the one it used comes back
+-- (its delayed 171 waits in its timed effects); never for a creature without one.
+;(function()
+local function innate(resref,improved,recharge)
+    local effects={fx(20,{target=1,timing=1,p2=improved and 1 or 0}),fx(172,{target=1,timing=1,res=resref})}
+    if recharge then effects[#effects+1]=fx(171,{target=1,timing=4,duration=recharge,res=resref}) end
+    local r=spl(resref,1,effects,5,1)
+    r.spellType,r.flags,r.abilities[1].speed,r.abilities[1].range=4,0,2,0
+    records[resref]=r
+end
+innate('BGW20606',false,6);innate('BGW405RS',true,1000);innate('BGW40506',true,6)
+local function setup(seed,orders)
+    local w=world()
+    local d=directors.new(w,{reader=reader})
+    local c=choices.new(w,{reader=reader,director=d,seed=seed,orders=orders})
+    local list={}
+    c:setSink(function(row) list[#list+1]=row end)
+    local r=runtime.install(w,{director=d,choice=c,version='test'})
+    local function lastOf(kind) for n=#list,1,-1 do if list[n].kind==kind then return list[n] end end end
+    local function count(kind) local n=0;for _,row in ipairs(list) do if row.kind==kind then n=n+1 end end;return n end
+    local function claimAt(s,tick) w.ticks=tick;return w.BGSE_Claim(s,'mage','s1') end
+    return w,c,r,lastOf,count,claimAt
+end
+local g,ch,root,last,count,claim=setup(81)
+local f=g.add(sprite(1,0,0,255))
+gift(f,'BGW20606')
+assert(claim(f,100)==true)
+g.BGSE_Act(f)
+assert(g.queued[#g.queued].text=='SpellRES("BGW20606",Myself)')
+local v=last('veil')
+assert(v.member==1 and v.spell=='BGW20606' and v.recharge==6 and v.improved==nil and v.wit=='clever' and v.tactical==true)
+local seen=ch:inspect()
+assert(seen.stealth.counts.veils==1 and seen.stealth.counts.draws==1 and seen.pending==1 and last('hide')==nil)
+-- The cast starts and runs: held. It ends with the fiend invisible, the spell gone until its 171
+-- gives it back; judged outcomeTicks later.
+g.ticks=101
+g.listeners.started[1](f,action(31,'BGW20606',-1))
+f.m_curAction=action(31,'BGW20606',-1)
+assert(claim(f,110)==true and ch:inspect().running==1)
+f.m_curAction={m_actionID=0};f.state=0x10
+f.innate[0]={};f.innateButtons={}
+f.m_timedEffectList={{m_effectId=171,m_durationType=7,m_duration=215,m_res=str('BGW20606')}}
+assert(claim(f,125)==false and ch:inspect().reasons['no-enemy']==1)
+assert(claim(f,160)==false)
+local done=last('veiled')
+assert(done.member==1 and done.spell=='BGW20606' and done.hidden==true and done.tick==125)
+seen=ch:inspect().stealth
+assert(seen.counts.veiled==1 and seen.counts.unveiled==0 and count('veil')==1)
+-- Coming back, the Invisibility still counts for BGSE_Hide: SCS's free one stands aside meanwhile.
+assert(g.BGSE_Hide(f,'mage','s1','plain')==true and g.BGSE_Hide(f,'mage','s1','improved')==false)
+-- Back again and seen by nobody, invisible: no second cast.
+gift(f,'BGW20606');f.m_timedEffectList={}
+assert(claim(f,300)==false and count('veil')==1)
+-- Seen, its invisibility lost, the enemy gone again: it veils itself again.
+f.state=0
+local e=g.add(sprite(11,200,0,2))
+assert(claim(f,320)==true)
+e.m_pos={x=5000,y=0}
+assert(claim(f,400)==true)
+g.BGSE_Act(f)
+assert(g.queued[#g.queued].text=='SpellRES("BGW20606",Myself)' and count('veil')==2)
+
+-- Improved Invisibility back after 1000 seconds stays for the fight: no veil, and BGSE_Hide is true for
+-- SCS's improved invisibility only. Back after a round, it veils, and counts for both.
+local g2,_,_,last2,_,claim2=setup(82)
+local m=g2.add(sprite(1,0,0,255))
+gift(m,'BGW405RS')
+assert(claim2(m,100)==false and last2('veil')==nil)
+assert(g2.BGSE_Hide(m,'mage','s1','improved')==true and g2.BGSE_Hide(m,'mage','s1','plain')==false)
+m.innate[0]={};m.innateButtons={}
+m.m_timedEffectList={{m_effectId=171,m_durationType=7,m_duration=15100,m_res=str('BGW405RS')}}
+g2.ticks=101
+assert(g2.BGSE_Hide(m,'mage','s1','improved')==true)
+-- Asked once a tick: within the tick the answer stands. A 171 that already fired (permanent now)
+-- gives nothing back: the creature has none.
+m.m_timedEffectList={{m_effectId=171,m_durationType=1,m_duration=15100,m_res=str('BGW405RS')}}
+assert(g2.BGSE_Hide(m,'mage','s1','improved')==true)
+g2.ticks=102
+assert(g2.BGSE_Hide(m,'mage','s1','improved')==false)
+local g3,ch3,_,last3,count3,claim3=setup(83)
+local illithid=g3.add(sprite(1,0,0,255))
+gift(illithid,'BGW40506')
+assert(claim3(illithid,100)==true)
+g3.BGSE_Act(illithid)
+assert(g3.queued[#g3.queued].text=='SpellRES("BGW40506",Myself)' and last3('veil').improved==true)
+assert(g3.BGSE_Hide(illithid,'mage','s1','plain')==true and g3.BGSE_Hide(illithid,'mage','s1','improved')==true)
+-- Its cast never starts: held, then given up; the next veil waits for the round (90 ticks after the
+-- last), meanwhile the engine's search goes on.
+assert(claim3(illithid,140)==true and ch3:inspect().pending==1)
+assert(claim3(illithid,150)==false and ch3:inspect().counts.lost==1 and count3('veil')==1)
+assert(claim3(illithid,190)==true)
+g3.BGSE_Act(illithid)
+assert(g3.queued[#g3.queued].text=='SpellRES("BGW40506",Myself)' and count3('veil')==2)
+
+-- A thief with an innate invisibility hides by its skill.
+local g4,_,_,last4,_,claim4=setup(84)
+local t=g4.add(sprite(1,0,0,255))
+t.m_typeAI.m_Class=4;t.stats[135]=60;t.m_nModalState=0
+gift(t,'BGW20606')
+assert(claim4(t,100)==true)
+g4.BGSE_Act(t)
+assert(g4.queued[#g4.queued].text=='Hide()' and last4('veil')==nil)
+-- A dull fiend (INT 4, WIS 8) does not think of it; with orders to hide it veils.
+local g5,ch5,_,last5,_,claim5=setup(85)
+local dull=g5.add(sprite(1,0,0,255,{stats={[1]=40,[38]=4,[39]=8}}))
+gift(dull,'BGW20606')
+assert(claim5(dull,100)==false and last5('veil')==nil and ch5:inspect().stealth.counts.draws==1)
+local g6,_,_,last6,_,claim6=setup(86,{TEST1={hide=true}})
+local ordered=g6.add(sprite(1,0,0,255,{stats={[1]=40,[38]=4,[39]=8}}))
+gift(ordered,'BGW20606')
+assert(claim6(ordered,100)==true)
+g6.BGSE_Act(ordered)
+assert(g6.queued[#g6.queued].text=='SpellRES("BGW20606",Myself)' and last6('veil').ordered==true)
+-- Invisible before its cast is queued (a friend's spell): skipped, no 'veil' row.
+local g7,ch7,_,last7,_,claim7=setup(87)
+local quick=g7.add(sprite(1,0,0,255))
+gift(quick,'BGW20606')
+assert(claim7(quick,100)==true)
+quick.state=0x10
+g7.BGSE_Act(quick)
+assert(#g7.queued==0 and last7('veil')==nil and ch7:inspect().counts.skipped==1)
+
+-- BGSE_Hide is false for a creature without an innate invisibility (no thief), one off the engine's
+-- side and with the choice off.
+local g8=setup(88)
+local plain=g8.add(sprite(1,0,0,255))
+assert(g8.BGSE_Hide(plain,'mage','s1','plain')==false and g8.BGSE_Hide(plain,'mage','s1','improved')==false)
+gift(plain,'BGW20606');g8.ticks=101
+assert(g8.BGSE_Hide(plain,'mage','s1','plain')==true and g8.BGSE_Hide(plain,'mage','s1','other')==false)
+plain.m_typeAI.m_EnemyAlly=128
+assert(g8.BGSE_Hide(plain,'mage','s1','plain')==false)
+plain.m_typeAI.m_EnemyAlly=255
+root.setChoice(false)
+assert(g.BGSE_Hide(f,'mage','s1','plain')==false)
+root.setChoice(true)
+assert(g.BGSE_Hide(f,'mage','s1','plain')==true and ch:inspect().counts.errors==0)
+end)()
+groups=groups+1
+
 return groups

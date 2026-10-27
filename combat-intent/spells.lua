@@ -1172,13 +1172,34 @@ local function releaseRange(c,record,ability,state,where)
     if count>=2 then return shortest end
 end
 
+-- When an ability is back after its use, in seconds (0: at once), or nil when it is spent until the
+-- caster rests: a 171 that gives the spell itself back to its caster, at once or delayed (timings 3
+-- to 5 wait their duration). The game's own come back so (Teleport Without Error at once, Planar
+-- Travel after 18 seconds), removing themselves first (172) so that they never pile up, and so do the
+-- installer's innate copies of SCS's free powers (bgse/lib/hook.tpa, F2f-5).
+local function recharge(c,record,ability,where)
+    if record.kind~='SPL' or type(record.resref)~='string' or record.resref=='' then return nil end
+    local own=record.resref:upper()
+    local back
+    for n,list in ipairs({ability.effects,record.casting}) do
+        for _,e in ipairs(type(list)=='table' and list or {}) do
+            if type(e)=='table' and valid(e) and e.opcode==171 and e.res:upper()==own and
+                receiver(c,e,n==1 and where or 'self')=='self' then
+                local t=delay(e)
+                if back==nil or t<back then back=t end
+            end
+        end
+    end
+    return back
+end
+
 -- Classify ability `index` (1-based) of a SPL or ITM record. options.level is the caster level
 -- used for spells cast through other spells; options.weapons=false leaves created weapons
 -- unread (a strike is read without them). c.sources names the record and every spell and EFF
 -- file it delivers through: an effect it lands carries one of them as its source. A release
 -- (releaseRange) is marked c.release, with its spells' shortest range as c.range and its own as
--- c.ownRange. A spell that ends its own condition is walked twice (ownEnds); options.ends is that
--- second walk's.
+-- c.ownRange. c.recharge is when the ability is back after its use (recharge). A spell that ends
+-- its own condition is walked twice (ownEnds); options.ends is that second walk's.
 function M.classify(record,index,lookup,options)
     options=options or {}
     local c={roles={},unknown={},reasons={},opcodes={},sources={},conditions={},conditionAt={},log={},nodes={},
@@ -1226,6 +1247,7 @@ function M.classify(record,index,lookup,options)
     end
     local reach=releaseRange(c,record,ability,state,where)
     if reach then c.release=true;c.ownRange=c.range;c.range=reach end
+    c.recharge=recharge(c,record,ability,where)
     spent(c.hits)
     c.times=nil;c.owner=nil;c.node=nil;c.when=nil;c.inherit=nil;c.conditionAt=nil;c.delay=nil;c.filter=nil
     c.aim=nil;c.remap=nil
