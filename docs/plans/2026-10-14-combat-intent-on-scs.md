@@ -755,7 +755,10 @@ Building it showed that a rogue's Find Traps for its Detect Illusion never ran.
 The hide probe showed that Hide() works for creatures outside the party and that both skills
 count, Move Silently more (FIGHT-01). The lab of mixed fights ran without errors, but its party
 lost every fight, so it tells little about the engine against SCS. The teleport lab's second run
-stopped at its first console command.
+stopped at its first console command; its third run (2026-10-28) showed the jumps: a fiend with
+only its teleport left stood next to its enemy 1.4 seconds into the fight, and a glabrezu with all
+its powers cast its Confusion first and walked under the casting pause (FIGHT-01, "Jumps into the
+fight").
 
 In one of those fights a glabrezu chose to teleport and never did: its attack went on at a dead
 body for 90 seconds. The game leaves the actions a script block queued running while that block
@@ -800,8 +803,8 @@ than its average left kills as often as the dice say, not always, and one with a
 still die. A cloud's explosions add up before the kill counts: a creature that one more explosion
 would likely kill now sees the worth of leaving.
 
-Next, in the order agreed with Christopher on 2026-10-27 for the first release: a big lab round
-(the teleport run again, light and shadow in a second hide probe, a stronger party for the mixed
+Next, in the order agreed with Christopher on 2026-10-27 for the first release: the rest of the big
+lab round (light and shadow in a second hide probe, and a party of the same strength for the mixed
 fights, which also show the replacement in whole fights, thieves in whole fights, the veil in game,
 the prebuffs in game); then the boss fights, designed with Christopher one by one (Melissan's own
 among them). The Erinyes' withdrawal

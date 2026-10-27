@@ -326,6 +326,16 @@ Suldanessellar balor (`SUDEMON2`) never asked the engine: the first two blocks o
 attack neutral creatures (the city's elves) while it senses the party, and the lab's watching PC
 was neutral.
 
+In the third run (2026-10-28, build `0e15f77`; the second stopped at its first console command) the
+watching PC was no longer exactly neutral (EA 129), so the balor's first blocks left it alone, and
+each fiend fought a dummy of the party's side 400 away. With only its teleport left the glabrezu jumped at once (Teleport Without Error, worth 0.40),
+and so did the balor (BGSETELE, worth 0.59): each stood 48 from the dummy 1.4 seconds into the fight
+and hit it within two seconds more. With all its powers the glabrezu chose its Confusion first
+(worth 0.61 against 0.36 for the jump), now the engine's own choice, then walked the 400 under the
+casting pause (6 seconds left, the walk 3.4) and attacked. The direct casts again named every
+teleport in the log, SCS's own forced one with its target, and BGSETELE came back 18.7 seconds
+after its use and refused a cast in between.
+
 ### F1e: fighters and monsters switched on (2026-10-26)
 
 The engine takes the rounds of all four families now: the choice (`adapters/eeex/choice.lua`,
