@@ -170,4 +170,166 @@ stackedRoot.setFamily('mage',true)
 over.alive=false
 assert(stacked.BGSE_Search(over,'mage','s1')==false and stacked.BGSE_Hide(over,'mage','s1','plain')==false)
 assert(stackedRoot.inspect().counts.errors==0)
-return 9
+
+-- 10. The game leaves the actions a block queued running while that block stays true. A claim for
+-- a new decision, or for a hold with the creature standing still, clears the response set number
+-- of the block that queued the engine's own running actions, so the game interrupts them; only
+-- while they run as the hook's last response queued them. A hold leaves them alone, and so does
+-- anything else in the creature's queue (a story's action behind them), another block's actions,
+-- a load and a response that ran outside a script block.
+local w=world()
+w.EEex_Utility_IterateCPtrList=function(t,fn) for _,x in ipairs(t) do if fn(x) then break end end end
+-- The actions each response queues (300: SelectWeaponAbility, a number made up for the test).
+local parsed={['AttackOneRound(X)']={105},['MoveToPoint([1.2])']={23},['SelectWeaponAbility(1,0)AttackOneRound(X)']={300,105}}
+w.EEex_Action_QueueResponseStringOnAIBase=function(text,object)
+    w.queued[#w.queued+1]=text
+    local q=object.m_queuedActions
+    for _,id in ipairs(parsed[text]) do q[#q+1]={m_actionID=id} end
+    q.m_nCount=#q
+end
+local brute=creature(4)
+brute.m_curAction,brute.m_queuedActions={m_actionID=0},{m_nCount=0}
+brute.m_curScriptNum,brute.m_curResponseSetNum,brute.m_curResponseNum=-1,-1,-1
+w.objects[4]=brute
+local function push(o,id) local q=o.m_queuedActions;q[#q+1]={m_actionID=id};q.m_nCount=#q end
+local function clear(o) o.m_curAction,o.m_queuedActions={m_actionID=0},{m_nCount=0} end
+-- The hook block's response: the game records the block (override script, block 1), its
+-- EEex_LuaAction (472) runs BGSE_Act, and then the first queued action starts.
+local function respond(o)
+    o.m_curScriptNum,o.m_curResponseSetNum,o.m_curResponseNum=0,1,1
+    o.m_curAction={m_actionID=472}
+    w.BGSE_Act(o)
+    local q=o.m_queuedActions
+    o.m_curAction=table.remove(q,1) or {m_actionID=0};q.m_nCount=#q
+end
+local answer
+local heard={}
+local wroot=adapter.install(w,{decide=function() return answer end,
+    replaced=function(object,info) heard[#heard+1]={id=object.m_id,kind=info.kind,action=info.action,left=info.left} end})
+local function claim() w.ticks=w.ticks+1;return w.BGSE_Claim(brute,'mage','s1') end
+-- A pass decides the response, and the hook block's response runs it.
+local function run(response)
+    clear(brute);answer={response=response}
+    assert(claim()==true)
+    respond(brute)
+end
+run('AttackOneRound(X)')
+assert(brute.m_curAction.m_actionID==105 and brute.m_curResponseSetNum==1 and w.queued[#w.queued]=='AttackOneRound(X)')
+answer={hold=true}
+assert(claim()==true and brute.m_curResponseSetNum==1 and wroot.inspect().replaced.count==0)
+answer={response='MoveToPoint([1.2])'}
+assert(claim()==true and brute.m_curResponseSetNum==-1)
+assert(wroot.inspect().replaced.count==1 and #heard==1 and heard[1].id==4 and heard[1].kind=='decision')
+assert(heard[1].action==105 and heard[1].left==1)
+-- Asked again in the same pass, they give way only once.
+brute.m_curResponseSetNum=1
+assert(w.BGSE_Claim(brute,'mage','s1')==true and brute.m_curResponseSetNum==1 and #heard==1)
+-- The game interrupts them and runs the response: the walk is the engine's own now. A story's
+-- action added behind it keeps it, until that is gone; then a wait replaces it.
+clear(brute);respond(brute)
+assert(brute.m_curAction.m_actionID==23 and w.queued[#w.queued]=='MoveToPoint([1.2])')
+push(brute,106)
+answer={hold=true,idle=true}
+assert(claim()==true and brute.m_curResponseSetNum==1 and #heard==1)
+brute.m_queuedActions={m_nCount=0}
+assert(claim()==true and brute.m_curResponseSetNum==-1 and #heard==2 and heard[2].kind=='idle' and heard[2].action==23)
+-- Two actions queued: they give way while both are left and once the first is done, not when
+-- something else runs in their place.
+run('SelectWeaponAbility(1,0)AttackOneRound(X)')
+assert(brute.m_curAction.m_actionID==300 and brute.m_queuedActions.m_nCount==1)
+assert(claim()==true and brute.m_curResponseSetNum==-1 and #heard==3 and heard[3].action==300 and heard[3].left==2)
+run('SelectWeaponAbility(1,0)AttackOneRound(X)')
+brute.m_curAction=table.remove(brute.m_queuedActions,1);brute.m_queuedActions.m_nCount=0
+assert(brute.m_curAction.m_actionID==105 and claim()==true and brute.m_curResponseSetNum==-1 and #heard==4)
+run('SelectWeaponAbility(1,0)AttackOneRound(X)')
+brute.m_curAction={m_actionID=23};brute.m_queuedActions={m_nCount=0}
+assert(claim()==true and brute.m_curResponseSetNum==1 and #heard==4)
+-- Another block took over: its actions are its own, and the engine's record of its own is gone.
+run('AttackOneRound(X)')
+brute.m_curResponseSetNum=4
+answer={response='MoveToPoint([1.2])'}
+assert(claim()==true and brute.m_curResponseSetNum==4)
+brute.m_curResponseSetNum=1
+assert(claim()==true and brute.m_curResponseSetNum==1 and #heard==4)
+-- A load forgets which actions were the engine's own, and so does a response that queues nothing:
+-- an attack a story's script queues later in the same block's name is not the engine's.
+run('AttackOneRound(X)')
+w.listeners[1]()
+answer={response='MoveToPoint([1.2])'}
+assert(claim()==true and brute.m_curResponseSetNum==1 and #heard==4)
+run('AttackOneRound(X)')
+clear(brute);answer={hold=true}
+assert(claim()==true)
+respond(brute)
+brute.m_curAction={m_actionID=105}
+answer={response='MoveToPoint([1.2])'}
+assert(brute.m_curResponseSetNum==1 and claim()==true and brute.m_curResponseSetNum==1 and #heard==4)
+-- A response that ran outside a script block (no response set), or found the queue taken, queues
+-- nothing the engine counts as its own.
+clear(brute);brute.m_curScriptNum,brute.m_curResponseSetNum,brute.m_curResponseNum=-1,-1,-1
+answer={response='AttackOneRound(X)'}
+assert(claim()==true)
+w.BGSE_Act(brute)
+brute.m_curAction=table.remove(brute.m_queuedActions,1);brute.m_queuedActions.m_nCount=0
+answer={response='MoveToPoint([1.2])'}
+assert(brute.m_curAction.m_actionID==105 and claim()==true and #heard==4)
+brute.m_curScriptNum,brute.m_curResponseSetNum,brute.m_curResponseNum=0,1,1
+assert(claim()==true and brute.m_curResponseSetNum==1 and #heard==4)
+clear(brute);push(brute,106);answer={response='AttackOneRound(X)'}
+assert(claim()==true)
+respond(brute)
+assert(brute.m_curAction.m_actionID==106 and brute.m_queuedActions.m_nCount==1)
+answer={response='MoveToPoint([1.2])'}
+assert(claim()==true and brute.m_curResponseSetNum==1 and #heard==4)
+-- A sprite that cannot be read is counted, and the claim keeps its answer; a listener that fails
+-- changes nothing.
+run('AttackOneRound(X)')
+brute.m_curAction=setmetatable({},{__index=function() error('freed action') end})
+answer={response='MoveToPoint([1.2])'}
+assert(claim()==true and wroot.inspect().replaced.errors==1 and wroot.inspect().replaced.count==4)
+local failing=world();failing.EEex_Utility_IterateCPtrList=w.EEex_Utility_IterateCPtrList
+failing.EEex_Action_QueueResponseStringOnAIBase=w.EEex_Action_QueueResponseStringOnAIBase
+local other=creature(4);failing.objects[4]=other
+other.m_curAction,other.m_queuedActions={m_actionID=0},{m_nCount=0}
+other.m_curScriptNum,other.m_curResponseSetNum,other.m_curResponseNum=0,1,1
+local fanswer={response='AttackOneRound(X)'}
+local froot=adapter.install(failing,{decide=function() return fanswer end,replaced=function() error('listener broke') end})
+assert(failing.BGSE_Claim(other,'mage','s1')==true)
+failing.BGSE_Act(other)
+other.m_curAction=table.remove(other.m_queuedActions,1);other.m_queuedActions.m_nCount=0
+failing.ticks=failing.ticks+1;fanswer={response='MoveToPoint([1.2])'}
+assert(failing.BGSE_Claim(other,'mage','s1')==true and other.m_curResponseSetNum==-1)
+assert(froot.inspect().replaced.count==1 and froot.inspect().replaced.errors==0)
+-- At most ownLimit creatures' records are kept, and one past it starts afresh; a record that gave
+-- way no longer counts.
+local limit=adapter.ownLimit
+adapter.ownLimit=2
+local pair=world();pair.EEex_Utility_IterateCPtrList=w.EEex_Utility_IterateCPtrList
+pair.EEex_Action_QueueResponseStringOnAIBase=w.EEex_Action_QueueResponseStringOnAIBase
+local panswer
+local proot=adapter.install(pair,{decide=function() return panswer end})
+local crowd={}
+for id=1,4 do crowd[id]=creature(id);pair.objects[id]=crowd[id] end
+local function attack(...)
+    pair.ticks=pair.ticks+1;panswer={response='AttackOneRound(X)'}
+    for _,o in ipairs({...}) do
+        o.m_curAction,o.m_queuedActions={m_actionID=0},{m_nCount=0}
+        o.m_curScriptNum,o.m_curResponseSetNum,o.m_curResponseNum=0,1,1
+        assert(pair.BGSE_Claim(o,'mage','s1')==true)
+        pair.BGSE_Act(o)
+        o.m_curAction=table.remove(o.m_queuedActions,1);o.m_queuedActions.m_nCount=0
+    end
+    pair.ticks=pair.ticks+1
+end
+local function walk(o)
+    panswer={response='MoveToPoint([1.2])'}
+    assert(pair.BGSE_Claim(o,'mage','s1')==true)
+    return o.m_curResponseSetNum==-1
+end
+attack(crowd[1]);assert(walk(crowd[1]))
+attack(crowd[2],crowd[3]);assert(walk(crowd[2]) and walk(crowd[3]))
+attack(crowd[2],crowd[3],crowd[4])
+assert(not walk(crowd[2]) and not walk(crowd[3]) and walk(crowd[4]) and proot.inspect().replaced.count==4)
+adapter.ownLimit=limit
+assert(wroot.inspect().counts.errors==0)
+return 10

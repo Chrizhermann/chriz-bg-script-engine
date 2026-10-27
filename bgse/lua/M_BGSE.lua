@@ -245,15 +245,20 @@ function M.new(config)
         if not ok then failed(id,family,'decide-error',tick);return decline('error') end
         if decision==nil then pending[id]=nil;return decline('no-decision') end
         local copied,result=pcall(values.copy,decision)
-        if not copied or type(result)~='table' or (result.hold~=nil and result.hold~=true) then
+        if not copied or type(result)~='table' or (result.hold~=nil and result.hold~=true) or
+            (result.idle~=nil and (result.idle~=true or result.hold~=true)) then
             failed(id,family,'bad-decision',tick);return decline('error')
         end
         pending[id]={decision=result,tick=tick,family=family}
         bump(counts,'claimed')
-        log:record({kind='claim',actorKey=tostring(id),family=family,reason=result.hold and 'hold' or 'claimed',tick=tick})
-        return true
+        log:record({kind='claim',actorKey=tostring(id),family=family,
+            reason=result.idle and 'idle' or result.hold and 'hold' or 'claimed',tick=tick})
+        return true,result.idle and 'idle' or result.hold and 'hold' or 'decision'
     end
-    -- actor is {id=..., script=...}: the creature and the hooked script that asks.
+    -- actor is {id=..., script=...}: the creature and the hooked script that asks. A claim also
+    -- names its kind: 'decision' (a response to perform), 'hold' (the creature's running action
+    -- goes on) or 'idle' (a hold with the creature standing still: an action of the engine's own
+    -- that still runs is no longer wanted).
     function api:claim(actor,family)
         local id=type(actor)=='table' and rawget(actor,'id')
         if not scalarId(id) then return decline('bad-actor') end
@@ -263,18 +268,19 @@ function M.new(config)
         local tick=now();if not tick then return decline('no-clock') end
         local seen=answers[id]
         if seen and seen.tick==tick then
-            if seen.script==script and seen.family==family then bump(counts,'repeats');return seen.result end
+            if seen.script==script and seen.family==family then bump(counts,'repeats');return seen.result,seen.kind end
             -- Another of the creature's scripts asked first in this pass and decided.
             if seen.script~=script then return decline('lower-script') end
         end
         bump(counts,'reached')
-        local result=evaluate(id,actor,family,tick,script)
-        answers[id]={tick=tick,script=script,family=family,result=result}
-        return result
+        local result,kind=evaluate(id,actor,family,tick,script)
+        answers[id]={tick=tick,script=script,family=family,result=result,kind=kind}
+        return result,kind
     end
     -- A decision is performed once, by the hook's response. {hold=true} claims the round
-    -- without queueing anything, so the creature's running action is left alone; config.held
-    -- (optional) hears of it, and its errors change nothing.
+    -- without queueing anything, so the creature's running action is left alone, and
+    -- {hold=true,idle=true} claims it for the creature to stand still; config.held (optional)
+    -- hears of either, and its errors change nothing.
     function api:act(actor)
         local id=type(actor)=='table' and rawget(actor,'id')
         if not scalarId(id) then return false,'bad-actor' end
@@ -10698,11 +10704,13 @@ factories["adapters.eeex.choice"]=function(require)
 -- Weapon attacks (D2c): the choice also gets the weapon in the caster's hand (sense.attack, with
 -- what its hit casts or applies, classified), its attacks a round and whether the magic weapon
 -- slot is taken. A weapon attack is AttackOneRound at EEex_Target, like a strike; the creature is
--- held while it attacks, or for a round from the attack while its target lives, and then whether
--- its target lost hit points is recorded. AttackOneRound walks to a target out of
--- reach first, as the game's attack actions do, so a creature that chases (F1d) needs no move of
--- its own (a long walk is still to be seen in a lab); the choice row logs the seconds of the walk.
--- A spell that conjures a weapon is cast on the caster.
+-- held while its target lives and it attacks, or for a round from the attack, and then whether
+-- its target lost hit points is recorded. AttackOneRound walks to a target out of reach first, as
+-- the game's attack actions do, and the walk counts toward its round (lab step W), so a creature
+-- that chases (F1d) needs no move of its own; the choice row logs the seconds of the walk. Once its
+-- target died the engine decides again at once, and its new decision, or a wait, replaces the
+-- attack still running (adapters/eeex/hook.lua): the game's attack can go on at a dead target, once
+-- in lab batch I for a minute. A spell that conjures a weapon is cast on the caster.
 --
 -- Healing and curing (D3a, D3b): a heal or cure is cast on the caster, at an ally (sanctuary does
 -- not keep it out) or at a point; a potion is drunk with UseItem. Like a disable, it claims the
@@ -11075,7 +11083,7 @@ function M.new(g,options)
         guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0,arms=0,attacks=0,attackHits=0,
         weaponFailures=0,releases=0,heals=0,cures=0,potions=0,cared=0,uncared=0,summons=0,conjured=0,
         unconjured=0,removals=0,stripped=0,unstripped=0,wardFailures=0,revealed=0,unrevealed=0,landed=0,unlanded=0,
-        jumps=0,debuffs=0,switches=0,kites=0,kited=0,flanks=0,flanked=0}
+        jumps=0,debuffs=0,switches=0,kites=0,kited=0,flanks=0,flanked=0,replaced=0}
     local reasons={}
     local log,nextRow,size={},1,0
     local root,sink,lastError,markError,guardError,weaponError,wardError,zoneError,witError,tableError
@@ -11146,6 +11154,12 @@ function M.new(g,options)
     local function hold()
         counts.holds=counts.holds+1
         return {hold=true,own=true}
+    end
+    -- The same with the creature standing still (a wait, a look): an action of the engine's own that
+    -- still runs gives way (adapters/eeex/hook.lua).
+    local function still()
+        local h=hold();h.idle=true
+        return h
     end
     -- SCS's round timer as the round's marker (see the top), when the hook's response runs at tick:
     -- set for a round once it has run out, and to cover ticks from now at least for a cast or drink
@@ -12102,7 +12116,7 @@ function M.new(g,options)
         local d,why=seeker:decide(sprite,frame,tick,family,m,rows,carried,function(p) return inZone(raw,p.x,p.y) end,own)
         if not d then return decline(why=='given-up' and 'given-up' or 'no-enemy') end
         if director then director:release(id,tick) end
-        if d.kind=='look' then return hold() end
+        if d.kind=='look' then return still() end
         -- The rogue's detection mode works on itself: the enemy it is for (aim) is no target, which
         -- prepare would find invisible and skip.
         if d.kind=='modal' then return {own=true,response='FindTraps()',kind='modal',clue=d.clue,aim=d.target} end
@@ -12166,20 +12180,23 @@ function M.new(g,options)
             local from=math.max(r.started or tick,r.waiting or 0,resumed or 0)
             if frozen(id) or tick-from<=(r.castTicks or 0)+M.walkTicks(r.walk)+M.pendingTicks then return hold() end
         end
-        -- A strike runs while the creature swings, or for a round from it (two rounds at most);
-        -- once its charge is gone it is judged. A weapon attack runs while the creature attacks, or
-        -- for a round from it while its target lives (two rounds at most).
+        -- A strike runs while its target lives and the creature swings, or for a round from it (two
+        -- rounds at most); once its charge is gone it is judged, and a charge still in hand when its
+        -- target died goes to the next choice. A weapon attack runs while its target lives and the
+        -- creature attacks, or for a round from it (two rounds at most). The game's attack can go on
+        -- at a dead target for the rest of its round, once in lab batch I for a minute: the engine
+        -- decides again as soon as the target died.
         local s=strikes[id]
-        if s and s.weapon then
+        if s then
             local target=get(s.target)
             local alive=target~=nil and targeting.alive(sense.actor(g,target))
-            if tick-s.tick<M.strikeTicks and (M.ATTACKS[sprite.m_curAction.m_actionID] or
-                (alive and tick-s.tick<M.roundTicks)) then return hold() end
-            attacked(s,tick)
-        elseif s then
-            if held(sprite)~=s.item then struck(s,tick)
-            elseif tick-s.tick<M.strikeTicks and (M.ATTACKS[sprite.m_curAction.m_actionID] or tick-s.tick<M.roundTicks) then
-                return hold()
+            local going=alive and tick-s.tick<M.strikeTicks and
+                (M.ATTACKS[sprite.m_curAction.m_actionID] or tick-s.tick<M.roundTicks)
+            if s.weapon then
+                if going then return hold() end
+                attacked(s,tick)
+            elseif held(sprite)~=s.item then struck(s,tick)
+            elseif going then return hold()
             else strikes[id]=nil end
         end
         -- A way out of a zone, a step away or a walk behind an enemy runs while the creature walks it
@@ -12200,7 +12217,7 @@ function M.new(g,options)
             if sprite.m_curAction.m_actionID==0 and tick>=w.tick and tick<w.ends and tick-w.tick<M.waitTicks then
                 local d=flee(sprite,id,tick,family)
                 if d then waits[id]=nil;return d end
-                return hold()
+                return still()
             end
             w.over=true
         end
@@ -12288,7 +12305,7 @@ function M.new(g,options)
                     charge=lastCharge,rejected=why=='no-option' and rejected or nil})
             end
             if director then director:release(id,tick) end
-            return hold()
+            return still()
         end
         if d.kind=='escape' then return escaping(d,frame,id,tick,family,why,input.mind) end
         -- A step away from melee enemies, or a walk behind an enemy: walked and held like a way out
@@ -12381,8 +12398,8 @@ function M.new(g,options)
             backstab=d.kind=='weapon' and d.backstab or nil}
     end
     -- From the gate, each time a hooked script asks: nil (the creature's script has the round),
-    -- {hold=true,own=true} while the engine's queued cast has not started, its own action runs or
-    -- it waits, or the decision.
+    -- {hold=true,own=true} while the engine's queued cast has not started or its own action runs,
+    -- {hold=true,own=true,idle=true} while it waits or looks around, or the decision.
     function api:decide(view,family)
         lastReason,lastDetail,lastCharge=nil,nil,nil
         local ok,result=pcall(decide,view,family)
@@ -12573,6 +12590,16 @@ function M.new(g,options)
         end)
         if not ok then failed('held',err) end
     end
+    -- From the gate when a claim lets the engine's own running action give way (adapters/eeex/hook.lua):
+    -- a 'replace' row with the action that gave way, the actions left of it and the claim's kind.
+    function api:replaced(object,info)
+        if type(info)~='table' then return end
+        local ok,err=pcall(function()
+            counts.replaced=counts.replaced+1
+            record({kind='replace',tick=now(),member=object.m_id,action=info.action,left=info.left,claim=info.kind})
+        end)
+        if not ok then failed('replaced',err) end
+    end
 
     function api:setEnabled(value)
         assert(type(value)=='boolean');enabled=value
@@ -12711,6 +12738,17 @@ factories["adapters.eeex.hook"]=function(require)
 -- options.choice (adapters/eeex/choice.lua) is the engine's own choice; options.prepare runs
 -- right before a decision's response is queued and may skip it ('skipped'): a target gone by
 -- then is no error. options.held(object, decision) runs when the hook's response holds instead.
+-- The game leaves the actions a script block queued running while that same block stays true,
+-- and runs its response again only once the creature has nothing left to do; any other block that
+-- fires interrupts them. So the hook block alone could never replace the engine's own running
+-- action with a new decision: once in lab batch I a glabrezu's attack went on at a dead target for
+-- a minute while its teleport waited. The game records which block queued a creature's actions
+-- (m_curScriptNum, m_curResponseSetNum, m_curResponseNum). A claim that wants something else (a
+-- new decision, or a hold with the creature standing still) clears the response set number while
+-- the actions the hook's last response queued still run as queued: the hook block then counts as
+-- another block, and the game interrupts them in the same pass by its own rules (lab step W).
+-- Anything else in the creature's queue, a story's action added behind them for one, keeps it from
+-- happening. options.replaced(object, info) hears of each.
 local hook=require('kernel.hook')
 local M={}
 M.keys={mage='Mages',priest='Priests',fighter='Fighters',monster='Monsters'}
@@ -12773,6 +12811,14 @@ function M.below(g,object,script)
         end
     end
 end
+-- How many creatures' records of the engine's own actions are kept at most.
+M.ownLimit=1024
+-- The action numbers in the creature's queue, in order.
+function M.queued(g,object)
+    local ids={}
+    g.EEex_Utility_IterateCPtrList(object.m_queuedActions,function(action) ids[#ids+1]=action.m_actionID end)
+    return ids
+end
 -- The creature's non-empty scripts from the top slot down, or nil when the stack cannot be read.
 function M.stack(g,object)
     local names=M.scripts(g,object)
@@ -12788,6 +12834,55 @@ function M.install(g,options)
     local settings=M.settings(g)
     local clock=options.now or function() return M.gameTime(g) end
     local director,choice,prepare,held=options.director,options.choice,options.prepare,options.held
+    local replaced=options.replaced
+    -- id -> the block that queued the hook's last response (sn, rs, rn) and the actions it queued;
+    -- owned counts them (at most M.ownLimit: creatures that died with a record keep it until then).
+    local mine,owned={},0
+    local replacing={count=0,errors=0}
+    local function drop(id) if mine[id]~=nil then mine[id]=nil;owned=owned-1 end end
+    -- Right after the hook's response queued a decision: when those actions are all the creature
+    -- has queued and a block of a script queued them, they are the engine's own.
+    local function remember(object,before)
+        local ok,own=pcall(function()
+            local rs=object.m_curResponseSetNum
+            if before~=0 or type(rs)~='number' or rs<0 then return nil end
+            local ids=M.queued(g,object)
+            if #ids==0 then return nil end
+            return {sn=object.m_curScriptNum,rs=rs,rn=object.m_curResponseNum,ids=ids}
+        end)
+        local id=object.m_id
+        drop(id)
+        if ok and own then
+            if owned>=M.ownLimit then mine,owned={},0 end
+            mine[id]=own;owned=owned+1
+        end
+    end
+    -- A claim of kind 'decision' or 'idle': the engine's own actions, while they run as the hook's
+    -- last response queued them, give way to it.
+    local function release(object,kind)
+        local ok=pcall(function()
+            local id=object.m_id
+            local own=mine[id]
+            if not own then return end
+            if object.m_curScriptNum~=own.sn or object.m_curResponseSetNum~=own.rs or object.m_curResponseNum~=own.rn then
+                drop(id);return
+            end
+            local current=object.m_curAction.m_actionID
+            local left={}
+            if current~=0 then left[1]=current end
+            for _,action in ipairs(M.queued(g,object)) do left[#left+1]=action end
+            if #left==0 or #left>#own.ids then return end
+            local skip=#own.ids-#left
+            for i,action in ipairs(left) do
+                if action~=own.ids[skip+i] then return end
+            end
+            object.m_curResponseSetNum=-1
+            drop(id)
+            replacing.count=replacing.count+1
+            if replaced then pcall(replaced,object,{kind=kind,action=current,left=#left}) end
+        end)
+        if not ok then replacing.errors=replacing.errors+1 end
+    end
     local gate=hook.new({
         now=clock,
         observe=director and function(view,family) director:observe(view,family) end,
@@ -12811,7 +12906,9 @@ function M.install(g,options)
                 if ready=='skipped' then return 'skipped' end
                 if ready~=true then return false end
             end
+            local counted,before=pcall(function() return object.m_queuedActions.m_nCount end)
             g.EEex_Action_QueueResponseStringOnAIBase(decision.response,object)
+            if counted then remember(object,before) end
             return true
         end,
         held=held and function(a,decision)
@@ -12844,10 +12941,13 @@ function M.install(g,options)
     function root.setDecider(fn) gate:setDecider(fn) end
     function root.inspect()
         local state=gate:inspect()
+        state.replaced={count=replacing.count,errors=replacing.errors}
         if director then state.director=director:inspect() end
         if choice then state.choice=choice:inspect() end
         return state
     end
+    -- A load forgets which actions were the engine's own: object ids do not outlive the session.
+    function root.forget() mine,owned={},0 end
     g.BGSE=root
     local registered=options.hooked~=nil
     local function register()
@@ -12857,10 +12957,11 @@ function M.install(g,options)
         end
     end
     g.BGSE_Claim=function(object,family,script)
-        local ok,result=pcall(function()
+        local ok,result,kind=pcall(function()
             register()
             return gate:claim(actor(object,script),family)
         end)
+        if ok and result==true and kind~='hold' then release(object,kind) end
         return ok and result==true
     end
     -- True while the engine weighs danger zones for the creature: its gate would ask the engine
@@ -12899,8 +13000,13 @@ function M.install(g,options)
         end)
         return ok and result==true
     end
+    -- The response replaces whatever the last one queued: the actions it queues now, if any, are
+    -- the engine's own from here on.
     g.BGSE_Act=function(object)
-        pcall(function() gate:act(actor(object)) end)
+        pcall(function()
+            drop(object.m_id)
+            gate:act(actor(object))
+        end)
     end
     -- Engine state is session-local: a load or a return to the menu forgets every claim.
     -- One listener serves every reinstall; it always reaches the current root.
@@ -12908,6 +13014,7 @@ function M.install(g,options)
         g.EEex_GameState_AddDestroyedListener(function()
             local current=rawget(g,'BGSE')
             if type(current)=='table' and current.gate then current.gate:invalidate() end
+            if type(current)=='table' and type(current.forget)=='function' then pcall(current.forget) end
             if type(current)=='table' and current.director then pcall(current.director.invalidate,current.director) end
             if type(current)=='table' and current.choice then pcall(current.choice.invalidate,current.choice) end
         end)
@@ -12952,6 +13059,7 @@ function M.install(g,options)
         if options.decide==nil then options.decide=function(view,family) return own:decide(view,family) end end
         if options.prepare==nil then options.prepare=function(object,decision) return own:prepare(object,decision) end end
         if options.held==nil then options.held=function(object,decision) return own:held(object,decision) end end
+        if options.replaced==nil then options.replaced=function(object,info) return own:replaced(object,info) end end
         if options.director then options.director:setChoice(own) end
     end
     return hook.install(g,options)

@@ -737,6 +737,48 @@ level-10 thief `RETHIE01`, each with its own Hide in Shadows and Move Silently i
 Still to see: light and shadow, armour, the grey-out after a failed try, and whether rangers,
 monks and shadowdancers hide the same way.
 
+### A new decision replaces the engine's own running action (2026-10-28)
+
+In the lab of mixed fights (lab batch I, fight `f1-own-2`) a glabrezu chose to teleport and never
+did. When a member of the lab's party died (blown apart), its four attackers, the glabrezu among
+them, kept attacking the body for 17 to 90 seconds. Meanwhile the engine decided again and again,
+and none of it happened.
+
+- **Why.** The game leaves the actions a script block queued running while that same block stays
+  true, and runs its response again only once the creature has nothing left to do; any other block
+  that fires interrupts them. The hook is one block, so its new decisions waited for the engine's
+  own attack to end. The engine also held a weapon attack on a dead target for up to two rounds.
+- **The probe** (lab step W, 2026-10-27, Spell Revisions lab, BD0072, 11 phases, cleaned up after):
+  the game records the block that queued a creature's actions (`m_curScriptNum`,
+  `m_curResponseSetNum`, `m_curResponseNum`: 0, 1, 1 for an override script's first block, -1 each
+  when the creature is idle). A second decision of the same block waited 80 ticks for the running
+  attack to end. With the response set number cleared in the claim, the game replaced the running
+  walk or attack within a tick; a second block that fired did the same, and so did clearing the
+  actions with NoAction as the current one, which skips the game's own interrupt rules. 10 dummies
+  killed under such an attack (4 normal deaths, 6 blown apart) ended it 1–2 ticks later, so what
+  kept lab batch I's attacks going is still unknown; the fix does not depend on it. AttackOneRound counts its walk toward its
+  round: an attack on a dummy 590 pixels away walked for 80 ticks and ended 13 ticks after
+  arriving, the dummy unhurt.
+- **What the engine does now.** A claim names its kind: a decision, a hold (the running action goes
+  on) or an idle hold (a wait or a look around: the creature stands still). For a decision or an
+  idle hold the hook adapter (`adapters/eeex/hook.lua`) clears the response set number while the
+  actions the hook's last response queued still run as queued, and the game interrupts them by its
+  own rules in the same pass. Never for a plain hold, and never when anything else sits in the
+  creature's queue (a story's action behind the engine's), when another block's actions run, after
+  a load, or when the response ran outside a script block. The choice ends a weapon or touch
+  attack's hold as soon as its target dies; a charge still in hand goes to the next choice.
+- **Log.** A `replace` row (the action that gave way, the actions left of it, the claim's kind),
+  `replaced` in the choice's counts, and the hook's own count with its errors (`inspect().replaced`).
+- **Fixed on the way:** a creature that decided to leave a danger zone while its search walk ran
+  waited for the walk to end; it leaves at once now. A wait decided while an old attack still ran
+  let the attack go on; the creature waits now.
+
+Tests: the gate's group 19, the hook adapter's group 10 (decision, hold, idle, two actions, a story's
+action behind them, another block, a load, a response outside a block, errors, at most 1,024
+creatures' records), the choice adapter's groups 3 and 33 (waits and looks are idle holds) and its
+dead-target case; 12 mutations checked.
+Still to see in game: the fix inside whole fights.
+
 ## Agreed (Christopher, 2026-10-25)
 
 1. **Target choice by worth, with overrides.** Not SCS's fixed list ("Ich würde es nicht eins zu

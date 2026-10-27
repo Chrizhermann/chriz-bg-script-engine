@@ -286,4 +286,26 @@ config.stack=nil
 assert(raw.new(config):driver({id=10,script='s1'})==nil)
 assert(raw.new({now=clock,decide=config.decide,below=after,stack=function() return {'s1'} end}):driver({id=10,script='s1'})==nil)
 rejects(function() raw.new({now=clock,stack=1}) end)
-return 18
+
+-- 19. A claim names its kind: a decision, a hold (the running action goes on) or an idle hold (the
+-- creature stands still); a repeat in the pass names it again, a decline names none. An idle that
+-- is no hold is a bad decision.
+local answer={response='NoAction()'}
+g=hook.new({now=clock,backoffTicks=0,decide=function() return answer end,perform=function() return true end})
+pass()
+local claimed,kind=g:claim(actor,'mage');assert(claimed==true and kind=='decision')
+claimed,kind=g:claim(actor,'mage');assert(claimed==true and kind=='decision' and g:inspect().counts.repeats==1)
+answer={hold=true};pass()
+claimed,kind=g:claim(actor,'mage');assert(claimed==true and kind=='hold')
+answer={hold=true,idle=true};pass()
+claimed,kind=g:claim(actor,'mage');assert(claimed==true and kind=='idle')
+local trail=g:inspect().trace
+assert(trail[#trail].kind=='claim' and trail[#trail].reason=='idle' and trail[#trail-1].reason=='hold')
+ok,why=g:act(actor);assert(ok==true and why=='held' and g:inspect().counts.held==1)
+answer=nil;pass()
+claimed,kind=g:claim(actor,'mage');assert(claimed==false and kind==nil)
+answer={idle=true};pass()
+claimed,kind=g:claim(actor,'mage');assert(claimed==false and kind==nil and g:inspect().counts.errors==1)
+answer={hold=true,idle=1};pass()
+assert(g:claim(actor,'mage')==false and g:inspect().counts.errors==2)
+return 19

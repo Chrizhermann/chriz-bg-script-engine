@@ -757,10 +757,19 @@ count, Move Silently more (FIGHT-01). The lab of mixed fights ran without errors
 lost every fight, so it tells little about the engine against SCS. The teleport lab's second run
 stopped at its first console command.
 
+In one of those fights a glabrezu chose to teleport and never did: its attack went on at a dead
+body for 90 seconds. The game leaves the actions a script block queued running while that block
+stays true, and the hook is one block, so a new decision of the engine's had to wait for the
+engine's own running action to end. A probe (lab step W) found how to let the game interrupt it by
+its own rules. Now a new decision, or a wait, replaces the engine's own running action at once,
+only while that action still runs as the engine queued it, and an attack's hold ends when its target
+dies (FIGHT-01, "A new decision replaces the engine's own running action").
+
 Next: the monsters' invisibility as real innate abilities (F2f-5; Christopher, 2026-10-27: SCS's
 free Improved Invisibility becomes the real spell cast faster), light and shadow in a second hide
-probe, the teleport run again, a stronger party for the mixed fights and a lab of thieves in whole
-fights. Melissan's own fight is designed with Christopher.
+probe, the teleport run again, a stronger party for the mixed fights (which also show the
+replacement in whole fights) and a lab of thieves in whole fights. Melissan's own fight is designed
+with Christopher.
 
 ## To design with Christopher
 

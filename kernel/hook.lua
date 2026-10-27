@@ -89,15 +89,20 @@ function M.new(config)
         if not ok then failed(id,family,'decide-error',tick);return decline('error') end
         if decision==nil then pending[id]=nil;return decline('no-decision') end
         local copied,result=pcall(values.copy,decision)
-        if not copied or type(result)~='table' or (result.hold~=nil and result.hold~=true) then
+        if not copied or type(result)~='table' or (result.hold~=nil and result.hold~=true) or
+            (result.idle~=nil and (result.idle~=true or result.hold~=true)) then
             failed(id,family,'bad-decision',tick);return decline('error')
         end
         pending[id]={decision=result,tick=tick,family=family}
         bump(counts,'claimed')
-        log:record({kind='claim',actorKey=tostring(id),family=family,reason=result.hold and 'hold' or 'claimed',tick=tick})
-        return true
+        log:record({kind='claim',actorKey=tostring(id),family=family,
+            reason=result.idle and 'idle' or result.hold and 'hold' or 'claimed',tick=tick})
+        return true,result.idle and 'idle' or result.hold and 'hold' or 'decision'
     end
-    -- actor is {id=..., script=...}: the creature and the hooked script that asks.
+    -- actor is {id=..., script=...}: the creature and the hooked script that asks. A claim also
+    -- names its kind: 'decision' (a response to perform), 'hold' (the creature's running action
+    -- goes on) or 'idle' (a hold with the creature standing still: an action of the engine's own
+    -- that still runs is no longer wanted).
     function api:claim(actor,family)
         local id=type(actor)=='table' and rawget(actor,'id')
         if not scalarId(id) then return decline('bad-actor') end
@@ -107,18 +112,19 @@ function M.new(config)
         local tick=now();if not tick then return decline('no-clock') end
         local seen=answers[id]
         if seen and seen.tick==tick then
-            if seen.script==script and seen.family==family then bump(counts,'repeats');return seen.result end
+            if seen.script==script and seen.family==family then bump(counts,'repeats');return seen.result,seen.kind end
             -- Another of the creature's scripts asked first in this pass and decided.
             if seen.script~=script then return decline('lower-script') end
         end
         bump(counts,'reached')
-        local result=evaluate(id,actor,family,tick,script)
-        answers[id]={tick=tick,script=script,family=family,result=result}
-        return result
+        local result,kind=evaluate(id,actor,family,tick,script)
+        answers[id]={tick=tick,script=script,family=family,result=result,kind=kind}
+        return result,kind
     end
     -- A decision is performed once, by the hook's response. {hold=true} claims the round
-    -- without queueing anything, so the creature's running action is left alone; config.held
-    -- (optional) hears of it, and its errors change nothing.
+    -- without queueing anything, so the creature's running action is left alone, and
+    -- {hold=true,idle=true} claims it for the creature to stand still; config.held (optional)
+    -- hears of either, and its errors change nothing.
     function api:act(actor)
         local id=type(actor)=='table' and rawget(actor,'id')
         if not scalarId(id) then return false,'bad-actor' end

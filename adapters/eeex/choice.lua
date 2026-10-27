@@ -54,11 +54,13 @@
 -- Weapon attacks (D2c): the choice also gets the weapon in the caster's hand (sense.attack, with
 -- what its hit casts or applies, classified), its attacks a round and whether the magic weapon
 -- slot is taken. A weapon attack is AttackOneRound at EEex_Target, like a strike; the creature is
--- held while it attacks, or for a round from the attack while its target lives, and then whether
--- its target lost hit points is recorded. AttackOneRound walks to a target out of
--- reach first, as the game's attack actions do, so a creature that chases (F1d) needs no move of
--- its own (a long walk is still to be seen in a lab); the choice row logs the seconds of the walk.
--- A spell that conjures a weapon is cast on the caster.
+-- held while its target lives and it attacks, or for a round from the attack, and then whether
+-- its target lost hit points is recorded. AttackOneRound walks to a target out of reach first, as
+-- the game's attack actions do, and the walk counts toward its round (lab step W), so a creature
+-- that chases (F1d) needs no move of its own; the choice row logs the seconds of the walk. Once its
+-- target died the engine decides again at once, and its new decision, or a wait, replaces the
+-- attack still running (adapters/eeex/hook.lua): the game's attack can go on at a dead target, once
+-- in lab batch I for a minute. A spell that conjures a weapon is cast on the caster.
 --
 -- Healing and curing (D3a, D3b): a heal or cure is cast on the caster, at an ally (sanctuary does
 -- not keep it out) or at a point; a potion is drunk with UseItem. Like a disable, it claims the
@@ -431,7 +433,7 @@ function M.new(g,options)
         guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0,arms=0,attacks=0,attackHits=0,
         weaponFailures=0,releases=0,heals=0,cures=0,potions=0,cared=0,uncared=0,summons=0,conjured=0,
         unconjured=0,removals=0,stripped=0,unstripped=0,wardFailures=0,revealed=0,unrevealed=0,landed=0,unlanded=0,
-        jumps=0,debuffs=0,switches=0,kites=0,kited=0,flanks=0,flanked=0}
+        jumps=0,debuffs=0,switches=0,kites=0,kited=0,flanks=0,flanked=0,replaced=0}
     local reasons={}
     local log,nextRow,size={},1,0
     local root,sink,lastError,markError,guardError,weaponError,wardError,zoneError,witError,tableError
@@ -502,6 +504,12 @@ function M.new(g,options)
     local function hold()
         counts.holds=counts.holds+1
         return {hold=true,own=true}
+    end
+    -- The same with the creature standing still (a wait, a look): an action of the engine's own that
+    -- still runs gives way (adapters/eeex/hook.lua).
+    local function still()
+        local h=hold();h.idle=true
+        return h
     end
     -- SCS's round timer as the round's marker (see the top), when the hook's response runs at tick:
     -- set for a round once it has run out, and to cover ticks from now at least for a cast or drink
@@ -1458,7 +1466,7 @@ function M.new(g,options)
         local d,why=seeker:decide(sprite,frame,tick,family,m,rows,carried,function(p) return inZone(raw,p.x,p.y) end,own)
         if not d then return decline(why=='given-up' and 'given-up' or 'no-enemy') end
         if director then director:release(id,tick) end
-        if d.kind=='look' then return hold() end
+        if d.kind=='look' then return still() end
         -- The rogue's detection mode works on itself: the enemy it is for (aim) is no target, which
         -- prepare would find invisible and skip.
         if d.kind=='modal' then return {own=true,response='FindTraps()',kind='modal',clue=d.clue,aim=d.target} end
@@ -1522,20 +1530,23 @@ function M.new(g,options)
             local from=math.max(r.started or tick,r.waiting or 0,resumed or 0)
             if frozen(id) or tick-from<=(r.castTicks or 0)+M.walkTicks(r.walk)+M.pendingTicks then return hold() end
         end
-        -- A strike runs while the creature swings, or for a round from it (two rounds at most);
-        -- once its charge is gone it is judged. A weapon attack runs while the creature attacks, or
-        -- for a round from it while its target lives (two rounds at most).
+        -- A strike runs while its target lives and the creature swings, or for a round from it (two
+        -- rounds at most); once its charge is gone it is judged, and a charge still in hand when its
+        -- target died goes to the next choice. A weapon attack runs while its target lives and the
+        -- creature attacks, or for a round from it (two rounds at most). The game's attack can go on
+        -- at a dead target for the rest of its round, once in lab batch I for a minute: the engine
+        -- decides again as soon as the target died.
         local s=strikes[id]
-        if s and s.weapon then
+        if s then
             local target=get(s.target)
             local alive=target~=nil and targeting.alive(sense.actor(g,target))
-            if tick-s.tick<M.strikeTicks and (M.ATTACKS[sprite.m_curAction.m_actionID] or
-                (alive and tick-s.tick<M.roundTicks)) then return hold() end
-            attacked(s,tick)
-        elseif s then
-            if held(sprite)~=s.item then struck(s,tick)
-            elseif tick-s.tick<M.strikeTicks and (M.ATTACKS[sprite.m_curAction.m_actionID] or tick-s.tick<M.roundTicks) then
-                return hold()
+            local going=alive and tick-s.tick<M.strikeTicks and
+                (M.ATTACKS[sprite.m_curAction.m_actionID] or tick-s.tick<M.roundTicks)
+            if s.weapon then
+                if going then return hold() end
+                attacked(s,tick)
+            elseif held(sprite)~=s.item then struck(s,tick)
+            elseif going then return hold()
             else strikes[id]=nil end
         end
         -- A way out of a zone, a step away or a walk behind an enemy runs while the creature walks it
@@ -1556,7 +1567,7 @@ function M.new(g,options)
             if sprite.m_curAction.m_actionID==0 and tick>=w.tick and tick<w.ends and tick-w.tick<M.waitTicks then
                 local d=flee(sprite,id,tick,family)
                 if d then waits[id]=nil;return d end
-                return hold()
+                return still()
             end
             w.over=true
         end
@@ -1644,7 +1655,7 @@ function M.new(g,options)
                     charge=lastCharge,rejected=why=='no-option' and rejected or nil})
             end
             if director then director:release(id,tick) end
-            return hold()
+            return still()
         end
         if d.kind=='escape' then return escaping(d,frame,id,tick,family,why,input.mind) end
         -- A step away from melee enemies, or a walk behind an enemy: walked and held like a way out
@@ -1737,8 +1748,8 @@ function M.new(g,options)
             backstab=d.kind=='weapon' and d.backstab or nil}
     end
     -- From the gate, each time a hooked script asks: nil (the creature's script has the round),
-    -- {hold=true,own=true} while the engine's queued cast has not started, its own action runs or
-    -- it waits, or the decision.
+    -- {hold=true,own=true} while the engine's queued cast has not started or its own action runs,
+    -- {hold=true,own=true,idle=true} while it waits or looks around, or the decision.
     function api:decide(view,family)
         lastReason,lastDetail,lastCharge=nil,nil,nil
         local ok,result=pcall(decide,view,family)
@@ -1928,6 +1939,16 @@ function M.new(g,options)
             if type(tick)=='number' then round(object,tick) end
         end)
         if not ok then failed('held',err) end
+    end
+    -- From the gate when a claim lets the engine's own running action give way (adapters/eeex/hook.lua):
+    -- a 'replace' row with the action that gave way, the actions left of it and the claim's kind.
+    function api:replaced(object,info)
+        if type(info)~='table' then return end
+        local ok,err=pcall(function()
+            counts.replaced=counts.replaced+1
+            record({kind='replace',tick=now(),member=object.m_id,action=info.action,left=info.left,claim=info.kind})
+        end)
+        if not ok then failed('replaced',err) end
     end
 
     function api:setEnabled(value)

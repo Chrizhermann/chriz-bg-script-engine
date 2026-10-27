@@ -18,6 +18,17 @@
 -- options.choice (adapters/eeex/choice.lua) is the engine's own choice; options.prepare runs
 -- right before a decision's response is queued and may skip it ('skipped'): a target gone by
 -- then is no error. options.held(object, decision) runs when the hook's response holds instead.
+-- The game leaves the actions a script block queued running while that same block stays true,
+-- and runs its response again only once the creature has nothing left to do; any other block that
+-- fires interrupts them. So the hook block alone could never replace the engine's own running
+-- action with a new decision: once in lab batch I a glabrezu's attack went on at a dead target for
+-- a minute while its teleport waited. The game records which block queued a creature's actions
+-- (m_curScriptNum, m_curResponseSetNum, m_curResponseNum). A claim that wants something else (a
+-- new decision, or a hold with the creature standing still) clears the response set number while
+-- the actions the hook's last response queued still run as queued: the hook block then counts as
+-- another block, and the game interrupts them in the same pass by its own rules (lab step W).
+-- Anything else in the creature's queue, a story's action added behind them for one, keeps it from
+-- happening. options.replaced(object, info) hears of each.
 local hook=require('kernel.hook')
 local M={}
 M.keys={mage='Mages',priest='Priests',fighter='Fighters',monster='Monsters'}
@@ -80,6 +91,14 @@ function M.below(g,object,script)
         end
     end
 end
+-- How many creatures' records of the engine's own actions are kept at most.
+M.ownLimit=1024
+-- The action numbers in the creature's queue, in order.
+function M.queued(g,object)
+    local ids={}
+    g.EEex_Utility_IterateCPtrList(object.m_queuedActions,function(action) ids[#ids+1]=action.m_actionID end)
+    return ids
+end
 -- The creature's non-empty scripts from the top slot down, or nil when the stack cannot be read.
 function M.stack(g,object)
     local names=M.scripts(g,object)
@@ -95,6 +114,55 @@ function M.install(g,options)
     local settings=M.settings(g)
     local clock=options.now or function() return M.gameTime(g) end
     local director,choice,prepare,held=options.director,options.choice,options.prepare,options.held
+    local replaced=options.replaced
+    -- id -> the block that queued the hook's last response (sn, rs, rn) and the actions it queued;
+    -- owned counts them (at most M.ownLimit: creatures that died with a record keep it until then).
+    local mine,owned={},0
+    local replacing={count=0,errors=0}
+    local function drop(id) if mine[id]~=nil then mine[id]=nil;owned=owned-1 end end
+    -- Right after the hook's response queued a decision: when those actions are all the creature
+    -- has queued and a block of a script queued them, they are the engine's own.
+    local function remember(object,before)
+        local ok,own=pcall(function()
+            local rs=object.m_curResponseSetNum
+            if before~=0 or type(rs)~='number' or rs<0 then return nil end
+            local ids=M.queued(g,object)
+            if #ids==0 then return nil end
+            return {sn=object.m_curScriptNum,rs=rs,rn=object.m_curResponseNum,ids=ids}
+        end)
+        local id=object.m_id
+        drop(id)
+        if ok and own then
+            if owned>=M.ownLimit then mine,owned={},0 end
+            mine[id]=own;owned=owned+1
+        end
+    end
+    -- A claim of kind 'decision' or 'idle': the engine's own actions, while they run as the hook's
+    -- last response queued them, give way to it.
+    local function release(object,kind)
+        local ok=pcall(function()
+            local id=object.m_id
+            local own=mine[id]
+            if not own then return end
+            if object.m_curScriptNum~=own.sn or object.m_curResponseSetNum~=own.rs or object.m_curResponseNum~=own.rn then
+                drop(id);return
+            end
+            local current=object.m_curAction.m_actionID
+            local left={}
+            if current~=0 then left[1]=current end
+            for _,action in ipairs(M.queued(g,object)) do left[#left+1]=action end
+            if #left==0 or #left>#own.ids then return end
+            local skip=#own.ids-#left
+            for i,action in ipairs(left) do
+                if action~=own.ids[skip+i] then return end
+            end
+            object.m_curResponseSetNum=-1
+            drop(id)
+            replacing.count=replacing.count+1
+            if replaced then pcall(replaced,object,{kind=kind,action=current,left=#left}) end
+        end)
+        if not ok then replacing.errors=replacing.errors+1 end
+    end
     local gate=hook.new({
         now=clock,
         observe=director and function(view,family) director:observe(view,family) end,
@@ -118,7 +186,9 @@ function M.install(g,options)
                 if ready=='skipped' then return 'skipped' end
                 if ready~=true then return false end
             end
+            local counted,before=pcall(function() return object.m_queuedActions.m_nCount end)
             g.EEex_Action_QueueResponseStringOnAIBase(decision.response,object)
+            if counted then remember(object,before) end
             return true
         end,
         held=held and function(a,decision)
@@ -151,10 +221,13 @@ function M.install(g,options)
     function root.setDecider(fn) gate:setDecider(fn) end
     function root.inspect()
         local state=gate:inspect()
+        state.replaced={count=replacing.count,errors=replacing.errors}
         if director then state.director=director:inspect() end
         if choice then state.choice=choice:inspect() end
         return state
     end
+    -- A load forgets which actions were the engine's own: object ids do not outlive the session.
+    function root.forget() mine,owned={},0 end
     g.BGSE=root
     local registered=options.hooked~=nil
     local function register()
@@ -164,10 +237,11 @@ function M.install(g,options)
         end
     end
     g.BGSE_Claim=function(object,family,script)
-        local ok,result=pcall(function()
+        local ok,result,kind=pcall(function()
             register()
             return gate:claim(actor(object,script),family)
         end)
+        if ok and result==true and kind~='hold' then release(object,kind) end
         return ok and result==true
     end
     -- True while the engine weighs danger zones for the creature: its gate would ask the engine
@@ -206,8 +280,13 @@ function M.install(g,options)
         end)
         return ok and result==true
     end
+    -- The response replaces whatever the last one queued: the actions it queues now, if any, are
+    -- the engine's own from here on.
     g.BGSE_Act=function(object)
-        pcall(function() gate:act(actor(object)) end)
+        pcall(function()
+            drop(object.m_id)
+            gate:act(actor(object))
+        end)
     end
     -- Engine state is session-local: a load or a return to the menu forgets every claim.
     -- One listener serves every reinstall; it always reaches the current root.
@@ -215,6 +294,7 @@ function M.install(g,options)
         g.EEex_GameState_AddDestroyedListener(function()
             local current=rawget(g,'BGSE')
             if type(current)=='table' and current.gate then current.gate:invalidate() end
+            if type(current)=='table' and type(current.forget)=='function' then pcall(current.forget) end
             if type(current)=='table' and current.director then pcall(current.director.invalidate,current.director) end
             if type(current)=='table' and current.choice then pcall(current.choice.invalidate,current.choice) end
         end)

@@ -202,6 +202,8 @@ assert(state.choice.counts.started==1 and state.choice.running==1 and state.dire
 -- replace it.
 m1.m_curAction=action(31,'TESTBOLT',12)
 assert(claim(m1,'mage','s1',120)==true and root.inspect().choice.counts.holds==2)
+local function claimed() local t=root.inspect().trace;return t[#t].kind=='claim' and t[#t].reason end
+assert(claimed()=='hold')
 -- It ends while its casting aura runs (counted from the start at 101): the engine keeps the round
 -- and, without a weapon, waits until half a second before the aura frees, deciding again at least
 -- every 15 ticks; 30 ticks after the bolt's end its effect is judged: 12 lost its hit points.
@@ -211,6 +213,9 @@ m1.castTimer=29
 assert(claim(m1,'mage','s1',130)==true and root.inspect().choice.judging==1 and root.inspect().choice.waiting==1)
 local w3=last('wait')
 assert(w3.reason=='aura' and w3.member==1 and near(w3.aura,71/15) and near(w3.seconds,71/15-0.5) and w3.top[1].spell=='TESTBOLT')
+-- A wait holds the round with the mage standing still: an action of the engine's own that still
+-- ran would give way to it (adapters/eeex/hook.lua).
+assert(claimed()=='idle')
 g.BGSE_Act(m1)
 assert(m1.locals.castspell==190 and root.inspect().choice.reasons.timer==nil)
 m1.castTimer=64
@@ -935,6 +940,23 @@ foe.m_baseStats.m_hitPoints=0;foe.state=0x800
 g10.ticks=260
 assert(g10.BGSE_Claim(fighter,'mage','s1')==false and ch10:inspect().reasons['no-enemy']==1)
 assert(last10('attack').hit==true and last10('attack').lost==36 and ch10:inspect().counts.attackHits==2)
+-- A target that dies while the attack on it still runs releases the mage as well: the game's
+-- attack can go on at a dead target for the rest of its round (once in lab batch I for a minute).
+-- The attack is recorded and the mage decides again; with no enemy left, its script has the round.
+local foe2=g10.add(sprite(15,60,0,2))
+foe2.stats[2]=5
+g10.ticks=270
+assert(g10.BGSE_Claim(fighter,'mage','s1')==true and last10('choice').target==15)
+g10.BGSE_Act(fighter)
+fighter.m_curAction=action(105,'',15)
+local holds10=ch10:inspect().counts.holds
+g10.ticks=280
+assert(g10.BGSE_Claim(fighter,'mage','s1')==true and ch10:inspect().counts.holds==holds10+1)
+foe2.m_baseStats.m_hitPoints=0;foe2.state=0x800
+g10.ticks=290
+assert(g10.BGSE_Claim(fighter,'mage','s1')==false and ch10:inspect().reasons['no-enemy']==2)
+assert(ch10:inspect().counts.holds==holds10+1 and last10('attack').target==15 and last10('attack').lost==40)
+fighter.m_curAction={m_actionID=0}
 -- A mage with the meteors ready, a staff in hand, and an enemy 300 away.
 local thrower=g10.add(armed(sprite(2,0,600,255),35,'TESTSTAF'))
 thrower.stats[8],thrower.stats[7],thrower.stats[2]=1,14,8
@@ -1985,7 +2007,7 @@ assert(g32.BGSE_Search(m32,'mage','s1')==true)
 -- A mage without any detection: its enemy walks out of its sight. It walks to where the group last
 -- saw the enemy (MoveToPoint, held while it walks) and looks around there; once its patience (30
 -- seconds, clever) is out, it gives up and walks back to its post, where its own life goes on.
-local g33,ch33,_,last33,claim33=setup(33)
+local g33,ch33,root33,last33,claim33=setup(33)
 local m33=g33.add(sprite(1,0,0,255))
 local e33=g33.add(sprite(11,300,0,2))
 local function seeker33() return ch33:inspect().search end
@@ -2000,6 +2022,9 @@ local holds33=ch33:inspect().counts.holds
 assert(claim33(m33,150)==true and ch33:inspect().counts.holds==holds33+1)
 m33.m_pos={x=300,y=0};m33.m_curAction={m_actionID=0}
 assert(claim33(m33,200)==true and seeker33().counts.looks==1)
+-- A look holds the round with the mage standing still, as a wait does.
+local trail33=root33.inspect().trace
+assert(trail33[#trail33].kind=='claim' and trail33[#trail33].reason=='idle')
 assert(claim33(m33,210)==true and seeker33().counts.looks==1)
 assert(claim33(m33,600)==true and last33('gave-up').since==140)
 g33.BGSE_Act(m33)
