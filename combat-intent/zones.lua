@@ -47,7 +47,7 @@ local threat=require('combat-intent.threat')
 local openers=require('combat-intent.openers')
 local M={}
 M.ROUND=6
--- World units a creature walks a second (the lab's fighters: about 100; care.walkSpeed).
+-- World units a creature walks a second (the lab's fighters: about 100, as weapons.approach counts).
 M.walkSpeed=100
 -- An exit lies this far beyond a zone's edge, and the directions tried around the creature.
 M.margin=24

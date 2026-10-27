@@ -739,4 +739,118 @@ do
 end
 groups=groups+1
 
+-- 24. Positioning in the casting pause (Christopher, 2026-10-25: walking into position during the
+-- casting cooldown, by wit). The bolt reaches 480; enemy 11 stands 600 away, a walk of 1.2 seconds.
+-- With 4 seconds of aura left the caster walks the whole way meanwhile (to x 220, 480 short of the
+-- enemy), worth the sixth of the bolt the walk took from it (6/7.2); with 1 second left only half a
+-- second of it (to x 150); half a second before the aura frees the bolt is cast with its walk.
+do
+    local p=enemies(input({spells={row('TESTBOLT',bolt,3)}}),{enemy(11,{x=500})})
+    local inRange=choice.decide(p).worth
+    p.frame.enemies[1].x=700
+    p.frame.self.aura=4
+    local d,why=choice.decide(p)
+    assert(why=='position' and d.kind=='position' and d.mode=='point' and d.point.x==220 and d.point.y==100)
+    assert(near(d.walk,1.2) and near(d.worth,inRange*(1-6/7.2)) and d.score==d.worth and d.cast=='TESTBOLT' and d.toward==11)
+    p.frame.self.aura=1
+    d=choice.decide(p)
+    assert(d.kind=='position' and d.point.x==150 and near(d.walk,0.5) and near(d.worth,inRange*(6/6.7-6/7.2)))
+    p.frame.self.aura=0.5
+    d=choice.decide(p)
+    assert(d.resref=='TESTBOLT' and near(d.walk,1.2))
+    -- The walk stops short of where an enemy's melee weapon reaches (64): with a fighter at x 240 the
+    -- longest step out of its reach is half the way (to x 160); with one at x 175 every step is in its
+    -- reach, and the caster waits. (The fighter has sanctuary, so the bolt is not cast at it.)
+    p.frame.self.aura=4
+    p.frame.enemies[2]=enemy(12,{x=240,sanctuary=1,attack={apr=2,thac0=10,damage=8}})
+    d=choice.decide(p)
+    assert(d.kind=='position' and d.point.x==160 and near(d.walk,0.6))
+    p.frame.enemies[2].x=175
+    local rej
+    d,why,_,rej=choice.decide(p)
+    assert(why=='aura' and d.kind=='wait' and rej['position-melee']==1)
+    p.frame.enemies[2]=nil
+    -- A tactic: a dull creature never walks into position, a normal one when it notices (one draw
+    -- a decision), a clever one always.
+    p.mind=mind.withWit(mind.new(),{step='dull',danger=1})
+    d,why,_,rej=choice.decide(p)
+    assert(why=='aura' and rej['position-unnoticed']==1)
+    p.mind=mind.withWit(mind.new(),{step='normal',danger=1})
+    draws=0;p.rng=stub(400)
+    assert(choice.decide(p).kind=='position' and draws==1)
+    draws=0;p.rng=stub(600)
+    assert(choice.decide(p).kind=='wait' and draws==1)
+    -- Nothing to see: the enemy in range, the aura free, or a caster that cannot walk; no draw then
+    -- (the rooted one waits for the aura).
+    draws=0;p.frame.enemies[1].x=500
+    assert(choice.notices(p)==false and draws==0)
+    p.frame.enemies[1].x=700;p.frame.self.aura=0
+    assert(choice.notices(p)==false and draws==0)
+    p.frame.self.aura=4;p.frame.self.rooted=true
+    assert(choice.notices(p)==false and select(2,choice.decide(p))=='aura' and draws==0)
+    p.frame.self.rooted=nil;p.rng=nil;p.mind=mind.new()
+    -- Only for the cast the creature makes once the aura frees: a mace worth more than the bolt
+    -- (an enemy at 4 hit points next to the caster, which fire does not hurt) is swung then, so the
+    -- caster swings now and does not walk for the bolt; an attack worth more than the walk is made
+    -- meanwhile, a walk worth more than the attack instead of it.
+    p.frame.self.weapon={item='TESTMACE',damage=4.5,damageType=2,apr=1,thac0=10,ranged=false,flags=0,enchantment=0}
+    p.frame.enemies[2]=enemy(12,{x=150,hp=4,resist={fire=100}})
+    d,why=choice.decide(p)
+    assert(why=='weapon' and d.target==12)
+    p.frame.enemies[2].hp=50
+    p.frame.self.aura=6
+    local swing=choice.weaponOptions(p)[1]
+    local step=choice.position(p,choice.options(p)[1],6)
+    assert(swing and step and swing.target==12 and step.toward==11)
+    d,why=choice.decide(p)
+    assert(why==(swing.score>step.score and 'weapon' or 'position'))
+    p.frame.enemies[2].hp=500;p.frame.enemies[2].maxHp=500
+    swing=choice.weaponOptions(p)[1]
+    d,why=choice.decide(p)
+    assert(swing.score<step.score and why=='position')
+    p.frame.enemies[2].hp=4;p.frame.enemies[2].maxHp=50
+    swing=choice.weaponOptions(p)[1]
+    assert(swing.score>step.score and select(2,choice.decide(p))=='weapon')
+    -- A mace worth more than a bolt that needs a long walk (to enemy 11, 1000 away): no walk for the
+    -- bolt, though it is worth more than the swing; the caster swings, whether the bolt falls short
+    -- of the minimum worth (0.2) or not (0.1).
+    p.frame.enemies[1].x=1100;p.frame.enemies[2].hp=30;p.frame.enemies[2].maxHp=30
+    local far=choice.options(p)[1]
+    swing=choice.weaponOptions(p)[1]
+    step=choice.position(p,far,6)
+    assert(far.target==11 and far.score<p.mind.minValue and swing.score>far.score and step.score>swing.score)
+    assert(select(2,choice.decide(p))=='weapon')
+    p.mind.minValue=0.1
+    assert(far.score>=p.mind.minValue and select(2,choice.decide(p))=='weapon')
+    p.mind=mind.new();p.frame.enemies[1].x=700
+    p.frame.self.weapon=nil;p.frame.enemies[2]=nil;p.frame.self.aura=4
+    -- No walk worth making: one shorter than a cell of the search map (a tenth of a second of
+    -- aura), and none toward an aim it cannot find.
+    rej={}
+    assert(choice.position(p,choice.options(p)[1],0.6,rej)==nil and rej['position-short']==1)
+    local lost={}
+    for k,v in pairs(choice.options(p)[1]) do lost[k]=v end
+    lost.target=99;rej={}
+    assert(choice.position(p,lost,4,rej)==nil and rej['position-no-aim']==1)
+    lost.walk=nil
+    assert(choice.position(p,lost,4)==nil)
+    -- Nor for a caster held fast where it stands.
+    lost.walk=1.2;lost.target=11
+    p.frame.self.rooted=true
+    assert(choice.position(p,lost,4)==nil)
+    p.frame.self.rooted=nil
+    assert(choice.position(p,lost,4).point.x==220)
+    -- One walk rule for heals (combat-intent/care.lua): a heal for an ally 700 away walks 2.2 seconds
+    -- into its range, and the caster walks toward the ally in the casting pause.
+    local h=input({spells={row('TESTHEAL',heal,4,{list='priest'})},family='priest'})
+    h.frame.self.level=10
+    h.frame.allies={{id=2,x=800,y=100,hp=10,maxHp=40,state=0,level=10}}
+    d=choice.decide(h)
+    assert(d.kind=='heal' and d.target==2 and near(d.walk,2.2))
+    h.frame.self.aura=4
+    d=choice.decide(h)
+    assert(d.kind=='position' and d.toward==2 and d.cast=='TESTHEAL' and d.point.x==320 and near(d.walk,2.2))
+end
+groups=groups+1
+
 return groups

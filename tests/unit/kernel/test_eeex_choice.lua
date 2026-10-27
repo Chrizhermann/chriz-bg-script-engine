@@ -1889,7 +1889,7 @@ assert(claim30(300)==true and counts30().holds==2)
 m30.castTimer=5
 assert(claim30(315)==true and counts30().holds==3)
 m30.m_curAction={m_actionID=0};m30.castTimer=15
-assert(claim30(325)==true and last30('wait').reason=='aura')
+assert(claim30(325)==true and last30('choice').castKind=='position' and last30('choice').cast=='TESTNEAR')
 m30.castTimer=45
 assert(claim30(355)==true and counts30().interrupted==1 and counts30().misses==0 and ch30:inspect().remembered==0)
 -- The aura frees; the next cast starts at 411 and ends on the way, never casting.
@@ -2901,6 +2901,77 @@ root.setChoice(false)
 assert(g.BGSE_Hide(f,'mage','s1','plain')==false)
 root.setChoice(true)
 assert(g.BGSE_Hide(f,'mage','s1','plain')==true and ch:inspect().counts.errors==0)
+end)()
+groups=groups+1
+
+-- 40. Positioning in the casting pause (combat-intent/choice.lua, M.position). The mage of group 30
+-- with its short bolt (range 160) and its enemy 410 away, four seconds of casting aura left: it
+-- walks the bolt's 2.5 seconds of walk meanwhile (MoveToPoint to 250, 160 short of the enemy), with
+-- a choice row for the walk and a 'position' row naming the cast it walks for. Held while it walks
+-- until the aura is about to free (auraLead); then a 'positioned' row says where it ended and how
+-- near the enemy stands, and the bolt is cast from there. A walk over before the aura frees ends
+-- the hold too: in range, the mage waits for the aura. A dull mage never walks for its cast: its
+-- wait row says why.
+;(function()
+local nearRec=spl('TESTNEAR',3,{fx(12,{p2=8*65536,dice=6,sides=6})})
+nearRec.abilities[1].range=10
+records.TESTNEAR=nearRec
+local function setup(seed,stats)
+    local w=world()
+    local m=w.add(sprite(1,0,0,255,stats and {stats=stats} or nil))
+    learn(m,2,'TESTNEAR',3)
+    w.add(sprite(11,410,0,2))
+    local d=directors.new(w,{reader=reader})
+    local c=choices.new(w,{reader=reader,director=d,seed=seed})
+    local list={}
+    c:setSink(function(row) list[#list+1]=row end)
+    runtime.install(w,{director=d,choice=c,version='test'})
+    local function lastOf(kind) for n=#list,1,-1 do if list[n].kind==kind then return list[n] end end end
+    local function claimAt(tick) w.ticks=tick;return w.BGSE_Claim(m,'mage','s1') end
+    return w,m,c,lastOf,claimAt
+end
+local g,m,ch,last,claim=setup(40)
+m.castTimer=40
+assert(claim(100)==true)
+local c=last('choice')
+assert(c.castKind=='position' and c.spell=='POSITION' and c.how=='position' and c.cast=='TESTNEAR' and c.toward==11)
+assert(c.point.x==250 and c.point.y==0 and math.abs(c.walk-2.5)<1e-9 and math.abs(c.aura-4)<1e-9)
+g.BGSE_Act(m)
+assert(g.queued[#g.queued].text=='MoveToPoint([250.0])')
+local p=last('position')
+assert(p.from.x==0 and p.to.x==250 and p.to.y==0 and p.cast=='TESTNEAR' and p.toward==11 and ch:inspect().counts.positions==1)
+-- Held while it walks and the aura runs.
+m.m_curAction={m_actionID=23};m.castTimer=50
+local holds=ch:inspect().counts.holds
+assert(claim(110)==true and ch:inspect().counts.holds==holds+1 and last('positioned')==nil)
+-- A third of a second of aura left: the walk is judged, and the bolt is cast from where it ended.
+m.m_pos={x=250,y=0};m.castTimer=95
+assert(claim(140)==true)
+local done=last('positioned')
+assert(done.at.x==250 and done.to.x==250 and done.near==160 and done.took==40 and done.cast=='TESTNEAR')
+assert(ch:inspect().counts.positioned==1)
+c=last('choice')
+assert(c.spell=='TESTNEAR' and c.target==11 and c.castKind~='position')
+g.BGSE_Act(m)
+assert(g.queued[#g.queued].text=='SpellRES("TESTNEAR",EEex_Target("BGSE"))')
+-- The walk over with three seconds of aura left: judged, and the mage, in range now, waits.
+g,m,ch,last,claim=setup(41)
+m.castTimer=40
+assert(claim(100)==true and last('choice').castKind=='position')
+g.BGSE_Act(m)
+m.m_curAction={m_actionID=0};m.m_pos={x=250,y=0};m.castTimer=55
+assert(claim(110)==true)
+done=last('positioned')
+assert(done.at.x==250 and done.took==10 and ch:inspect().counts.positioned==1)
+local w=last('wait')
+assert(w.reason=='aura' and w.tick==110 and w.positioning==nil)
+-- A dull mage (INT 4, WIS 8) waits for the aura without the walk, and its wait row says why.
+g,m,ch,last,claim=setup(42,{[1]=40,[38]=4,[39]=8})
+m.castTimer=40
+assert(claim(100)==true)
+w=last('wait')
+assert(w.reason=='aura' and w.wit=='dull' and w.positioning.unnoticed==1 and last('position')==nil)
+assert(ch:inspect().counts.positions==0 and ch:inspect().counts.errors==0)
 end)()
 groups=groups+1
 

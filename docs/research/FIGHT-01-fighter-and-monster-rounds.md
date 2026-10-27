@@ -850,6 +850,54 @@ Still to see in game: the copies' recharge (172 and the delayed 171 after a real
 delayed 171 in the timed effects after a cast as after `EEex_GameObject_ApplyEffect`, and fiends
 veiling themselves in whole fights.
 
+### Positioning in the casting pause (2026-10-28)
+
+Christopher, 2026-10-25: casters use the casting pause to walk into position, by wit (clever
+always, normal sometimes, dull never). With it one walk rule for heals and attacks.
+
+- **When** (`combat-intent/choice.lua`, `M.position`): while the casting aura of the last cast runs
+  and the cast the creature will make once it frees needs a walk into range (R3 above), the
+  creature walks toward the spot it will cast from meanwhile: straight toward its aim, for the
+  seconds until the aura frees less half a second (`auraLead`), never past that spot. Only for the
+  cast it will make: one worth the minimum and more than its best attack, or worth something when
+  no attack is worth making. A mage whose weapon would kill an enemy next to it walks nowhere for a
+  bolt at an enemy far away; it swings.
+- **Never into melee:** of the whole way, three quarters, half or a quarter, the longest that ends
+  where no enemy's melee weapon reaches (`weapons.meleeAt`); none shorter than 16 (a tenth of a
+  second's walk).
+- **Worth:** what the cast gains as its walk shrinks (6 / (6 + walk left) against 6 / (6 + walk), on
+  the cast's worth before its walk lowered it), and what standing there is worth in danger zones.
+  A bolt of range 480 at an enemy 600 away needs a walk of 1.2 seconds; with 4 seconds of aura left
+  the mage walks all of it meanwhile, worth the sixth of the bolt the walk would have cost, and casts
+  without a walk once the aura frees. With 1 second left it walks half a second of it.
+- **Against an attack meanwhile:** the walk when it is worth more than the attack (the attack's
+  worth less the part of the best cast it holds back, as before), else the attack, else the wait.
+- **Wit:** a tactic (`M.tactical`). A normal creature draws once a decision whether it notices, and
+  only when there is something to notice: the aura runs, it can walk, and an enemy or ally it sees
+  stands beyond the range of one of its ready spells cast at a creature or a point.
+- **The adapter** walks it there (`MoveToPoint` to the nearest open spot by the point) and holds the
+  walk until the aura is about to free; then the next decision, mostly the cast, replaces the walk
+  ("A new decision replaces the engine's own running action" above). A walk over sooner ends the
+  hold too. Log: the choice row (`castKind` `position`, the cast it walks for, toward whom, the
+  aura), a `position` row (from, to, cast, toward) and a `positioned` row (where it ended, how long
+  it took, how near the nearest enemy stands). A wait in the casting pause names why no walk came of
+  it (`positioning`: `unnoticed`, `melee`, `short`, `no-aim`, `no-worth`). Counts: `positions`,
+  `positioned`.
+- **One walk rule for heals and cures** (`combat-intent/care.lua`): a walk to a friend comes first and
+  lowers the worth as for an attack (6 / (6 + seconds), at the caster's pace, `weapons.speed`), and a
+  friend that falls during the walk and the casting gains nothing. Until now the walk cost as
+  casting time did, a much smaller cost. A caster that cannot walk reaches no friend beyond its
+  range. So a priest walks toward the friend it will heal in the casting pause, too.
+
+Tests: the choice's group 24 (the whole walk and half of it, the cast at the aura's end, the melee
+guard, wit and draws, nothing to notice, the cast it will make against a swing, short, aimless,
+rooted, a heal), the care's group 3 (the paced walk, a rooted caster, a friend that falls during
+the walk), `weapons` (the pace), and the choice adapter's group 40 (the walk, its hold until the
+aura's end, the cast after it, a walk over sooner, a dull mage's wait row) and group 30 (a cast
+broken off after its walk: the pause now walks); 23 mutations checked.
+Still to see in game: walks in the casting pause in whole fights, where the game's path ends, and
+the cast replacing the walk at once.
+
 ## Agreed (Christopher, 2026-10-25)
 
 1. **Target choice by worth, with overrides.** Not SCS's fixed list ("Ich würde es nicht eins zu
@@ -919,10 +967,12 @@ Known gaps, for later:
   installer did not see, a spell another mod took away).
 - Barbarian Rage's armour class penalty does not count against what it protects; per-cent maximum
   hit points (opcode 18, mode 2) give no hit points; helmets are not read.
-- Movement speed is not read (haste, slow, boots of speed), only the default.
-- Heals and cures at allies weigh a walk to the ally by its seconds (`castCost`), attacks by
-  `weapons.paced`; one rule for both is open. Defences, heals and cures at allies do not walk into
-  range yet.
+- Movement speed is not read (haste, slow, boots of speed), only the default: every walk counts
+  100 a second (`weapons.speed`), also the walk into position in the casting pause.
+- Defences at allies do not walk into range yet (heals and cures do, by the one walk rule).
+- Positioning: the walk goes straight toward the aim, not around walls or other creatures (the
+  game finds the path); the spot is chosen for the next cast alone, not for the casts after it, and
+  an enemy that walks meanwhile is aimed at where it stands now.
 - To see in a lab: whether `SpellPointRES` walks as `SpellRES` does, and long walks with
   `AttackOneRound`. EEex's started-action listener fires when the walk into range begins, not when
   the casting does ([ACT-05](ACT-05-casts-out-of-sight.md)), so the engine's hold of a queued cast

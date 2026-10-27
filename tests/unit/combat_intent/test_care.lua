@@ -122,10 +122,29 @@ i.mind=mind.new({coordination=0})
 assert(only(i)[1].target==2)
 i.plan={};i.frame.allies[1].x=100+16+601;i.rejected={}
 assert(#only(i)==0)
+-- A walk into range comes first and lowers the worth as for an attack (weapons.paced: 5 seconds
+-- at 100 world units a second leave 6/11); only the casting time costs.
 i.frame.allies[1].x=100+16+500
-o=only(i)[1];assert(o.target==2 and near(o.cost,0.12+0.02*(3*care.speedSeconds+5)))
+o=only(i)[1]
+assert(o.target==2 and near(o.walk,5) and near(o.worth,0.3*6/11) and near(o.cost,0.12+0.02*3*care.speedSeconds))
+-- A caster that cannot walk (webbed or entangled) reaches only allies within range.
+i.frame.self.rooted=true
+assert(#only(i)==0)
+i.frame.allies[1].x=110
+o=only(i)[1];assert(o.target==2 and o.walk==nil and near(o.worth,0.3))
+i.frame.self.rooted=nil
 i.frame.self.hp=10
 o=only(i)[1];assert(o.self==true and o.mode=='self' and near(o.worth,30/50))
+-- The friend must stand the walk as well as the casting: one an enemy fighter strikes for 19 hit
+-- points a round lives through the casting (2 seconds) with 12 but not through 5 seconds of walk
+-- and the casting.
+i=input({rejected={}})
+i.frame.allies={friend(2,{x=110,hp=12,maxHp=100})}
+i.frame.enemies={enemy(11,{x=150,attack={apr=2,thac0=5,damage=10},actee=2})}
+i.spells={row('TESTCURE',cure,4)}
+assert(only(i)[1].target==2)
+i.frame.allies[1].x=100+16+500;i.frame.enemies[1].x=100+16+540
+assert(#only(i)==0 and i.rejected['care-falls']==1)
 groups=groups+1
 
 -- 4. Area heals reach the friends in their area: an allies-only one at the spot where it helps

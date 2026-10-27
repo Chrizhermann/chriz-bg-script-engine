@@ -8,10 +8,11 @@
 -- The round (Christopher, 2026-10-25: "wir müssen SCS nichts überlassen", and what is quick does
 -- not take the round): the engine leaves no round to SCS. While the casting aura of the last cast
 -- runs, casts and drinks wait for it; an attack is made meanwhile when it is worth more than the
--- part of the best cast it holds back, else the creature waits until the aura frees. With nothing
--- worth doing it waits a moment and decides again. A fighter or monster attacks whenever nothing
--- else is worth more (mind.alwaysAttack); a caster that has no attack worth anything takes the best
--- spell that is worth something.
+-- part of the best cast it holds back, a walk into position for that cast (below) when it is worth
+-- more than such an attack, else the creature waits until the aura frees. With nothing worth doing
+-- it waits a moment and decides again. A fighter or monster attacks whenever nothing else is worth
+-- more (mind.alwaysAttack); a caster that has no attack worth anything takes the best spell that is
+-- worth something.
 --
 -- Worth is counted in shares of an enemy taken out of the fight: the hit points a cast takes
 -- (as a share of the enemy's maximum, no more than it has left), the worth of a kill, or the
@@ -23,6 +24,14 @@
 -- there first. The walk lowers the worth as a walk to a melee enemy does, and an area must keep
 -- the caster out where the walk ends. Not for a cone, a release or a caster that cannot walk; an
 -- area around the caster goes off where it stands.
+--
+-- Positioning in the casting pause (Christopher, 2026-10-25: walking into position during the
+-- casting cooldown, by wit, "zwischen taktisch klugen Gegnern und taktisch dummen Gegnern zu
+-- unterscheiden"): while the casting aura runs and the cast the creature will make once it frees
+-- needs a walk into range, it walks toward the spot it will cast from meanwhile, never to where an
+-- enemy's melee weapon reaches, so that the cast goes off sooner (M.position). It is weighed
+-- against an attack meanwhile. A tactic (M.tactical): a clever creature always, a normal one when
+-- it notices, a dull one never.
 --
 -- Since the third slice (Christopher, 2026-10-19) the caster's protections and buffs compete on
 -- the same scale (combat-intent/defence.lua): the best option of either kind is cast. Openers
@@ -225,6 +234,10 @@ M.landShort=48
 M.kiteSeconds=4
 M.kiteRange=6
 M.kiteGap=18
+-- Positioning (see the top): the shares of the way toward the cast's spot tried, longest first, and
+-- the shortest walk worth making (world units: a cell of the game's search map).
+M.positionSteps={1,0.75,0.5,0.25}
+M.positionMin=16
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
 local function clamp(v,a,b) if v<a then return a elseif v>b then return b end return v end
@@ -725,10 +738,32 @@ local function opener(input)
     end
     return false
 end
+-- Whether positioning is there to notice (M.position): the casting aura runs, the caster can walk,
+-- and an enemy or ally it sees stands beyond the range of one of its ready spells cast at a creature
+-- or a point.
+local function positioning(input)
+    local frame=input.frame
+    local caster=frame.self
+    if not (number(caster.aura) and caster.aura>M.auraLead) or caster.rooted==true then return false end
+    local shortest=math.huge
+    for _,row in ipairs(type(input.spells)=='table' and input.spells or {}) do
+        if type(row)=='table' and number(row.ready) and row.ready>0 and row.usable and type(row.spell)=='table' and
+            (row.spell.target=='creature' or row.spell.target=='point') then shortest=math.min(shortest,range(row.spell)) end
+    end
+    if shortest==math.huge then return false end
+    for _,list in ipairs({frame.enemies,type(frame.allies)=='table' and frame.allies or {}}) do
+        for _,c in ipairs(list) do
+            local d=type(c)=='table' and targeting.distance(caster,c) or math.huge
+            if d<math.huge and d>shortest then return true end
+        end
+    end
+    return false
+end
 -- Draws once a decision whether the creature sees a tactic's chance (mind.tactics), and only when
 -- there is one to see (an enemy casts, a jump into the fight is there, a debuff opens an enemy's
--- defences, a melee enemy close by can be stepped away from, or a backstab is there), so that other
--- decisions draw nothing. Without input.rng: when its chance is a half or more.
+-- defences, a melee enemy close by can be stepped away from, a backstab is there, or a walk into
+-- position in the casting pause), so that other decisions draw nothing. Without input.rng: when its
+-- chance is a half or more.
 function M.notices(input)
     local p=number(input.mind.tactics) and input.mind.tactics or 1
     if p>=1 then return true end
@@ -737,7 +772,8 @@ function M.notices(input)
     for _,e in ipairs(input.frame.enemies) do
         if type(e)=='table' and type(e.cast)=='table' then any=true;break end
     end
-    if not any and not leaping(input) and not opener(input) and not kiting(input) and not stabbing(input) then return false end
+    if not any and not leaping(input) and not opener(input) and not kiting(input) and not stabbing(input) and
+        not positioning(input) then return false end
     local rng=input.rng
     if not rng then return p>=0.5 end
     return rng:nextInt(1,1000)<=math.floor(p*1000+0.5)
@@ -1413,6 +1449,58 @@ function M.kite(input,rejected)
         slack=0,speed=0,walk=M.kiteSeconds,exits=exits}
 end
 
+-- Positioning (see the top): while the casting aura runs (aura: its seconds left), a walk toward
+-- the spot cast o goes off from, for the seconds until the aura frees (aura less auraLead) at most
+-- and no further than that spot: the longest of positionSteps of that way that ends where no
+-- enemy's melee weapon reaches (weapons.meleeAt). Worth: what o gains as its walk into range
+-- shrinks by that much (weapons.paced of the walk left against the whole walk, on o's worth before
+-- its walk lowered it), and what standing there is worth in the zones (zones.delta). None for a
+-- cast without a walk into range, an aim that cannot be found, a creature that cannot walk, a walk
+-- shorter than positionMin, or a creature that does not see the tactic (M.tactical). rejected (a
+-- table, optional) counts why there is none: 'position-' and the reason.
+function M.position(input,o,aura,rejected)
+    local function reject(why) if rejected then rejected['position-'..why]=(rejected['position-'..why] or 0)+1 end end
+    if type(o)~='table' or not number(o.walk) or o.walk<=0 or not number(o.worth) or not number(aura) then return nil end
+    local frame=input.frame
+    local caster=frame.self
+    if caster.rooted==true or not number(caster.x) or not number(caster.y) then return nil end
+    local seconds=math.min(o.walk,aura-M.auraLead)
+    if seconds<=0 then return nil end
+    -- Where the cast is aimed: its point, else the creature it is cast at.
+    local p=o.point
+    if p==nil and o.target~=nil then
+        for _,list in ipairs({frame.enemies,type(frame.allies)=='table' and frame.allies or {}}) do
+            for _,c in ipairs(list) do if type(c)=='table' and c.id==o.target then p=c end end
+        end
+    end
+    local d=targeting.distance(caster,p)
+    if d==math.huge or d<=0 then reject('no-aim');return nil end
+    if not M.tactical(input) then reject('unnoticed');return nil end
+    local speed=weapons.speed(caster)
+    local far=math.min(d,seconds*speed)
+    local spot,walked
+    for _,share in ipairs(M.positionSteps) do
+        local t=far*share/d
+        local at={x=math.floor(caster.x+(p.x-caster.x)*t+0.5),y=math.floor(caster.y+(p.y-caster.y)*t+0.5)}
+        if weapons.meleeAt(frame,at)<=0 then spot,walked=at,far*share;break end
+    end
+    if not spot then reject('melee');return nil end
+    if walked<M.positionMin then reject('short');return nil end
+    local moved=walked/speed
+    local raw=(o.worth-(number(o.interrupt) and o.interrupt or 0))/weapons.paced(o.walk)
+    local worth=raw*(weapons.paced(math.max(0,o.walk-moved))-weapons.paced(o.walk))+zones.delta(input,spot)
+    if worth<=0 then reject('no-worth');return nil end
+    return {resref='POSITION',kind='position',mode='point',point=spot,worth=worth,cost=0,score=worth,hits={},
+        slack=0,speed=0,walk=moved,cast=o.resref,toward=o.target}
+end
+-- Whether o, the best of the options, is the cast the creature makes once the aura frees (pick):
+-- worth the minimum and more than the best attack, or worth something with no attack worth making.
+local function casts(input,o,swing,swinging)
+    if type(o)~='table' or not number(o.score) then return false end
+    if o.score>=input.mind.minValue then return not (swing and swing.score>o.score) end
+    return not swinging and o.score>0
+end
+
 -- Jumps into the fight (see the top), best first: for each enemy the weapon in hand could hit in
 -- melee a long walk away, the teleport search.jump picks for the walk to a spot landShort short of
 -- the enemy on the way, cast at that spot or as far toward it as the teleport reaches. Worth: a
@@ -1623,10 +1711,18 @@ local function pick(input)
     end
     -- While the aura runs, casts and drinks wait for it. An attack now holds the best of them back
     -- by the part of a round the aura leaves of the attack's round, and is made when it is worth
-    -- more than that part of the best.
+    -- more than that part of the best. A walk into position for the cast made once the aura frees
+    -- (M.position) comes first when it is worth more than such an attack.
     if busy then
         local best=options[1] and number(options[1].score) and math.max(0,options[1].score) or 0
-        if swinging and value-best*math.max(0,M.ROUND-aura)/M.ROUND>0 then return swing,'weapon',all() end
+        local swung=swinging and value-best*math.max(0,M.ROUND-aura)/M.ROUND or 0
+        local step=casts(input,options[1],swing,swinging) and M.position(input,options[1],aura,rejected)
+        if step and step.score>math.max(0,swung) then
+            local list=all()
+            table.insert(list,1,step)
+            return step,'position',list
+        end
+        if swung>0 then return swing,'weapon',all() end
         return M.wait(aura-M.auraLead),'aura',all(),rejected
     end
     if #options==0 then
@@ -1667,7 +1763,8 @@ local function pick(input)
 end
 
 -- The attack, defence, heal or cure, summons, removal, opener, strike, weapon attack, jump into the
--- fight, step away from melee enemies ('kite'), way out of a zone or wait to do now, and why
+-- fight, step away from melee enemies ('kite'), walk into position for the next cast ('position'),
+-- way out of a zone or wait to do now, and why
 -- ('aura', 'no-option' or 'nothing-good' for a wait; 'jump' for a jump taken over the attack it
 -- brings sooner), or nil and why for bad input; the options come along for the log, and with a wait for want of options the
 -- count of reasons the ready spells gave none. Leaving costs no spell, only the seconds of the

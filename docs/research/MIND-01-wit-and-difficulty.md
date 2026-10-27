@@ -178,7 +178,9 @@ every tactic that needs some wit reads one knob, `mind.tactics`: how often the c
 chance, 1 for a clever creature, 0.5 for a normal one and 0 for a dull one (`mind.TACTICS`, times
 the profile's own `tactics`, so a lab can switch tactics off). A normal creature draws once a
 decision, and only when there is a chance to see. The first tactic is interrupting a cast
-([FIGHT-01](FIGHT-01-fighter-and-monster-rounds.md), "Orders and interrupting").
+([FIGHT-01](FIGHT-01-fighter-and-monster-rounds.md), "Orders and interrupting"). Since then: jumps
+into the fight, openings by debuffs, kiting, backstabs, hiding and veils, and walking into position
+in the casting pause (FIGHT-01, "Positioning in the casting pause", 2026-10-28).
 
 The search for enemies a creature cannot see (FIGHT-01, "Searching") draws once a search instead,
 so a normal creature searches cleverly in about half its searches and plainly in the rest. Its

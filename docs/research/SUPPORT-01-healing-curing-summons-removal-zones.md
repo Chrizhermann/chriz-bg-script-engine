@@ -101,9 +101,13 @@ attack's scale (shares of a creature), as protections do (DEFENCE-01):
 - **Who:** the caster itself; allies above SCS's healing level for the caster's level; not an ally
   another member of the group is already healing or curing (the director's reservations, as for
   disables). A spell cast at a creature reaches allies in its range and a round's walk beyond it
-  (touch spells reach one range unit); the walk costs as casting time does. Area heals go where
-  they help most; one that spares no one counts the enemies it heals against itself.
-- **Cost:** the spell's level, its casting time and the walk; harm while casting can break it.
+  (touch spells reach one range unit). Since 2026-10-28 one walk rule holds for heals and attacks
+  ([FIGHT-01](FIGHT-01-fighter-and-monster-rounds.md), "Positioning in the casting pause"): the
+  walk at the caster's pace comes first and lowers the worth (6 / (6 + seconds)), and a friend
+  that falls during the walk and the casting gains nothing; a caster that cannot walk reaches no
+  one beyond its range. Until then the walk cost as casting time does. Area heals go where they
+  help most; one that spares no one counts the enemies it heals against itself.
+- **Cost:** the spell's level and its casting time; harm while casting can break it.
   Potions cost as a first-level spell and cannot be broken.
 - **Potions:** the caster drinks healing or curing items it carries (quick slots and backpack)
   with `UseItem`, while uses are left.

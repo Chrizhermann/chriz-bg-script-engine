@@ -19,9 +19,14 @@
 -- falls before the cast lands gains nothing. A cure is worth what the condition would still keep
 -- the friend out of, as the same disable on an enemy is worth (combat-intent/choice.lua), and the
 -- hit points poison would still take.
+--
+-- A walk into range to an ally comes first and lowers the worth as for an attack spell
+-- (weapons.paced, at the caster's speed: one walk rule for heals and attacks), and the friend must
+-- stand the walk and the casting.
 local targeting=require('combat-intent.targeting')
 local threat=require('combat-intent.threat')
 local defence=require('combat-intent.defence')
+local weapons=require('combat-intent.weapons')
 local ids=require('combat-intent.ids')
 local M={}
 M.ROUND=6
@@ -42,7 +47,6 @@ M.STATE={sleep=0x1,berserk=0x2,panic=0x4,stun=0x8,silence=0x1000,poison=0x4000,b
 -- How far beyond a spell's range the caster walks to an ally it heals or cures (a touch spell
 -- reaches one range unit): a round's walk, at about 100 world units a second.
 M.walk=600
-M.walkSpeed=100
 -- A speed point of casting time is 10 game ticks (as for defences).
 M.speedSeconds=10/15
 -- Worth of one spell level, times the profile's economy; a potion costs as a first-level spell.
@@ -168,25 +172,30 @@ end
 
 -- Where a care spell can be cast: on the caster, and at each ally within its range and a round's
 -- walk beyond it for a spell cast at a creature; at the caster's spot or an ally's for an area at
--- a point; around the caster for its own area. walk: world units the caster goes beyond range.
+-- a point; around the caster for its own area. walk: the seconds the caster walks into range
+-- first (weapons.approach); none beyond range for a caster that cannot walk.
 local function aims(input,spell)
     local frame=input.frame
     local caster=frame.self
     local out={}
     local range=(number(spell.range) and spell.range or 0)*targeting.rangeUnit
+    local function walk(f)
+        if targeting.distance(caster,f)>range+M.walk then return nil end
+        return weapons.approach(caster,f,range)
+    end
     if spell.target=='self' then
         out[1]={self=true,friend=caster,point=spell.area and {x=caster.x,y=caster.y} or nil,walk=0}
     elseif spell.target=='point' and spell.area then
         out[1]={point={x=caster.x,y=caster.y},walk=0}
         for _,f in ipairs(threat.friends(frame)) do
-            local d=targeting.distance(caster,f)
-            if f~=caster and d<=range+M.walk then out[#out+1]={point={x=f.x,y=f.y},walk=math.max(0,d-range)} end
+            local w=f~=caster and walk(f)
+            if w then out[#out+1]={point={x=f.x,y=f.y},walk=w} end
         end
     elseif spell.target=='creature' then
         out[1]={self=true,friend=caster,walk=0}
         for _,f in ipairs(threat.friends(frame)) do
-            local d=targeting.distance(caster,f)
-            if f~=caster and d<=range+M.walk then out[#out+1]={friend=f,walk=math.max(0,d-range)} end
+            local w=f~=caster and walk(f)
+            if w then out[#out+1]={friend=f,walk=w} end
         end
     end
     return out
@@ -239,10 +248,10 @@ function M.options(input,rejected)
     local coordinated=(number(mind.coordination) and mind.coordination or 0)>=0.5
     local shields={}
     local function shieldOf(f) shields[f.id]=shields[f.id] or defence.held(f);return shields[f.id] end
-    -- The worth on friend f of the heal and the cure of spell that reach it, once a cast of the
-    -- given seconds lands. A spell f's protections keep out does nothing for it (lab batch H: SCS's
-    -- Minor Globe of Invulnerability kept a Remove Paralysis off a held mage); the caster's own
-    -- protections let its own help through (targeting.protected).
+    -- The worth on friend f of the heal and the cure of spell that reach it, once a cast that lands
+    -- the given seconds from now (a walk and the casting) lands. A spell f's protections keep out
+    -- does nothing for it (lab batch H: SCS's Minor Globe of Invulnerability kept a Remove Paralysis
+    -- off a held mage); the caster's own protections let its own help through (targeting.protected).
     local function on(f,heal,cure,cast,spell)
         if f~=caster then
             if number(f.level) and f.level<=minimum then return 0,'level' end
@@ -293,23 +302,24 @@ function M.options(input,rejected)
             end
             table.sort(order,function(a,b) return (a.id or 0)<(b.id or 0) end)
             for _,f in ipairs(order) do
-                local w,no=on(f,reach[f].heal,reach[f].cure,cast,spell)
+                local w,no=on(f,reach[f].heal,reach[f].cure,cast+aim.walk,spell)
                 -- The most telling reason a friend gains nothing: anything but plain no worth.
                 if w>0 then worth=worth+w;hits[#hits+1]=f.id
                 elseif no and (why==nil or why=='no-worth') then why=no end
             end
+            -- A walk into range comes first and lowers the worth (weapons.paced).
+            worth=worth*weapons.paced(aim.walk)
             if worth>0 and (not best or worth>best.worth) then best={aim=aim,worth=worth,hits=hits} end
         end
         if not best then reject(why or 'no-worth');return end
-        -- Casting time: harm while casting can interrupt a spell (not an item); long casts and the
-        -- walk to an ally cost.
+        -- Casting time: harm while casting can interrupt a spell (not an item); long casts cost.
         local through=item and 1 or defence.through(input,pictures[caster.id],cast)
-        local walk=best.aim.walk/M.walkSpeed
         local cost=(number(mind.economy) and mind.economy or 1)*M.costPerLevel*(item and M.itemLevel or slots(input)*level)+
-            (number(mind.castCost) and mind.castCost or 0)*(cast+walk)
+            (number(mind.castCost) and mind.castCost or 0)*cast
         local worth=best.worth*through
         local option={resref=resref,kind=gives.heal and 'heal' or 'cure',worth=worth,cost=cost,score=worth-cost,
-            hits=best.hits,slack=0,speed=number(spell.speed) and spell.speed or 0,use=item or nil}
+            hits=best.hits,slack=0,speed=number(spell.speed) and spell.speed or 0,use=item or nil,
+            walk=best.aim.walk>0 and best.aim.walk or nil}
         local aim=best.aim
         if aim.self then option.self=true;option.mode='self'
         elseif aim.friend then option.target=aim.friend.id;option.mode='ally'

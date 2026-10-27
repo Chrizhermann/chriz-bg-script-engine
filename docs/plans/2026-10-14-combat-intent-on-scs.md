@@ -778,8 +778,14 @@ SCS's free invisibility stands aside for every creature with such an ability, al
 comes back. Writing it down showed that Pit Fiends carry the game's own Improved Invisibility at
 will, and that SCS's block for it never fires.
 
-Next, in the order agreed with Christopher on 2026-10-27 for the first release: casters use the
-casting pause to walk into position, with one walk rule for heals and attacks; SCS's prebuffs
+Casters now use the casting pause to walk into position (FIGHT-01, "Positioning in the casting
+pause"; Christopher, 2026-10-25): while the casting aura of the last cast runs and the next cast
+needs a walk into range, the creature walks toward the spot it will cast from (a clever one always,
+a normal one when it notices, a dull one never), never to where an enemy's melee weapon reaches, so
+the cast goes off as soon as the aura frees; an attack worth more is made meanwhile instead. Heals
+and cures weigh a walk to a friend as attacks weigh theirs (one walk rule).
+
+Next, in the order agreed with Christopher on 2026-10-27 for the first release: SCS's prebuffs
 rebuilt in the engine as SCS casts them, except that area buffs really reach the group (phase 1,
 contingencies and sequencers with them); kill chance by the dice; a big lab round (the teleport run
 again, light and shadow in a second hide probe, a stronger party for the mixed fights, which also
@@ -1000,7 +1006,9 @@ Christopher's ideas so far (living list; more will follow):
   vielen)". Later work, designed with Christopher.
 - **Variance by wit in every tactic** (2026-10-25): e.g. walking into position during the casting
   cooldown, "zwischen taktisch klugen Gegnern und taktisch dummen Gegnern zu unterscheiden …
-  um ein bisschen Varianz ins Spiel zu bringen".
+  um ein bisschen Varianz ins Spiel zu bringen". Walking into position built 2026-10-28
+  ([FIGHT-01](../research/FIGHT-01-fighter-and-monster-rounds.md), "Positioning in the casting
+  pause"); not yet in a lab.
 - **Prebuffed area buffs reach the allies, not only the caster.** Designed in August; one
   lab probe on `codex/aoe-prebuff-design` cast SCS's Haste prebuff for real and both the
   caster and a nearby ally got it. Not wired in yet.
