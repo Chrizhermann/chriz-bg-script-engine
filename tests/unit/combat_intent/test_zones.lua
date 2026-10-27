@@ -5,6 +5,7 @@ local choice=require('combat-intent.choice')
 local mind=require('combat-intent.mind')
 local spells=require('combat-intent.spells')
 local targeting=require('combat-intent.targeting')
+local harm=require('combat-intent.harm')
 local groups=0
 
 local function fx(op,fields)
@@ -61,6 +62,37 @@ local function input(fields,self)
     return i
 end
 local function near(a,b,eps) return math.abs(a-b)<(eps or 1e-9) end
+-- One explosion of the fire (4d9, a quarter of the creatures saving for half), roll by roll: the
+-- chance of each whole number of hit points it takes. Half of an odd roll goes half to each whole
+-- number beside it.
+local FIRE={}
+for v=0,36 do FIRE[v]=0 end
+for a=1,9 do for b=1,9 do for c=1,9 do for d=1,9 do
+    local roll=a+b+c+d
+    local half=roll/2
+    local lo=math.floor(half)
+    FIRE[roll]=FIRE[roll]+0.75/6561
+    FIRE[lo]=FIRE[lo]+0.25/6561*(1-(half-lo))
+    FIRE[lo+1]=FIRE[lo+1]+0.25/6561*(half-lo)
+end end end end
+-- What n explosions of the fire (one by default) take from a creature with left hit points above
+-- its floor (no more than left), and the chance they take all of them.
+local function fireRoll(left,n)
+    local sum={[0]=1}
+    for _=1,n or 1 do
+        local more={}
+        for a,pa in pairs(sum) do
+            for v=0,36 do more[a+v]=(more[a+v] or 0)+pa*FIRE[v] end
+        end
+        sum=more
+    end
+    local taken,all=0,0
+    for v,p in pairs(sum) do
+        taken=taken+p*math.min(v,left)
+        if v>=left then all=all+p end
+    end
+    return taken,all
+end
 
 -- 1. One explosion on the creature in it: what gets through its resistance, magic resistance and
 -- saves; Cloudkill's death only up to level 4; spell failure counts for casters; a zone for its
@@ -366,9 +398,10 @@ do
 end
 
 -- 10. Minimum hit points (opcode 208): a cloud takes from a creature only what it has above its
--- minimum and kills no one while it holds, so the most it can lose is what it has above it (30 of
--- 40 with a minimum of 10: a round's stay of 1.8 explosions loses 0.5, not 0.79), and a creature
--- at its minimum has nothing to walk out for. SCS's fire takes troll regeneration away, and the
+-- minimum and kills no one while it holds, so the most it can lose is what it has above it (20 of
+-- 40 with a minimum of 10 at 30), and a creature at its minimum has nothing to walk out for. By the
+-- dice: without a minimum one explosion kills the creature at 30 in the rolls of 30 and more; with
+-- it, what an explosion takes stops at 20. SCS's fire takes troll regeneration away, and the
 -- minimum with it: a troll in a fire cloud that does so can die there, in plain fire it cannot.
 do
     local q={x=400,y=100}
@@ -376,8 +409,11 @@ do
     local floored=input({zones={zone(fire)}},{hp=30,minHp=10})
     local h=zones.hit(plain,zone(fire),plain.frame.self)
     local h2,_,floor=zones.hit(floored,zone(fire),floored.frame.self)
-    assert(near(h2,h) and floor==10)
-    assert(near(zones.delta(plain,q),1.5*h) and near(zones.delta(floored,q),0.5-0.3*h))
+    local taken30,all30=fireRoll(30)
+    local taken20=fireRoll(20)
+    assert(all30>0 and near(h,taken30/40+0.5*all30) and near(h2,taken20/40) and h2<h and floor==10)
+    local out,floorOut=zones.delta(plain,q),zones.delta(floored,q)
+    assert(floorOut>0 and floorOut<0.5 and out>floorOut)
     local last=input({zones={zone(fire)}},{hp=1,minHp=1})
     assert(zones.hit(last,zone(fire),last.frame.self)==0 and select(2,zones.escape(last))=='unharmed')
     local files={['EFF:TESTTFI']={kind='EFF',resref='TESTTFI',effect=fx(146,{res='TESTTROL',p2=1})},
@@ -394,11 +430,20 @@ do
     local trollIds={ea=255,general=1,race=129,class=2,specific=0,gender=1,alignment=0}
     local burning=input({zones={zone(trollFire)}},{hp=10,minHp=1,minHpFrom={TESTRG2=true},ids=trollIds})
     local hb,_,fb=zones.hit(burning,burning.zones[1],burning.frame.self)
-    assert(fb==0 and near(hb,10/40+0.5))
+    local taken10,all10=fireRoll(10)
+    assert(fb==0 and near(hb,taken10/40+0.5*all10))
     local warm=input({zones={zone(fire)}},{hp=10,minHp=1,minHpFrom={TESTRG2=true},ids=trollIds})
     local hw,_,fw=zones.hit(warm,warm.zones[1],warm.frame.self)
-    assert(fw==1 and near(hw,9/40))
+    assert(fw==1 and near(hw,(fireRoll(9))/40))
     assert(zones.escape(burning).worth>zones.escape(warm).worth)
+    -- In both clouds the troll keeps the lowest floor of them: the burning one can kill it, so
+    -- both can (a jump out of them gains a round's explosions of both, by the dice, with the kill).
+    local both=input({zones={zone(trollFire),zone(fire,{id=901})}},{hp=10,minHp=1,minHpFrom={TESTRG2=true},ids=trollIds})
+    local me=both.frame.self
+    local _,_,_,s1=zones.hit(both,both.zones[1],me)
+    local _,_,_,s2=zones.hit(both,both.zones[2],me)
+    local want=harm.outcome({{spread=s1,n=1.2},{spread=s2,n=1.2}},me,0.5,0)
+    assert(near(zones.leap(both,{x=900,y=100},0),want) and want>harm.outcome({{spread=s1,n=1.2},{spread=s2,n=1.2}},me,0.5,1))
     groups=groups+1
 end
 
@@ -425,6 +470,13 @@ do
     assert(seen and near(seen.worth,even.worth) and not seen.forced)
     local careless=zones.escape(with('normal',0.5,{zones={zone(fire,{next=1})}}))
     assert(near(careless.worth,0.5*seen.worth))
+    -- At 10 hit points, below an explosion's average, it still leaves (by the average, before
+    -- 2026-10-28, both ways ended at all it is worth): staying meets two explosions, leaving the
+    -- one that comes on its way out, which falls short now and then.
+    local t1,a1=fireRoll(10)
+    local t2,a2=fireRoll(10,2)
+    local low=zones.escape(with('clever',1,{zones={zone(fire,{next=1})}},{hp=10}))
+    assert(low and near(low.worth,(t2/40+0.5*a2)-(t1/40+0.5*a1)) and low.worth>0.05)
     local q={x=400,y=100}
     assert(near(zones.delta(with('normal',0.5,{zones={zone(fire)}}),q),0.5*zones.delta(with('normal',1,{zones={zone(fire)}}),q)))
     assert(zones.delta(with('dull',1,{zones={zone(fire)}}),q)==0)
@@ -473,19 +525,25 @@ end
 -- in it would take, with no walk through it; into one it loses that; while the teleport is cast the
 -- creature stands where it is (a second: a round and a second staying against a second of it), and
 -- explosions then can break the casting; a dull one counts none. A fighter that chases jumps over the
--- fire to the wounded enemy it would not walk through it for (section 6).
+-- fire to the wounded enemy it would not walk through it for (section 6). Explosions spread evenly
+-- add up by the dice: a round's 6/5 of an explosion is one explosion four times in five and two
+-- the fifth time, and two can kill the creature at 40 that one cannot.
 do
     local i=input({zones={zone(fire)}})
     local h=zones.hit(i,zone(fire),i.frame.self)
     local q={x=400,y=100}
-    assert(h>0 and near(zones.leap(i,q,0),h*6/5))
-    assert(near(zones.leap(i,q,1),h*7/5-h/5))
-    assert(near(zones.leap(input({zones={zone(fire)}},{x=600}),{x=100,y=100},0),-h*6/5))
+    local taken1=fireRoll(40)
+    local taken2,all2=fireRoll(40,2)
+    local one,two=taken1/40,taken2/40+0.5*all2
+    assert(near(h,one) and all2>0)
+    assert(near(zones.leap(i,q,0),0.8*one+0.2*two))
+    assert(near(zones.leap(i,q,1),0.6*one+0.4*two-0.2*one))
+    assert(near(zones.leap(input({zones={zone(fire)}},{x=600}),{x=100,y=100},0),-(0.8*one+0.2*two)))
     assert(zones.leap(input({zones={zone(fire)}},{x=600}),{x=900,y=100},0)==0)
     assert(zones.leap(input({zones={zone(fire)},mind=mind.new({wit='dull'})}),q,0)==0)
     local jump={resref='TESTLEAP',kind='teleport',melee=true,worth=0.3,cost=0.03,score=0.27,speed=0,point=q,target=5}
     zones.adjust(i,jump,{})
-    assert(near(jump.worth,0.3+h*6/5) and near(jump.score,jump.worth-0.03) and jump.finish==nil)
+    assert(near(jump.worth,0.3+0.8*one+0.2*two) and near(jump.score,jump.worth-0.03) and jump.finish==nil)
     local slow={resref='TESTDOOR',kind='teleport',melee=true,worth=0.3,cost=0.12,score=0.18,speed=3,point=q,target=5}
     zones.adjust(input({zones={zone(fire,{next=1})}}),slow,{})
     assert(slow.finish==0 and slow.worth==0)

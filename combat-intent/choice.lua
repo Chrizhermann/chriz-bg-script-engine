@@ -370,11 +370,11 @@ local function remembered(input,resref,e,role)
     return 0.5^misses
 end
 
--- The worth of a damage role on e (combat-intent/harm.lua), more on the group's focus and on an
--- enemy the creature's orders name, and the hit points it is expected to take. floor: the hit
--- points e keeps at least (targeting.floor).
-local function damageOn(input,row,role,e,floor)
-    local worth,expected=harm.damage(role,e,input.mind.killBonus,floor)
+-- The worth of a damage role landing n times on e (once by default; combat-intent/harm.lua: by the
+-- dice), more on the group's focus and on an enemy the creature's orders name, and the hit points
+-- it is expected to take. floor: the hit points e keeps at least (targeting.floor).
+local function damageOn(input,row,role,e,floor,n)
+    local worth,expected=harm.damage(role,e,input.mind.killBonus,floor,n)
     if expected<=0 then return 0,0 end
     local plan=input.plan
     if type(plan)=='table' and plan.focus==e.id then worth=worth*(1+input.mind.focusBonus*input.mind.coordination) end
@@ -458,15 +458,6 @@ local function stayChance(input,e)
     local stay=type(s)=='table' and number(s.stay) and s.stay>0 and s.stay or 0
     local left=type(s)=='table' and number(s.left) and s.left>0 and s.left or 0
     return (M.stayPrior*M.stayWeight+stay)/(M.stayWeight+stay+left)
-end
--- role with n times its amounts: the damage of n explosions together.
-local function times(role,n)
-    local r={}
-    for k,v in pairs(role) do r[k]=v end
-    r.types={}
-    for label,v in pairs(type(role.types)=='table' and role.types or {}) do r.types[label]=number(v) and v*n or v end
-    if number(role.percent) then r.percent=role.percent*n end
-    return r
 end
 -- The share of casts of role that land on e and hold: magic resistance, the saving throw and the
 -- effect's own chance.
@@ -565,16 +556,17 @@ local function debuffOn(input,row,role,e,ctx,plain)
     return worth*remembered(input,row.resref,e,role)*orders.favour(input,e)
 end
 -- The worth on e of the spell's kind of attack and the debuff beside it over n explosions (one
--- for a cast), and the hit points it is expected to take: damage n times over; a disable or a
--- debuff as likely as it lands at least once; a debuff beside damage in full, beside a disable as
--- likely as the disable never lands. Only what e's roles hold counts: an enemy only the debuff
--- reaches gets the debuff alone. plain: without openings.
+-- for a cast), and the hit points it is expected to take: damage n times over, added up by the
+-- dice (e dies once, however many explosions it takes); a disable or a debuff as likely as it
+-- lands at least once; a debuff beside damage in full, beside a disable as likely as the disable
+-- never lands. Only what e's roles hold counts: an enemy only the debuff reaches gets the debuff
+-- alone. plain: without openings.
 local function attackOn(input,row,kind,roles,e,ctx,n,plain)
     local floor=targeting.floor(e,roles)
     local worth,hp=0,0
     local main=roles[kind]
     if reaches(main) then
-        if kind=='damage' then worth,hp=damageOn(input,row,n>1 and times(main,n) or main,e,floor)
+        if kind=='damage' then worth,hp=damageOn(input,row,main,e,floor,n)
         elseif kind=='disable' then worth=disableOn(input,row,main,e,floor)*tries(main,e,n)
         else worth=debuffOn(input,row,main,e,ctx,plain)*tries(main,e,n) end
     end

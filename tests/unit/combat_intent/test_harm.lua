@@ -125,4 +125,110 @@ do
     groups=groups+1
 end
 
+-- Damage roles with their rolls (combat-intent/spells.lua) and a counter of n dice with s sides
+-- by hand: the chance of each total (index total + 1).
+local function hurt(rolls,fields)
+    local r=role({'damage'},{rolls=rolls})
+    for k,v in pairs(fields or {}) do r[k]=v end
+    return r
+end
+local function roll(label,dice,sides,flat,fields)
+    local r={label=label,dice=dice,sides=sides,flat=flat or 0,p=1,times=1}
+    for k,v in pairs(fields or {}) do r[k]=v end
+    return r
+end
+local function count(n,s)
+    local p={1}
+    for _=1,n do
+        local q={}
+        for i=1,#p+s do q[i]=0 end
+        for i=1,#p do for k=1,s do q[i+k]=q[i+k]+p[i]/s end end
+        p=q
+    end
+    return p
+end
+-- The hit points expected of totals p, no more than left, and the chance they reach it.
+local function capped(p,left)
+    local taken,all=0,0
+    for i=1,#p do
+        if i-1>=left then taken=taken+left*p[i];all=all+p[i] else taken=taken+(i-1)*p[i] end
+    end
+    return taken,all
+end
+local function same(a,b)
+    if #a~=#b then return false end
+    for i=1,#a do if not near(a[i],b[i]) then return false end end
+    return true
+end
+
+-- 6. Damage by the dice: a die's spread on a creature it cannot kill, its mean and no kill; 2d6 on
+-- 7 hit points kills on 7 or more (21 in 36) and counts at most the 7; a minimum of 1 hit point
+-- takes the kill and a point; half fire resistance halves each total, the halves split between the
+-- two whole numbers around them; a save for half on 11 (half the time) and magic resistance 50.
+do
+    local d6=hurt({roll('magic',1,6)})
+    local f=creature()
+    assert(same(harm.spread(d6,f),{0,1/6,1/6,1/6,1/6,1/6,1/6}))
+    local w,x=harm.damage(d6,f,0.5,0)
+    assert(near(w,3.5/60) and near(x,3.5))
+    local two=hurt({roll('magic',2,6)})
+    local seven=creature({hp=7})
+    local taken,all=capped(count(2,6),7)
+    assert(near(all,21/36) and near(taken,217/36))
+    w,x=harm.damage(two,seven,0.5,0)
+    assert(near(w,taken/60+0.5*all) and near(x,taken))
+    taken=capped(count(2,6),6)
+    w,x=harm.damage(two,seven,0.5,1)
+    assert(near(x,taken) and near(w,taken/60))
+    local fire=hurt({roll('fire',1,6)})
+    assert(same(harm.spread(fire,creature({resist={fire=50}})),{1/12,1/3,1/3,1/4}))
+    local saved=hurt({roll('fire',1,6)},{saveForHalf=true,save={spell=true}})
+    local half=harm.spread(saved,creature({saves={spell=11,breath=14,death=14,wand=14,poly=14}}))
+    assert(same(half,{1/24,1/4,1/4,5/24,1/12,1/12,1/12}))
+    assert(same(harm.spread(d6,creature({mr=50})),{0.5,1/12,1/12,1/12,1/12,1/12,1/12}))
+    assert(harm.spread(d6,creature({resist={magic=100}}))==nil)
+    groups=groups+1
+end
+
+-- 7. A cloud's explosions add up before the kill counts (by the average, before 2026-10-28, a
+-- creature about one explosion's average from death saw no worth in leaving): 4d6 on 14 hit
+-- points kills 721 times in 1296, two of them as 8d6 do; a half explosion as likely as not. The flat rest of a roll, a
+-- share of the creature's maximum, damage by type where a role carries no rolls, a roll's own
+-- chance and copies, and dice past M.manyDice at their average.
+do
+    local cloud=hurt({roll('fire',4,6)})
+    local f=creature({hp=14})
+    local taken,all=capped(count(4,6),14)
+    assert(near(all,721/1296))
+    local w,x=harm.damage(cloud,f,0.5,0)
+    assert(near(w,taken/60+0.5*all) and near(x,taken))
+    local taken2,all2=capped(count(8,6),14)
+    w,x=harm.damage(cloud,f,0.5,0,2)
+    assert(near(w,taken2/60+0.5*all2) and near(x,taken2))
+    w,x=harm.damage(cloud,f,0.5,0,1.5)
+    assert(near(x,(taken+taken2)/2) and near(w,(taken+taken2)/120+0.25*(all+all2)))
+    local s=harm.spread(cloud,f)
+    w=harm.outcome({{spread=s,n=1},{spread=s,n=1}},f,0.5,0)
+    assert(near(w,taken2/60+0.5*all2))
+    -- Far from a kill: the mean, as the averages give it.
+    w,x=harm.damage(cloud,creature({hp=100,maxHp=100}),0.5,0,3)
+    assert(near(x,42) and near(w,0.42))
+    assert(same(harm.spread(hurt({roll('magic',1,4,1)}),creature()),{0,0,1/4,1/4,1/4,1/4}))
+    assert(same(harm.spread(hurt({},{percent=25}),creature()),(function()
+        local t={} for i=1,16 do t[i]=0 end t[16]=1 return t end)()))
+    local typed=role({'damage'},{types={fire=2.5}})
+    assert(same(harm.spread(typed,creature()),{0,0,0.5,0.5}))
+    assert(same(harm.spread(hurt({roll('magic',1,6,0,{p=0.5})}),creature()),{0.5,1/12,1/12,1/12,1/12,1/12,1/12}))
+    local copies=harm.spread(hurt({roll('magic',1,6,0,{times=2})}),creature())
+    assert(same(copies,count(2,6)))
+    local many=harm.spread(hurt({roll('magic',1000,6)}),creature({hp=5000,maxHp=5000}))
+    assert(#many==3501 and many[3501]==1)
+    -- Twelve explosions on 40 hit points and ten copies of a roll (added up by squaring).
+    local taken12,all12=capped(count(12,6),40)
+    w,x=harm.damage(hurt({roll('magic',1,6)}),creature({hp=40}),0.5,0,12)
+    assert(all12>0 and near(w,taken12/60+0.5*all12) and near(x,taken12))
+    assert(same(harm.spread(hurt({roll('magic',1,2,0,{times=10})}),creature()),count(10,2)))
+    groups=groups+1
+end
+
 return groups

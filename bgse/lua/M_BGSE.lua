@@ -611,17 +611,25 @@ local function signed(c,e,who,p,value,label,good,bad)
 end
 
 local H={}
-local function damage(c,e,who,p,amount,label)
+-- Damage of amount on average, dice of sides among it: the role adds it to its types and keeps the
+-- roll itself (rolls: type, dice, sides, the flat rest, the chance it lands and how many times it
+-- does), from which harm.spread spreads it over whole hit points.
+local function damage(c,e,who,p,amount,label,dice,sides)
     local r=add(c,'damage',who,e,p)
+    local times=c.times or 1
     r.kinds[label]=true
-    tally(set(r,'types'),label,amount*p*(c.times or 1))
-    r.amount=(r.amount or 0)+amount*p*(c.times or 1)
+    tally(set(r,'types'),label,amount*p*times)
+    r.amount=(r.amount or 0)+amount*p*times
     if e.save>0 and math.floor(e.special/256)%2==1 then r.saveForHalf=true end
+    local n=number(dice) and dice>0 and number(sides) and sides>0 and dice or 0
+    local s=n>0 and sides or 0
+    local rolls=set(r,'rolls')
+    rolls[#rolls+1]={label=label,dice=n,sides=s,flat=amount-average(n,s),p=p,times=times}
 end
 H[12]=function(c,e,who,p)
     local mode=e.p2%65536
     local label=DAMAGE[math.floor(e.p2/65536)] or 'other'
-    if mode==0 then damage(c,e,who,p,math.max(e.p1,0)+average(e.dice,e.sides),label)
+    if mode==0 then damage(c,e,who,p,math.max(e.p1,0)+average(e.dice,e.sides),label,e.dice,e.sides)
     else
         local r=add(c,'damage',who,e,p);r.kinds[label]=true;r.percent=math.max(r.percent or 0,e.p1)
     end
@@ -770,8 +778,8 @@ H[78]=function(c,e,who,p)
     if t<=3 then
         local amount=(M.perSecond(e) or 0)*overTime(e)
         if amount>0 then damage(c,e,who,p,amount,'poison') end
-    elseif t==11 then damage(c,e,who,p,3.5,'magic')
-    elseif t==12 then local n=math.max(0,e.p1);damage(c,e,who,p,3.5*n*(n+1)/2,'magic') end
+    elseif t==11 then damage(c,e,who,p,3.5,'magic',1,6)
+    elseif t==12 then local n=math.max(0,e.p1)*(math.max(0,e.p1)+1)/2;damage(c,e,who,p,3.5*n,'magic',n,6) end
     if t==10 or t==13 then kind(c,'debuff','slow',who,e,p) end
     for _,label in ipairs(DISEASE_STATS[t] or {}) do
         if e.p1>0 then local r=kind(c,'debuff',label,who,e,p);tally(set(r,'amounts'),label,e.p1*p)
@@ -2202,34 +2210,210 @@ function M.brokenFree(duration,bf,e)
     return held
 end
 
--- The worth of a damage role on e and the hit points it is expected to take (no more than e has
--- left above floor): the share of e's maximum, and the kill bonus as likely as the hit points it
--- deals (halved on a save, if it allows half) reach those e has left. floor: the hit points e
--- keeps at least (its minimum, targeting.floor; one for a strike that keeps its target alive, as
--- Harm does); no kill while one holds (lab batch H9: a priest stayed 39 seconds in an Incendiary
--- Cloud to finish a mage whose minimum kept it at one hit point).
-function M.damage(role,e,killBonus,floor)
+-- Damage by the dice (2026-10-28; before, a kill counted in full once the average reached the hit
+-- points left, so a creature about one explosion's average from death saw no worth in leaving a
+-- cloud). A spread is the chance of each whole number of hit points taken (index: hit points + 1),
+-- cut off at a top: its last entry holds the chance of the top or more. A fraction goes to the two
+-- whole numbers around it by how near each is, so a spread's mean is what the averages give.
+local function zeros(n) local t={} for i=1,n do t[i]=0 end return t end
+-- A roll whose dice can reach more hit points than this counts as its average.
+M.manyDice=4000
+local DICE={}
+-- The chances of each total of n dice with s sides (index total + 1), nil for too many; kept.
+local function dice(n,s)
+    if n<=0 or s<=0 then return {1} end
+    if n*s>M.manyDice then return nil end
+    local key=n..':'..s
+    if DICE[key] then return DICE[key] end
+    local p={1}
+    for _=1,n do
+        local q,window={},0
+        for i=1,#p+s do
+            window=window+(p[i-1] or 0)-(p[i-1-s] or 0)
+            q[i]=window>0 and window/s or 0
+        end
+        p=q
+    end
+    DICE[key]=p
+    return p
+end
+-- Adds the chance pr of x hit points to spread t (top: its last index - 1).
+local function put(t,x,pr,top)
+    if x<=0 then t[1]=t[1]+pr;return end
+    local lo=math.floor(x)
+    if lo>=top then t[top+1]=t[top+1]+pr;return end
+    local up=x-lo
+    t[lo+1]=t[lo+1]+pr*(1-up)
+    if up>0 then t[lo+2]=t[lo+2]+pr*up end
+end
+-- Spreads a and b added up, cut off at top.
+local function sum(a,b,top)
+    local size=math.min(#a+#b-1,top+1)
+    local out=zeros(size)
+    for i=1,#a do
+        local pa=a[i]
+        if pa>0 then
+            for j=1,#b do
+                local k=i+j-1
+                if k>size then k=size end
+                out[k]=out[k]+pa*b[j]
+            end
+        end
+    end
+    return out
+end
+-- Spread a as likely as c, else nothing.
+local function maybe(a,c)
+    if c>=1 then return a end
+    local out={}
+    for i=1,#a do out[i]=a[i]*math.max(c,0) end
+    out[1]=out[1]+1-math.max(c,0)
+    return out
+end
+-- Spread a cut off at top.
+local function cut(a,top)
+    if #a<=top+1 then return a end
+    local out={}
+    for i=1,top do out[i]=a[i] end
+    local rest=0
+    for i=top+1,#a do rest=rest+a[i] end
+    out[top+1]=rest
+    return out
+end
+-- k spreads a added up, cut off at top (stops once all of it is at the top).
+local function times(a,k,top)
+    local out={1}
+    if k<=8 then
+        for _=1,k do
+            out=sum(out,a,top)
+            if #out==top+1 and out[top+1]>=1-1e-12 then break end
+        end
+        return out
+    end
+    local base=a
+    while k>0 do
+        if k%2==1 then out=sum(out,base,top) end
+        k=math.floor(k/2)
+        if k>0 then base=sum(base,base,top) end
+    end
+    return out
+end
+-- What one roll does through resistance factor f, cut off at top: its flat part and dice, as
+-- likely as it lands, as many times as it lands (a fraction of a time as likely as that).
+local function rolled(roll,f,top)
+    local n=number(roll.dice) and roll.dice>0 and roll.dice or 0
+    local s=number(roll.sides) and roll.sides>0 and roll.sides or 0
+    local flat=number(roll.flat) and roll.flat>0 and roll.flat or 0
+    local base=dice(n,s)
+    if base==nil then flat,base=flat+n*(s+1)/2,{1} end
+    local last=math.min(math.ceil((flat+#base-1)*f),top)
+    local t=zeros(last+1)
+    for i=1,#base do
+        if base[i]>0 then put(t,(flat+i-1)*f,base[i],last) end
+    end
+    t=maybe(t,number(roll.p) and roll.p or 1)
+    local k=number(roll.times) and roll.times>0 and roll.times or 1
+    local whole=math.floor(k+1e-9)
+    local out=times(t,whole,top)
+    if k-whole>1e-9 then out=sum(out,maybe(t,k-whole),top) end
+    return out
+end
+
+-- The spread of the hit points one application of damage role takes from e, cut off at e's hit
+-- points; nil when none gets through. Its rolls (combat-intent/spells.lua) through e's resistances,
+-- or its averages by type where it carries none, and the share of e's maximum it takes; then the
+-- saving throw (half, or none of it) and magic resistance.
+function M.spread(role,e)
+    local hp,maxHp=e.hp,e.maxHp
+    if type(role)~='table' or not number(hp) or not number(maxHp) or maxHp<=0 or hp<=0 then return nil end
+    local top=math.ceil(hp-1e-9)
+    local half=role.saveForHalf==true
+    local reach=half and 2*top+1 or top
+    local d,any={1},false
+    local rolls=type(role.rolls)=='table' and #role.rolls>0 and role.rolls or nil
+    if rolls==nil then
+        rolls={}
+        local labels={}
+        for label,v in pairs(type(role.types)=='table' and role.types or {}) do
+            if number(v) and v>0 then labels[#labels+1]=label end
+        end
+        table.sort(labels)
+        for _,label in ipairs(labels) do rolls[#rolls+1]={label=label,flat=role.types[label]} end
+    end
+    for _,r in ipairs(rolls) do
+        local f=type(r)=='table' and M.resisted(e,r.label) or 0
+        if f>0 then d=sum(d,rolled(r,f,reach),reach);any=true end
+    end
+    if number(role.percent) and role.percent>0 then
+        d=sum(d,rolled({flat=maxHp*role.percent/100},1,reach),reach);any=true
+    end
+    if not any or #d==1 then return nil end
+    local save=targeting.saveChance(role,e)
+    if half then
+        local out=zeros(math.min(#d,top+1))
+        for i=1,#d do
+            local pr=d[i]
+            if pr>0 then
+                put(out,i-1,pr*(1-save),#out-1)
+                if save>0 then put(out,(i-1)/2,pr*save,#out-1) end
+            end
+        end
+        d=out
+    else d=maybe(d,1-save) end
+    return maybe(d,targeting.landing(role,e))
+end
+
+-- The worth and the hit points expected to be taken of the spreads in parts ({spread, n}: n of
+-- them, a fraction of one as likely as that) landing on e together: the share of e's maximum they
+-- take, no more than e has left above floor, and the kill bonus as likely as they take all of
+-- that. floor: the hit points e keeps at least (its minimum, targeting.floor; one for a strike that
+-- keeps its target alive, as Harm does); no kill while one holds (lab batch H9: a priest stayed 39
+-- seconds in an Incendiary Cloud to finish a mage whose minimum kept it at one hit point).
+function M.outcome(parts,e,killBonus,floor)
     local hp,maxHp=e.hp,e.maxHp
     if not number(hp) or not number(maxHp) or maxHp<=0 or hp<=0 then return 0,0 end
     floor=number(floor) and floor>0 and floor or 0
-    hp=hp-floor
-    if hp<=0 then return 0,0 end
-    local amount=0
-    for label,v in pairs(type(role.types)=='table' and role.types or {}) do
-        if number(v) then amount=amount+v*M.resisted(e,label) end
+    local left=hp-floor
+    if left<=0 then return 0,0 end
+    local cap=math.ceil(left-1e-9)
+    local most,mean=0,0
+    for _,x in ipairs(parts) do
+        local s=x.spread
+        most=most+x.n*(#s-1)
+        for i=2,#s do mean=mean+x.n*(i-1)*s[i] end
     end
-    if number(role.percent) then amount=amount+maxHp*role.percent/100 end
-    if amount<=0 then return 0,0 end
-    local land=targeting.landing(role,e)
-    local save=targeting.saveChance(role,e)
-    local expected=amount*land*(role.saveForHalf and 1-save/2 or 1-save)
-    local worth=math.min(expected,hp)/maxHp
-    local kill=0
-    if amount>=hp and floor<=0 then
-        kill=land*((role.saveForHalf and amount/2>=hp) and 1 or 1-save)
+    -- Short of what e has left even at most: the mean, and no kill.
+    if most<cap then return mean/maxHp,mean end
+    local total={1}
+    for _,x in ipairs(parts) do
+        local s=cut(x.spread,cap)
+        local whole=math.floor(x.n+1e-9)
+        local some=times(s,whole,cap)
+        local frac=x.n-whole
+        if frac>1e-9 then
+            local more=sum(some,s,cap)
+            local mixed=zeros(math.max(#some,#more))
+            for i=1,#some do mixed[i]=mixed[i]+some[i]*(1-frac) end
+            for i=1,#more do mixed[i]=mixed[i]+more[i]*frac end
+            some=mixed
+        end
+        total=sum(total,some,cap)
     end
-    worth=worth+(number(killBonus) and killBonus or 0)*kill
-    return worth,math.min(expected,hp)
+    local expected,kill=0,0
+    for i=2,#total do
+        if i==cap+1 then kill=total[i];expected=expected+left*total[i]
+        else expected=expected+(i-1)*total[i] end
+    end
+    if floor>0 then kill=0 end
+    return expected/maxHp+(number(killBonus) and killBonus or 0)*kill,expected
+end
+
+-- The worth of damage role landing n times on e (once by default: a cast; a cloud's explosions)
+-- and the hit points it is expected to take (M.outcome).
+function M.damage(role,e,killBonus,floor,n)
+    local s=M.spread(role,e)
+    if s==nil then return 0,0 end
+    return M.outcome({{spread=s,n=number(n) and n>0 and n or 1}},e,killBonus,floor)
 end
 
 -- Whether e's level lies within the role's levels (any level when e's is unknown).
@@ -5848,7 +6032,8 @@ end
 -- (undead and the like); nothing when z spares f's side or a spell protection keeps z out. Also
 -- how many of z's next explosions f's protections stop first (stopped), and the hit points z
 -- leaves f at least (targeting.floor: its minimum, unless z takes it away). With theirs, f is
--- one of the caster's enemies.
+-- one of the caster's enemies. For adding explosions up (harmOf) also the spread of one
+-- explosion's damage (harm.spread, nil without damage) and the worth of the rest of it.
 function M.hit(input,z,f,theirs)
     if not M.reachesSide(z,theirs) then return 0,0,0 end
     local roles=spells.view(z.spell,targeting.holds(f))
@@ -5857,11 +6042,15 @@ function M.hit(input,z,f,theirs)
     local first=stopped(f,z)
     if first==math.huge then return 0,first,floor end
     local killBonus=type(input.mind)=='table' and input.mind.killBonus or 0
-    local worth=0
-    if reaches(roles.damage) then worth=worth+(harm.damage(roles.damage,f,killBonus,floor)) end
-    if reaches(roles.disable) then worth=worth+harm.disable(roles.disable,f,killBonus,floor) end
-    if reaches(roles.debuff) then worth=worth+M.debuff(roles.debuff,f,facing(input,theirs)) end
-    return worth,first,floor
+    local other,spread=0,nil
+    if reaches(roles.disable) then other=other+harm.disable(roles.disable,f,killBonus,floor) end
+    if reaches(roles.debuff) then other=other+M.debuff(roles.debuff,f,facing(input,theirs)) end
+    local worth=other
+    if reaches(roles.damage) then
+        spread=harm.spread(roles.damage,f)
+        if spread then worth=worth+(harm.outcome({{spread=spread,n=1}},f,killBonus,floor)) end
+    end
+    return worth,first,floor,spread,other
 end
 
 -- The chance one explosion of z that gets through breaks a cast of f's: its damage lands (halved
@@ -5939,31 +6128,51 @@ local function spans(z,p,q,speed,t)
     return out
 end
 
--- What f would lose to the zones that hurt it: hurts lists {zone, hit, stopped} (one explosion's
--- harm, and how many explosions its protections stop first, in the order they reach it). staying
--- puts f at p until time t; walking takes it from p to q and leaves it there. even: explosions
--- spread evenly (M.count).
-local function loss(hurts,f,p,q,speed,t,even)
-    local total=0
-    for _,h in ipairs(hurts) do
-        local free=h.stopped or 0
-        for _,s in ipairs(spans(h.zone,p,q,speed,t)) do
-            local n=M.count(h.zone,s[1],s[2],even)
-            local kept=math.min(n,free)
-            free=free-kept
-            total=total+h.hit*(n-kept)
+-- What f loses to the zones that hurt it (hurts) when explosions[i] of hurts[i] reach it: their
+-- damage added up by the dice (harm.outcome: f dies once, however many explosions it takes, and
+-- keeps at least the lowest floor among them) and the rest of each explosion's harm.
+local function harmOf(input,f,hurts,explosions)
+    local killBonus=type(input.mind)=='table' and number(input.mind.killBonus) and input.mind.killBonus or 0
+    local other,parts,floor=0,{},nil
+    for i,h in ipairs(hurts) do
+        local n=explosions[i] or 0
+        if n>0 then
+            other=other+h.other*n
+            if h.spread then parts[#parts+1]={spread=h.spread,n=n} end
+            local v=number(h.floor) and h.floor or 0
+            if floor==nil or v<floor then floor=v end
         end
     end
-    return total
+    if #parts==0 then return other end
+    return other+(harm.outcome(parts,f,killBonus,floor))
 end
--- The zones that would hurt f where it stands or on its way, with one explosion's harm each, the
--- explosions its protections stop first and the hit points each leaves it at least.
+-- What f would lose to the zones that hurt it: hurts lists {zone, hit, stopped, spread, other}
+-- (one explosion's harm, and how many explosions its protections stop first, in the order they
+-- reach it). staying puts f at p until time t; walking takes it from p to q and leaves it there.
+-- even: explosions spread evenly (M.count).
+local function loss(input,hurts,f,p,q,speed,t,even)
+    local explosions={}
+    for i,h in ipairs(hurts) do
+        local free,n=h.stopped or 0,0
+        for _,s in ipairs(spans(h.zone,p,q,speed,t)) do
+            local c=M.count(h.zone,s[1],s[2],even)
+            local kept=math.min(c,free)
+            free=free-kept
+            n=n+c-kept
+        end
+        explosions[i]=n
+    end
+    return harmOf(input,f,hurts,explosions)
+end
+-- The zones that would hurt f where it stands or on its way, with one explosion's harm each (its
+-- damage's spread and the rest), the explosions its protections stop first and the hit points each
+-- leaves it at least.
 local function hurting(input,f)
     local out={}
     for _,z in ipairs(list(input.zones)) do
         if M.valid(z) then
-            local h,first,floor=M.hit(input,z,f)
-            if h>0 then out[#out+1]={zone=z,hit=h,stopped=first,floor=floor} end
+            local h,first,floor,spread,other=M.hit(input,z,f)
+            if h>0 then out[#out+1]={zone=z,hit=h,stopped=first,floor=floor,spread=spread,other=other or 0} end
         end
     end
     return out
@@ -6000,8 +6209,8 @@ function M.delta(input,q)
     local t=M.ROUND+targeting.distance(f,q)/speed
     local most=cap(input,f,hurts)
     local even=w~='clever'
-    local stay=math.min(loss(hurts,f,f,f,speed,t,even),most)
-    local go=math.min(loss(hurts,f,f,q,speed,t,even),most)
+    local stay=math.min(loss(input,hurts,f,f,f,speed,t,even),most)
+    local go=math.min(loss(input,hurts,f,f,q,speed,t,even),most)
     return (stay-go)*danger(input)
 end
 -- What a teleport to q is worth to the caster against standing where it is, in the zones, as
@@ -6024,20 +6233,22 @@ function M.leap(input,q,cast)
         local cx,cy=flat(z)
         return (px-cx)^2+(py-cy)^2<=z.radius^2
     end
-    local go=0
-    for _,h in ipairs(hurts) do
-        local free=h.stopped or 0
+    local explosions={}
+    for i,h in ipairs(hurts) do
+        local free,n=h.stopped or 0,0
         local spans={}
         if cast>0 and inside(h.zone,f) then spans[#spans+1]={0,cast} end
         if inside(h.zone,q) then spans[#spans+1]={cast,t} end
         for _,s in ipairs(spans) do
-            local n=M.count(h.zone,s[1],s[2],even)
-            local kept=math.min(n,free)
+            local c=M.count(h.zone,s[1],s[2],even)
+            local kept=math.min(c,free)
             free=free-kept
-            go=go+h.hit*(n-kept)
+            n=n+c-kept
         end
+        explosions[i]=n
     end
-    local stay=math.min(loss(hurts,f,f,f,speedOf(f),t,even),most)
+    local go=harmOf(input,f,hurts,explosions)
+    local stay=math.min(loss(input,hurts,f,f,f,speedOf(f),t,even),most)
     return (stay-math.min(go,most))*danger(input)
 end
 
@@ -6153,7 +6364,7 @@ function M.escape(input)
         -- Areas start at 0: a point before their edge is no way out.
         if not moved and s<=M.maxWalk and q.x>=0 and q.y>=0 then
             local t=M.ROUND+s/speed
-            local worth=(math.min(loss(hurts,f,f,f,speed,t,even),most)-math.min(loss(hurts,f,f,q,speed,t,even),most))*weight
+            local worth=(math.min(loss(input,hurts,f,f,f,speed,t,even),most)-math.min(loss(input,hurts,f,f,q,speed,t,even),most))*weight
             found[#found+1]={point=q,worth=worth,walk=s/speed}
         end
     end
@@ -6575,11 +6786,11 @@ local function remembered(input,resref,e,role)
     return 0.5^misses
 end
 
--- The worth of a damage role on e (combat-intent/harm.lua), more on the group's focus and on an
--- enemy the creature's orders name, and the hit points it is expected to take. floor: the hit
--- points e keeps at least (targeting.floor).
-local function damageOn(input,row,role,e,floor)
-    local worth,expected=harm.damage(role,e,input.mind.killBonus,floor)
+-- The worth of a damage role landing n times on e (once by default; combat-intent/harm.lua: by the
+-- dice), more on the group's focus and on an enemy the creature's orders name, and the hit points
+-- it is expected to take. floor: the hit points e keeps at least (targeting.floor).
+local function damageOn(input,row,role,e,floor,n)
+    local worth,expected=harm.damage(role,e,input.mind.killBonus,floor,n)
     if expected<=0 then return 0,0 end
     local plan=input.plan
     if type(plan)=='table' and plan.focus==e.id then worth=worth*(1+input.mind.focusBonus*input.mind.coordination) end
@@ -6663,15 +6874,6 @@ local function stayChance(input,e)
     local stay=type(s)=='table' and number(s.stay) and s.stay>0 and s.stay or 0
     local left=type(s)=='table' and number(s.left) and s.left>0 and s.left or 0
     return (M.stayPrior*M.stayWeight+stay)/(M.stayWeight+stay+left)
-end
--- role with n times its amounts: the damage of n explosions together.
-local function times(role,n)
-    local r={}
-    for k,v in pairs(role) do r[k]=v end
-    r.types={}
-    for label,v in pairs(type(role.types)=='table' and role.types or {}) do r.types[label]=number(v) and v*n or v end
-    if number(role.percent) then r.percent=role.percent*n end
-    return r
 end
 -- The share of casts of role that land on e and hold: magic resistance, the saving throw and the
 -- effect's own chance.
@@ -6770,16 +6972,17 @@ local function debuffOn(input,row,role,e,ctx,plain)
     return worth*remembered(input,row.resref,e,role)*orders.favour(input,e)
 end
 -- The worth on e of the spell's kind of attack and the debuff beside it over n explosions (one
--- for a cast), and the hit points it is expected to take: damage n times over; a disable or a
--- debuff as likely as it lands at least once; a debuff beside damage in full, beside a disable as
--- likely as the disable never lands. Only what e's roles hold counts: an enemy only the debuff
--- reaches gets the debuff alone. plain: without openings.
+-- for a cast), and the hit points it is expected to take: damage n times over, added up by the
+-- dice (e dies once, however many explosions it takes); a disable or a debuff as likely as it
+-- lands at least once; a debuff beside damage in full, beside a disable as likely as the disable
+-- never lands. Only what e's roles hold counts: an enemy only the debuff reaches gets the debuff
+-- alone. plain: without openings.
 local function attackOn(input,row,kind,roles,e,ctx,n,plain)
     local floor=targeting.floor(e,roles)
     local worth,hp=0,0
     local main=roles[kind]
     if reaches(main) then
-        if kind=='damage' then worth,hp=damageOn(input,row,n>1 and times(main,n) or main,e,floor)
+        if kind=='damage' then worth,hp=damageOn(input,row,main,e,floor,n)
         elseif kind=='disable' then worth=disableOn(input,row,main,e,floor)*tries(main,e,n)
         else worth=debuffOn(input,row,main,e,ctx,plain)*tries(main,e,n) end
     end

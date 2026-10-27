@@ -131,7 +131,8 @@ end
 -- (undead and the like); nothing when z spares f's side or a spell protection keeps z out. Also
 -- how many of z's next explosions f's protections stop first (stopped), and the hit points z
 -- leaves f at least (targeting.floor: its minimum, unless z takes it away). With theirs, f is
--- one of the caster's enemies.
+-- one of the caster's enemies. For adding explosions up (harmOf) also the spread of one
+-- explosion's damage (harm.spread, nil without damage) and the worth of the rest of it.
 function M.hit(input,z,f,theirs)
     if not M.reachesSide(z,theirs) then return 0,0,0 end
     local roles=spells.view(z.spell,targeting.holds(f))
@@ -140,11 +141,15 @@ function M.hit(input,z,f,theirs)
     local first=stopped(f,z)
     if first==math.huge then return 0,first,floor end
     local killBonus=type(input.mind)=='table' and input.mind.killBonus or 0
-    local worth=0
-    if reaches(roles.damage) then worth=worth+(harm.damage(roles.damage,f,killBonus,floor)) end
-    if reaches(roles.disable) then worth=worth+harm.disable(roles.disable,f,killBonus,floor) end
-    if reaches(roles.debuff) then worth=worth+M.debuff(roles.debuff,f,facing(input,theirs)) end
-    return worth,first,floor
+    local other,spread=0,nil
+    if reaches(roles.disable) then other=other+harm.disable(roles.disable,f,killBonus,floor) end
+    if reaches(roles.debuff) then other=other+M.debuff(roles.debuff,f,facing(input,theirs)) end
+    local worth=other
+    if reaches(roles.damage) then
+        spread=harm.spread(roles.damage,f)
+        if spread then worth=worth+(harm.outcome({{spread=spread,n=1}},f,killBonus,floor)) end
+    end
+    return worth,first,floor,spread,other
 end
 
 -- The chance one explosion of z that gets through breaks a cast of f's: its damage lands (halved
@@ -222,31 +227,51 @@ local function spans(z,p,q,speed,t)
     return out
 end
 
--- What f would lose to the zones that hurt it: hurts lists {zone, hit, stopped} (one explosion's
--- harm, and how many explosions its protections stop first, in the order they reach it). staying
--- puts f at p until time t; walking takes it from p to q and leaves it there. even: explosions
--- spread evenly (M.count).
-local function loss(hurts,f,p,q,speed,t,even)
-    local total=0
-    for _,h in ipairs(hurts) do
-        local free=h.stopped or 0
-        for _,s in ipairs(spans(h.zone,p,q,speed,t)) do
-            local n=M.count(h.zone,s[1],s[2],even)
-            local kept=math.min(n,free)
-            free=free-kept
-            total=total+h.hit*(n-kept)
+-- What f loses to the zones that hurt it (hurts) when explosions[i] of hurts[i] reach it: their
+-- damage added up by the dice (harm.outcome: f dies once, however many explosions it takes, and
+-- keeps at least the lowest floor among them) and the rest of each explosion's harm.
+local function harmOf(input,f,hurts,explosions)
+    local killBonus=type(input.mind)=='table' and number(input.mind.killBonus) and input.mind.killBonus or 0
+    local other,parts,floor=0,{},nil
+    for i,h in ipairs(hurts) do
+        local n=explosions[i] or 0
+        if n>0 then
+            other=other+h.other*n
+            if h.spread then parts[#parts+1]={spread=h.spread,n=n} end
+            local v=number(h.floor) and h.floor or 0
+            if floor==nil or v<floor then floor=v end
         end
     end
-    return total
+    if #parts==0 then return other end
+    return other+(harm.outcome(parts,f,killBonus,floor))
 end
--- The zones that would hurt f where it stands or on its way, with one explosion's harm each, the
--- explosions its protections stop first and the hit points each leaves it at least.
+-- What f would lose to the zones that hurt it: hurts lists {zone, hit, stopped, spread, other}
+-- (one explosion's harm, and how many explosions its protections stop first, in the order they
+-- reach it). staying puts f at p until time t; walking takes it from p to q and leaves it there.
+-- even: explosions spread evenly (M.count).
+local function loss(input,hurts,f,p,q,speed,t,even)
+    local explosions={}
+    for i,h in ipairs(hurts) do
+        local free,n=h.stopped or 0,0
+        for _,s in ipairs(spans(h.zone,p,q,speed,t)) do
+            local c=M.count(h.zone,s[1],s[2],even)
+            local kept=math.min(c,free)
+            free=free-kept
+            n=n+c-kept
+        end
+        explosions[i]=n
+    end
+    return harmOf(input,f,hurts,explosions)
+end
+-- The zones that would hurt f where it stands or on its way, with one explosion's harm each (its
+-- damage's spread and the rest), the explosions its protections stop first and the hit points each
+-- leaves it at least.
 local function hurting(input,f)
     local out={}
     for _,z in ipairs(list(input.zones)) do
         if M.valid(z) then
-            local h,first,floor=M.hit(input,z,f)
-            if h>0 then out[#out+1]={zone=z,hit=h,stopped=first,floor=floor} end
+            local h,first,floor,spread,other=M.hit(input,z,f)
+            if h>0 then out[#out+1]={zone=z,hit=h,stopped=first,floor=floor,spread=spread,other=other or 0} end
         end
     end
     return out
@@ -283,8 +308,8 @@ function M.delta(input,q)
     local t=M.ROUND+targeting.distance(f,q)/speed
     local most=cap(input,f,hurts)
     local even=w~='clever'
-    local stay=math.min(loss(hurts,f,f,f,speed,t,even),most)
-    local go=math.min(loss(hurts,f,f,q,speed,t,even),most)
+    local stay=math.min(loss(input,hurts,f,f,f,speed,t,even),most)
+    local go=math.min(loss(input,hurts,f,f,q,speed,t,even),most)
     return (stay-go)*danger(input)
 end
 -- What a teleport to q is worth to the caster against standing where it is, in the zones, as
@@ -307,20 +332,22 @@ function M.leap(input,q,cast)
         local cx,cy=flat(z)
         return (px-cx)^2+(py-cy)^2<=z.radius^2
     end
-    local go=0
-    for _,h in ipairs(hurts) do
-        local free=h.stopped or 0
+    local explosions={}
+    for i,h in ipairs(hurts) do
+        local free,n=h.stopped or 0,0
         local spans={}
         if cast>0 and inside(h.zone,f) then spans[#spans+1]={0,cast} end
         if inside(h.zone,q) then spans[#spans+1]={cast,t} end
         for _,s in ipairs(spans) do
-            local n=M.count(h.zone,s[1],s[2],even)
-            local kept=math.min(n,free)
+            local c=M.count(h.zone,s[1],s[2],even)
+            local kept=math.min(c,free)
             free=free-kept
-            go=go+h.hit*(n-kept)
+            n=n+c-kept
         end
+        explosions[i]=n
     end
-    local stay=math.min(loss(hurts,f,f,f,speedOf(f),t,even),most)
+    local go=harmOf(input,f,hurts,explosions)
+    local stay=math.min(loss(input,hurts,f,f,f,speedOf(f),t,even),most)
     return (stay-math.min(go,most))*danger(input)
 end
 
@@ -436,7 +463,7 @@ function M.escape(input)
         -- Areas start at 0: a point before their edge is no way out.
         if not moved and s<=M.maxWalk and q.x>=0 and q.y>=0 then
             local t=M.ROUND+s/speed
-            local worth=(math.min(loss(hurts,f,f,f,speed,t,even),most)-math.min(loss(hurts,f,f,q,speed,t,even),most))*weight
+            local worth=(math.min(loss(input,hurts,f,f,f,speed,t,even),most)-math.min(loss(input,hurts,f,f,q,speed,t,even),most))*weight
             found[#found+1]={point=q,worth=worth,walk=s/speed}
         end
     end

@@ -58,6 +58,24 @@ end
 local function kit()
     return {row('TESTSTOP',stop,9),row('TESTALAC',quick,9),row('TESTBOLT',bolt,3),row('TESTHOLD',hold,2)}
 end
+-- What n dice of s sides take from a creature with left hit points (no more than that), and the
+-- chance they take all of them, counted roll by roll.
+local function dice(n,s,left)
+    local ways={1}
+    for _=1,n do
+        local more={}
+        for t=1,#ways+s do more[t]=0 end
+        for t=1,#ways do for k=1,s do more[t+k]=more[t+k]+ways[t] end end
+        ways=more
+    end
+    local all,taken,total=0,0,0
+    for t=1,#ways do total=total+ways[t] end
+    for t=1,#ways do
+        taken=taken+math.min(t-1,left)*ways[t]/total
+        if t-1>=left then all=all+ways[t]/total end
+    end
+    return taken,all
+end
 local function near(a,b) return math.abs(a-b)<1e-9 end
 -- Raw records for releases (group 8): the spells a sequencer casts, read through a lookup.
 local function record(resref,level,effects,ability,fields)
@@ -153,7 +171,10 @@ i.stopCasts={{kind='damage',hits={11},expected={[11]=50}}}
 assert(choice.decide(i).target==12)
 i.stopCasts={{kind='damage',hits={11},expected={[11]=30}}}
 d=choice.decide(i)
-assert(d.target==11 and near(d.worth,0.9) and near(d.expected[11],20))
+-- 6d6 at the 20 hit points left: by the dice it kills in 29715 of 46656 rolls.
+local taken,all=dice(6,6,20)
+assert(near(all,29715/46656))
+assert(d.target==11 and near(d.worth,taken/50+0.5*all) and near(d.expected[11],taken))
 assert(i.frame.enemies[1].hp==50)
 i.timeStop={caster=99,left=12}
 assert(choice.frozen(i)==i)

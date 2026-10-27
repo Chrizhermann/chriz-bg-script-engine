@@ -794,11 +794,17 @@ block still ends SCS's preparation as the cast would have. SCS's prebuffed Haste
 with Spell Revisions, where it is an area spell) keeps its area, so it already reaches allies nearby;
 what more "area buffs as area buffs" should do is phase 2, with Christopher.
 
-Next, in the order agreed with Christopher on 2026-10-27 for the first release: kill chance by the
-dice; a big lab round (the teleport run
-again, light and shadow in a second hide probe, a stronger party for the mixed fights, which also
-show the replacement in whole fights, thieves in whole fights, the veil in game); then the boss
-fights, designed with Christopher one by one (Melissan's own among them). The Erinyes' withdrawal
+Kills now count by the dice (CHOICE-01, "By the dice"; SUPPORT-01, "Kills by the dice"): each roll
+of a damage spell is spread over whole hit points, so a fireball on an enemy with a little less
+than its average left kills as often as the dice say, not always, and one with a little more can
+still die. A cloud's explosions add up before the kill counts: a creature that one more explosion
+would likely kill now sees the worth of leaving.
+
+Next, in the order agreed with Christopher on 2026-10-27 for the first release: a big lab round
+(the teleport run again, light and shadow in a second hide probe, a stronger party for the mixed
+fights, which also show the replacement in whole fights, thieves in whole fights, the veil in game,
+the prebuffs in game); then the boss fights, designed with Christopher one by one (Melissan's own
+among them). The Erinyes' withdrawal
 comes with a later "disengage" step. After the release: traps, scripted encounter phases, a harder
 Insane, groups that share spells, quests.
 

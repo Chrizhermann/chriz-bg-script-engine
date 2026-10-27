@@ -729,13 +729,18 @@ was clean; one SCS fight ended at the lab's time limit after 79 seconds.
   `DWTROLAC`, `DWTROLCO`, opcode 321 on each regeneration spell), so a troll in a party fire
   cloud still counts as able to die there. (CHOICE-01, DIRECTOR-01)
 
-## Open (2026-10-24)
+## Kills by the dice (fixed 2026-10-28)
 
-- **A kill counts by the average hit.** `harm.damage` counts a kill as soon as a hit's average
-  damage reaches the hit points left, as a step. In a zone whose next explosion comes before any
-  way out, a creature with about one explosion's average left therefore sees no worth in leaving:
-  staying and going both end at all it is worth (`cap` in `combat-intent/zones.lua`). Found while
-  testing wit (MIND-01): a clever mage at 20 of 40 hit points in a 4d9 cloud, an explosion a tick
-  away, took no way out; at 30 of 60 it did. The roles carry only average damage, so a kill
-  chance by the dice needs the dice from `combat-intent/spells.lua`, and it changes every attack's
-  kill bonus too. Its own step.
+- **Was:** `harm.damage` counted a kill as soon as a hit's average damage reached the hit points
+  left, as a step, and a zone multiplied one explosion's worth (each capped at all the creature is
+  worth) by its explosions. In a zone whose next explosion comes before any way out, a creature
+  with about one explosion's average left saw no worth in leaving: staying and going both ended at
+  all it is worth. Found while testing wit (MIND-01).
+- **Now:** damage roles keep their rolls (SPELLS-01), and `harm.spread` spreads one explosion over
+  whole hit points. A zone adds its explosions up by the dice before the kill counts (`harmOf` in
+  `combat-intent/zones.lua`): the creature dies once, however many explosions it takes, and keeps
+  the lowest minimum among the zones that reach it. A clever mage at 10 of 40 hit points in a 4d9
+  cloud, the next explosion (17.5 on average after saves) a second away, saw no worth in leaving;
+  now leaving is worth 0.07 to it: staying meets two explosions, leaving only the one on its way
+  out, which leaves it alive about one time in eight. The engine's own clouds count the
+  explosions an enemy sits through the same way (CHOICE-01).

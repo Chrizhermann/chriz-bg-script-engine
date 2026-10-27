@@ -43,6 +43,9 @@ local c=classify(missile,world({['PRO:69']=SINGLE}))
 assert(#c.kinds==1 and c.kinds[1]=='damage' and c.target=='creature' and c.hostile==true)
 assert(c.roles.damage.who.target and near(c.roles.damage.amount,3.5) and near(c.roles.damage.types.magic,3.5))
 assert(c.offensive and not c.friendlyFire and not c.area and not c.projectileUnknown and not c.partial)
+-- Each roll kept for damage by the dice (combat-intent/harm.lua): 1d4 and a flat 1.
+local r=c.roles.damage.rolls[1]
+assert(#c.roles.damage.rolls==1 and r.label=='magic' and r.dice==1 and r.sides==4 and near(r.flat,1) and r.p==1 and r.times==1)
 missile.flags=0
 assert(classify(missile,world({['PRO:69']=SINGLE})).hostile==false)
 groups=groups+1
@@ -54,6 +57,8 @@ c=classify(fireball,world({['PRO:99']=pro({radius=480})}))
 assert(c.target=='point' and c.area.radius==480 and c.area.filter=='all' and c.roles.damage.who.area)
 assert(near(c.roles.damage.amount,35) and c.roles.damage.saveForHalf and c.roles.damage.save.spell)
 assert(c.friendlyFire and c.offensive)
+r=c.roles.damage.rolls[1]
+assert(r.label=='fire' and r.dice==10 and r.sides==6 and r.flat==0)
 c=classify(fireball,world({['PRO:99']=pro({areaFlags=64})}))
 assert(c.area.filter=='enemies' and not c.friendlyFire)
 groups=groups+1
@@ -182,6 +187,8 @@ groups=groups+1
 local rep=spl('TESTREP',{ability({fx(272,{res='TESTEFF',p1=1,duration=10})})})
 c=classify(rep,effs)
 assert(c.approximate and near(c.roles.damage.amount,40))
+r=c.roles.damage.rolls[1]
+assert(r.dice==0 and r.flat==4 and r.times==10)
 rep.abilities[1].effects[1].p2=3;rep.abilities[1].effects[1].p1=2
 assert(near(classify(rep,effs).roles.damage.amount,20))
 rep.abilities[1].effects[1].p2=2
@@ -208,6 +215,8 @@ local strike=spl('TESTSCB',{ability({fx(12,{dice=1,sides=6})},{minLevel=1}),abil
 local strikes=world({['SPL:TESTSCB']=strike})
 c=classify(charge,strikes,{level=15})
 assert(near(c.roles.damage.amount,10.5) and c.approximate and c.roles.damage.who.target)
+r=c.roles.damage.rolls[1]
+assert(#c.roles.damage.rolls==1 and r.dice==1 and r.sides==6 and r.flat==0 and r.times==3)
 charge.abilities[1].effects[1].p2=12
 assert(near(classify(charge,strikes,{level=1}).roles.damage.amount,300))
 charge.abilities[1].effects[1].res='OTHERB'
@@ -838,6 +847,10 @@ d=one(fx(78,{p1=2,p2=13,duration=60})).roles.debuff
 assert(d.kinds.slow and d.amounts.strength==2 and d.amounts.dexterity==2 and d.amounts.charisma==2 and d.kinds.disease)
 assert(one(fx(78,{p2=11})).roles.damage.types.magic==3.5)
 assert(one(fx(78,{p1=3,p2=12})).roles.damage.types.magic==21)
+r=one(fx(78,{p2=11})).roles.damage.rolls[1]
+assert(r.dice==1 and r.sides==6 and r.flat==0)
+r=one(fx(78,{p1=3,p2=12})).roles.damage.rolls[1]
+assert(r.dice==6 and r.sides==6 and r.flat==0)
 -- A negative chant lowers luck by its parameter; below 0 it helps.
 d=one(fx(137,{p1=1,duration=60})).roles.debuff
 assert(d.kinds.chant and d.amounts.luck==1)

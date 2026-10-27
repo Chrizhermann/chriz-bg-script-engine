@@ -29,6 +29,10 @@ files alone, whatever Spell Revisions, SCS or other mods changed?
   duration and amounts. It also returns the area (radius, enemies or allies only, cone,
   line), flags (offensive, beneficial, friendly fire, self harm, conditional, approximate,
   partial, a spell choice for the player, unknown projectile) and unknown opcodes.
+- A damage role also keeps each roll (`rolls`: its damage type, dice and sides, the flat rest,
+  the chance it lands and how many times it repeats), so the choice counts kills by the dice
+  (2026-10-28; CHOICE-01). Opcode 12 and disease (78) types 11 and 12 roll dice; everything
+  else counts as a flat amount. Magic Missile's first missile is 1d4 plus 1.
 - It never raises. Missing or odd data is reported (partial with a reason), and the caller
   skips what it cannot use; the creature's other abilities stay usable.
 - On-hit and critical hit effects (opcodes 248, 249 and 341) are listed in `c.hits`: what one hit
@@ -216,7 +220,8 @@ files alone, whatever Spell Revisions, SCS or other mods changed?
   or save yet.
 - Once a save is loaded, the engine's copy of an item can differ from its file (seen for
   two items' dice sides), so in-game records can differ from host records there.
-- Amounts are averages. Repeats (272, 333, cycles) are approximate, and conditional effects
+- Amounts are averages; damage roles keep their rolls beside them. Repeats (272, 333, cycles)
+  count as rolls repeated, approximate like their amounts, and conditional effects
   (177 with an IDS filter, 326, 366) are counted as if they applied.
 - Who gets an effect comes from its target field. SR's and SCS's own target filters (318 and
   324 naming the spell, SPLPROT conditions, projectile creature filters) are not yet checked

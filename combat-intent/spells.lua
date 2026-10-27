@@ -184,17 +184,25 @@ local function signed(c,e,who,p,value,label,good,bad)
 end
 
 local H={}
-local function damage(c,e,who,p,amount,label)
+-- Damage of amount on average, dice of sides among it: the role adds it to its types and keeps the
+-- roll itself (rolls: type, dice, sides, the flat rest, the chance it lands and how many times it
+-- does), from which harm.spread spreads it over whole hit points.
+local function damage(c,e,who,p,amount,label,dice,sides)
     local r=add(c,'damage',who,e,p)
+    local times=c.times or 1
     r.kinds[label]=true
-    tally(set(r,'types'),label,amount*p*(c.times or 1))
-    r.amount=(r.amount or 0)+amount*p*(c.times or 1)
+    tally(set(r,'types'),label,amount*p*times)
+    r.amount=(r.amount or 0)+amount*p*times
     if e.save>0 and math.floor(e.special/256)%2==1 then r.saveForHalf=true end
+    local n=number(dice) and dice>0 and number(sides) and sides>0 and dice or 0
+    local s=n>0 and sides or 0
+    local rolls=set(r,'rolls')
+    rolls[#rolls+1]={label=label,dice=n,sides=s,flat=amount-average(n,s),p=p,times=times}
 end
 H[12]=function(c,e,who,p)
     local mode=e.p2%65536
     local label=DAMAGE[math.floor(e.p2/65536)] or 'other'
-    if mode==0 then damage(c,e,who,p,math.max(e.p1,0)+average(e.dice,e.sides),label)
+    if mode==0 then damage(c,e,who,p,math.max(e.p1,0)+average(e.dice,e.sides),label,e.dice,e.sides)
     else
         local r=add(c,'damage',who,e,p);r.kinds[label]=true;r.percent=math.max(r.percent or 0,e.p1)
     end
@@ -343,8 +351,8 @@ H[78]=function(c,e,who,p)
     if t<=3 then
         local amount=(M.perSecond(e) or 0)*overTime(e)
         if amount>0 then damage(c,e,who,p,amount,'poison') end
-    elseif t==11 then damage(c,e,who,p,3.5,'magic')
-    elseif t==12 then local n=math.max(0,e.p1);damage(c,e,who,p,3.5*n*(n+1)/2,'magic') end
+    elseif t==11 then damage(c,e,who,p,3.5,'magic',1,6)
+    elseif t==12 then local n=math.max(0,e.p1)*(math.max(0,e.p1)+1)/2;damage(c,e,who,p,3.5*n,'magic',n,6) end
     if t==10 or t==13 then kind(c,'debuff','slow',who,e,p) end
     for _,label in ipairs(DISEASE_STATS[t] or {}) do
         if e.p1>0 then local r=kind(c,'debuff',label,who,e,p);tally(set(r,'amounts'),label,e.p1*p)

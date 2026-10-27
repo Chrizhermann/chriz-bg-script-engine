@@ -64,9 +64,18 @@ Worth is counted in shares of an enemy taken out of the fight (`combat-intent/ch
 
 - **Damage:** the spell's damage by type, times what the enemy's resistance lets through, times
   what its magic resistance lets through, halved or lost on a save. As a share of the enemy's
-  maximum hit points, no more than it has left. A likely kill adds the profile's kill bonus
-  (0.5) times the kill chance. Damage on the group's focus counts 1.5 times (focus bonus 0.5,
-  times the profile's coordination).
+  maximum hit points, no more than it has left. A kill adds the profile's kill bonus (0.5)
+  times the kill chance. Damage on the group's focus counts 1.5 times (focus bonus 0.5, times
+  the profile's coordination).
+- **By the dice** (2026-10-28; before, a kill counted in full once the average damage
+  reached the hit points left): the engine spreads each roll of the spell (SPELLS-01) over whole
+  hit points, through resistance, the save and magic resistance, and counts the expected hit
+  points taken (no more than the enemy has left) and the chance they take all of it. A fireball
+  of 10d6 (35 on average) on an enemy with 30 hit points left kills 84 times in 100 when the
+  enemy fails its save, where the average counted a sure kill; against an enemy that saves half
+  the time the average (26) counted no kill, the dice 42 in 100. Explosions of a cloud add up
+  before the kill counts, and the enemy dies once. Far from a kill the worth stays what the
+  averages give. `combat-intent/harm.lua`: `spread`, `outcome`, `damage`.
 - **Disables:** a factor by kind (hold and stun 1, charm 1.2, sleep 0.8, or 0.48 if damage
   wakes the target, confusion 0.8, panic 0.7, and so on), times the duration (18 seconds count
   in full), times 0.5 plus half the enemy's health. Death, petrification and imprisonment count
