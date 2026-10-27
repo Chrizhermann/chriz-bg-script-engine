@@ -148,13 +148,22 @@
 -- where it ended, whether it stands behind its enemy and is still hidden, and how far from it. Then
 -- the engine decides again, mostly the swing. Choice, 'swing' and 'attack' rows carry the chance
 -- that the first hit is a backstab, and a choice row for a hide (a potion or spell of invisibility)
--- what the backstab after it adds (opening). SCS's own hide (a thief that sees no enemy turns
--- invisible) stays SCS's, above the hook (FIGHT-01).
+-- what the backstab after it adds (opening).
+--
+-- Hiding (F2f, combat-intent/stealth.lua, adapters/eeex/stealth.lua): with no enemy in sight, once
+-- no zone hurts it and no friend in sight needs a heal or cure worth casting, a thief hides in
+-- shadows before it searches: the game's own Hide(), whose roll the game makes against its skill,
+-- held while it tries and judged by whether it came out invisible (a 'hide' and a 'hidden' row).
+-- A hiding rogue keeps its hide rather than switch to the Find Traps mode for its Detect Illusion
+-- (the game has one mode at a time). BGSE_Hide (api:hides) tells SCS's own free invisibility of
+-- that kind (a thief that sees no enemy turns invisible for nothing, bgse/lib/hook.tpa) to stand
+-- aside for every creature the engine hides its own way.
 local sense=require('adapters.eeex.sense')
 local creature=require('adapters.eeex.creature')
 local resources=require('adapters.eeex.resources')
 local directors=require('adapters.eeex.director')
 local searches=require('adapters.eeex.search')
+local stealths=require('adapters.eeex.stealth')
 local spells=require('combat-intent.spells')
 local targeting=require('combat-intent.targeting')
 local defence=require('combat-intent.defence')
@@ -442,6 +451,8 @@ function M.new(g,options)
     end
     -- The engine's own search for enemies a creature cannot see (adapters/eeex/search.lua).
     local seeker=searches.new(g,{director=director,record=record,rng=rng})
+    -- A thief's own hide with no enemy in sight (adapters/eeex/stealth.lua).
+    local hider=stealths.new(g,{record=record,rng=rng})
     -- Wit (combat-intent/mind.lua): the game's difficulty (1 to 5), nil when it cannot be read.
     local function difficulty()
         local ok,value=pcall(function() return g.EngineGlobals.g_pBaldurChitin.m_pObjectGame.m_options.m_nDifficultyLevel end)
@@ -1430,18 +1441,27 @@ function M.new(g,options)
         markHits(sprite,frame)
     end
 
-    -- With no enemy in sight: the engine's search (adapters/eeex/search.lua) as the gate's decision,
-    -- or nil, and the creature's own life goes on ('no-enemy' without a clue, 'given-up'). A
-    -- detection is cast or used like the engine's other casts, and so is a teleport, to the nearest
-    -- open spot (prepare); a walk goes to the nearest open spot (prepare); a look holds.
+    -- With no enemy in sight: a thief's hide (adapters/eeex/stealth.lua), else the engine's search
+    -- (adapters/eeex/search.lua) as the gate's decision, or nil, and the creature's own life goes on
+    -- ('no-enemy' without a clue, 'given-up'). A hide is the game's Hide(), held while the creature
+    -- tries (prepare). A detection is cast or used like the engine's other casts, and so is a
+    -- teleport, to the nearest open spot (prepare); a walk goes to the nearest open spot (prepare); a
+    -- look holds.
     local function seek(sprite,frame,id,tick,family,rows,carried,m)
+        local own=orderBook[text(sprite.m_resref:get())]
+        local h=hider:decide(sprite,frame,tick,m,own)
+        if h then
+            if director then director:release(id,tick) end
+            return {own=true,response='Hide()',kind='hide',skill=h.skill,wit=h.wit,tactical=h.tactical,ordered=h.ordered}
+        end
         local raw=zoneList(sprite,tick)
-        local d,why=seeker:decide(sprite,frame,tick,family,m,rows,carried,function(p) return inZone(raw,p.x,p.y) end,
-            orderBook[text(sprite.m_resref:get())])
+        local d,why=seeker:decide(sprite,frame,tick,family,m,rows,carried,function(p) return inZone(raw,p.x,p.y) end,own)
         if not d then return decline(why=='given-up' and 'given-up' or 'no-enemy') end
         if director then director:release(id,tick) end
         if d.kind=='look' then return hold() end
-        if d.kind=='modal' then return {own=true,response='FindTraps()',kind='modal',clue=d.clue,target=d.target} end
+        -- The rogue's detection mode works on itself: the enemy it is for (aim) is no target, which
+        -- prepare would find invisible and skip.
+        if d.kind=='modal' then return {own=true,response='FindTraps()',kind='modal',clue=d.clue,aim=d.target} end
         if d.kind=='detect' then
             local response=M.response({resref=d.resref,self=d.self,point=d.point,use=d.item})
             if not response then return decline('bad-response') end
@@ -1549,12 +1569,18 @@ function M.new(g,options)
             if d then seeker:stop(id);return d end
             return hold()
         end
+        -- A thief's try to hide runs while it lasts (adapters/eeex/stealth.lua), the same way.
+        if hider:holding(sprite,id,tick) then
+            local d=flee(sprite,id,tick,family)
+            if d then hider:stop(id);return d end
+            return hold()
+        end
         if targeting.CASTS[sprite.m_curAction.m_actionID] then return decline('casting') end
         local frame=sense.frame(g,sprite,tick,true)
         if not frame then return decline('no-frame') end
         if sense.side(frame.self.ea)~='evil' then return decline('side') end
         -- With no enemy in sight: out of a zone that hurts, a heal or cure for a friend in need, else
-        -- the search.
+        -- a thief's hide or the search.
         local unseen=#frame.enemies==0
         if unseen then
             local d=flee(sprite,id,tick,family)
@@ -1566,6 +1592,7 @@ function M.new(g,options)
             end
         else
             seeker:fight(sprite,frame,tick,orderBook[text(sprite.m_resref:get())])
+            hider:fight(id)
         end
         local rows,carried=book(sprite)
         if not rows then failed('book',carried);return nil end
@@ -1800,6 +1827,8 @@ function M.new(g,options)
             seeker:walk(object,decision,point,tick)
         elseif decision.kind=='modal' then
             seeker:mode(object,tick)
+        elseif decision.kind=='hide' then
+            hider:start(object,decision,tick)
         else
             if decision.kind=='teleport' then
                 -- A teleport toward a clue, or into the fight next to an enemy: to the nearest open
@@ -1903,7 +1932,7 @@ function M.new(g,options)
 
     function api:setEnabled(value)
         assert(type(value)=='boolean');enabled=value
-        if not value then pending,moves,waits={},{},{};seeker:invalidate() end
+        if not value then pending,moves,waits={},{},{};seeker:invalidate();hider:invalidate() end
     end
     -- Whether the engine searches for creature id of family (BGSE_Search: SCS's own hunting blocks
     -- stand aside for it): its choice is on for the family and the creature is on the engine's side,
@@ -1913,6 +1942,18 @@ function M.new(g,options)
         if not (enabled and not missing and families[family]==true) then return false end
         local sprite=get(id)
         return sprite~=nil and sense.side(sprite.m_typeAI.m_EnemyAlly)=='evil'
+    end
+    -- Whether the engine hides creature id of family its own way (BGSE_Hide: SCS's free invisibility
+    -- of that kind stands aside for it): plain invisibility (kind 'plain') for a creature the engine
+    -- drives, as for its search, that can hide by its skill (combat-intent/stealth.lua), whatever its
+    -- wit (a dull thief does not think of hiding). SCS's improved invisibility (kind 'improved') stays
+    -- SCS's for now, and any creature that cannot hide by its skill keeps SCS's own.
+    function api:hides(family,id,kind)
+        if kind~='plain' or not api:searches(family,id) then return false end
+        local ok,able=pcall(function() return hider:able(get(id)) end)
+        if ok then return able==true end
+        failed('hides',able)
+        return false
     end
     -- Whether the engine weighs danger zones for creature id of family now (BGSE_Zones: SCS's own
     -- cloud blocks stand aside meanwhile): not for a creature off the engine's
@@ -1981,6 +2022,7 @@ function M.new(g,options)
         minds,mindCount,hurts,hurtCount,pained={},0,{},0,{}
         waits={}
         seeker:invalidate()
+        hider:invalidate()
     end
     function api:inspect()
         local copy=function(t) local c={};for k,v in pairs(t) do c[k]=v end;return c end
@@ -1994,7 +2036,8 @@ function M.new(g,options)
             pending=open,running=busy,judging=#judging,remembered=remembered,log=rows,lastError=lastError or false,
             markError=markError or false,guardError=guardError or false,weaponError=weaponError or false,
             wardError=wardError or false,zoneError=zoneError or false,witError=witError or false,
-            orderError=orderError or false,tableError=tableError or false,wit=witOn,search=seeker:inspect(),moving=(function()
+            orderError=orderError or false,tableError=tableError or false,wit=witOn,search=seeker:inspect(),
+            stealth=hider:inspect(),moving=(function()
                 local n=0;for _ in pairs(moves) do n=n+1 end;return n end)(),waiting=(function()
                 local n=0;for _,w in pairs(waits) do if not w.over then n=n+1 end end;return n end)(),stays=(function()
                 local c={};for id,s in pairs(stays) do c[id]={stay=s.stay,left=s.left} end;return c end)()}

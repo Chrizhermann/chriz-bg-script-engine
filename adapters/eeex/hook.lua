@@ -4,9 +4,11 @@
 -- cloud blocks above the hook (escapes, runs from a marker, stand-still) ask
 -- BGSE_Zones(object, family, script) last and stand aside while it is true: the engine weighs
 -- danger zones for the creature (D3e). SCS's hunting blocks ask BGSE_Search(object, family,
--- script) the same way: the engine searches for every creature it drives. Both go by the script
--- that decides for the creature (kernel/hook.lua, driver), which for a creature with two hooked
--- scripts is the higher one, also in the lower one's blocks.
+-- script) the same way: the engine searches for every creature it drives. SCS's free
+-- invisibility asks BGSE_Hide(object, family, script, kind) the same way: the engine hides a thief
+-- by its own skill (F2f). All go by the script that decides for the creature (kernel/hook.lua,
+-- driver), which for a creature with two hooked scripts is the higher one, also in the lower one's
+-- blocks.
 -- Switches live in the player's Baldur.lua under [BGSE] (Enabled, Mages, Priests, Fighters,
 -- Monsters; all on unless set to 0). The install also writes M_BGSEHK.lua, which sets
 -- BGSE_HOOKED (hooked script -> family); the gate reads it on first use. Errors never escape
@@ -189,6 +191,18 @@ function M.install(g,options)
             local a=actor(object,script)
             local driver=gate:driver(a)
             return choice~=nil and driver~=nil and choice:searches(driver,a.id)==true
+        end)
+        return ok and result==true
+    end
+    -- True for every creature the engine drives (gate:driver) and hides its own way (choice:hides,
+    -- by the kind of SCS's free invisibility asking: 'plain' or 'improved'): that block of SCS's
+    -- stands aside, and the thief hides by its own skill. Any error is false, so SCS's block runs.
+    g.BGSE_Hide=function(object,family,script,kind)
+        local ok,result=pcall(function()
+            register()
+            local a=actor(object,script)
+            local driver=gate:driver(a)
+            return choice~=nil and driver~=nil and choice:hides(driver,a.id,kind)==true
         end)
         return ok and result==true
     end

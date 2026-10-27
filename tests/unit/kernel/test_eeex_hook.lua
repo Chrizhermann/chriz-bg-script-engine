@@ -142,14 +142,16 @@ assert(bare.BGSE.inspect().counts.errors==0)
 local list=adapter.stack(late,demon);assert(#list==2 and list[1]=='tanari' and list[2]=='dw2ms2ge')
 assert(adapter.stack(bare,bare.objects[1])==nil)
 
--- 9. SCS blocks that stand aside while the engine drives the creature (BGSE_Zones, BGSE_Search) go
--- by the script that decides for it: a mage script below SCS's general AI follows the general
--- AI's family (here the engine's choice is on for mages only), and the general AI below a mage
--- script follows the mage's. A script the creature does not carry never stands aside.
+-- 9. SCS blocks that stand aside while the engine drives the creature (BGSE_Zones, BGSE_Search,
+-- BGSE_Hide) go by the script that decides for it: a mage script below SCS's general AI follows the
+-- general AI's family (here the engine's choice is on for mages only), and the general AI below a
+-- mage script follows the mage's. A script the creature does not carry never stands aside. BGSE_Hide
+-- passes the kind of free invisibility that asks.
 local stacked=world()
 stacked.BGSE_HOOKED={s1='mage',dw1melas='fighter'}
 local fake={attach=function() end,inspect=function() return {} end,searches=function(_,family) return family=='mage' end,
-    zones=function(_,family) return family=='mage' end}
+    zones=function(_,family) return family=='mage' end,
+    hides=function(_,family,_,kind) return family=='mage' and kind=='plain' end}
 local under=creature(1,{[6]='DW1MELAS',[7]='S1'})
 local over=creature(2,{[6]='S1',[7]='DW1MELAS'})
 stacked.objects[1],stacked.objects[2]=under,over
@@ -159,9 +161,13 @@ assert(stacked.BGSE_Zones(under,'mage','s1')==false and stacked.BGSE_Zones(under
 assert(stacked.BGSE_Search(over,'fighter','dw1melas')==true and stacked.BGSE_Search(over,'mage','s1')==true)
 assert(stacked.BGSE_Zones(over,'fighter','dw1melas')==true and stacked.BGSE_Zones(over,'mage','s1')==true)
 assert(stacked.BGSE_Search(over,'priest','s2')==false and stacked.BGSE_Zones(over,'priest','s2')==false)
+assert(stacked.BGSE_Hide(over,'fighter','dw1melas','plain')==true and stacked.BGSE_Hide(over,'mage','s1','plain')==true)
+assert(stacked.BGSE_Hide(over,'mage','s1','improved')==false and stacked.BGSE_Hide(under,'mage','s1','plain')==false)
 stackedRoot.setFamily('mage',false)
 assert(stacked.BGSE_Search(over,'fighter','dw1melas')==false and stacked.BGSE_Zones(over,'fighter','dw1melas')==false)
+assert(stacked.BGSE_Hide(over,'fighter','dw1melas','plain')==false)
 stackedRoot.setFamily('mage',true)
 over.alive=false
-assert(stacked.BGSE_Search(over,'mage','s1')==false and stackedRoot.inspect().counts.errors==0)
+assert(stacked.BGSE_Search(over,'mage','s1')==false and stacked.BGSE_Hide(over,'mage','s1','plain')==false)
+assert(stackedRoot.inspect().counts.errors==0)
 return 9

@@ -41,6 +41,15 @@
 // creatures whose hooked scripts teleport by script get an innate teleport of their own unless
 // they have one (bgse_grant_teleport, bgse/setup-bgse.tp2).
 //
+// SCS's free invisibility (F2f; Christopher, 2026-10-26: thieves hide with their own Hide in
+// Shadows): a block whose triggers check no spellbook and whose every action is bookkeeping or a
+// spellbook-free cast or application at the creature itself, at least one of a spell that makes its
+// target invisible (bgse_invisible; bgse_improved those of Improved Invisibility). It gets a last
+// condition that holds when BGSE_Hide says no (first in an OR group that lacks members, as above),
+// in place and in its copy above the hook: the engine hides the creature its own way, and for every
+// other creature SCS's block runs as before. The thieves whose hooked scripts do that get hide skills
+// for their level (bgse_raise_skills, bgse/setup-bgse.tp2).
+//
 // tools/hook_rule.py is the reference version of this rule. Keep the two in step;
 // tests/integration/test_hook_installer.py compares them.
 
@@ -108,23 +117,21 @@ BEGIN
   END
 END
 
-// Whether a spell moves its caster: an ability with opcode 124 (Teleport) or 274 (Teleport to
-// target) on the caster (target 1). bgse_form R names a resref, I a SPELL.IDS name or number. A
-// spell the game lacks moves nobody.
-DEFINE_PATCH_FUNCTION bgse_moves_caster
+// The resref of a spell as a script names it: bgse_form R names a resref, I a SPELL.IDS name or
+// number; empty when the game's SPELL.IDS lacks the name or the number is no spell's.
+DEFINE_PATCH_FUNCTION bgse_spell_res
   STR_VAR bgse_form = ~R~
           bgse_spell = ~~
-  RET bgse_moves
+  RET bgse_res
 BEGIN
-  SET bgse_moves = 0
-  TEXT_SPRINT res ~%bgse_spell%~
+  TEXT_SPRINT bgse_res ~%bgse_spell%~
   PATCH_IF (~%bgse_form%~ STRING_EQUAL ~I~) BEGIN
     PATCH_IF ((~%bgse_spell%~ STRING_MATCHES_REGEXP ~^[0-9]+$~) = 0) BEGIN
       SET number = bgse_spell
     END ELSE BEGIN
       SET number = IDS_OF_SYMBOL (~SPELL~ ~%bgse_spell%~)
     END
-    TEXT_SPRINT res ~~
+    TEXT_SPRINT bgse_res ~~
     PATCH_IF (number >= 1000) AND (number < 5000) BEGIN
       SET kind = number / 1000
       SET rest = number - kind * 1000
@@ -137,14 +144,27 @@ BEGIN
         TEXT_SPRINT prefix ~SPIN~
       END
       PATCH_IF (rest < 10) BEGIN
-        TEXT_SPRINT res ~%prefix%00%rest%~
+        TEXT_SPRINT bgse_res ~%prefix%00%rest%~
       END ELSE PATCH_IF (rest < 100) BEGIN
-        TEXT_SPRINT res ~%prefix%0%rest%~
+        TEXT_SPRINT bgse_res ~%prefix%0%rest%~
       END ELSE BEGIN
-        TEXT_SPRINT res ~%prefix%%rest%~
+        TEXT_SPRINT bgse_res ~%prefix%%rest%~
       END
     END
   END
+END
+
+// Whether a spell moves its caster: an ability with opcode 124 (Teleport) or 274 (Teleport to
+// target) on the caster (target 1). bgse_form as in bgse_spell_res. A spell the game lacks moves
+// nobody.
+DEFINE_PATCH_FUNCTION bgse_moves_caster
+  STR_VAR bgse_form = ~R~
+          bgse_spell = ~~
+  RET bgse_moves
+BEGIN
+  SET bgse_moves = 0
+  LPF bgse_spell_res STR_VAR bgse_form = EVAL ~%bgse_form%~ bgse_spell = EVAL ~%bgse_spell%~ RET bgse_res END
+  TEXT_SPRINT res ~%bgse_res%~
   PATCH_IF (STRING_LENGTH ~%res%~ > 0) AND (STRING_LENGTH ~%res%~ <= 8) BEGIN
     PATCH_IF (FILE_EXISTS_IN_GAME ~%res%.spl~) BEGIN
       INNER_PATCH_FILE ~%res%.spl~ BEGIN
@@ -175,6 +195,153 @@ BEGIN
         END
       END
     END
+  END
+END
+
+// Whether a spell makes its target invisible: 1 when an ability has opcode 20 (Invisibility) on
+// the caster or on the spell's target (target 1 or 2), 2 when one such is Improved Invisibility
+// (parameter 2 is 1); 0 for a spell the game lacks. bgse_form as in bgse_spell_res.
+DEFINE_PATCH_FUNCTION bgse_hides_target
+  STR_VAR bgse_form = ~R~
+          bgse_spell = ~~
+  RET bgse_hiding
+BEGIN
+  SET bgse_hiding = 0
+  LPF bgse_spell_res STR_VAR bgse_form = EVAL ~%bgse_form%~ bgse_spell = EVAL ~%bgse_spell%~ RET bgse_res END
+  TEXT_SPRINT res ~%bgse_res%~
+  PATCH_IF (STRING_LENGTH ~%res%~ > 0) AND (STRING_LENGTH ~%res%~ <= 8) BEGIN
+    PATCH_IF (FILE_EXISTS_IN_GAME ~%res%.spl~) BEGIN
+      INNER_PATCH_FILE ~%res%.spl~ BEGIN
+        PATCH_IF (BUFFER_LENGTH >= 0x72) BEGIN
+          READ_ASCII 0 signature (8)
+          PATCH_IF (~%signature%~ STRING_EQUAL ~SPL V1  ~) BEGIN
+            READ_LONG 0x64 abilities
+            READ_SHORT 0x68 ability_count
+            READ_LONG 0x6a effects
+            FOR (a = 0; a < ability_count; a += 1) BEGIN
+              SET at = abilities + 0x28 * a
+              PATCH_IF (at + 0x28 <= BUFFER_LENGTH) BEGIN
+                READ_SHORT (at + 0x1e) effect_count
+                READ_SHORT (at + 0x20) first
+                FOR (f = 0; f < effect_count; f += 1) BEGIN
+                  SET e = effects + 0x30 * (first + f)
+                  PATCH_IF (e + 0x30 <= BUFFER_LENGTH) BEGIN
+                    READ_SHORT e opcode
+                    READ_BYTE (e + 2) target
+                    READ_LONG (e + 8) kind
+                    PATCH_IF (opcode = 20) AND ((target = 1) OR (target = 2)) BEGIN
+                      PATCH_IF (kind = 1) BEGIN
+                        SET bgse_hiding = 2
+                      END ELSE PATCH_IF (bgse_hiding = 0) BEGIN
+                        SET bgse_hiding = 1
+                      END
+                    END
+                  END
+                END
+              END
+            END
+          END
+        END
+      END
+    END
+  END
+END
+
+// The spells of a script's casts and applications at the creature itself without a spellbook
+// (ApplySpell, ForceSpell, ReallyForceSpell, SpellNoDec and their RES forms, at Myself) as |R=RESREF|
+// and |I=NAME| entries in upper case, each once (tools/hook_rule.py: self_spells). Comments go
+// first.
+DEFINE_PATCH_FUNCTION bgse_self_spells
+  STR_VAR bgse_baf = ~~
+  RET bgse_spells
+BEGIN
+  TEXT_SPRINT bgse_spells ~|~
+  INNER_PATCH_SAVE text ~%bgse_baf%~ BEGIN
+    REPLACE_TEXTUALLY CASE_SENSITIVE ~ *//.*$~ ~~
+  END
+  INNER_PATCH ~%text%~ BEGIN
+    REPLACE_EVALUATE CASE_SENSITIVE ~^    \(ApplySpellRES\|ForceSpellRES\|ReallyForceSpellRES\|SpellNoDecRES\)("\([^"]*\)",Myself) *$~ BEGIN
+      TEXT_SPRINT name ~%MATCH2%~
+      TO_UPPER name
+      PATCH_IF (STRING_LENGTH ~%name%~ > 0) AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~|R=%name%|~ ~%bgse_spells%~) < 0) BEGIN
+        TEXT_SPRINT bgse_spells ~%bgse_spells%R=%name%|~
+      END
+    END ~%MATCH0%~
+    REPLACE_EVALUATE CASE_SENSITIVE ~^    \(ApplySpell\|ForceSpell\|ReallyForceSpell\|SpellNoDec\)(Myself,\([^,()" ]+\)) *$~ BEGIN
+      TEXT_SPRINT name ~%MATCH2%~
+      TO_UPPER name
+      PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~|I=%name%|~ ~%bgse_spells%~) < 0) BEGIN
+        TEXT_SPRINT bgse_spells ~%bgse_spells%I=%name%|~
+      END
+    END ~%MATCH0%~
+  END
+END
+
+// The free invisibility a block gives the creature (tools/hook_rule.py: free_hide): 0 for none, 1
+// plain, 2 improved. Its triggers check no spellbook, every action is bookkeeping (SetGlobal,
+// SetGlobalTimer, SetGlobalTimerRandom, IncrementGlobal, Continue, DisplayString, DisplayStringHead)
+// or a cast or application at the creature itself without a spellbook, and at least one of those
+// casts a spell that makes its target invisible (bgse_invisible; bgse_improved those of Improved
+// Invisibility, |NAME| entries in upper case). Comments go first.
+DEFINE_PATCH_FUNCTION bgse_hide_block
+  STR_VAR bgse_block = ~~
+          bgse_invisible = ~|~
+          bgse_improved = ~|~
+  RET bgse_hide
+BEGIN
+  SET bgse_hide = 0
+  INNER_PATCH_SAVE text ~%bgse_block%~ BEGIN
+    REPLACE_TEXTUALLY CASE_SENSITIVE ~ *//.*$~ ~~
+  END
+  TEXT_SPRINT trig ~~
+  TEXT_SPRINT resp ~~
+  INNER_PATCH ~%text%~ BEGIN
+    SET then = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~%LNL%THEN%LNL%~)
+    PATCH_IF (then > 0) BEGIN
+      READ_ASCII 0 trig (then)
+      READ_ASCII then resp (BUFFER_LENGTH - then)
+    END
+  END
+  PATCH_IF (STRING_LENGTH ~%resp%~ > 0)
+      AND ((~%trig%~ STRING_CONTAINS_REGEXP ~[^A-Za-z0-9_]\(HaveSpell\|HaveSpellRES\|HasItem\|KnowSpell\)(~) != 0) BEGIN
+    SET kind = 0
+    SET foreign = 0
+    INNER_PATCH ~%resp%~ BEGIN
+      REPLACE_EVALUATE CASE_SENSITIVE ~^    \([A-Za-z_][A-Za-z0-9_]*\)(.*$~ BEGIN
+        TEXT_SPRINT action ~%MATCH1%~
+        TEXT_SPRINT line ~%MATCH0%~
+        PATCH_IF ((~%action%~ STRING_MATCHES_REGEXP ~^\(SetGlobal\|SetGlobalTimer\|SetGlobalTimerRandom\|IncrementGlobal\|Continue\|DisplayString\|DisplayStringHead\)$~) != 0) BEGIN
+          SET self = 0
+          TEXT_SPRINT name ~~
+          PATCH_IF ((~%line%~ STRING_MATCHES_REGEXP ~^    \(ApplySpellRES\|ForceSpellRES\|ReallyForceSpellRES\|SpellNoDecRES\)("[^"]*",Myself) *$~) = 0) BEGIN
+            SET self = 1
+            INNER_PATCH ~%line%~ BEGIN
+              REPLACE_EVALUATE CASE_SENSITIVE ~"\([^"]*\)"~ BEGIN
+                TEXT_SPRINT name ~%MATCH1%~
+              END ~%MATCH0%~
+            END
+          END ELSE PATCH_IF ((~%line%~ STRING_MATCHES_REGEXP ~^    \(ApplySpell\|ForceSpell\|ReallyForceSpell\|SpellNoDec\)(Myself,[^,()" ]+) *$~) = 0) BEGIN
+            SET self = 1
+            INNER_PATCH ~%line%~ BEGIN
+              REPLACE_EVALUATE CASE_SENSITIVE ~(Myself,\([^,()" ]+\))~ BEGIN
+                TEXT_SPRINT name ~%MATCH1%~
+              END ~%MATCH0%~
+            END
+          END
+          PATCH_IF (self = 0) BEGIN
+            SET foreign += 1
+          END ELSE PATCH_IF (STRING_LENGTH ~%name%~ > 0) BEGIN
+            TO_UPPER name
+            PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%name%|~ ~%bgse_improved%~) >= 0) BEGIN
+              SET kind = 2
+            END ELSE PATCH_IF (kind = 0) AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%name%|~ ~%bgse_invisible%~) >= 0) BEGIN
+              SET kind = 1
+            END
+          END
+        END
+      END ~%MATCH0%~
+    END
+    SET bgse_hide = (foreign = 0) ? kind : 0
   END
 END
 
@@ -523,16 +690,20 @@ BEGIN
 END
 
 // Hook one decompiled SCS script; bgse_script is its resref in lower case, bgse_teleports the
-// spells that move their caster (|NAME| entries in upper case: resrefs, SPELL.IDS names and
-// numbers). bgse_result is hooked, not-scs, unsafe-name, no-castspell, already-hooked or
+// spells that move their caster, bgse_invisible those that make their target invisible and
+// bgse_improved those of Improved Invisibility (|NAME| entries in upper case: resrefs, SPELL.IDS
+// names and numbers). bgse_result is hooked, not-scs, unsafe-name, no-castspell, already-hooked or
 // no-anchor; only "hooked" changes bgse_baf. bgse_clouds counts the cloud blocks that stand aside,
-// bgse_hunts the hunting blocks, bgse_jumps the scripted jumps into the fight; bgse_teleporter is 1
-// when a hooked script teleports its creature by script.
+// bgse_hunts the hunting blocks, bgse_jumps the scripted jumps into the fight, bgse_hides the blocks
+// that give the creature free invisibility; bgse_teleporter is 1 when a hooked script teleports its
+// creature by script, bgse_hider when it makes its creature invisible for free.
 DEFINE_PATCH_FUNCTION bgse_hook_baf
   STR_VAR bgse_baf = ~~
           bgse_script = ~~
           bgse_teleports = ~|~
-  RET bgse_result bgse_family bgse_copies bgse_clouds bgse_hunts bgse_jumps bgse_teleporter bgse_baf
+          bgse_invisible = ~|~
+          bgse_improved = ~|~
+  RET bgse_result bgse_family bgse_copies bgse_clouds bgse_hunts bgse_jumps bgse_hides bgse_teleporter bgse_hider bgse_baf
 BEGIN
   TEXT_SPRINT bgse_result ~not-scs~
   TEXT_SPRINT bgse_family ~~
@@ -540,7 +711,9 @@ BEGIN
   SET bgse_clouds = 0
   SET bgse_hunts = 0
   SET bgse_jumps = 0
+  SET bgse_hides = 0
   SET bgse_teleporter = 0
+  SET bgse_hider = 0
   SET teleporting = 0
   INNER_PATCH_SAVE bgse_baf ~%bgse_baf%~ BEGIN
     REPLACE_TEXTUALLY CASE_SENSITIVE EXACT_MATCH ~%MNL%~ ~~
@@ -604,7 +777,14 @@ BEGIN
           SET $bgse_cloud(~%n%~) = 0
           SET $bgse_hunt(~%n%~) = 0
           SET $bgse_jump(~%n%~) = 0
+          SET $bgse_hide(~%n%~) = 0
           READ_ASCII start block (stop - start)
+          PATCH_IF (STRING_LENGTH ~%bgse_invisible%~ > 1) AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~Myself~ ~%block%~) >= 0) BEGIN
+            // SCS's free invisibility, above and below the anchor (every such cast names Myself).
+            LPF bgse_hide_block STR_VAR bgse_block = EVAL ~%block%~ bgse_invisible = EVAL ~%bgse_invisible%~
+              bgse_improved = EVAL ~%bgse_improved%~ RET bgse_hide END
+            SET $bgse_hide(~%n%~) = bgse_hide
+          END
           PATCH_IF (INDEX (CASE_INSENSITIVE EXACT_MATCH ~chas~ ~%block%~) >= 0)
               OR (INDEX (CASE_INSENSITIVE EXACT_MATCH ~teleportpursuetimer~ ~%block%~) >= 0)
               OR (INDEX (CASE_INSENSITIVE EXACT_MATCH ~"detect"~ ~%block%~) >= 0)
@@ -758,7 +938,21 @@ BEGIN
           SET s = $bgse_start(~%i%~)
           SET e = $bgse_stop(~%i%~)
           INNER_PATCH ~%bgse_baf%~ BEGIN
-            READ_ASCII (s + 3) rest (e - s - 3)
+            READ_ASCII s copy (e - s)
+          END
+          PATCH_IF ($bgse_hide(~%i%~) > 0) BEGIN
+            // A copy that gives free invisibility stands aside as its original does.
+            TEXT_SPRINT kind ~plain~
+            PATCH_IF ($bgse_hide(~%i%~) = 2) BEGIN
+              TEXT_SPRINT kind ~improved~
+            END
+            TEXT_SPRINT hide_line ~  !EEex_LuaTrigger("return BGSE_Hide and BGSE_Hide(EEex_LuaTrigger_Object,'%bgse_family%','%bgse_script%','%kind%') or false")~
+            INNER_PATCH_SAVE copy ~%copy%~ BEGIN
+              LPF bgse_aside INT_VAR bgse_from = 0 bgse_to = BUFFER_LENGTH STR_VAR bgse_lines = EVAL ~%hide_line%~ END
+            END
+          END
+          INNER_PATCH ~%copy%~ BEGIN
+            READ_ASCII 3 rest (BUFFER_LENGTH - 3)
           END
           TEXT_SPRINT insert ~%insert%IF%LNL%  %guard%%LNL%%rest%%LNL%~
           SET bgse_copies += 1
@@ -773,11 +967,13 @@ BEGIN
         READ_ASCII at tail (BUFFER_LENGTH - at)
       END
       // SCS's cloud blocks above the hook stand aside while the engine weighs danger zones for
-      // the creature (tools/hook_rule.py: stand_aside), and its hunting blocks and scripted jumps
-      // above and below the hook while the engine drives it; from the last one up so the blocks
-      // before keep their offsets.
+      // the creature (tools/hook_rule.py: stand_aside), its hunting blocks and scripted jumps above
+      // and below the hook while the engine drives it, and its free invisibility where the engine
+      // hides the creature its own way; from the last one up so the blocks before keep their offsets.
       TEXT_SPRINT zone_line ~  !EEex_LuaTrigger("return BGSE_Zones and BGSE_Zones(EEex_LuaTrigger_Object,'%bgse_family%','%bgse_script%') or false")~
       TEXT_SPRINT search_line ~  !EEex_LuaTrigger("return BGSE_Search and BGSE_Search(EEex_LuaTrigger_Object,'%bgse_family%','%bgse_script%') or false")~
+      TEXT_SPRINT plain_line ~  !EEex_LuaTrigger("return BGSE_Hide and BGSE_Hide(EEex_LuaTrigger_Object,'%bgse_family%','%bgse_script%','plain') or false")~
+      TEXT_SPRINT improved_line ~  !EEex_LuaTrigger("return BGSE_Hide and BGSE_Hide(EEex_LuaTrigger_Object,'%bgse_family%','%bgse_script%','improved') or false")~
       INNER_PATCH_SAVE head ~%head%~ BEGIN
         FOR (i = anchor - 1; i >= 0; i -= 1) BEGIN
           TEXT_SPRINT lines ~~
@@ -796,6 +992,17 @@ BEGIN
               SET bgse_jumps += 1
             END
           END
+          PATCH_IF ($bgse_hide(~%i%~) > 0) BEGIN
+            PATCH_IF (STRING_LENGTH ~%lines%~ > 0) BEGIN
+              TEXT_SPRINT lines ~%lines%%LNL%~
+            END
+            PATCH_IF ($bgse_hide(~%i%~) = 2) BEGIN
+              TEXT_SPRINT lines ~%lines%%improved_line%~
+            END ELSE BEGIN
+              TEXT_SPRINT lines ~%lines%%plain_line%~
+            END
+            SET bgse_hides += 1
+          END
           PATCH_IF (STRING_LENGTH ~%lines%~ > 0) BEGIN
             SET s = $bgse_start(~%i%~)
             SET e = $bgse_stop(~%i%~)
@@ -805,19 +1012,35 @@ BEGIN
       END
       INNER_PATCH_SAVE tail ~%tail%~ BEGIN
         FOR (i = n - 1; i >= anchor; i -= 1) BEGIN
+          TEXT_SPRINT lines ~~
           PATCH_IF ($bgse_hunt(~%i%~) = 1) OR ($bgse_jump(~%i%~) = 1) BEGIN
-            SET s = $bgse_start(~%i%~) - at
-            SET e = $bgse_stop(~%i%~) - at
-            LPF bgse_aside INT_VAR bgse_from = s bgse_to = e STR_VAR bgse_lines = EVAL ~%search_line%~ END
+            TEXT_SPRINT lines ~%search_line%~
             PATCH_IF ($bgse_hunt(~%i%~) = 1) BEGIN
               SET bgse_hunts += 1
             END ELSE BEGIN
               SET bgse_jumps += 1
             END
           END
+          PATCH_IF ($bgse_hide(~%i%~) > 0) BEGIN
+            PATCH_IF (STRING_LENGTH ~%lines%~ > 0) BEGIN
+              TEXT_SPRINT lines ~%lines%%LNL%~
+            END
+            PATCH_IF ($bgse_hide(~%i%~) = 2) BEGIN
+              TEXT_SPRINT lines ~%lines%%improved_line%~
+            END ELSE BEGIN
+              TEXT_SPRINT lines ~%lines%%plain_line%~
+            END
+            SET bgse_hides += 1
+          END
+          PATCH_IF (STRING_LENGTH ~%lines%~ > 0) BEGIN
+            SET s = $bgse_start(~%i%~) - at
+            SET e = $bgse_stop(~%i%~) - at
+            LPF bgse_aside INT_VAR bgse_from = s bgse_to = e STR_VAR bgse_lines = EVAL ~%lines%~ END
+          END
         END
       END
       SET bgse_teleporter = teleporting
+      SET bgse_hider = (bgse_hides > 0) ? 1 : 0
       TEXT_SPRINT bgse_baf ~%head%%insert%IF%LNL%  %guard%%LNL%THEN%LNL%  RESPONSE #100%LNL%    EEex_LuaAction("if BGSE_Act then BGSE_Act(EEex_LuaAction_Object) end")%LNL%END%LNL%%LNL%%tail%~
       TEXT_SPRINT bgse_result ~hooked~
     END
@@ -827,13 +1050,20 @@ END
 // Hook the BCS in the patch buffer; bgse_script is its resref in lower case. A script that
 // fails to decompile, patch or compile is left exactly as it was (bgse_result "failed").
 // bgse_teleports and bgse_checked (|NAME| entries in upper case) are the spells known to move
-// their caster and all spells looked up so far: the spells of the script's casts without a
+// their caster and all spells looked up so far for that: the spells of the script's casts without a
 // spellbook are looked up in the game once each (bgse_moves_caster), and both come back with them.
+// bgse_invisible, bgse_improved and bgse_looked do the same for the spells known to make their
+// target invisible, those of Improved Invisibility and all spells looked up for that, from the
+// script's casts and applications at the creature itself (bgse_hides_target).
 DEFINE_PATCH_FUNCTION bgse_hook_bcs
   STR_VAR bgse_script = ~~
           bgse_teleports = ~|~
           bgse_checked = ~|~
-  RET bgse_result bgse_family bgse_copies bgse_clouds bgse_hunts bgse_jumps bgse_teleporter bgse_teleports bgse_checked
+          bgse_invisible = ~|~
+          bgse_improved = ~|~
+          bgse_looked = ~|~
+  RET bgse_result bgse_family bgse_copies bgse_clouds bgse_hunts bgse_jumps bgse_hides bgse_teleporter bgse_hider
+      bgse_teleports bgse_checked bgse_invisible bgse_improved bgse_looked
 BEGIN
   TEXT_SPRINT bgse_result ~failed~
   TEXT_SPRINT bgse_family ~~
@@ -841,7 +1071,9 @@ BEGIN
   SET bgse_clouds = 0
   SET bgse_hunts = 0
   SET bgse_jumps = 0
+  SET bgse_hides = 0
   SET bgse_teleporter = 0
+  SET bgse_hider = 0
   READ_ASCII 0 bcs (BUFFER_LENGTH)
   PATCH_TRY
     INNER_PATCH_SAVE baf ~%bcs%~ BEGIN
@@ -861,8 +1093,26 @@ BEGIN
         END
       END ~%MATCH0%~
     END
+    LPF bgse_self_spells STR_VAR bgse_baf = EVAL ~%baf%~ RET bgse_spells END
+    INNER_PATCH ~%bgse_spells%~ BEGIN
+      REPLACE_EVALUATE CASE_SENSITIVE ~\([RI]\)=\([^|]+\)~ BEGIN
+        TEXT_SPRINT form ~%MATCH1%~
+        TEXT_SPRINT name ~%MATCH2%~
+        PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%name%|~ ~%bgse_looked%~) < 0) BEGIN
+          LPF bgse_hides_target STR_VAR bgse_form = EVAL ~%form%~ bgse_spell = EVAL ~%name%~ RET bgse_hiding END
+          TEXT_SPRINT bgse_looked ~%bgse_looked%%name%|~
+          PATCH_IF (bgse_hiding > 0) BEGIN
+            TEXT_SPRINT bgse_invisible ~%bgse_invisible%%name%|~
+          END
+          PATCH_IF (bgse_hiding = 2) BEGIN
+            TEXT_SPRINT bgse_improved ~%bgse_improved%%name%|~
+          END
+        END
+      END ~%MATCH0%~
+    END
     LPF bgse_hook_baf STR_VAR bgse_baf = EVAL ~%baf%~ bgse_script = EVAL ~%bgse_script%~ bgse_teleports = EVAL ~%bgse_teleports%~
-      RET bgse_result bgse_family bgse_copies bgse_clouds bgse_hunts bgse_jumps bgse_teleporter bgse_baf END
+        bgse_invisible = EVAL ~%bgse_invisible%~ bgse_improved = EVAL ~%bgse_improved%~
+      RET bgse_result bgse_family bgse_copies bgse_clouds bgse_hunts bgse_jumps bgse_hides bgse_teleporter bgse_hider bgse_baf END
     PATCH_IF (~%bgse_result%~ STRING_EQUAL_CASE ~hooked~) BEGIN
       DELETE_BYTES 0 BUFFER_LENGTH
       INSERT_BYTES 0 (STRING_LENGTH ~%bgse_baf%~)
@@ -875,7 +1125,9 @@ BEGIN
     SET bgse_clouds = 0
     SET bgse_hunts = 0
     SET bgse_jumps = 0
+    SET bgse_hides = 0
     SET bgse_teleporter = 0
+    SET bgse_hider = 0
     DELETE_BYTES 0 BUFFER_LENGTH
     INSERT_BYTES 0 (STRING_LENGTH ~%bcs%~)
     WRITE_ASCIIE 0 ~%bcs%~
@@ -939,6 +1191,213 @@ BEGIN
           DELETE_BYTES 0 BUFFER_LENGTH
           INSERT_BYTES 0 (STRING_LENGTH ~%cre%~)
           WRITE_ASCIIE 0 ~%cre%~
+        END
+      END
+    END
+  END
+END
+
+// The game's tables for thieves' hide skills, read once: bgse_points has |ROW=START,LEVEL| entries
+// for the rows of THIEFSKL.2DA (class and kit names: the skill points a player thief gets at the first
+// level and at each level after it), bgse_kits |KITIDS=ROWNAME| entries for the rows of KITLIST.2DA
+// (KIT.IDS values in decimal, the first row of each) and bgse_party |NAME| entries for the rows of
+// PDIALOG.2DA (the joinable NPCs' script names), all in upper case. Columns are found by their
+// names; a table the game lacks gives an empty list.
+DEFINE_ACTION_FUNCTION bgse_skill_tables
+  RET bgse_points bgse_kits bgse_party
+BEGIN
+  OUTER_TEXT_SPRINT bgse_points ~|~
+  OUTER_TEXT_SPRINT bgse_kits ~|~
+  OUTER_TEXT_SPRINT bgse_party ~|~
+  ACTION_IF (FILE_EXISTS_IN_GAME ~thiefskl.2da~) BEGIN
+    COPY_EXISTING ~thiefskl.2da~ ~override~
+      LPF bgse_2da_pairs STR_VAR bgse_key = ~~ bgse_first = ~START_POINTS~ bgse_second = ~LEVEL_POINTS~ RET bgse_pairs END
+      TEXT_SPRINT bgse_points ~%bgse_pairs%~
+    BUT_ONLY_IF_IT_CHANGES
+  END
+  ACTION_IF (FILE_EXISTS_IN_GAME ~kitlist.2da~) BEGIN
+    COPY_EXISTING ~kitlist.2da~ ~override~
+      LPF bgse_2da_pairs STR_VAR bgse_key = ~KITIDS~ bgse_first = ~ROWNAME~ bgse_second = ~~ RET bgse_pairs END
+      TEXT_SPRINT bgse_kits ~%bgse_pairs%~
+    BUT_ONLY_IF_IT_CHANGES
+  END
+  ACTION_IF (FILE_EXISTS_IN_GAME ~pdialog.2da~) BEGIN
+    COPY_EXISTING ~pdialog.2da~ ~override~
+      LPF bgse_2da_pairs STR_VAR bgse_key = ~~ bgse_first = ~~ bgse_second = ~~ RET bgse_pairs END
+      TEXT_SPRINT bgse_party ~%bgse_pairs%~
+    BUT_ONLY_IF_IT_CHANGES
+  END
+END
+
+// Entries of the 2DA in the patch buffer, one a data row, in upper case: |KEY=FIRST,SECOND|, where KEY
+// is the column named bgse_key (the row's name when bgse_key is empty; a number such as 0x4021 in
+// decimal), FIRST and SECOND those named bgse_first and bgse_second (left out when empty, with their
+// separator). A row that lacks one of them is left out. The first line is the signature, the second
+// the default value, the third names the columns after the rows' names.
+DEFINE_PATCH_FUNCTION bgse_2da_pairs
+  STR_VAR bgse_key = ~~
+          bgse_first = ~~
+          bgse_second = ~~
+  RET bgse_pairs
+BEGIN
+  TEXT_SPRINT bgse_pairs ~|~
+  SET line = 0
+  SET key_col = (STRING_LENGTH ~%bgse_key%~ = 0) ? 0 : (0 - 1)
+  SET first_col = 0 - 1
+  SET second_col = 0 - 1
+  READ_ASCII 0 table (BUFFER_LENGTH)
+  INNER_PATCH ~%table%~ BEGIN
+    REPLACE_EVALUATE CASE_SENSITIVE ~^[^%LNL%%MNL%]*[^ %TAB%%LNL%%MNL%][^%LNL%%MNL%]*~ BEGIN
+      TEXT_SPRINT text ~%MATCH0%~
+      SET col = 0
+      TEXT_SPRINT key ~~
+      TEXT_SPRINT first ~~
+      TEXT_SPRINT second ~~
+      INNER_PATCH ~%text%~ BEGIN
+        REPLACE_EVALUATE CASE_SENSITIVE ~[^ %TAB%]+~ BEGIN
+          PATCH_IF (line = 2) BEGIN
+            // A column's data is one to the right of its name.
+            PATCH_IF (STRING_LENGTH ~%bgse_key%~ > 0) AND (~%MATCH0%~ STRING_EQUAL_CASE ~%bgse_key%~) BEGIN
+              SET key_col = col + 1
+            END
+            PATCH_IF (STRING_LENGTH ~%bgse_first%~ > 0) AND (~%MATCH0%~ STRING_EQUAL_CASE ~%bgse_first%~) BEGIN
+              SET first_col = col + 1
+            END
+            PATCH_IF (STRING_LENGTH ~%bgse_second%~ > 0) AND (~%MATCH0%~ STRING_EQUAL_CASE ~%bgse_second%~) BEGIN
+              SET second_col = col + 1
+            END
+          END ELSE PATCH_IF (line > 2) BEGIN
+            PATCH_IF (col = key_col) BEGIN
+              TEXT_SPRINT key ~%MATCH0%~
+            END
+            PATCH_IF (col = first_col) BEGIN
+              TEXT_SPRINT first ~%MATCH0%~
+            END
+            PATCH_IF (col = second_col) BEGIN
+              TEXT_SPRINT second ~%MATCH0%~
+            END
+          END
+          SET col += 1
+        END ~%MATCH0%~
+      END
+      PATCH_IF (line > 2) AND (STRING_LENGTH ~%key%~ > 0)
+          AND ((STRING_LENGTH ~%bgse_first%~ = 0) OR (STRING_LENGTH ~%first%~ > 0))
+          AND ((STRING_LENGTH ~%bgse_second%~ = 0) OR (STRING_LENGTH ~%second%~ > 0)) BEGIN
+        PATCH_IF ((~%key%~ STRING_MATCHES_REGEXP ~^0x[0-9a-fA-F]+$~) = 0) BEGIN
+          SET number = key
+          TEXT_SPRINT key ~%number%~
+        END
+        TEXT_SPRINT entry ~%key%~
+        PATCH_IF (STRING_LENGTH ~%bgse_first%~ > 0) BEGIN
+          TEXT_SPRINT entry ~%entry%=%first%~
+        END
+        PATCH_IF (STRING_LENGTH ~%bgse_second%~ > 0) BEGIN
+          TEXT_SPRINT entry ~%entry%,%second%~
+        END
+        TO_UPPER entry
+        PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%key%=~ ~%bgse_pairs%~) < 0)
+            AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%entry%|~ ~%bgse_pairs%~) < 0) BEGIN
+          TEXT_SPRINT bgse_pairs ~%bgse_pairs%%entry%|~
+        END
+      END
+      SET line += 1
+    END ~%MATCH0%~
+  END
+END
+
+// Give the thief in the patch buffer (a CRE V1.0) hide skills that fit its level when one of its
+// scripts is a hooked script that makes its creature invisible for free (bgse_hiders, |script|
+// entries in lower case; Christopher, 2026-10-26: thieves hide with their own Hide in Shadows, and
+// their skill fits it). Hide in Shadows and Move Silently each get a quarter of the skill points a
+// player thief of its kit (else its class) has at its thief level (bgse_points from THIEFSKL.2DA:
+// the first level's points and those of each level after it; bgse_kits maps KIT.IDS values to kit
+// names), never less than it has. Joinable NPCs (bgse_party) keep their skills. bgse_raised is 1
+// when a skill went up.
+DEFINE_PATCH_FUNCTION bgse_raise_skills
+  STR_VAR bgse_hiders = ~|~
+          bgse_points = ~|~
+          bgse_kits = ~|~
+          bgse_party = ~|~
+  RET bgse_raised
+BEGIN
+  SET bgse_raised = 0
+  PATCH_IF (BUFFER_LENGTH >= 0x2d4) BEGIN
+    READ_ASCII 0 signature (8)
+    SET hider = 0
+    PATCH_IF (~%signature%~ STRING_EQUAL ~CRE V1.0~) BEGIN
+      FOR (o = 0x248; o < 0x270; o += 8) BEGIN
+        READ_ASCII o script (8) NULL
+        TO_LOWER script
+        PATCH_IF (STRING_LENGTH ~%script%~ > 0) AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%script%|~ ~%bgse_hiders%~) >= 0) BEGIN
+          SET hider = 1
+        END
+      END
+    END
+    PATCH_IF (hider = 1) BEGIN
+      READ_ASCII 0x280 name (32) NULL
+      TO_UPPER name
+      // Its thief level: multiclass levels go in the order of the class's name.
+      READ_BYTE 0x273 class
+      SET at = 0
+      TEXT_SPRINT row ~~
+      PATCH_IF (class = 4) BEGIN
+        SET at = 0x234
+        TEXT_SPRINT row ~THIEF~
+      END ELSE PATCH_IF (class = 9) BEGIN
+        SET at = 0x235
+        TEXT_SPRINT row ~FIGHTER_THIEF~
+      END ELSE PATCH_IF (class = 10) BEGIN
+        SET at = 0x236
+        TEXT_SPRINT row ~FIGHTER_MAGE_THIEF~
+      END ELSE PATCH_IF (class = 13) BEGIN
+        SET at = 0x235
+        TEXT_SPRINT row ~MAGE_THIEF~
+      END ELSE PATCH_IF (class = 15) BEGIN
+        SET at = 0x235
+        TEXT_SPRINT row ~CLERIC_THIEF~
+      END
+      PATCH_IF (at > 0) AND ((STRING_LENGTH ~%name%~ = 0) OR (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%name%|~ ~%bgse_party%~) < 0)) BEGIN
+        // A kit (the high word, as KIT.IDS numbers it) that has a row of its own.
+        READ_SHORT 0x246 kit
+        PATCH_IF (kit > 0x4000) BEGIN
+          SET p = INDEX (CASE_SENSITIVE EXACT_MATCH ~|%kit%=~ ~%bgse_kits%~)
+          PATCH_IF (p >= 0) BEGIN
+            SET from = p + STRING_LENGTH ~|%kit%=~
+            INNER_PATCH ~%bgse_kits%~ BEGIN
+              SET to = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~|~ from)
+              READ_ASCII from kit_row (to - from)
+            END
+            PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%kit_row%=~ ~%bgse_points%~) >= 0) BEGIN
+              TEXT_SPRINT row ~%kit_row%~
+            END
+          END
+        END
+        PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%row%=~ ~%bgse_points%~) < 0) BEGIN
+          TEXT_SPRINT row ~THIEF~
+        END
+        SET p = INDEX (CASE_SENSITIVE EXACT_MATCH ~|%row%=~ ~%bgse_points%~)
+        PATCH_IF (p >= 0) BEGIN
+          SET from = p + STRING_LENGTH ~|%row%=~
+          INNER_PATCH ~%bgse_points%~ BEGIN
+            SET comma = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~,~ from)
+            SET to = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~|~ from)
+            READ_ASCII from start_points (comma - from)
+            READ_ASCII (comma + 1) level_points (to - comma - 1)
+          END
+          PATCH_IF (IS_AN_INT start_points) AND (IS_AN_INT level_points) BEGIN
+            READ_BYTE at level
+            SET level = (level < 1) ? 1 : level
+            SET target = (start_points + level_points * (level - 1)) / 4
+            SET target = (target > 255) ? 255 : target
+            FOR (s = 0; s < 2; s += 1) BEGIN
+              SET skill = (s = 0) ? 0x45 : 0x68
+              READ_BYTE skill value
+              PATCH_IF (value < target) BEGIN
+                WRITE_BYTE skill target
+                SET bgse_raised = 1
+              END
+            END
+          END
         END
       END
     END

@@ -16,6 +16,9 @@
 -- guard=true keeps the creature near the spot where its fight began while it searches for enemies it
 -- cannot see (combat-intent/search.lua); guard=false lets it search like anyone, also as its
 -- group's boss, which guards by default.
+--
+-- hide=true has a thief hide in shadows whenever it sees no enemy, whatever its wit; hide=false never
+-- (combat-intent/stealth.lua).
 local targeting=require('combat-intent.targeting')
 local M={}
 M.bonus=1
@@ -42,8 +45,8 @@ function M.check(o)
             elseif not selector(v) then return false,'target' end
         elseif k=='always' then
             if type(v)~='boolean' then return false,'always' end
-        elseif k=='guard' then
-            if type(v)~='boolean' then return false,'guard' end
+        elseif k=='guard' or k=='hide' then
+            if type(v)~='boolean' then return false,k end
         elseif k=='bonus' then
             if not number(v) or v<0 or v>100 then return false,'bonus' end
         else return false,tostring(k) end

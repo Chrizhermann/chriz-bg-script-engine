@@ -17,16 +17,43 @@ from tools.ie_resources import parse_spl
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / 'tests/fixtures/hook'
 HOOKED = {'B-HKMAG': ('mage', 7), 'B-HKPRI': ('priest', 2), 'B-HKRNG': ('fighter', 0),
-          'B-HKMON': ('monster', 9)}
+          'B-HKMON': ('monster', 9), 'B-HKTHF': ('fighter', 3)}
 UNTOUCHED = ('B-HKNOA', 'B-HKOLD', 'B-HKCST', 'B-HKNON', 'B-HKVAN')
 # The fake game's spells that move their caster: the monster's chase and jump spells, and a
 # creature's own innate teleport.
 TELEPORTS = frozenset({'B-HKFIT', 'INNATE_FIEND_TELEPORT', 'B-HKBLK'})
+# The fake game's spells that make their target invisible, as the thief's script names them: its
+# b-hksil, SPWI206 by number (SPELL.IDS lacks it) and Improved Invisibility by name.
+HIDES = {'B-HKSIL': 'plain', '2206': 'plain', 'WIZARD_IMPROVED_INVISIBILITY': 'improved'}
 # Creatures: one whose script teleports by script and that has no teleport of its own (the innate
 # goes to it), one that has its own, and one whose scripts do not teleport.
 CREATURES = {'B-HKFND': (['', 'B-HKMON', '', '', ''], ['B-HKPOW']),
              'B-HKFN2': (['B-HKMON', '', '', '', ''], ['B-HKBLK']),
              'B-HKMGC': (['B-HKMAG', '', '', '', ''], [])}
+# Thieves (scripts, class, three class levels, kit, Hide in Shadows, Move Silently, script name): ones
+# whose script makes them invisible for free (a thief, an assassin with more Hide in Shadows than its
+# level gives, a fighter/thief by its thief level and a shadowdancer), and ones that keep their skills
+# (a joinable NPC, a fighter and a thief whose scripts do not do that).
+THIEVES = {'B-HKTH1': (['', 'B-HKTHF', '', '', ''], 4, (9, 0, 0), 0x4000, 10, 50, 'HKTH1'),
+           'B-HKTH2': (['B-HKTHF', '', '', '', ''], 4, (9, 0, 0), 0x400A, 45, 0, 'HKTH2'),
+           'B-HKTH3': (['', '', 'B-HKTHF', '', ''], 9, (10, 7, 0), 0, 5, 5, ''),
+           'B-HKTH4': (['', 'B-HKTHF', '', '', ''], 4, (5, 0, 0), 0x4021, 0, 0, 'HKTH4'),
+           'B-HKNPC': (['', 'B-HKTHF', '', '', ''], 4, (9, 0, 0), 0, 10, 10, 'B-HKNPC'),
+           'B-HKWAR': (['', 'B-HKTHF', '', '', ''], 2, (9, 0, 0), 0, 0, 0, 'HKWAR'),
+           'B-HKTHN': (['', 'B-HKMAG', '', '', ''], 4, (9, 0, 0), 0, 0, 0, 'HKTHN')}
+# The fake game's thief skill tables, as hook_rule.hide_skill reads them: THIEFSKL.2DA names its
+# columns in another order than the game's, KITLIST.2DA's first row lacks its last columns.
+POINTS = {'THIEF': (40, 25), 'ASSASIN': (40, 10), 'SHADOWDANCER': (30, 20), 'FIGHTER_THIEF': (40, 25)}
+KITS = {0x400A: 'ASSASIN', 0x4021: 'SHADOWDANCER'}
+TABLES = {
+    'THIEFSKL': ('2DA V1.0\n0\n               LEVEL_POINTS   START_POINTS\nTHIEF          25             40\n'
+                 'ASSASIN        10             40\nSHADOWDANCER   20             30\nFIGHTER_THIEF  25             40\n'),
+    'KITLIST': ('2DA V1.0\n*\n     ROWNAME       LOWER  MIXED  HELP  ABILITIES  PROFICIENCY  UNUSABLE  CLASS  KITIDS\n'
+                '0    RESERVE       *      *      *     *          *            *\n'
+                '10   ASSASIN       1      2      3     CLABTH02   *            0         4      0x0000400A\n'
+                '33   SHADOWDANCER  1      2      3     CLABTH04   *            0         4      0x00004021\n'),
+    'PDIALOG': '2DA V1.0\n***\n         POST_DIALOG_FILE  JOIN_DIALOG_FILE\nB-HKNPC  B-HKNPCP          B-HKNPCJ\n',
+}
 
 # Authored synthetic identifiers with the signature shapes the fixtures use.
 TRIGGER = """IDS V1.0
@@ -94,7 +121,8 @@ IDS = {
     'GENDER': 'IDS V1.0\n0 ANYONE\n',
     'ALIGN': 'IDS V1.0\n0 ANYONE\n',
     'SPELL': ('IDS V1.0\n1308 CLERIC_INVISIBILITY_PURGE\n2101 WIZARD_MAGIC_MISSILE\n2102 WIZARD_MIRROR_IMAGE\n'
-              '2420 WIZARD_ORACLE\n2525 WIZARD_DIMENSION_DOOR\n3101 DEMILICH_TRAP_SOUL\n3159 INNATE_FIEND_TELEPORT\n'),
+              '2405 WIZARD_IMPROVED_INVISIBILITY\n2420 WIZARD_ORACLE\n2525 WIZARD_DIMENSION_DOOR\n3101 DEMILICH_TRAP_SOUL\n'
+              '3159 INNATE_FIEND_TELEPORT\n'),
     'STATS': 'IDS V1.0\n18 RESISTMAGIC\n200 WIZARD_IMPROVED_ALACRITY\n',
     'BOOLEAN': 'IDS V1.0\n0 FALSE\n1 TRUE\n',
 }
@@ -123,9 +151,11 @@ def _tlk_text(data: bytes, index: int) -> str:
     return data[start + offset:start + offset + length].decode('ascii')
 
 
-def _spl(spell_type: int, name: int = 0xFFFFFFFF, description: int = 0xFFFFFFFF) -> bytes:
+def _spl(spell_type: int, name: int = 0xFFFFFFFF, description: int = 0xFFFFFFFF, opcode: int = 124, target: int = 1,
+         parameter2: int = 0) -> bytes:
     """A spell with one ability aimed at a point that moves its caster there (opcode 124 on the
-    caster): an innate (type 4) or a wizard spell (type 1) such as SCS's scripted teleport."""
+    caster): an innate (type 4) or a wizard spell (type 1) such as SCS's scripted teleport. Another
+    opcode, target and parameter 2 make another spell, such as an invisibility (opcode 20)."""
     header = bytearray(0x72)
     header[:8] = b'SPL V1  '
     struct.pack_into('<II', header, 0x08, name, 0xFFFFFFFF)
@@ -140,19 +170,24 @@ def _spl(spell_type: int, name: int = 0xFFFFFFFF, description: int = 0xFFFFFFFF)
     struct.pack_into('<HHH', ability, 0x0E, 200, 1, 1)
     struct.pack_into('<HH', ability, 0x1E, 1, 0)
     struct.pack_into('<H', ability, 0x26, 1)
-    effect = struct.pack('<HBBiIBBIBB8siiIiI', 124, 1, 0, 0, 0, 1, 0, 0, 100, 0, b'', 0, 0, 0, 0, 0)
+    effect = struct.pack('<HBBiIBBIBB8siiIiI', opcode, target, 0, 0, parameter2, 1, 0, 0, 100, 0, b'', 0, 0, 0, 0, 0)
     return bytes(header + ability) + effect
 
 
-def _cre(scripts, memorized) -> bytes:
+def _cre(scripts, memorized, cls=0, levels=(0, 0, 0), kit=0, hide=0, silent=0, name='') -> bytes:
     """A creature with these scripts (override, class, race, general and default slot) and these
     innate spells known and memorized, no items or effects, and the memorization levels a real
-    creature has (seven priest, nine wizard, one innate)."""
+    creature has (seven priest, nine wizard, one innate); with its class, three class levels, kit (the
+    high word, as KIT.IDS numbers it), Hide in Shadows, Move Silently and script name."""
     head = bytearray(0x2D4)
     head[:8] = b'CRE V1.0'
     struct.pack_into('<II', head, 0x08, 0xFFFFFFFF, 0xFFFFFFFF)
     for i, script in enumerate(scripts):
         head[0x248 + 8 * i:0x250 + 8 * i] = script.encode('ascii').ljust(8, b'\0')
+    head[0x45], head[0x68], head[0x273] = hide, silent, cls
+    head[0x234:0x237] = bytes(levels)
+    struct.pack_into('<HH', head, 0x244, 0, kit)
+    head[0x280:0x2A0] = name.encode('ascii').ljust(32, b'\0')
     known = b''.join(s.encode('ascii').ljust(8, b'\0') + struct.pack('<HH', 0, 2) for s in memorized)
     levels = [(level, 0) for level in range(7)] + [(level, 1) for level in range(9)] + [(0, 2)]
     info = b''.join(struct.pack('<HHHHII', level, len(memorized) if kind == 2 else 0,
@@ -212,8 +247,17 @@ def _fake_game(root: Path, eeex: bool = True, lua_trigger: bool = True, fiend_te
     (root / 'override/B-HKBLK.SPL').write_bytes(_spl(4))
     if fiend_teleport:
         (root / 'override/SPIN159.SPL').write_bytes(_spl(4, name=2, description=1))
+    # The thief's free invisibility on itself, the game's Invisibility on its target and Improved
+    # Invisibility (parameter 2 is 1).
+    (root / 'override/B-HKSIL.SPL').write_bytes(_spl(4, opcode=20, target=1))
+    (root / 'override/SPWI206.SPL').write_bytes(_spl(1, opcode=20, target=2))
+    (root / 'override/SPWI405.SPL').write_bytes(_spl(1, opcode=20, target=2, parameter2=1))
     for name, (scripts, memorized) in CREATURES.items():
         (root / f'override/{name}.CRE').write_bytes(_cre(scripts, memorized))
+    for name, (scripts, cls, levels, kit, hide, silent, script_name) in THIEVES.items():
+        (root / f'override/{name}.CRE').write_bytes(_cre(scripts, [], cls, levels, kit, hide, silent, script_name))
+    for name, text in TABLES.items():
+        (root / f'override/{name}.2DA').write_text(text, encoding='ascii')
     (root / 'fixture').mkdir()
     for path in FIXTURES.glob('*.baf'):
         shutil.copy(path, root / 'fixture' / path.name)
@@ -271,10 +315,12 @@ def test_installer_matches_reference_and_is_reversible(tmp_path: Path) -> None:
 
     output = _install(tmp_path, '--force-install-list', '0')
     assert 'SUCCESSFULLY INSTALLED' in output, output
-    assert ('BGSE hook: 4 SCS scripts hooked, 18 SCS blocks guarded, 5 SCS cloud blocks yield to the engine, '
+    assert ('BGSE hook: 5 SCS scripts hooked, 21 SCS blocks guarded, 5 SCS cloud blocks yield to the engine, '
             "14 SCS hunting blocks yield to the engine's search, 3 left as they are.") in output, output
     assert ("BGSE teleport: 1 SCS jumps into the fight yield to the creatures' own teleports, 1 creatures that "
             'teleport only by script got the innate teleport BGSETELE.') in output, output
+    assert ('BGSE hide: 4 SCS blocks of free invisibility yield where the engine hides the creature its own way, '
+            '4 thieves got hide skills for their level.') in output, output
     for name, reason in (('B-HKNOA', 'no-anchor'), ('B-HKOLD', 'already-hooked'), ('B-HKCST', 'no-castspell')):
         assert f'left {name} as it is ({reason})'.casefold() in output.casefold(), output
     installed = _snapshot(tmp_path)
@@ -299,12 +345,32 @@ def test_installer_matches_reference_and_is_reversible(tmp_path: Path) -> None:
     for name in ('B-HKFN2', 'B-HKMGC'):
         assert installed[f'override/{name.casefold()}.cre'] == before[f'override/{name.casefold()}.cre'], name
     _check_teleport(installed['override/bgsetele.spl'], 'Fiendish Teleport', tmp_path)
+    # The thieves SCS makes invisible for free got the hide skills of their kit or class and thief
+    # level, or kept higher ones; nothing else in them changed. The joinable NPC, the fighter and the
+    # thief whose scripts do not do that kept theirs.
+    for name, (scripts, cls, levels, kit, hide, silent, script_name) in THIEVES.items():
+        old, new = before[f'override/{name.casefold()}.cre'], installed[f'override/{name.casefold()}.cre']
+        skill = hook_rule.hide_skill(cls, levels, kit, POINTS, KITS)
+        if hook_rule.raises_skills(scripts, {'b-hkthf'}, script_name, {'B-HKNPC'}) and skill is not None:
+            assert (new[0x45], new[0x68]) == (max(hide, skill), max(silent, skill)), name
+            assert new[:0x45] + new[0x46:0x68] + new[0x69:] == old[:0x45] + old[0x46:0x68] + old[0x69:], name
+        else:
+            assert new == old, name
+    assert [installed[f'override/b-hkth{i}.cre'][0x45] for i in range(1, 5)] == [60, 45, 47, 27]
+    assert [installed[f'override/b-hkth{i}.cre'][0x68] for i in range(1, 5)] == [60, 30, 47, 27]
 
     hooked = _decompile(tmp_path, HOOKED)
     for name, (family, copies) in HOOKED.items():
-        expected, reason, got_family, got_copies = hook_rule.patch(originals[name], name, TELEPORTS)
+        expected, reason, got_family, got_copies = hook_rule.patch(originals[name], name, TELEPORTS, HIDES)
         assert (reason, got_family, got_copies) == ('hooked', family, copies)
         assert hooked[name] == expected, name
+    # SCS's free invisibility stands aside where the engine hides the creature its own way: the
+    # thief's three plain ones above the hook and its contingency's Improved Invisibility below it
+    # and in its copy; no other script has any.
+    for name in HOOKED:
+        plain = hooked[name].count(hook_rule.hide_guard(HOOKED[name][0], name.lower(), 'plain'))
+        improved = hooked[name].count(hook_rule.hide_guard(HOOKED[name][0], name.lower(), 'improved'))
+        assert (plain, improved) == ((3, 2) if name == 'B-HKTHF' else (0, 0)), name
     # The mage's cloud escape, its run from a Cloudkill's marker and its stand-still take the
     # condition last, the ranged fighter's escape (whose triggers end in an OR group that lacks a
     # member) first and its walk at the party out of a cloud last; the fighter's escape below the
@@ -350,7 +416,7 @@ def test_without_the_fiend_teleport_the_jump_stays_and_the_innate_gets_an_englis
     before = _snapshot(tmp_path)
     originals = _decompile(tmp_path, ['B-HKMON'])
     output = _install(tmp_path, '--force-install-list', '0')
-    assert ('BGSE hook: 4 SCS scripts hooked, 19 SCS blocks guarded, 5 SCS cloud blocks yield to the engine, '
+    assert ('BGSE hook: 5 SCS scripts hooked, 22 SCS blocks guarded, 5 SCS cloud blocks yield to the engine, '
             "14 SCS hunting blocks yield to the engine's search, 3 left as they are.") in output, output
     assert ("BGSE teleport: 0 SCS jumps into the fight yield to the creatures' own teleports, 1 creatures that "
             'teleport only by script got the innate teleport BGSETELE.') in output, output

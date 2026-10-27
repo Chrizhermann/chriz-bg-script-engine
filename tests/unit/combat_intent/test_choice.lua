@@ -596,6 +596,7 @@ assert(select(2,orders.check({target='protagonist',stay=true}))=='stay' and sele
 assert(select(2,orders.check({target='protagonist',bonus=-1}))=='bonus')
 assert(orders.check({guard=true}) and orders.check({guard=false,target='player1'}) and
     select(2,orders.check({guard='yes'}))=='guard')
+assert(orders.check({hide=true}) and orders.check({hide=false,guard=true}) and select(2,orders.check({hide=1}))=='hide')
 groups=groups+1
 
 -- 22. Interrupting (Christopher, 2026-10-25: worth decides, "with a bonus for interrupting an

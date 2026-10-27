@@ -726,7 +726,7 @@ weapon that can backstab counts with its backstab multiplier when it strikes fro
 enemy is not immune. A clever thief walks behind its enemy first (a normal one when it notices, a
 dull one never), and a clever one that is not hidden counts what the backstab after a potion or
 spell of invisibility adds. SCS's own hide, a thief that sees no enemy turns invisible for free,
-stays SCS's: it happens before the engine's turn and out of the party's sight. The game's backstab
+stayed SCS's until F2f (below). The game's backstab
 rule comes from GemRB's reading of the game, so the lab still has to show it in EE.
 
 F2e counts critical hit effects and hits that weaken (FIGHT-01, "F2e"): a weapon or kit power
@@ -742,10 +742,19 @@ to the creature the spell is cast at, while its own check tests the caster. The 
 critical hit stuns the creature it strikes when the Dreadnought is strong enough, Spell Revisions'
 Improved Haste counts for everyone in its area, and Shared Gift heals the ally it is cast at.
 
-Next: the teleport lab's second run (an engine jump, SCS's
-ReallyForceSpellRES form, a cast from out of sight) and a lab of mixed fights with fighters,
-archers, thieves and monsters, then thieves that hide with their own skill (F2f) instead of SCS's
-free invisibility. Melissan's own fight is designed with Christopher.
+F2f lets thieves hide with their own skill instead of SCS's free invisibility (FIGHT-01, "F2f";
+Christopher, 2026-10-27). With no enemy in sight a thief tries the game's own Hide(), whose roll the
+game makes against its skill, before it searches: a clever one always, a normal one in half its
+stretches out of sight, a dull one never, one try a round. SCS's free invisibility stands aside
+for every thief the engine drives, and the installer gives SCS's thieves Hide in Shadows and Move
+Silently of a quarter of a player thief's skill points at their level (level 9: 60 each). Fiends,
+mind flayers and the sirine keep SCS's invisibility until it becomes a real innate ability of
+theirs. Building it showed that a rogue's Find Traps for its Detect Illusion never ran.
+
+Next: the hide probe (how EE's Hide() works for a creature outside the party), the teleport lab's
+second run (an engine jump, SCS's ReallyForceSpellRES form, a cast from out of sight) and a lab of
+mixed fights with fighters, archers, thieves and monsters, then the monsters' invisibility as real
+innate abilities (F2f-5). Melissan's own fight is designed with Christopher.
 
 ## To design with Christopher
 

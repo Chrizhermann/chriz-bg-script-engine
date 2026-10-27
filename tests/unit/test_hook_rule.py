@@ -440,3 +440,116 @@ def test_powers_a_creature_applies_to_itself_are_specials(trigger, actions, spec
     lines = ''.join(f'    {a}\n' for a in actions)
     block = f'IF\n  {trigger}\nTHEN\n  RESPONSE #100\n{lines}END\n'
     assert hook_rule.is_special(block) is special
+
+
+# The fixtures' spells that make their target invisible (the integration test's fake game has them):
+# the thief's b-hksil and 2206 (SPWI206), and Improved Invisibility (SPELL.IDS 2405, SPWI405).
+HIDES = {'B-HKSIL': 'plain', '2206': 'plain', 'WIZARD_IMPROVED_INVISIBILITY': 'improved'}
+
+
+def test_free_invisibility_stands_aside_where_the_engine_hides_the_creature():
+    # SCS's thief turns invisible for free when it sees no enemy, when it plans a backstab and on its
+    # hide timer while it detects no enemy (above the hook), and fires a contingency's Improved
+    # Invisibility below it, which is copied above the hook as a special. Each takes BGSE_Hide's
+    # condition with its kind, last, or first where the triggers end in an OR group that lacks a
+    # member; the copy takes it too. A free cast that comes with an attack, one checked against the
+    # spellbook and one of a spell that hides nobody stay as they are.
+    source = text('B-HKTHF')
+    spans, anchor, copies = hook_rule.plan(source, TELEPORTS)
+    assert (anchor, copies) == (4, [5, 6, 8])
+    assert hook_rule.hiding(source, spans, HIDES) == {1: 'plain', 2: 'plain', 3: 'plain', 5: 'improved'}
+    patched, reason, family, count = hook_rule.patch(source, 'B-HKTHF', TELEPORTS, HIDES)
+    assert (reason, family, count) == ('hooked', 'fighter', 3)
+    plain = '  !' + hook_rule.hide_guard('fighter', 'b-hkthf', 'plain')
+    improved = '  !' + hook_rule.hide_guard('fighter', 'b-hkthf', 'improved')
+    assert patched.count(plain) == 3 and patched.count(improved) == 2
+    for i, condition in ((1, plain), (2, plain), (3, plain), (5, improved)):
+        block = source[spans[i][0]:spans[i][1]]
+        assert hook_rule.aside(block, [condition]) in patched, i
+    third = source[spans[3][0]:spans[3][1]]
+    assert hook_rule.aside(third, [plain]).startswith('IF\n' + plain + '\n')
+    contingency = hook_rule.aside(source[spans[5][0]:spans[5][1]], [improved])
+    assert contingency.replace('IF\n', 'IF\n  ' + hook_rule.guard('fighter', 'b-hkthf') + '\n', 1) in patched
+    for i in (6, 7, 8):
+        block = source[spans[i][0]:spans[i][1]]
+        assert patched.count(block) == 1, i
+        if i in copies:
+            assert block.replace('IF\n', 'IF\n  ' + hook_rule.guard('fighter', 'b-hkthf') + '\n', 1) in patched, i
+    # Without the game's spell facts nothing changes, and the other fixtures keep their results.
+    assert hook_rule.patch(source, 'B-HKTHF', TELEPORTS)[0].count('BGSE_Hide') == 0
+    for name in ('B-HKMAG', 'B-HKPRI', 'B-HKRNG', 'B-HKMON'):
+        assert hook_rule.patch(text(name), name, TELEPORTS, HIDES) == hook_rule.patch(text(name), name, TELEPORTS), name
+
+
+@pytest.mark.parametrize('triggers,actions,kind', [
+    # SCS's forms: applied, forced or cast without a spellbook entry, by resref, SPELL.IDS name or
+    # number, with bookkeeping and a comment after the action; Improved Invisibility beats plain.
+    (['!See(NearestEnemyOf(Myself))'], ['ApplySpellRES("b-hksil",Myself)'], 'plain'),
+    (['See(NearestEnemyOf(Myself))'], ['SetGlobal("backstabplan","LOCALS",1)', 'SetGlobalTimerRandom("t","LOCALS",6,12)',
+                                       'ApplySpell(Myself,2206)'], 'plain'),
+    (['!Detect(Player1)'], ['ForceSpellRES("B-HKSIL",Myself)  // Invisibility', 'Continue()'], 'plain'),
+    (['HPPercentLT(Myself,30)'], ['DisplayStringHead(Myself,1234)', 'ReallyForceSpell(Myself,WIZARD_IMPROVED_INVISIBILITY)'],
+     'improved'),
+    (['True()'], ['SpellNoDecRES("b-hksil",Myself)', 'SpellNoDec(Myself,WIZARD_IMPROVED_INVISIBILITY)'], 'improved'),
+    (['True()'], ['ApplySpellRES("b-hksil",Myself)', 'ApplySpellRES("b-hkpow",Myself)'], 'plain'),
+    # Not free invisibility: checked against the spellbook, with an attack, a wait or a cast at
+    # someone else, a removed spell, a spell that hides nobody, or no invisibility at all.
+    (['HaveSpellRES("b-hksil")'], ['ApplySpellRES("b-hksil",Myself)'], None),
+    (['True()'], ['ApplySpellRES("b-hksil",Myself)', 'AttackReevaluate(NearestEnemyOf(Myself),15)'], None),
+    (['True()'], ['Wait(1)', 'ApplySpellRES("b-hksil",Myself)'], None),
+    (['True()'], ['ApplySpellRES("b-hksil",LastSeenBy(Myself))'], None),
+    (['True()'], ['ReallyForceSpell(Myself,WIZARD_IMPROVED_INVISIBILITY)', 'RemoveSpell(WIZARD_IMPROVED_INVISIBILITY)'], None),
+    (['True()'], ['ApplySpellRES("b-hkpow",Myself)'], None),
+    (['True()'], ['ApplySpellRES("",Myself)'], None),
+    (['True()'], ['SetGlobal("hidden","LOCALS",1)'], None),
+])
+def test_free_invisibility_is_a_spellbook_free_cast_at_itself_and_bookkeeping(triggers, actions, kind):
+    lines = ''.join(f'  {t}\n' for t in triggers)
+    response = ''.join(f'    {a}\n' for a in actions)
+    block = f'IF\n{lines}THEN\n  RESPONSE #100\n{response}END\n'
+    assert hook_rule.free_hide(block, HIDES) == kind
+
+
+def test_self_spells_name_casts_at_the_creature_itself_as_written():
+    source = ('IF\n  True()\nTHEN\n  RESPONSE #100\n    ApplySpellRES("dw#silin",Myself)  // Invisibility\n'
+              '    ReallyForceSpell(Myself,WIZARD_IMPROVED_INVISIBILITY)\n    ForceSpellRES("dw#silin",Myself)\n'
+              '    SpellNoDec(Myself,2206)\n    ApplySpellRES("b-hkpow",NearestEnemyOf(Myself))\n'
+              '    ReallyForceSpellRES("dw#misld",Myself)\r\nEND\n')
+    assert hook_rule.self_spells(source) == ['DW#SILIN', 'WIZARD_IMPROVED_INVISIBILITY', '2206', 'DW#MISLD']
+
+
+# The fake game's THIEFSKL.2DA and KITLIST.2DA as hide_skill reads them.
+POINTS = {'THIEF': (40, 25), 'ASSASIN': (40, 10), 'SHADOWDANCER': (30, 20), 'FIGHTER_THIEF': (40, 25)}
+KITS = {0x400A: 'ASSASIN', 0x4021: 'SHADOWDANCER', 0x4001: 'BERSERKER'}
+
+
+@pytest.mark.parametrize('cls,levels,kit,skill', [
+    # A thief, an assassin and a shadowdancer by their own rows; a fighter/thief by its thief level
+    # (the second); a mage/thief whose row the table lacks by the thief's; a kit without a row of its
+    # own by its class; level 0 as level 1; at most 255.
+    (4, (9, 0, 0), 0x4000, 60),
+    (4, (9, 0, 0), 0x400A, 30),
+    (4, (5, 0, 0), 0x4021, 27),
+    (9, (10, 7, 0), 0, 47),
+    (13, (12, 3, 0), 0, 22),
+    (4, (9, 0, 0), 0x4001, 60),
+    (4, (0, 0, 0), 0, 10),
+    (4, (60, 0, 0), 0, 255),
+    # No thief levels: a fighter, a monk.
+    (2, (9, 0, 0), 0, None),
+    (20, (9, 0, 0), 0, None),
+])
+def test_thieves_hide_skills_fit_their_level(cls, levels, kit, skill):
+    assert hook_rule.hide_skill(cls, levels, kit, POINTS, KITS) == skill
+    assert hook_rule.hide_skill(cls, levels, kit, {}, KITS) is None
+
+
+@pytest.mark.parametrize('scripts,name,raised', [
+    (['', 'B-HKTHF', '', '', ''], 'HKTH1', True),
+    (['b-hkthf', '', '', '', ''], '', True),
+    (['B-HKMAG', '', '', '', ''], 'HKTH1', False),
+    (['B-HKTHF', '', '', '', ''], 'B-HKNPC', False),
+    (['B-HKTHF', '', '', '', ''], 'b-hknpc', False),
+])
+def test_only_creatures_scs_makes_invisible_for_free_and_no_joinable_npc_get_skills(scripts, name, raised):
+    assert hook_rule.raises_skills(scripts, {'b-hkthf'}, name, {'B-HKNPC'}) is raised

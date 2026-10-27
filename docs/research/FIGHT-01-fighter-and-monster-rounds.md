@@ -17,7 +17,7 @@ the compiled `genai` scripts; decompiled read only) that is the first potion blo
 plan's setup, resting, noting the first party member it sees (the `chasetarget` and `chasePC`
 records) and ending a chase once it sees an enemy, walking to the party when it hears a cloud's
 shout and sees no one (archers run from the shout instead), and on lower settings destroying its
-potions.
+potions. A thief's free invisibility stands aside for its own hide since F2f (below).
 
 **Below the hook** (the engine's once it takes the round), in SCS's order:
 
@@ -569,8 +569,9 @@ close enemy that has no Mirror Images and no Stoneskin (`dw#wtacor.ssl`, `Backst
   (to the spot behind it when the enemy faces the creature). A potion counts no casting time. A
   defence must reach the minimum worth to beat a free swing, so a thief with a short sword swings,
   one with a long sword and a multiplier of 5 drinks first (in the tests).
-- **SCS's free hide stays SCS's** (Christopher's answer 11: powers a creature gives itself are its own
-  abilities; above the hook stays SCS's, as listed at the top). It happens only while the thief sees
+- **SCS's free hide stayed SCS's** until F2f (below), which replaces it for thieves with their own
+  skill (Christopher's answer 11 had been: powers a creature gives itself are its own abilities;
+  above the hook stays SCS's, as listed at the top). It happens only while the thief sees
   no enemy, so nobody would see a named ability being used either. The engine takes the hidden
   thief from there: it searches, goes behind and stabs. The same holds for SCS's other free
   invisibilities: fiends out of sight (`DEMPIT`, `ERINYES`, `KARASH`, `TELPIT1`, `DEMMAU01`, …), mind
@@ -654,6 +655,68 @@ To see in a lab: that "self" in a critical hit spell is the attacker (Corinth's 
 wielder); how often critical hits come with critical hit points; and whether a helmet keeps a
 critical hit spell off as it keeps a critical hit's double damage off.
 
+### F2f: thieves hide with their own skill (2026-10-27)
+
+Christopher, 2026-10-27: SCS's free invisibility goes, thieves hide with the game's real Hide in
+Shadows roll, and "der skill sollte natürlich dementsprechend auch hoch sein bei den
+Dieben/Schurken". Monsters' free invisibility (fiends, mind flayers, the sirine) becomes real
+innate abilities later (F2f-5), each as often as SCS gives it.
+
+- **SCS's free invisibility** (read in the decompiled scripts; credit DavidW): its thieves cast
+  `ApplySpellRES("dw#silin",Myself)` once when they are created (`OnCreation()`, whether they see the
+  party or not; in its sight they also plan a backstab) and whenever they detect no enemy and no
+  party member (`!Detect`: range and line of sight) and are not invisible already, blind or
+  disabled. Fiends, mind flayers, djinn and the sirine have blocks
+  of their own (`DEMPIT`, `ERINYES`, `SIRSPELL`, …); mages' contingencies give Improved Invisibility.
+- **The installer** ([HOOK-01](HOOK-01-scs-hook-placement.md), rule 9) has every block that gives
+  free invisibility ask `BGSE_Hide` and stand aside while the engine hides the creature its own
+  way, and raises SCS's thieves' skills: a creature with thief levels (CLASS.IDS 4, 9, 10, 13, 15)
+  whose script slots name a script with such a block, and that no PDIALOG row names (no joinable
+  NPC), gets Hide in Shadows and Move Silently of at least a quarter of all the thief skill points
+  a player of its class or kit has at its thief level: (START_POINTS + LEVEL_POINTS × (level − 1)) / 4
+  by THIEFSKL.2DA, at most 255, never lowered. Columns go by name; a kit's row by its KITLIST name.
+  In the Spell Revisions lab 214 creatures are raised, 31 have that much already, and 83 that carry
+  such a script have no thief levels (fiends, mind flayers and others, which keep SCS's own). For
+  example: level-9 thieves 60 each, assassins of level 20 (`GORDECK5` and others) from 0 to 57,
+  `ALATOS` (level 19) from 0 to 122, `CHALCY02` (level 25) from 140 and 100 to 160 each, a
+  fighter/thief of thief level 1 (`CALAHA`) to 10.
+- **The engine's hide** (`combat-intent/stealth.lua`, `adapters/eeex/stealth.lua`): with no enemy in
+  sight, once no zone hurts it and no friend in sight needs a heal or cure worth casting, a thief
+  hides before it searches: `Hide()`, the game's own action, whose roll the game makes against the
+  creature's skill as it does for a player. Who: thief levels and a Hide in Shadows skill above 0,
+  not invisible already and not in the game's stealth mode. When, by wit: a clever thief always, a
+  normal one when its stretch out of sight draws it (once, until it sees an enemy again), a dull one
+  never; orders by creature file say always (`hide=true`) or never (`hide=false`), and labs switch it
+  off with `mind.hide=false`. One try a round: six seconds after a try the next. A try is held while
+  the creature runs `Hide()` (8 ticks until it starts) or stays in the stealth mode, until it is
+  invisible and 45 ticks at most, and ends at once when an enemy shows or the creature is hurt. A
+  `hide` row logs a try (skill, wit, draw, orders), a `hidden` row its end: whether the creature came
+  out invisible, why it ended (`hidden`, `ended`, `limit`, `hurt`, `seen`), how long it took and what
+  the game's own fields read (`m_nModalState`, `m_bHiding`, `m_modalCounter`, `m_nStealthGreyOut`,
+  where EEex offers them). The hidden thief then searches, goes behind its enemy and stabs (F2d).
+- **Who stands aside** (`api:hides`): SCS's plain free invisibility, for every creature the engine
+  drives (as for its search) that can hide by its skill, whatever its wit: a dull thief no longer
+  turns invisible at all. Improved invisibility and every creature that cannot hide by its skill
+  keep SCS's. A creature off the engine's side, the engine switched off or an error: SCS's block
+  runs.
+- **One mode at a time:** a rogue hiding in shadows keeps its hide rather than switch to the Find
+  Traps mode for its Detect Illusion.
+- **Fixed on the way:** a rogue's Find Traps for its Detect Illusion never ran. The decision named
+  the invisible enemy it was for as its target, and the check right before acting skipped it as
+  unseen; the enemy is now only its aim.
+
+Tests: `stealth` (4 groups), the choice adapter's group 38 (hide, hold, judge, the round's wait, the
+stealth mode's limit, hurt, dull and ordered thieves, `BGSE_Hide`, the kept hide over Find Traps),
+the hook adapter's group 9, `test_hook_rule.py` (the free invisibility rule and the skill formula)
+and the installer test (fixture `B-HKTHF` and seven thief creatures: kits, a multiclass, THIEFSKL's
+columns swapped, a joinable NPC, a fighter, a creature without such a script); 12 mutations checked.
+
+To see in a lab (the hide probe): how EE's `Hide()` works for a creature outside the party: which
+skill it rolls (Hide in Shadows, Move Silently or both) with which bonuses (dexterity, race, armour,
+shadows), how long a try takes, whether a failed one leaves the stealth mode on, whether it sets
+STATE_INVISIBLE, whether walking ends it, whether the grey-out applies, and whether rangers, monks
+and shadowdancers hide the same way.
+
 ## Agreed (Christopher, 2026-10-25)
 
 1. **Target choice by worth, with overrides.** Not SCS's fixed list ("Ich würde es nicht eins zu
@@ -712,9 +775,13 @@ Known gaps, for later:
   weapon in hand. A thrown weapon counts strength's bonus to hit beside dexterity's when its flag
   says so (not measured). The walk into a missile's range does not count danger zones on the way.
   Conjured weapons still take the caster's THAC0 with the bonus to hit of the weapon it held.
-- Backstabs (F2d): only potions, scrolls and spells of invisibility hide a creature for a backstab;
-  the thieves' own Hide in Shadows counts nothing. The spot behind an enemy is where it stands now,
-  not where a walking enemy will be. A backstab counts the weapon's average damage, not its dice.
+- Backstabs (F2d): in sight of an enemy only potions, scrolls and spells of invisibility hide a
+  creature for a backstab; its own Hide in Shadows works out of sight (F2f), and no fight choice
+  weighs walking out of sight to hide. The spot behind an enemy is where it stands now, not where a
+  walking enemy will be. A backstab counts the weapon's average damage, not its dice.
+- Hiding (F2f): only thieves hide by their skill (rangers, monks and shadowdancers wait for the hide
+  probe); SCS's improved free invisibility and the free invisibility of creatures that cannot hide
+  by their skill (fiends, mind flayers, djinn, the sirine) stay SCS's until F2f-5.
 - Barbarian Rage's armour class penalty does not count against what it protects; per-cent maximum
   hit points (opcode 18, mode 2) give no hit points; helmets are not read.
 - Movement speed is not read (haste, slow, boots of speed), only the default.

@@ -85,6 +85,9 @@ M.default={
     -- How long the creature searches for enemies it cannot see, as a share of its wit's patience
     -- (combat-intent/search.lua): labs and fight designs can stretch or shorten it.
     searchPatience=1,
+    -- Hiding (F2f, combat-intent/stealth.lua): a thief that sees no enemy hides in shadows with the
+    -- game's own skill and roll, by its wit; labs can switch it off.
+    hide=true,
     -- Wit around danger zones (M.wit): 'clever', 'normal' or 'dull'; and how seriously the creature
     -- takes harm from them (1 for a WIS of 10).
     wit='clever',
@@ -111,6 +114,7 @@ local CHECKS={coordination=share,best=share,band=share,economy=amount,minValue=a
     ownWeapon=function(v) return type(v)=='boolean' end,
     chase=function(v) return type(v)=='boolean' end,
     alwaysAttack=function(v) return type(v)=='boolean' end,
+    hide=function(v) return type(v)=='boolean' end,
     memory=function(v) return type(v)=='boolean' end,
     knowledge=function(v) return v=='scs' end,
     clouds=function(v) return v=='learned' or v=='best' or v=='once' end,

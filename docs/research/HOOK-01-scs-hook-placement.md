@@ -156,9 +156,37 @@ Python, and `tests/integration/test_hook_installer.py` checks they agree.
    demons (`DEMOGOR2`, `OHB5BHAL`, `DW#BFSUM`, `SUDEMON2`, `GORCHR`). Host run of the rule on the
    lab's files, nothing installed.
 
-`BGSE_Zones` and `BGSE_Search` go by the script that decides for the creature: the first hooked
-script in its stack, since a lower script runs only after every higher one let the pass through
-and a higher hooked script asks on the way. So in a creature with two hooked scripts (SCS's general
+9. SCS's free invisibility (2026-10-27, Christopher: thieves hide with their own skill;
+   [FIGHT-01](FIGHT-01-fighter-and-monster-rounds.md), "F2f"). A block gives free invisibility when
+   its triggers check no spellbook or item (`HaveSpell`, `HaveSpellRES`, `HasItem`, `KnowSpell`),
+   each of its actions is bookkeeping (`SetGlobal`, `SetGlobalTimer`, `SetGlobalTimerRandom`,
+   `IncrementGlobal`, `Continue`, `DisplayString`, `DisplayStringHead`) or a cast at the creature
+   itself (`ApplySpell`, `ForceSpell`, `ReallyForceSpell`, `SpellNoDec` and their `RES` forms, at
+   `Myself`), and one of those spells makes its target invisible: an ability effect with opcode 20
+   at target 1 or 2, improved invisibility with parameter 2 at 1 (improved wins when a block gives
+   both). The installer reads that from the game's spell files (`bgse_hides_target`, SPELL.IDS names
+   included); `tools/hook_rule.py` takes the list of such spells as a file. Each such block, above
+   or below the anchor and in its copy above the hook, gets the condition
+   `!EEex_LuaTrigger(...BGSE_Hide(...,'plain')...)` or `'improved'`: last, or first when its
+   triggers end in an OR group that lacks members (rule 6), and after the cloud's and the hunt's
+   conditions. It stands aside while the engine hides the creature its own way: plain invisibility
+   for every thief the engine drives that has a Hide in Shadows skill; improved invisibility stays
+   SCS's for now. A creature with thief levels whose script slots name a script with such a block,
+   and that no PDIALOG row names (no joinable NPC), gets thief skills for its level (FIGHT-01,
+   "F2f").
+
+   In the SR lab's 1,148 hooked scripts 158 blocks in 70 scripts give free invisibility (69 plain,
+   89 improved; 34 mage, 22 general AI and 14 monster scripts): 148 above the anchor, 10 below it,
+   all of those copied, so 168 conditions in all. The lab's 12 spells that make their target
+   invisible: plain `DW#SILIN` (SCS's thieves and fiends), `DW#VMHID`, `DW#VMMIS` (vampires) and
+   `WIZARD_INVISIBILITY`; improved `DW#ILLIN` (mind flayers), `DW#MISLD`, `DWSW405`, `DWSW505`,
+   `BALTH10`, `ILLAINV`, `SHADOW_DRAGON_SHADOWS` and `WIZARD_IMPROVED_INVISIBILITY`. Without Spell
+   Revisions (823 hooked scripts, 10 such spells: no `BALTH10` and `ILLAINV`) 99 blocks in 65
+   scripts (56 plain, 43 improved), 95 above the anchor and 4 copied.
+
+`BGSE_Zones`, `BGSE_Search` and `BGSE_Hide` go by the script that decides for the creature: the
+first hooked script in its stack, since a lower script runs only after every higher one let the
+pass through and a higher hooked script asks on the way. So in a creature with two hooked scripts (SCS's general
 AI above a mage script, or a monster script above the general AI) the lower script's cloud and
 hunting blocks stand aside exactly when the higher one's do (`kernel/hook.lua`, `driver`; since
 2026-10-25, before which each script went by its own family).
@@ -168,7 +196,9 @@ hunting blocks stand aside exactly when the higher one's do (`kernel/hook.lua`, 
 must match. On the SR lab's 1,241 decompiled scripts (1,148 hooked) all agree byte for byte
 (2026-10-25, 2 to 3 minutes; again on 2026-10-26 with the pursuit rule, 3.5 minutes, and with
 the teleport rule, given the lab's 48 names of spells that move their caster as a fourth argument:
-51 jumps, 65 scripts that teleport by script).
+51 jumps, 65 scripts that teleport by script; on 2026-10-27 with the free invisibility rule, given
+the lab's 12 names of spells that make their target invisible, with their kind, as a fifth: 158
+blocks in 70 scripts; and on the no-SR lab's 878 decompiled scripts, 99 blocks in 65 scripts).
 
 The claim is cached per creature and game tick, so the copies and the hook ask once per
 script pass and get the same answer. When the engine declines or is switched off, every

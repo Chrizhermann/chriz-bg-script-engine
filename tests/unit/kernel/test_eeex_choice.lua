@@ -2591,4 +2591,145 @@ assert(club.spell=='TESTCLB2' and near(club.worth,swing(9,false,35,'TESTCLB2').w
 end)()
 groups=groups+1
 
+-- 38. Hiding (F2f, combat-intent/stealth.lua, adapters/eeex/stealth.lua). A thief (CLASS.IDS 4, Hide
+-- in Shadows 60) that sees no enemy hides in shadows: the game's Hide(), with a 'hide' row, held
+-- while it tries; once the game makes it invisible, a 'hidden' row says so, and with nothing to
+-- search its own life goes on. A try that comes to nothing waits a round before the next; one in
+-- the game's stealth mode is held until it ends or hideTicks pass. A dull thief never thinks of
+-- hiding, unless its orders say so. BGSE_Hide is true for a thief the engine drives that can hide
+-- by its skill, for SCS's plain free invisibility only. A hiding rogue keeps its hide: no Find Traps
+-- for its Detect Illusion.
+;(function()
+local function setup(seed,orders)
+    local w=world()
+    local d=directors.new(w,{reader=reader})
+    local c=choices.new(w,{reader=reader,director=d,seed=seed,orders=orders})
+    local list={}
+    c:setSink(function(row) list[#list+1]=row end)
+    local r=runtime.install(w,{director=d,choice=c,version='test'})
+    local function lastOf(kind) for n=#list,1,-1 do if list[n].kind==kind then return list[n] end end end
+    local function count(kind) local n=0;for _,row in ipairs(list) do if row.kind==kind then n=n+1 end end;return n end
+    local function claimAt(s,tick) w.ticks=tick;return w.BGSE_Claim(s,'mage','s1') end
+    return w,c,r,lastOf,count,claimAt
+end
+local function thief(fields)
+    local s=sprite(1,0,0,255,fields)
+    s.m_typeAI.m_Class=4;s.stats[135]=60;s.m_nModalState=0
+    return s
+end
+local g,ch,root,last,count,claim=setup(71)
+local t=g.add(thief())
+assert(claim(t,100)==true)
+g.BGSE_Act(t)
+assert(g.queued[#g.queued].text=='Hide()')
+local h=last('hide')
+assert(h.member==1 and h.skill==60 and h.wit=='clever' and h.tactical==true and h.ordered==nil)
+local seen=ch:inspect().stealth
+assert(seen.counts.hides==1 and seen.counts.draws==1 and seen.trying==1)
+-- Held while it runs Hide(); invisible ten ticks after the try, the 'hidden' row; nothing to search.
+t.m_curAction={m_actionID=18}
+local holds=ch:inspect().counts.holds
+assert(claim(t,105)==true and ch:inspect().counts.holds==holds+1)
+t.state=0x10;t.m_nModalState=3;t.m_curAction={m_actionID=0}
+assert(claim(t,110)==false and ch:inspect().reasons['no-enemy']==1)
+local done=last('hidden')
+assert(done.hidden==true and done.why=='hidden' and done.took==10 and done.modal==3)
+seen=ch:inspect().stealth
+assert(seen.counts.hidden==1 and seen.counts.unhidden==0 and seen.trying==0 and count('hide')==1)
+-- Seen by nobody it stays hidden: no second try.
+assert(claim(t,300)==false and count('hide')==1)
+-- An enemy shows: the stretch out of sight is over; once it is gone again the thief, its hide lost
+-- meanwhile, draws afresh and hides again.
+t.state=0;t.m_nModalState=0
+local e=g.add(sprite(11,200,0,2))
+assert(claim(t,320)==true)
+e.m_pos={x=5000,y=0}
+assert(claim(t,400)==true and ch:inspect().stealth.counts.draws==2)
+g.BGSE_Act(t)
+assert(g.queued[#g.queued].text=='Hide()' and count('hide')==2)
+-- This try comes to nothing: the action ends after the grace without the stealth mode; the next
+-- waits for the round (90 ticks after the try), meanwhile the engine's search goes on.
+t.m_curAction={m_actionID=0}
+assert(claim(t,410)==true)
+done=last('hidden')
+assert(done.hidden==false and done.why=='ended' and done.took==10 and ch:inspect().stealth.counts.unhidden==1)
+assert(last('hide').tick==400 and count('hide')==2)
+g.BGSE_Act(t)
+assert(g.queued[#g.queued].text:find('MoveToPoint')~=nil)
+t.m_curAction={m_actionID=0};t.m_pos={x=200,y=0}
+assert(claim(t,490)==true)
+g.BGSE_Act(t)
+assert(g.queued[#g.queued].text=='Hide()' and count('hide')==3)
+-- A try in the game's stealth mode is held until hideTicks (45) pass, then judged.
+t.m_nModalState=3
+assert(claim(t,520)==true and count('hidden')==2)
+claim(t,535)
+assert(last('hidden').why=='limit' and last('hidden').took==45 and last('hidden').hidden==false)
+-- Hurt during a try: it is over at once.
+local g2,ch2,_,last2,_,claim2=setup(72)
+local t2=g2.add(thief())
+assert(claim2(t2,100)==true)
+g2.BGSE_Act(t2)
+t2.m_curAction={m_actionID=18};t2.m_baseStats.m_hitPoints=30
+claim2(t2,104)
+assert(last2('hidden').why=='hurt' and last2('hidden').hidden==false and ch2:inspect().stealth.trying==0)
+
+-- A dull thief (INT 4, WIS 8) never thinks of hiding; with orders to hide, it does.
+local g3,ch3,_,last3,_,claim3=setup(73)
+local t3=g3.add(thief({stats={[1]=40,[38]=4,[39]=8}}))
+t3.stats[135]=60
+assert(claim3(t3,100)==false and last3('hide')==nil and ch3:inspect().stealth.counts.draws==1)
+local g4,_,_,last4,_,claim4=setup(74,{TEST1={hide=true}})
+local t4=g4.add(thief({stats={[1]=40,[38]=4,[39]=8}}))
+t4.stats[135]=60
+assert(claim4(t4,100)==true)
+g4.BGSE_Act(t4)
+assert(g4.queued[#g4.queued].text=='Hide()' and last4('hide').ordered==true and last4('hide').wit=='dull')
+-- Orders never to hide: a clever thief searches instead.
+local g5,_,_,last5,_,claim5=setup(75,{TEST1={hide=false}})
+local t5=g5.add(thief())
+assert(claim5(t5,100)==false and last5('hide')==nil)
+
+-- BGSE_Hide: true for the thief the engine drives, for SCS's plain free invisibility only; false for
+-- one without the skill, a fighter, one off the engine's side and with the choice off.
+assert(g.BGSE_Hide(t,'mage','s1','plain')==true and g.BGSE_Hide(t,'mage','s1','improved')==false)
+assert(g.BGSE_Hide(t,'fighter','s3','plain')==false)
+t.stats[135]=0
+assert(g.BGSE_Hide(t,'mage','s1','plain')==false)
+t.stats[135]=60;t.m_typeAI.m_Class=2
+assert(g.BGSE_Hide(t,'mage','s1','plain')==false)
+t.m_typeAI.m_Class=9
+assert(g.BGSE_Hide(t,'mage','s1','plain')==true)
+t.m_typeAI.m_EnemyAlly=128
+assert(g.BGSE_Hide(t,'mage','s1','plain')==false)
+t.m_typeAI.m_EnemyAlly=255
+root.setChoice(false)
+assert(g.BGSE_Hide(t,'mage','s1','plain')==false)
+root.setChoice(true)
+assert(g.BGSE_Hide(t,'mage','s1','plain')==true and ch:inspect().counts.errors==0)
+
+-- A rogue with Detect Illusion 80 whose enemy turned invisible on a spot it sees uses its Find
+-- Traps mode for it; hiding in shadows (the stealth mode) it keeps its hide and searches on foot.
+local function rogue(seed,mode)
+    local w,c,_,lastOf,_,claimAt=setup(seed)
+    local s=w.add(thief())
+    s.stats[136]=80;s.state=0x10;s.m_nModalState=mode
+    local foe=w.add(sprite(11,150,0,2))
+    assert(claimAt(s,100)==true)
+    foe.state=0x10
+    assert(claimAt(s,116)==true)
+    return w,lastOf
+end
+local g6,last6=rogue(76,0)
+assert(last6('detect') and last6('detect').modal==true)
+g6.BGSE_Act(g6.objects[1])
+assert(g6.queued[#g6.queued].text=='FindTraps()')
+local g7,last7=rogue(77,3)
+assert(last7('detect')==nil)
+g7.BGSE_Act(g7.objects[1])
+local q7=g7.queued[#g7.queued]
+assert(q7==nil or (q7.text~='FindTraps()' and q7.text~='Hide()'))
+end)()
+groups=groups+1
+
 return groups

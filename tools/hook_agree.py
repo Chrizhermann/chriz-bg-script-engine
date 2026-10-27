@@ -2,11 +2,12 @@
 alike, byte for byte, without a game: WeiDU runs bgse_hook_baf on every script of a folder with
 --nogame, and each result, its counts and its text must match the Python rule's.
 
-    python tools/hook_agree.py <weidu.exe> <folder-with-baf> [work-folder] [teleports.txt]
+    python tools/hook_agree.py <weidu.exe> <folder-with-baf> [work-folder] [teleports.txt] [hides.txt]
 
 The work folder (a new temporary one by default) gets WeiDU's harness, log and patched scripts.
 teleports.txt names the spells that move their caster, one a line (resrefs, SPELL.IDS names and
-numbers, as a game's spell files say; none by default): both sides get the same list.
+numbers, as a game's spell files say; none by default), hides.txt those that make their target
+invisible ('NAME plain' or 'NAME improved' a line; none by default): both sides get the same lists.
 """
 import subprocess
 import sys
@@ -29,26 +30,30 @@ ACTION_BASH_FOR ~%argv[1]%~ ~^.+\.baf$~ BEGIN
     TEXT_SPRINT script ~%BASH_FOR_RES%~
     TO_LOWER script
     LPF bgse_hook_baf STR_VAR bgse_baf = EVAL ~%baf%~ bgse_script = EVAL ~%script%~ bgse_teleports = ~TELEPORTS~
-      RET bgse_result bgse_family bgse_copies bgse_clouds bgse_hunts bgse_jumps bgse_teleporter bgse_baf END
+        bgse_invisible = ~INVISIBLE~ bgse_improved = ~IMPROVED~
+      RET bgse_result bgse_family bgse_copies bgse_clouds bgse_hunts bgse_jumps bgse_hides bgse_teleporter bgse_hider bgse_baf END
     DELETE_BYTES 0 BUFFER_LENGTH
     INSERT_BYTES 0 (STRING_LENGTH ~%bgse_baf%~)
     WRITE_ASCIIE 0 ~%bgse_baf%~
-    PATCH_PRINT ~AGREE|%BASH_FOR_RES%|%bgse_result%|%bgse_family%|%bgse_copies%|%bgse_clouds%|%bgse_hunts%|%bgse_jumps%|%bgse_teleporter%~
+    PATCH_PRINT ~AGREE|%BASH_FOR_RES%|%bgse_result%|%bgse_family%|%bgse_copies%|%bgse_clouds%|%bgse_hunts%|%bgse_jumps%|%bgse_teleporter%|%bgse_hides%|%bgse_hider%~
 END
 '''
 
 
-def reference(text, stem, teleports=frozenset()):
+def reference(text, stem, teleports=frozenset(), hides=None):
     """The Python rule's (patched or stripped text, result, family, copies, clouds, hunts, jumps,
-    teleporter)."""
-    patched, reason, fam, copies = hook_rule.patch(text, stem, teleports)
+    teleporter, hides, hider)."""
+    hides = hides or {}
+    patched, reason, fam, copies = hook_rule.patch(text, stem, teleports, hides)
     text = text.replace('\r', '')
     spans, anchor, _ = hook_rule.plan(text, teleports)
     clouds = len(hook_rule.clouds(text, spans, anchor)) if patched else 0
     hunts = len(hook_rule.hunts(text, spans)) if patched else 0
     jumps = len(hook_rule.jumps(text, spans, teleports)) if patched else 0
     teleporter = int(bool(patched) and hook_rule.teleporter(text, teleports))
-    return (patched if patched is not None else text), (reason, fam, copies, clouds, hunts, jumps, teleporter)
+    hidden = len(hook_rule.hiding(text, spans, hides)) if patched else 0
+    return (patched if patched is not None else text), (reason, fam, copies, clouds, hunts, jumps, teleporter, hidden,
+                                                        int(hidden > 0))
 
 
 def main():
@@ -58,9 +63,13 @@ def main():
     if len(sys.argv) > 4:
         teleports = frozenset(line.strip().upper() for line in Path(sys.argv[4]).read_text(encoding='utf-8').splitlines()
                               if line.strip())
+    hides = hook_rule.read_hides(sys.argv[5]) if len(sys.argv) > 5 else {}
     (work / 'out').mkdir(parents=True, exist_ok=True)
     listed = '|' + ''.join(f'{name}|' for name in sorted(teleports))
-    (work / 'harness.tp2').write_text(HARNESS.replace('~TELEPORTS~', f'~{listed}~'), encoding='ascii')
+    invisible = '|' + ''.join(f'{name}|' for name in sorted(hides))
+    improved = '|' + ''.join(f'{name}|' for name, kind in sorted(hides.items()) if kind == 'improved')
+    (work / 'harness.tp2').write_text(HARNESS.replace('~TELEPORTS~', f'~{listed}~').replace('~INVISIBLE~', f'~{invisible}~')
+                                      .replace('~IMPROVED~', f'~{improved}~'), encoding='ascii')
     run = subprocess.run([str(weidu), 'harness.tp2', '--nogame', '--force-install-list', '1',
                           '--args', str(ROOT / 'bgse/lib/hook.tpa'), '--args', str(folder), '--args', 'out',
                           '--no-exit-pause', '--quick-log'], cwd=work, capture_output=True, text=True,
@@ -69,14 +78,14 @@ def main():
     weidu_rows = {}
     for line in run.stdout.splitlines():
         if line.startswith('AGREE|'):
-            _, res, result, fam, copies, clouds, hunts, jumps, teleporter = line.split('|')
+            _, res, result, fam, copies, clouds, hunts, jumps, teleporter, hidden, hider = line.split('|')
             weidu_rows[res.lower()] = (result, fam or None, int(copies), int(clouds), int(hunts), int(jumps),
-                                       int(teleporter))
+                                       int(teleporter), int(hidden), int(hider))
     outcomes, mismatches = Counter(), []
     paths = sorted(folder.glob('*.baf'))
     for path in paths:
         stem = path.stem.lower()
-        expected, counts = reference(path.read_text(encoding='latin-1'), stem, teleports)
+        expected, counts = reference(path.read_text(encoding='latin-1'), stem, teleports, hides)
         got = weidu_rows.get(stem)
         if got != counts:
             mismatches.append(f'{path.name}: WeiDU {got}, Python {counts}')
@@ -92,7 +101,9 @@ def main():
     print('agree:', sum(outcomes.values()), dict(sorted(outcomes.items())))
     jumps = sum(row[5] for row in weidu_rows.values())
     teleporters = sum(row[6] for row in weidu_rows.values())
-    print(f'jumps {jumps}, teleporting scripts {teleporters}')
+    hidden = sum(row[7] for row in weidu_rows.values())
+    hiders = sum(row[8] for row in weidu_rows.values())
+    print(f'jumps {jumps}, teleporting scripts {teleporters}, free invisibility blocks {hidden} in {hiders} scripts')
     for m in mismatches[:40]:
         print('  ' + m)
     if mismatches or run.returncode != 0:

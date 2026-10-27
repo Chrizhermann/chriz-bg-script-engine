@@ -44,8 +44,20 @@ Scripted teleports elsewhere (to a partner, to the summoner, to a point) stay SC
 move the caster comes from the game's spell files (teleports: their upper-case resrefs and
 SPELL.IDS names).
 
+SCS's free invisibility (F2f; Christopher, 2026-10-26: thieves hide with their own Hide in
+Shadows): a block whose triggers check no spellbook and whose every action is bookkeeping or a
+spellbook-free cast or application at the creature itself, at least one of a spell that makes its
+target invisible (SCS's thieves, fiends, mind flayers and sirine turn invisible so when they see no
+enemy; its mages fire a contingency's Improved Invisibility). Such a block gets a last condition
+that holds when BGSE_Hide says no: the engine hides the creature its own way (a thief's Hide in
+Shadows stands in for plain invisibility only), and for every other creature SCS's block runs as
+before. A copy above the hook takes the condition too. Which spells make their target invisible,
+and whether improved (Improved Invisibility lasts through attacks), comes from the game's spell
+files (hides: upper-case resrefs, SPELL.IDS names and numbers, to 'plain' or 'improved'). The thieves
+whose scripts do that get hide skills that fit their level (hide_skill; bgse_raise_skills).
+
 Run it on a folder of decompiled scripts to see what an install would do:
-    python tools/hook_rule.py <folder-with-baf> [report.json] [teleports.txt]
+    python tools/hook_rule.py <folder-with-baf> [report.json] [teleports.txt] [hides.txt]
 """
 import json
 import re
@@ -131,6 +143,12 @@ WANDER = re.compile(r'^ {4}RandomWalk(?:Continuous)?\(', re.M)
 # A spellbook-free cast: the RES forms name the resource first, the others the target (a point
 # for the Point forms) first and the spell (a SPELL.IDS name or number) last.
 UNGATED = re.compile(r'^ {4}((?:Really)?ForceSpell(?:Point)?(?:RES)?)\((.*)\) *$', re.M)
+# A spellbook-free cast or application at the creature itself, and what a block that gives it free
+# invisibility may do besides (free_hide).
+SELF_CAST = re.compile(r'^ {4}(?:(?:ApplySpellRES|ForceSpellRES|ReallyForceSpellRES|SpellNoDecRES)\("([^"]*)",Myself\)|'
+                       r'(?:ApplySpell|ForceSpell|ReallyForceSpell|SpellNoDec)\(Myself,([^,()" ]+)\)) *$')
+HIDE_BOOKKEEPING = {'SetGlobal', 'SetGlobalTimer', 'SetGlobalTimerRandom', 'IncrementGlobal', 'Continue',
+                    'DisplayString', 'DisplayStringHead'}
 
 
 def guard(family, script):
@@ -146,6 +164,11 @@ def zones_guard(family, script):
 def search_guard(family, script):
     return ('EEex_LuaTrigger("return BGSE_Search and BGSE_Search(EEex_LuaTrigger_Object,'
             f"'{family}','{script}') or false\")")
+
+
+def hide_guard(family, script, kind):
+    return ('EEex_LuaTrigger("return BGSE_Hide and BGSE_Hide(EEex_LuaTrigger_Object,'
+            f"'{family}','{script}','{kind}') or false\")")
 
 
 def hook_block(family, script):
@@ -319,12 +342,101 @@ def teleporter(text, teleports):
     return any(scripted_teleports(text[a:b], teleports) for a, b in blocks(text))
 
 
+def self_spells(text):
+    """The spells of a script's spellbook-free casts and applications at the creature itself, in
+    upper case as written (resrefs, SPELL.IDS names and numbers), each once: those whose spell files
+    say whether they make their target invisible (hides)."""
+    out = []
+    for line in COMMENT.sub('', text.replace('\r', '')).split('\n'):
+        spell = cast_at_self(line)
+        if spell and spell not in out:
+            out.append(spell)
+    return out
+
+
+def cast_at_self(line):
+    """The spell of a line that casts or applies it at the creature itself without a spellbook
+    (SELF_CAST), in upper case as written ('' for an empty RES name), or None."""
+    m = SELF_CAST.match(line)
+    if not m:
+        return None
+    return (m.group(1) if m.group(1) is not None else m.group(2)).upper()
+
+
+def free_hide(block, hides):
+    """'improved' or 'plain' for a block that makes the creature invisible for free, else None: its
+    triggers check no spellbook, every action is bookkeeping (HIDE_BOOKKEEPING) or a spellbook-free
+    cast or application at the creature itself (SELF_CAST: no RemoveSpell, no wait, nothing at anyone
+    else), and at least one of those casts a spell that makes its target invisible (hides);
+    'improved' when one such spell is Improved Invisibility."""
+    trig, resp = split(COMMENT.sub('', block))
+    if SPELLBOOK_GATE.search(trig):
+        return None
+    kind = None
+    for line in resp.split('\n'):
+        action = ACTION.match(line)
+        if not action or action.group(1) in HIDE_BOOKKEEPING:
+            continue
+        spell = cast_at_self(line)
+        if spell is None:
+            return None
+        given = hides.get(spell) if spell else None
+        if given == 'improved' or (given == 'plain' and kind is None):
+            kind = given
+    return kind
+
+
+def hiding(text, spans, hides):
+    """Index to kind ('plain' or 'improved') of every block that gives the creature free
+    invisibility, above and below the anchor."""
+    out = {}
+    for i, (a, b) in enumerate(spans):
+        kind = free_hide(text[a:b], hides)
+        if kind:
+            out[i] = kind
+    return out
+
+
 def grants(scripts, memorized, teleporters, teleports):
     """Whether a creature gets the innate Teleport: one of its scripts (its script slots) is a hooked
     script that teleports by script (teleporters, upper case), and none of its memorized spells moves
     its caster (teleports): a creature with a teleport of its own keeps that one."""
     return (any(s.upper() in teleporters for s in scripts if s) and
             not any(m.upper() in teleports for m in memorized if m))
+
+
+# The byte of a thief's level among a creature's three class levels (multiclass levels go in the order
+# of the class's name) and the THIEFSKL.2DA row of its class, by CLASS.IDS number.
+THIEF_LEVEL = {4: (0, 'THIEF'), 9: (1, 'FIGHTER_THIEF'), 10: (2, 'FIGHTER_MAGE_THIEF'), 13: (1, 'MAGE_THIEF'),
+               15: (1, 'CLERIC_THIEF')}
+
+
+def raises_skills(scripts, hiders, name, party):
+    """Whether a creature's hide skills go up (bgse_raise_skills): one of its scripts (its script
+    slots) is a hooked script that makes its creature invisible for free (hiders, lower case), and it
+    is no joinable NPC (party: the script names PDIALOG.2DA lists, upper case; name is its own)."""
+    return (any(s.lower() in hiders for s in scripts if s) and
+            not (name and name.upper() in party))
+
+
+def hide_skill(cls, levels, kit, points, kits):
+    """The Hide in Shadows and Move Silently a thief SCS makes invisible for free gets at least: a quarter
+    of the skill points a player thief of its kit (else its class, else THIEF) has at its thief level.
+    points maps THIEFSKL.2DA rows to (the first level's points, each later level's), kits KIT.IDS values
+    to KITLIST.2DA row names; levels are its three class levels. None without thief levels."""
+    if cls not in THIEF_LEVEL:
+        return None
+    at, row = THIEF_LEVEL[cls]
+    if kit > 0x4000 and kits.get(kit) in points:
+        row = kits[kit]
+    if row not in points:
+        row = 'THIEF'
+    if row not in points:
+        return None
+    first, each = points[row]
+    total = first + each * (max(levels[at], 1) - 1)
+    # As WeiDU divides: towards zero.
+    return min(255, int(total / 4))
 
 
 def is_anchor(block):
@@ -417,11 +529,13 @@ def plan(text, teleports=frozenset()):
     return spans, anchor, sorted(copies - standing)
 
 
-def patch(text, script, teleports=frozenset()):
+def patch(text, script, teleports=frozenset(), hides=None):
     """Return (patched text or None, reason, family, number of copies) for the named script;
-    teleports names the spells that move their caster (is_jump)."""
+    teleports names the spells that move their caster (is_jump), hides the spells that make their
+    target invisible (free_hide)."""
     text = text.replace('\r', '')
     script = script.lower()
+    hides = hides or {}
     fam = family(text)
     if fam is None:
         return None, 'not-scs', None, 0
@@ -435,8 +549,14 @@ def patch(text, script, teleports=frozenset()):
     spans, anchor, copies = plan(text, teleports)
     if anchor is None:
         return None, 'no-anchor', fam, 0
-    insert = ''.join(text[spans[i][0]:spans[i][1]].replace('IF\n', f'IF\n  {guard(fam, script)}\n', 1) + '\n'
-                     for i in copies)
+    hidden = hiding(text, spans, hides)
+    insert = ''
+    for i in copies:
+        block = text[spans[i][0]:spans[i][1]]
+        # A copy that gives free invisibility stands aside as its original does.
+        if i in hidden:
+            block = aside(block, [f'  !{hide_guard(fam, script, hidden[i])}'])
+        insert += block.replace('IF\n', f'IF\n  {guard(fam, script)}\n', 1) + '\n'
     at = spans[anchor][0]
     head, tail = text[:at], text[at:]
     cloudy = set(clouds(text, spans, anchor))
@@ -444,7 +564,8 @@ def patch(text, script, teleports=frozenset()):
     # From the last one up, so the blocks before keep their offsets.
     for i in reversed(range(len(spans))):
         conditions = ([f'  !{zones_guard(fam, script)}'] if i in cloudy else []) + (
-            [f'  !{search_guard(fam, script)}'] if i in hunting else [])
+            [f'  !{search_guard(fam, script)}'] if i in hunting else []) + (
+            [f'  !{hide_guard(fam, script, hidden[i])}'] if i in hidden else [])
         if conditions:
             a, b = spans[i]
             block = aside(text[a:b], conditions)
@@ -455,23 +576,36 @@ def patch(text, script, teleports=frozenset()):
     return head + insert + hook_block(fam, script) + tail, 'hooked', fam, len(copies)
 
 
+def read_hides(path):
+    """A hides file: one spell a line, its name (as hides keys it) and 'plain' or 'improved'."""
+    out = {}
+    for line in Path(path).read_text(encoding='utf-8').splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[1] in ('plain', 'improved'):
+            out[parts[0].upper()] = parts[1]
+    return out
+
+
 def main():
     folder = Path(sys.argv[1])
     teleports = frozenset()
     if len(sys.argv) > 3:
         teleports = frozenset(line.strip().upper() for line in Path(sys.argv[3]).read_text(encoding='utf-8').splitlines()
                               if line.strip())
+    hides = read_hides(sys.argv[4]) if len(sys.argv) > 4 else {}
     rows = []
     for path in sorted(folder.glob('*.baf')):
         text = path.read_text(encoding='latin-1')
-        patched, reason, fam, copies = patch(text, path.stem, teleports)
+        patched, reason, fam, copies = patch(text, path.stem, teleports, hides)
         text = text.replace('\r', '')
         spans, anchor, _ = plan(text, teleports)
         cloudy = len(clouds(text, spans, anchor)) if patched else 0
         hunting = len(hunts(text, spans)) if patched else 0
         jumping = len(jumps(text, spans, teleports)) if patched else 0
+        hidden = len(hiding(text, spans, hides)) if patched else 0
         rows.append({'script': path.stem, 'family': fam, 'result': reason, 'copies': copies, 'clouds': cloudy,
-                     'hunts': hunting, 'jumps': jumping, 'teleporter': bool(patched) and teleporter(text, teleports)})
+                     'hunts': hunting, 'jumps': jumping, 'hides': hidden,
+                     'teleporter': bool(patched) and teleporter(text, teleports)})
     summary = {}
     for row in rows:
         key = f"{row['family']}/{row['result']}"

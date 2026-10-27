@@ -32,9 +32,11 @@ M.aimTicks=150
 -- An enemy farther than twice the sight range cannot just have hit the creature: an old name.
 M.hitRange=896
 -- STATS.IDS DETECTILLUSIONS; the modal state of the Find Traps mode (MODAL.IDS DETECTTRAPS), in which
--- a rogue's Detect Illusion works.
+-- a rogue's Detect Illusion works; and of the stealth mode (MODAL.IDS STEALTH): a rogue hiding in
+-- shadows keeps its hide (combat-intent/stealth.lua), as the game has one mode at a time.
 M.illusionStat=136
 M.detectMode=2
+M.stealthMode=3
 -- A walk back that ends no nearer than progress to the post than the last is stuck; after
 -- stuckLimit of them the creature stays where it is.
 M.progress=32
@@ -166,10 +168,10 @@ function M.new(g,options)
         table.sort(out,function(a,b) return a.id<b.id end)
         return out
     end
-    -- A rogue's Detect Illusion skill, unless its detection mode is on already.
+    -- A rogue's Detect Illusion skill, unless its detection mode is on already or it hides in shadows.
     local function illusion(sprite)
         local ok,mode=pcall(function() return sprite.m_nModalState end)
-        if ok and mode==M.detectMode then return nil end
+        if ok and (mode==M.detectMode or mode==M.stealthMode) then return nil end
         local skill=g.EEex_Sprite_GetStat(sprite,M.illusionStat)
         return type(skill)=='number' and skill>0 and skill or nil
     end

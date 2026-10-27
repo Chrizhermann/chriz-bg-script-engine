@@ -1,0 +1,91 @@
+IF
+  INI("DMWW_genai_difficulty",0)
+  Global("removedpotions","LOCALS",1)
+THEN
+  RESPONSE #100
+    NoAction()
+END
+
+IF
+  Global("hidden","LOCALS",0)
+  !See(NearestEnemyOf(Myself))
+THEN
+  RESPONSE #100
+    SetGlobal("hidden","LOCALS",1)
+    ApplySpellRES("b-hksil",Myself)
+END
+
+IF
+  Global("hidden","LOCALS",0)
+  See(NearestEnemyOf(Myself))
+THEN
+  RESPONSE #100
+    SetGlobal("hidden","LOCALS",1)
+    SetGlobal("backstabplan","LOCALS",1)
+    SetGlobalTimer("backstabtimer","LOCALS",6)
+    ApplySpell(Myself,2206)
+END
+
+IF
+  GlobalTimerExpired("hidetimer","LOCALS")
+  OR(3)
+    !Detect(NearestEnemyOf(Myself))
+    !Detect(Player1)
+THEN
+  RESPONSE #100
+    SetGlobalTimer("hidetimer","LOCALS",30)
+    ReallyForceSpellRES("b-hksil",Myself)
+END
+
+IF
+  !GlobalTimerNotExpired("castspell","LOCALS")
+  HasItem("potn52",Myself)
+  HPPercentLT(Myself,50)
+THEN
+  RESPONSE #100
+    SetGlobalTimer("castspell","LOCALS",6)
+    UseItem("potn52",Myself)
+END
+
+IF
+  HPPercentLT(Myself,30)
+  Global("contingency","LOCALS",0)
+THEN
+  RESPONSE #100
+    SetGlobal("contingency","LOCALS",1)
+    ReallyForceSpell(Myself,WIZARD_IMPROVED_INVISIBILITY)
+    ApplySpellRES("b-hksil",Myself)
+END
+
+IF
+  See(NearestEnemyOf(Myself))
+  Global("hidden","LOCALS",1)
+THEN
+  RESPONSE #100
+    ApplySpellRES("b-hksil",Myself)
+    AttackReevaluate(NearestEnemyOf(Myself),15)
+END
+
+IF
+  HaveSpellRES("b-hksil")
+  !See(NearestEnemyOf(Myself))
+THEN
+  RESPONSE #100
+    ApplySpellRES("b-hksil",Myself)
+END
+
+IF
+  See(NearestEnemyOf(Myself))
+  Global("powered","LOCALS",0)
+THEN
+  RESPONSE #100
+    SetGlobal("powered","LOCALS",1)
+    ApplySpellRES("b-hkpow",Myself)
+END
+
+IF
+  See(NearestEnemyOf(Myself))
+THEN
+  RESPONSE #100
+    AttackReevaluate(NearestEnemyOf(Myself),30)
+END
