@@ -898,6 +898,48 @@ broken off after its walk: the pause now walks); 23 mutations checked.
 Still to see in game: walks in the casting pause in whole fights, where the game's path ends, and
 the cast replacing the walk at once.
 
+### Prebuffs, phase 1 (2026-10-28)
+
+Christopher, 2026-10-28: "Erste Phase könnte ja sein, dass wir genau die Prebuffs übernehmen, wie SCS
+sie macht (außer eben, dass AOE spells wirklich als AOE spells gecastet werden) und dann später bauen
+wir Dinge um". Contingencies and sequencers come along.
+
+- **SCS's blueprint** (decompiled scripts of both labs, credit DavidW): while `instantprep` is still 0
+  and the creature sees an enemy (or SCS prepares it out of sight), a mage or priest script casts its
+  prebuffs at once: SCS's helper copy of a memorized protection at itself
+  (`ReallyForceSpellRES("dwsw212",Myself)` for Mirror Image), then the memorized spell is spent
+  (`RemoveSpell`). On SCS's harder preparation settings some come free (Stoneskin, `DWSW408`) or from
+  a high-level ability. Contingencies and sequencers fire once (`ContingencyFired`), chain
+  contingencies at the party (`ChainContingencyFired`). Then a first-round cast at itself with the
+  normal casting time (Moment of Prescience, Protection from Magic Weapons, Mantle, …) sets
+  `instantprep` to 1; without one a plain block sets it, on most settings. Free prebuffs have no check of their own:
+  they fire once because `instantprep` turns 1 in the same pass.
+- **Phase 1** ([HOOK-01](HOOK-01-scs-hook-placement.md), rule 11): all of it runs as SCS has it, but
+  each block asks the engine first (`BGSE_Prep`) and tells it what ran (`BGSE_Prepped`). The
+  first-round cast alone is the engine's: since the engine owns the whole round (2026-10-25), it holds
+  that cast for a creature it drives and chooses the first round itself. A twin block after the cast
+  still ends SCS's preparation as the cast would have (`instantprep` 1 and SCS's `redefend` timer, no
+  cast). Without it SCS's preparation could stay open: SCS's own end of it leaves out some of its
+  settings, and then a free Stoneskin would come back on every script pass.
+- **Orders** (`combat-intent/orders.lua`, `combat-intent/prep.lua`): `prep = false` holds back all of
+  a creature's preparation; `prepSkip` holds back what it names, a kind (`prebuff`, `contingency`,
+  `chain`, `opener`) or a spell as SCS's blocks write it, the cast (`DWSW408`) or the spell spent
+  (`WIZARD_STONE_SKIN`), in any case. Names SCS left unfilled reach the engine as ''.
+- **Area buffs:** SCS's prebuffed Haste (`DWSW305`) and Improved Haste (`DWSW613`) keep their spells'
+  area projectile (158), so they already reach allies nearby. What "AoE as AoE" should add beyond
+  that is for Christopher to decide (phase 2).
+- **Log:** a `prep` row with `held` true once per creature, kind and spell the engine holds back, and
+  one with `held` false for each block that ran, with kind, cast and spell spent. Counts: `prepHolds`,
+  `preps`.
+
+Tests: `prep` (3 groups), the choice adapter's group 41 (openers held, the rest run, the side and
+switch, orders), the hook adapter's group 9 (the driver, a failing choice runs SCS's block), the hook
+rule's tests (every kind, notices before a closing `Continue()`, the twin, below the anchor) and the
+installer test with its preparation script `B-HKPRP` (its first-round cast has two responses); both
+labs agree byte for byte, twins included; 16 mutations checked.
+Still to see in game: the `prep` rows, the engine's first round right after a held first-round
+cast, the prebuffed Haste reaching allies, and SCS's long conditions in compiled scripts.
+
 ## Agreed (Christopher, 2026-10-25)
 
 1. **Target choice by worth, with overrides.** Not SCS's fixed list ("Ich würde es nicht eins zu

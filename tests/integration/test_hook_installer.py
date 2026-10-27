@@ -18,7 +18,7 @@ from tools.ie_resources import parse_spl
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / 'tests/fixtures/hook'
 HOOKED = {'B-HKMAG': ('mage', 7), 'B-HKPRI': ('priest', 2), 'B-HKRNG': ('fighter', 0),
-          'B-HKMON': ('monster', 9), 'B-HKTHF': ('fighter', 3), 'B-HKFEN': ('monster', 0)}
+          'B-HKMON': ('monster', 9), 'B-HKTHF': ('fighter', 3), 'B-HKFEN': ('monster', 0), 'B-HKPRP': ('mage', 0)}
 UNTOUCHED = ('B-HKNOA', 'B-HKOLD', 'B-HKCST', 'B-HKNON', 'B-HKVAN')
 # The fake game's spells that move their caster: the monster's chase and jump spells, and a
 # creature's own innate teleport.
@@ -128,6 +128,9 @@ ACTION = """IDS V1.0
 26 SetInterrupt(I:State*Boolean)
 27 OpenDoor(O:Object*)
 28 ReallyForceSpell(O:Target*,I:Spell*Spell)
+29 RemoveSpellRES(S:Spell*)
+30 DisplayStringHead(O:Object*,I:StrRef*)
+31 SetGlobalTimerRandom(S:Name*,S:Area*,I:Min*,I:Max*)
 """
 IDS = {
     'OBJECT': ('IDS V1.0\n0 Nothing\n1 Myself\n12 NearestEnemyOf\n18 LastSeenBy\n20 LastHeardBy\n21 Player1\n22 Player2\n'
@@ -400,7 +403,7 @@ def test_installer_matches_reference_and_is_reversible(tmp_path: Path) -> None:
 
     output = _install(tmp_path, '--force-install-list', '0')
     assert 'SUCCESSFULLY INSTALLED' in output, output
-    assert ('BGSE hook: 6 SCS scripts hooked, 21 SCS blocks guarded, 5 SCS cloud blocks yield to the engine, '
+    assert ('BGSE hook: 7 SCS scripts hooked, 21 SCS blocks guarded, 5 SCS cloud blocks yield to the engine, '
             "14 SCS hunting blocks yield to the engine's search, 3 left as they are.") in output, output
     assert ("BGSE teleport: 1 SCS jumps into the fight yield to the creatures' own teleports, 1 creatures that "
             'teleport only by script got the innate teleport BGSETELE.') in output, output
@@ -408,6 +411,8 @@ def test_installer_matches_reference_and_is_reversible(tmp_path: Path) -> None:
             '5 thieves got hide skills for their level.') in output, output
     assert ('BGSE gift: 8 creatures SCS makes invisible for free got real innate abilities for it, 7 innate copies '
             'of spells made.') in output, output
+    assert ('BGSE prep: 7 SCS preparation blocks (prebuffs, contingencies, chains, first-round casts) ask the engine '
+            'and tell it what ran.') in output, output
     for name, reason in (('B-HKNOA', 'no-anchor'), ('B-HKOLD', 'already-hooked'), ('B-HKCST', 'no-castspell')):
         assert f'left {name} as it is ({reason})'.casefold() in output.casefold(), output
     installed = _snapshot(tmp_path)
@@ -502,6 +507,27 @@ def test_installer_matches_reference_and_is_reversible(tmp_path: Path) -> None:
     # the fight; not an ally's walk after the party.
     for name, count in (('B-HKMAG', 6), ('B-HKRNG', 3), ('B-HKPRI', 1), ('B-HKMON', 5)):
         assert hooked[name].count(hook_rule.search_guard(HOOKED[name][0], name.lower())) == count, name
+    # SCS's preparation above the hook asks the engine first and tells it what ran, once in each response
+    # that casts: the mage's prebuff and first-round cast, and the preparation script's two prebuffs (one
+    # spends a spell by its file, one casts a name SCS left unfilled), contingency, chain at the party and
+    # first-round cast. Not a block whose instantprep check is one of an OR group, a cast at an enemy, nor
+    # the prebuff below the hook; no other script has any. Each first-round cast is followed by its twin,
+    # which asks the other way round and ends SCS's preparation without the cast: each response keeps
+    # what it sets of SCS's state but the round timer, then continues.
+    preps = {name: hook_rule.preparations(originals[name], *hook_rule.plan(originals[name], TELEPORTS)[:2])
+             for name in HOOKED}
+    assert preps['B-HKPRP'] == {0: ('prebuff', 'dwsw408', 'dwsw408'), 1: ('prebuff', '', 'WIZARD_MIRROR_IMAGE'),
+                                4: ('contingency', 'dwsw305', ''), 5: ('chain', 'dw#cc12', ''),
+                                6: ('opener', 'dwsw305', '')}
+    assert preps['B-HKMAG'] == {1: ('prebuff', 'dwsw212', 'WIZARD_MIRROR_IMAGE'), 2: ('opener', 'WIZARD_MIRROR_IMAGE', '')}
+    for name in HOOKED:
+        asks = hooked[name].count('BGSE_Prep(EEex_LuaTrigger_Object')
+        tells = hooked[name].count('BGSE_Prepped(EEex_LuaAction_Object')
+        twins = hooked[name].count('\n  EEex_LuaTrigger("return BGSE_Prep and')
+        assert (asks, tells, twins) == {'B-HKPRP': (6, 4, 1), 'B-HKMAG': (3, 1, 1)}.get(name, (0, 0, 0)), name
+    assert ('\nTHEN\n  RESPONSE #80\n    SetGlobal("instantprep","LOCALS",1)\n    Continue()\n  RESPONSE #20\n'
+            '    SetGlobalTimer("redefend","LOCALS",TWO_ROUNDS)\n    SetGlobal("instantprep","LOCALS",1)\n'
+            '    Continue()\nEND\n') in hooked['B-HKPRP']
 
     _install(tmp_path, '--force-uninstall-list', '0', '--force-install-list', '0')
     assert _snapshot(tmp_path) == installed
@@ -533,7 +559,7 @@ def test_without_the_fiend_teleport_the_jump_stays_and_the_innate_gets_an_englis
     before = _snapshot(tmp_path)
     originals = _decompile(tmp_path, ['B-HKMON'])
     output = _install(tmp_path, '--force-install-list', '0')
-    assert ('BGSE hook: 6 SCS scripts hooked, 22 SCS blocks guarded, 5 SCS cloud blocks yield to the engine, '
+    assert ('BGSE hook: 7 SCS scripts hooked, 22 SCS blocks guarded, 5 SCS cloud blocks yield to the engine, '
             "14 SCS hunting blocks yield to the engine's search, 3 left as they are.") in output, output
     assert ("BGSE teleport: 0 SCS jumps into the fight yield to the creatures' own teleports, 1 creatures that "
             'teleport only by script got the innate teleport BGSETELE.') in output, output

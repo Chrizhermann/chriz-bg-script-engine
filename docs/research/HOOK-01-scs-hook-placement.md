@@ -229,8 +229,63 @@ Python, and `tests/integration/test_hook_installer.py` checks they agree.
     round (`BGN68706`), Illasera her Ethereal 5 times, eight sirines Invisibility once (`BGW20600`),
     the brown dragon and Draconis Invisibility (`BGW20600`) and Non-Detection (`BGW31000`) 6 times
     each.
+11. SCS's preparation (2026-10-28, Christopher: the engine rebuilds how SCS prepares, first just as
+    SCS does; [FIGHT-01](FIGHT-01-fighter-and-monster-rounds.md), "Prebuffs, phase 1"). A block above
+    the anchor is SCS's preparation when each of its actions is bookkeeping (`SetGlobal`,
+    `SetGlobalTimer`, `SetGlobalTimerRandom`, `IncrementGlobal`, `Continue`, `DisplayString`,
+    `DisplayStringHead`) or a cast of its kind, with one cast at least (`prep_kind`,
+    `bgse_prep_block`):
+    - first-round cast (opener): `Spell`, `SpellRES`, `ForceSpell` or `ForceSpellRES` at the creature
+      itself, in a block that sets `instantprep` to 1;
+    - chain contingency: casts at once (`ReallyForceSpell`, `ReallyForceSpellRES`) at the creature or
+      `[PC]`, setting `ChainContingencyFired` to 1;
+    - contingency: casts at once at the creature, setting `ContingencyFired` to 1 (either name in any
+      case);
+    - prebuff: casts at once at the creature while a trigger of its own (not one of an OR group) says
+      `instantprep` is still 0.
 
-`BGSE_Zones`, `BGSE_Search` and `BGSE_Hide` go by the script that decides for the creature: the
+    The three that cast at once may also take the spell from the spellbook (`RemoveSpell`,
+    `RemoveSpellRES`). Each such block gets the condition
+    `!EEex_LuaTrigger(...BGSE_Prep(...,'kind','cast','spent')...)`, last, after the other rules'
+    conditions. cast is the first cast's spell, spent the first spell taken from the spellbook, both
+    as written, or '' when there is none or the name is unsafe in Lua text (only letters, digits,
+    `_`, `#` and `-`, at most 64 characters; SCS left some names unfilled, such as
+    `%WIZARD_SPELL_DEFLECTION_PREBUFF%`). Each response of a prebuff, contingency or chain that casts
+    tells the engine what ran with `EEex_LuaAction(...BGSE_Prepped(...)...)`, its last action before a
+    closing `Continue()`, which stays last so the next block still runs in the same pass. The engine
+    holds a block back (the condition fails) only for a creature it drives: its openers, since it
+    chooses the first round itself, and what the creature's orders hold back (`prep = false`,
+    `prepSkip`); everything else runs as SCS has it (`combat-intent/prep.lua`, `api:holdsPrep`).
+    Preparation below the anchor would stay SCS's, as it runs only when the engine declines; neither
+    lab has any.
+
+    An opener the engine holds still ends SCS's preparation (`opener_twin`, `bgse_opener_twin`):
+    right after it comes its twin, with the same triggers and the question asked the other way round,
+    so it fires exactly when the engine holds the opener. Of each response it keeps only what the
+    opener sets of SCS's state, its variables and timers (`instantprep` 1 and SCS's `redefend`
+    timer), not the round timer `castspell` (the engine's own action sets it), the cast or SCS's count
+    of level-9 spells, and it ends with `Continue()`, so the engine takes that round in the same pass.
+    Without the twin SCS's preparation could stay open: SCS's own blocks that set `instantprep` when no
+    opener fires leave out some of its settings (in 564 of the SR lab's 859 scripts with prebuffs or
+    openers some combination of settings and slider sets it nowhere, for example SCS's mage setting fixed at
+    BASIC, 1, with its preparation setting following the slider, 0, from the slider's third step up;
+    410 of 601 without Spell Revisions), and SCS's free prebuffs have no check of their own against
+    firing again, so a free Stoneskin would come back on every script pass.
+
+    In the SR lab 860 of the 1,148 hooked scripts have 6,173 such blocks: 5,100 prebuffs (3,718 mage,
+    1,382 priest), 239 contingencies and 245 chains (all mage) and 589 openers (588 mage, 1 monster),
+    with 5,584 notices and 589 twins. 45 casts name a spell SCS left unfilled (42 prebuffs, 3 chains).
+    4,408 prebuffs spend the memorized spell they check for; the other 692 take none (mostly free
+    Stoneskin, `DWSW408`, 467, on SCS's harder preparation settings, also high-level abilities) and
+    have no check of their own against firing again. All 589 openers have one response: the round
+    timer, the cast (461 `Spell`, 128 `ForceSpellRES`), `instantprep` 1 and the `redefend` timer, 34
+    also a count of level-9 spells; `redefend` is read only below the anchor. All 204 blocks that check the
+    `CONTINGENCY_TRIGGERED` state are contingencies by this rule. Without Spell Revisions 602 of the
+    823 hooked scripts have 5,054 (4,073 prebuffs, 226 contingencies, 229 chains, 526 openers; 4,528
+    notices, 526 twins). SCS's area prebuffs, Haste (`DWSW305`) and Improved Haste (`DWSW613`), keep their area
+    projectile (158, `INAREAPA`), so they already reach allies nearby; a lab check is planned.
+
+`BGSE_Zones`, `BGSE_Search`, `BGSE_Hide` and `BGSE_Prep` go by the script that decides for the creature: the
 first hooked script in its stack, since a lower script runs only after every higher one let the
 pass through and a higher hooked script asks on the way. So in a creature with two hooked scripts (SCS's general
 AI above a mage script, or a monster script above the general AI) the lower script's cloud and
@@ -247,7 +302,9 @@ the lab's 12 names of spells that make their target invisible, with their kind, 
 blocks in 70 scripts; and on the no-SR lab's 878 decompiled scripts, 99 blocks in 65 scripts). On
 2026-10-28 with the gifts, given the names of those spells whose files say innate as a sixth and the
 game's GTIMES.IDS as a seventh argument, both labs agree again, gifts included (5.5 minutes for the
-SR lab: 124 blocks in 36 scripts; no-SR lab 63 blocks in 29 scripts).
+SR lab: 124 blocks in 36 scripts; no-SR lab 63 blocks in 29 scripts). With the preparation rule
+(rule 11, 2026-10-28) both labs agree again: 6,173 preparation blocks in the SR lab, 5,054 without
+Spell Revisions.
 
 The claim is cached per creature and game tick, so the copies and the hook ask once per
 script pass and get the same answer. When the engine declines or is switched off, every

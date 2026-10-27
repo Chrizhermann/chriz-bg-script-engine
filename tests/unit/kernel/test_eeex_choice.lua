@@ -2975,4 +2975,60 @@ assert(ch:inspect().counts.positions==0 and ch:inspect().counts.errors==0)
 end)()
 groups=groups+1
 
+-- 41. SCS's preparation (combat-intent/prep.lua). BGSE_Prep holds back SCS's first-round casts of a
+-- creature the engine drives, with one 'prep' row (held=true) for each creature, kind and spell, and
+-- lets its prebuffs, contingencies and chains run unless its orders hold them back. BGSE_Prepped logs a
+-- 'prep' row of what ran. Neither for a creature off the engine's side, a script it does not carry or
+-- with the choice off. A load forgets the held rows.
+;(function()
+local function setup(seed,orders)
+    local w=world()
+    local d=directors.new(w,{reader=reader})
+    local c=choices.new(w,{reader=reader,director=d,seed=seed,orders=orders})
+    local list={}
+    c:setSink(function(row) list[#list+1]=row end)
+    local r=runtime.install(w,{director=d,choice=c,version='test'})
+    local function rows() local out={};for _,row in ipairs(list) do if row.kind=='prep' then out[#out+1]=row end end;return out end
+    return w,c,r,rows
+end
+local g,ch,root,rows=setup(81)
+local m=g.add(sprite(1,0,0,255))
+assert(g.BGSE_Prep(m,'mage','s1','opener','WIZARD_MIRROR_IMAGE','')==true)
+assert(g.BGSE_Prep(m,'mage','s1','opener','WIZARD_MIRROR_IMAGE','')==true and #rows()==1)
+local r=rows()[1]
+assert(r.member==1 and r.resref=='TEST1' and r.family=='mage' and r.prep=='opener' and r.cast=='WIZARD_MIRROR_IMAGE')
+assert(r.spent=='' and r.held==true)
+assert(g.BGSE_Prep(m,'mage','s1','prebuff','dwsw408','WIZARD_STONE_SKIN')==false)
+assert(g.BGSE_Prep(m,'mage','s1','contingency','WIZARD_IMPROVED_INVISIBILITY','')==false)
+assert(g.BGSE_Prep(m,'mage','s1','chain','dw#cc12','')==false and #rows()==1)
+g.BGSE_Prepped(m,'mage','s1','prebuff','dwsw408','WIZARD_STONE_SKIN')
+r=rows()[2]
+assert(r.member==1 and r.prep=='prebuff' and r.cast=='dwsw408' and r.spent=='WIZARD_STONE_SKIN' and r.held==false)
+assert(ch:inspect().counts.preps==1 and ch:inspect().counts.prepHolds==1)
+assert(g.BGSE_Prep(m,'fighter','s3','opener','WIZARD_MIRROR_IMAGE','')==false)
+m.m_typeAI.m_EnemyAlly=128
+assert(g.BGSE_Prep(m,'mage','s1','opener','WIZARD_MIRROR_IMAGE','')==false)
+g.BGSE_Prepped(m,'mage','s1','prebuff','dwsw408','')
+assert(#rows()==2 and ch:inspect().counts.preps==1)
+m.m_typeAI.m_EnemyAlly=255
+root.setChoice(false)
+assert(g.BGSE_Prep(m,'mage','s1','opener','WIZARD_MIRROR_IMAGE','')==false)
+root.setChoice(true)
+assert(g.BGSE_Prep(m,'mage','s1','opener','WIZARD_MIRROR_IMAGE','')==true and #rows()==2)
+ch:invalidate()
+assert(g.BGSE_Prep(m,'mage','s1','opener','WIZARD_MIRROR_IMAGE','')==true and #rows()==3)
+assert(ch:inspect().counts.errors==0)
+-- Orders: prepSkip holds back what it names (a spell spent, a kind), prep=false all of it.
+local g2,ch2,_,rows2=setup(82,{TEST1={prepSkip={'WIZARD_STONE_SKIN','chain'}}})
+local m2=g2.add(sprite(1,0,0,255))
+assert(g2.BGSE_Prep(m2,'mage','s1','prebuff','dwsw408','WIZARD_STONE_SKIN')==true)
+assert(g2.BGSE_Prep(m2,'mage','s1','prebuff','dwsw212','WIZARD_MIRROR_IMAGE')==false)
+assert(g2.BGSE_Prep(m2,'mage','s1','chain','dw#cc12','')==true and g2.BGSE_Prep(m2,'mage','s1','chain','dw#cc12','')==true)
+assert(#rows2()==2 and rows2()[1].spent=='WIZARD_STONE_SKIN' and rows2()[2].prep=='chain' and ch2:inspect().counts.prepHolds==2)
+local g3,_,_,rows3=setup(83,{TEST1={prep=false}})
+local m3=g3.add(sprite(1,0,0,255))
+assert(g3.BGSE_Prep(m3,'mage','s1','contingency','WIZARD_IMPROVED_INVISIBILITY','')==true and #rows3()==1)
+end)()
+groups=groups+1
+
 return groups

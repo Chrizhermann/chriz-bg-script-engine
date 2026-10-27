@@ -785,9 +785,17 @@ a normal one when it notices, a dull one never), never to where an enemy's melee
 the cast goes off as soon as the aura frees; an attack worth more is made meanwhile instead. Heals
 and cures weigh a walk to a friend as attacks weigh theirs (one walk rule).
 
-Next, in the order agreed with Christopher on 2026-10-27 for the first release: SCS's prebuffs
-rebuilt in the engine as SCS casts them, except that area buffs really reach the group (phase 1,
-contingencies and sequencers with them); kill chance by the dice; a big lab round (the teleport run
+SCS's preparation now goes through the engine (FIGHT-01, "Prebuffs, phase 1"; HOOK-01, rule 11;
+Christopher, 2026-10-28: first exactly SCS's prebuffs, then rebuild them). Its prebuffs,
+contingencies, sequencers and chain contingencies run as SCS has them, unless a creature's orders
+hold them back (`prep`, `prepSkip`), and each tells the engine what ran. SCS's first-round cast is
+the engine's: for a creature it drives, the engine holds it and chooses that round itself, and a twin
+block still ends SCS's preparation as the cast would have. SCS's prebuffed Haste and Improved Haste
+keep their area, so they already reach allies nearby; what more "area buffs as area buffs" should do
+is phase 2, with Christopher.
+
+Next, in the order agreed with Christopher on 2026-10-27 for the first release: kill chance by the
+dice; a big lab round (the teleport run
 again, light and shadow in a second hide probe, a stronger party for the mixed fights, which also
 show the replacement in whole fights, thieves in whole fights, the veil in game); then the boss
 fights, designed with Christopher one by one (Melissan's own among them). The Erinyes' withdrawal
@@ -1011,7 +1019,9 @@ Christopher's ideas so far (living list; more will follow):
   pause"); not yet in a lab.
 - **Prebuffed area buffs reach the allies, not only the caster.** Designed in August; one
   lab probe on `codex/aoe-prebuff-design` cast SCS's Haste prebuff for real and both the
-  caster and a nearby ally got it. Not wired in yet.
+  caster and a nearby ally got it. Since 2026-10-28 SCS's prebuffs run through the engine (phase
+  1), and SCS's Haste and Improved Haste prebuffs keep their area projectile; what more phase 2
+  should do is Christopher's call.
 - **Smart enemies dodge slow area spells** (clouds, webs, dragon breath and the like) when
   they could see the cast. Recorded as later work on Oct 12: ground-targeted, delayed
   effects are the best candidates; homing projectiles can't be outrun.

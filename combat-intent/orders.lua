@@ -19,6 +19,10 @@
 --
 -- hide=true has a thief hide in shadows whenever it sees no enemy, whatever its wit; hide=false never
 -- (combat-intent/stealth.lua).
+--
+-- prep=false holds back all of SCS's preparation for the creature (its prebuffs, contingencies and
+-- chain contingencies); prepSkip holds back what it names: kinds ('prebuff', 'contingency', 'chain')
+-- or spells, as SCS's blocks cast or spend them (combat-intent/prep.lua).
 local targeting=require('combat-intent.targeting')
 local M={}
 M.bonus=1
@@ -45,8 +49,13 @@ function M.check(o)
             elseif not selector(v) then return false,'target' end
         elseif k=='always' then
             if type(v)~='boolean' then return false,'always' end
-        elseif k=='guard' or k=='hide' then
+        elseif k=='guard' or k=='hide' or k=='prep' then
             if type(v)~='boolean' then return false,k end
+        elseif k=='prepSkip' then
+            if type(v)~='table' or #v==0 then return false,k end
+            for i,s in pairs(v) do
+                if type(i)~='number' or type(s)~='string' or #s>64 or not s:match('^[%w#_%-]+$') then return false,k end
+            end
         elseif k=='bonus' then
             if not number(v) or v<0 or v>100 then return false,'bonus' end
         else return false,tostring(k) end

@@ -23,6 +23,22 @@ def guarded(source, spans, indices, condition):
     return source
 
 
+def prepared(name, family):
+    """Index to the patched block of each of SCS's preparation blocks of a fixture: BGSE_Prep's condition
+    and BGSE_Prepped's notice, or for an opener the twin after it."""
+    source = text(name)
+    spans, anchor, _ = hook_rule.plan(source)
+    out = {}
+    for i, prep in hook_rule.preparations(source, spans, anchor).items():
+        question = hook_rule.prep_guard(family, name.lower(), *prep)
+        block = hook_rule.aside(source[spans[i][0]:spans[i][1]], ['  !' + question])
+        if prep[0] == 'opener':
+            out[i] = block + '\n' + hook_rule.opener_twin(block, question)
+        else:
+            out[i] = hook_rule.notify(block, hook_rule.prep_notice(family, name.lower(), *prep))
+    return out
+
+
 def test_mage_hook_sits_before_the_action_choice_with_guarded_copies():
     source = text('B-HKMAG')
     spans, anchor, copies = hook_rule.plan(source)
@@ -37,13 +53,15 @@ def test_mage_hook_sits_before_the_action_choice_with_guarded_copies():
     assert copies == [9, 10, 11, 12, 13, 14, 17]
     patched, reason, family, count = hook_rule.patch(source, 'B-HKMAG')
     assert (reason, family, count) == ('hooked', 'mage', 7)
-    # Above the hook only the cloud blocks and the free Oracle change, below it only SCS's chase
-    # and its random walk while an unseen attacker puzzles the mage (test_cloud_blocks_above_...,
-    # test_hunting_blocks_...).
+    # Above the hook only SCS's preparation, the cloud blocks and the free Oracle change, below it
+    # only SCS's chase and its random walk while an unseen attacker puzzles the mage
+    # (test_scs_preparation_..., test_cloud_blocks_above_..., test_hunting_blocks_...).
     expected = guarded(source, spans, [6, 20, 21, 22, 23, 26], '  !' + hook_rule.search_guard('mage', 'b-hkmag'))
     for i in (3, 4, 5):
         cloud = source[spans[i][0]:spans[i][1]]
         expected = expected.replace(cloud, hook_rule.stand_aside(cloud, 'mage', 'b-hkmag'), 1)
+    for i, block in prepared('B-HKMAG', 'mage').items():
+        expected = expected.replace(source[spans[i][0]:spans[i][1]], block, 1)
     at = expected.index(source[spans[anchor][0]:spans[anchor][1]])
     head, tail = expected[:at], expected[at:]
     assert patched.startswith(head) and patched.endswith(tail)
@@ -670,3 +688,181 @@ def test_thieves_hide_skills_fit_their_level(cls, levels, kit, skill):
 ])
 def test_only_creatures_scs_makes_invisible_for_free_and_no_joinable_npc_get_skills(scripts, name, raised):
     assert hook_rule.raises_skills(scripts, {'b-hkthf'}, name, {'B-HKNPC'}) is raised
+
+def test_scs_preparation_asks_the_engine_and_reports_what_ran():
+    # The mage's prebuff (SCS's Mirror Image helper, then the memorized spell spent) and its first-round
+    # Mirror Image ask BGSE_Prep last; the prebuff's response tells BGSE_Prepped what it cast and spent,
+    # before its closing Continue(). The opener gets no notice: the engine chooses that round itself, and
+    # the twin after it ends SCS's preparation when the engine holds it, without the cast or the round
+    # timer, and lets the pass go on to the engine.
+    source = text('B-HKMAG')
+    spans, anchor, _ = hook_rule.plan(source)
+    assert hook_rule.preparations(source, spans, anchor) == {
+        1: ('prebuff', 'dwsw212', 'WIZARD_MIRROR_IMAGE'), 2: ('opener', 'WIZARD_MIRROR_IMAGE', '')}
+    patched = hook_rule.patch(source, 'B-HKMAG')[0]
+    blocks = prepared('B-HKMAG', 'mage')
+    guard = hook_rule.prep_guard('mage', 'b-hkmag', 'prebuff', 'dwsw212', 'WIZARD_MIRROR_IMAGE')
+    notice = hook_rule.prep_notice('mage', 'b-hkmag', 'prebuff', 'dwsw212', 'WIZARD_MIRROR_IMAGE')
+    assert blocks[1] == ('IF\n  See(NearestEnemyOf(Myself))\n  Global("instantprep","LOCALS",0)\n'
+                         '  HaveSpell(WIZARD_MIRROR_IMAGE)\n  INI("DMWW_mage_prep_difficulty",0)\n'
+                         f'  !{guard}\nTHEN\n  RESPONSE #100\n    ReallyForceSpellRES("dwsw212",Myself)\n'
+                         f'    RemoveSpell(WIZARD_MIRROR_IMAGE)\n    {notice}\n    Continue()\nEND\n')
+    opener = hook_rule.prep_guard('mage', 'b-hkmag', 'opener', 'WIZARD_MIRROR_IMAGE', '')
+    first = ('IF\n  !GlobalTimerNotExpired("castspell","LOCALS")\n  Global("instantprep","LOCALS",0)\n'
+             '  See(NearestEnemyOf(Myself))\n')
+    assert blocks[2] == (f'{first}  !{opener}\nTHEN\n  RESPONSE #100\n    SetGlobalTimer("castspell","LOCALS",6)\n'
+                         '    Spell(Myself,WIZARD_MIRROR_IMAGE)\n    SetGlobal("instantprep","LOCALS",1)\nEND\n\n'
+                         f'{first}  {opener}\nTHEN\n  RESPONSE #100\n    SetGlobal("instantprep","LOCALS",1)\n'
+                         '    Continue()\nEND\n')
+    for block in blocks.values():
+        assert block in patched
+    assert patched.count('BGSE_Prep(') == 3 and patched.count('BGSE_Prepped(') == 1
+    # Fail soft: no engine, or an engine without the function, lets SCS's block run.
+    assert guard.startswith('EEex_LuaTrigger("return BGSE_Prep and BGSE_Prep(EEex_LuaTrigger_Object,')
+    assert guard.endswith(" or false\")") and notice.startswith('EEex_LuaAction("if BGSE_Prepped then ')
+    assert '"' not in guard[len('EEex_LuaTrigger("'):-2] and '"' not in notice[len('EEex_LuaAction("'):-2]
+    # The installer's preparation script: two prebuffs (one spends a spell by its file, one casts a name
+    # SCS left unfilled), a contingency, a chain at the party and a first-round cast; not the block whose
+    # instantprep check is one of an OR group, the cast at an enemy nor the prebuff below the hook.
+    source = text('B-HKPRP')
+    spans, anchor, copies = hook_rule.plan(source)
+    assert (anchor, copies) == (7, [])
+    assert hook_rule.preparations(source, spans, anchor) == {
+        0: ('prebuff', 'dwsw408', 'dwsw408'), 1: ('prebuff', '', 'WIZARD_MIRROR_IMAGE'),
+        4: ('contingency', 'dwsw305', ''), 5: ('chain', 'dw#cc12', ''), 6: ('opener', 'dwsw305', '')}
+    patched = hook_rule.patch(source, 'B-HKPRP', TELEPORTS, HIDES)[0]
+    assert patched.count('BGSE_Prep(EEex_LuaTrigger_Object') == 6
+    assert patched.count('BGSE_Prepped(EEex_LuaAction_Object') == 4
+    # The first-round cast's twin: both responses end SCS's preparation, neither sets the round timer.
+    assert ('\nTHEN\n  RESPONSE #80\n    SetGlobal("instantprep","LOCALS",1)\n    Continue()\n  RESPONSE #20\n'
+            '    SetGlobalTimer("redefend","LOCALS",12)\n    SetGlobal("instantprep","LOCALS",1)\n'
+            '    Continue()\nEND\n') in patched
+    # The other fixtures have none.
+    for name in ('B-HKPRI', 'B-HKRNG', 'B-HKMON', 'B-HKTHF'):
+        assert 'BGSE_Prep' not in hook_rule.patch(text(name), name, TELEPORTS, HIDES)[0], name
+
+
+def prep(triggers, actions, responses=None):
+    lines = ''.join(f'  {t}\n' for t in triggers)
+    parts = [(100, actions)] + (responses or [])
+    body = ''.join(f'  RESPONSE #{w}\n' + ''.join(f'    {a}\n' for a in acts) for w, acts in parts)
+    return f'IF\n{lines}THEN\n{body}END\n'
+
+
+CONTINGENCY_TRIGGERS = ['Global("ContingencyFired","LOCALS",0)', '!CheckSpellState(Myself,CONTINGENCY_TRIGGERED)',
+                        'Detect(NearestEnemyOf(Myself))']
+CHAIN_TRIGGERS = ['Global("ChainContingencyFired","LOCALS",0)', '!CheckSpellState(Myself,CONTINGENCY_TRIGGERED)',
+                  'See([PC])']
+FIRST = ['!GlobalTimerNotExpired("castspell","LOCALS")', 'Global("instantprep","LOCALS",0)', 'See(NearestEnemyOf(Myself))']
+PREBUFF = ['See(NearestEnemyOf(Myself))', 'Global("instantprep","LOCALS",0)', 'HaveSpell(WIZARD_STONE_SKIN)']
+
+
+@pytest.mark.parametrize('triggers,actions,expected', [
+    # Prebuffs: SCS's helper and the memorized spell spent (by name or resref, a comment after it), a free
+    # precast, an out-of-sight summon with its bookkeeping, a second forced cast at the creature.
+    (PREBUFF, ['ReallyForceSpellRES("dwsw408",Myself)  // No such index', 'RemoveSpell(WIZARD_STONE_SKIN)  // SPWI408.SPL',
+               'Continue()'], ('prebuff', 'dwsw408', 'WIZARD_STONE_SKIN')),
+    (PREBUFF, ['ReallyForceSpellRES("dwsw408",Myself)', 'RemoveSpellRES("SPWI408")', 'Continue()'],
+     ('prebuff', 'dwsw408', 'SPWI408')),
+    (['Global("instantprep","LOCALS",0)'], ['ReallyForceSpellRES("dwsw408",Myself)', 'Continue()'],
+     ('prebuff', 'dwsw408', '')),
+    (['Global("instantprep","LOCALS",0)', 'Range(NearestEnemyOf(Myself),30)'],
+     ['SetGlobalTimer("initial_summons","LOCALS",6)', 'IncrementGlobal("l9count","LOCALS",1)',
+      'ReallyForceSpellRES("DWAPSM1",Myself)', 'Continue()'], ('prebuff', 'DWAPSM1', '')),
+    (PREBUFF, ['ReallyForceSpell(Myself,WIZARD_STONE_SKIN)', 'ReallyForceSpellRES("dwsw212",Myself)', 'Continue()'],
+     ('prebuff', 'WIZARD_STONE_SKIN', '')),
+    # Not a prebuff: instantprep checked in an OR group or for not being 0, not checked at all, a forced
+    # cast at an enemy, a wait, an attack or a spell cast the normal way besides.
+    (['OR(2)', '  Global("instantprep","LOCALS",0)', '  See(Player1)'], ['ReallyForceSpellRES("dwsw408",Myself)'], None),
+    (['!Global("instantprep","LOCALS",0)'], ['ReallyForceSpellRES("dwsw408",Myself)'], None),
+    (['See(NearestEnemyOf(Myself))'], ['ReallyForceSpellRES("dwsw408",Myself)', 'Continue()'], None),
+    (PREBUFF, ['ReallyForceSpellRES("dwsw408",NearestEnemyOf(Myself))', 'Continue()'], None),
+    (PREBUFF, ['ReallyForceSpellRES("dwsw408",Myself)', 'Wait(1)'], None),
+    (PREBUFF, ['ReallyForceSpellRES("dwsw408",Myself)', 'AttackReevaluate(NearestEnemyOf(Myself),15)'], None),
+    (PREBUFF, ['ReallyForceSpellRES("dwsw408",Myself)', 'Spell(Myself,WIZARD_STONE_SKIN)'], None),
+    # Contingencies and sequencers fire once, at the creature (the variable in either case); not at the party.
+    (CONTINGENCY_TRIGGERS, ['SetGlobal("ContingencyFired","LOCALS",1)', 'DisplayString(Myself,25942)',
+                            'ReallyForceSpell(Myself,WIZARD_IMPROVED_INVISIBILITY)'],
+     ('contingency', 'WIZARD_IMPROVED_INVISIBILITY', '')),
+    (CONTINGENCY_TRIGGERS, ['SetGlobal("contingencyfired","LOCALS",1)', 'ReallyForceSpellRES("dw#mc1",Myself)',
+                            'ReallyForceSpell(Myself,WIZARD_MIRROR_IMAGE)', 'Continue()'], ('contingency', 'dw#mc1', '')),
+    (CONTINGENCY_TRIGGERS, ['SetGlobal("ContingencyFired","LOCALS",1)', 'ReallyForceSpellRES("dw#mc1",[PC])'], None),
+    # Chain contingencies at the party or the creature; not at the nearest enemy; and not SCS's rest, which
+    # sets the variable back to 0.
+    (CHAIN_TRIGGERS, ['SetGlobal("ChainContingencyFired","LOCALS",1)', 'ReallyForceSpellRES("dw#cc12",[PC])',
+                      'ReallyForceSpell(Myself,WIZARD_STONE_SKIN)', 'Continue()'], ('chain', 'dw#cc12', '')),
+    (CHAIN_TRIGGERS, ['SetGlobal("ChainContingencyFired","LOCALS",1)', 'ReallyForceSpellRES("dw#cc12",Myself)'],
+     ('chain', 'dw#cc12', '')),
+    (CHAIN_TRIGGERS, ['SetGlobal("ChainContingencyFired","LOCALS",1)',
+                      'ReallyForceSpellRES("dw#cc12",NearestEnemyOf(Myself))'], None),
+    (['Global("instantprep","LOCALS",1)'], ['SetGlobal("ChainContingencyFired","LOCALS",0)',
+                                             'SetGlobal("instantprep","LOCALS",0)'], None),
+    # Openers: a first-round cast at the creature itself, by name or SCS's helper; not the state alone, not
+    # a cast at an enemy or a point, not a forced cast.
+    (FIRST, ['SetGlobalTimer("castspell","LOCALS",6)', 'Spell(Myself,WIZARD_MIRROR_IMAGE)',
+             'SetGlobal("instantprep","LOCALS",1)'], ('opener', 'WIZARD_MIRROR_IMAGE', '')),
+    (FIRST, ['SetGlobalTimer("castspell","LOCALS",6)', 'SetGlobal("redefend","LOCALS",1)',
+             'ForceSpellRES("dw#sq1",Myself)', 'SetGlobal("instantprep","LOCALS",1)'], ('opener', 'dw#sq1', '')),
+    (FIRST, ['SetGlobal("instantprep","LOCALS",1)', 'SetGlobal("redefend","LOCALS",1)'], None),
+    (FIRST, ['Spell(NearestEnemyOf(Myself),WIZARD_HORROR)', 'SetGlobal("instantprep","LOCALS",1)'], None),
+    (FIRST, ['SpellPoint([1234.567],WIZARD_HORROR)', 'SetGlobal("instantprep","LOCALS",1)'], None),
+    (FIRST, ['ReallyForceSpell(Myself,WIZARD_MIRROR_IMAGE)', 'SetGlobal("instantprep","LOCALS",1)'], None),
+    # Names unsafe in Lua text (SCS leaves some unfilled) go as ''.
+    (PREBUFF, ['ReallyForceSpellRES("%WIZARD_SPELL_DEFLECTION_PREBUFF%",Myself)', 'RemoveSpell(WIZARD_SPELL_DEFLECTION)',
+               'Continue()'], ('prebuff', '', 'WIZARD_SPELL_DEFLECTION')),
+    (CHAIN_TRIGGERS, ['SetGlobal("ChainContingencyFired","LOCALS",1)', 'ReallyForceSpellRES("%NULL%",[PC])'],
+     ('chain', '', '')),
+    (PREBUFF, ["ReallyForceSpellRES(\"it's\",Myself)", 'RemoveSpell(WIZARD_STONE_SKIN)'],
+     ('prebuff', '', 'WIZARD_STONE_SKIN')),
+])
+def test_scs_preparation_kinds(triggers, actions, expected):
+    assert hook_rule.prep_kind(prep(triggers, actions)) == expected
+
+
+def test_notices_go_last_before_a_closing_continue_in_responses_that_cast():
+    notice = hook_rule.prep_notice('mage', 'dw#mg1', 'prebuff', 'dwsw408', '')
+    # SCS's skip response (#50: Continue() alone) gets none; a response without Continue() gets it last.
+    block = prep(PREBUFF, ['ReallyForceSpellRES("dwsw408",Myself)', 'Continue()'], [(50, ['Continue()'])])
+    assert hook_rule.notify(block, notice) == prep(PREBUFF, ['ReallyForceSpellRES("dwsw408",Myself)', notice, 'Continue()'],
+                                                   [(50, ['Continue()'])])
+    block = prep(PREBUFF, ['ReallyForceSpellRES("dwsw408",Myself)', 'SetGlobal("x","LOCALS",1)'])
+    assert hook_rule.notify(block, notice) == prep(PREBUFF, ['ReallyForceSpellRES("dwsw408",Myself)',
+                                                             'SetGlobal("x","LOCALS",1)', notice])
+    assert hook_rule.prep_kind(prep(PREBUFF, ['ReallyForceSpellRES("dwsw408",Myself)', 'Continue()'],
+                                    [(50, ['Continue()'])])) == ('prebuff', 'dwsw408', '')
+
+
+def test_an_opener_the_engine_holds_still_ends_scs_preparation():
+    # SCS's first-round cast as it writes them: round timer, cast (with WeiDU's comment), instantprep,
+    # redefend and the count of level-9 spells. The twin keeps instantprep and redefend; the round timer
+    # (also a random one), the cast and the count go; Continue() closes every response, the question is
+    # asked the other way round wherever it stands.
+    question = hook_rule.prep_guard('mage', 'dw#mg1', 'opener', 'dw#sq15', '')
+    acts = ['SetGlobalTimer("castspell","LOCALS",ONE_ROUND)', 'ForceSpellRES("dw#sq15",Myself)  // dw#sq15',
+            'SetGlobal("instantprep","LOCALS",1)', 'SetGlobalTimer("redefend","LOCALS",7)',
+            'IncrementGlobal("l9_mage_spells","LOCALS",1)']
+    block = hook_rule.aside(prep(FIRST, acts), ['  !' + question])
+    assert hook_rule.opener_twin(block, question) == hook_rule.aside(prep(FIRST, [
+        'SetGlobal("instantprep","LOCALS",1)', 'SetGlobalTimer("redefend","LOCALS",7)', 'Continue()']), ['  ' + question])
+    acts = ['SetGlobalTimerRandom("castspell","LOCALS",6,12)', 'Spell(Myself,WIZARD_MANTLE)',
+            'SetGlobal("instantprep","LOCALS",1)']
+    block = hook_rule.aside(prep(FIRST + ['OR(2)', '  See([PC])'], acts, [(50, acts)]), ['  !' + question])
+    assert block.startswith('IF\n  !' + question + '\n')
+    twin = hook_rule.opener_twin(block, question)
+    kept = ['SetGlobal("instantprep","LOCALS",1)', 'Continue()']
+    assert twin == hook_rule.aside(prep(FIRST + ['OR(2)', '  See([PC])'], kept, [(50, kept)]), ['  ' + question])
+    assert twin.startswith('IF\n  ' + question + '\n') and '!' + question not in twin
+
+
+def test_preparation_below_the_anchor_stays_scs_own():
+    # Blocks below the anchor run only when the engine declines the round: they stay as they are.
+    source = ('IF\n  Global("x","LOCALS",0)\n  INI("DMWW_mage_prep_difficulty",0)\nTHEN\n  RESPONSE #100\n'
+              '    SetGlobal("x","LOCALS",1)\n    Continue()\nEND\n\n'
+              'IF\n  !GlobalTimerNotExpired("castspell","LOCALS")\n  See(NearestEnemyOf(Myself))\n'
+              'THEN\n  RESPONSE #100\n    SetGlobalTimer("castspell","LOCALS",6)\n    Spell(NearestEnemyOf(Myself),WIZARD_HORROR)\nEND\n\n'
+              + prep(PREBUFF, ['ReallyForceSpellRES("dwsw408",Myself)', 'RemoveSpell(WIZARD_STONE_SKIN)', 'Continue()']))
+    patched, reason, family, copies = hook_rule.patch(source, 'dw#mg1')
+    assert (reason, family, copies) == ('hooked', 'mage', 0)
+    assert 'BGSE_Prep' not in patched
+    spans, anchor, _ = hook_rule.plan(source)
+    assert anchor == 1 and hook_rule.preparations(source, spans, anchor) == {}

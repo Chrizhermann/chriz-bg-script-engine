@@ -5119,6 +5119,10 @@ factories["combat-intent.orders"]=function(require)
 --
 -- hide=true has a thief hide in shadows whenever it sees no enemy, whatever its wit; hide=false never
 -- (combat-intent/stealth.lua).
+--
+-- prep=false holds back all of SCS's preparation for the creature (its prebuffs, contingencies and
+-- chain contingencies); prepSkip holds back what it names: kinds ('prebuff', 'contingency', 'chain')
+-- or spells, as SCS's blocks cast or spend them (combat-intent/prep.lua).
 local targeting=require('combat-intent.targeting')
 local M={}
 M.bonus=1
@@ -5145,8 +5149,13 @@ function M.check(o)
             elseif not selector(v) then return false,'target' end
         elseif k=='always' then
             if type(v)~='boolean' then return false,'always' end
-        elseif k=='guard' or k=='hide' then
+        elseif k=='guard' or k=='hide' or k=='prep' then
             if type(v)~='boolean' then return false,k end
+        elseif k=='prepSkip' then
+            if type(v)~='table' or #v==0 then return false,k end
+            for i,s in pairs(v) do
+                if type(i)~='number' or type(s)~='string' or #s>64 or not s:match('^[%w#_%-]+$') then return false,k end
+            end
         elseif k=='bonus' then
             if not number(v) or v<0 or v>100 then return false,'bonus' end
         else return false,tostring(k) end
@@ -9024,6 +9033,46 @@ function M.decide(input)
 end
 return M
 end
+factories["combat-intent.prep"]=function(require)
+-- SCS's preparation, phase 1 (Christopher, 2026-10-28: the engine takes over how creatures
+-- prepare, first exactly as SCS does, "außer eben, dass AOE spells wirklich als AOE spells gecastet
+-- werden", and is rebuilt later). SCS is the blueprint ([src] mage/ssl and caster_shared, credit
+-- DavidW). The installer marks SCS's own preparation blocks above the hook (tools/hook_rule.py:
+-- prep_kind): its prebuffs, which it casts at once while instantprep is still 0 (prebuff: a helper of
+-- the spell, then the memorized spell spent, or a free precast such as its Stoneskin), its
+-- contingencies and sequencers (contingency), its chain contingencies (chain) and its first-round
+-- casts at the creature itself (opener). Each block asks the engine first, naming its kind, the spell
+-- it casts and the spell it takes from the spellbook as the script writes them, and a block that ran
+-- tells the engine so. SCS's helpers keep the spell's own area: its Haste prebuff reaches the allies
+-- near the caster as the spell does.
+--
+-- Phase 1: the engine chooses the first round of a creature it drives itself, so SCS's openers wait;
+-- the rest runs as SCS has it unless the creature's orders hold it back (combat-intent/orders.lua):
+-- prep=false holds all of it, prepSkip names kinds or spells to hold (the cast or the spent spell,
+-- in any case). An unknown kind runs as SCS has it.
+-- Plain values only; nothing here touches the engine.
+local M={}
+M.KINDS={prebuff=true,contingency=true,chain=true,opener=true}
+
+local function named(s,name) return type(name)=='string' and name~='' and s==name:upper() end
+
+-- Whether the engine holds back a preparation block of kind that casts cast and spends spent ('' for
+-- none), by the creature's orders (nil for none).
+function M.holds(kind,cast,spent,orders)
+    if not M.KINDS[kind] then return false end
+    if kind=='opener' then return true end
+    if type(orders)~='table' then return false end
+    if orders.prep==false then return true end
+    for _,s in ipairs(type(orders.prepSkip)=='table' and orders.prepSkip or {}) do
+        if type(s)=='string' then
+            s=s:upper()
+            if s==kind:upper() or named(s,cast) or named(s,spent) then return true end
+        end
+    end
+    return false
+end
+return M
+end
 factories["adapters.eeex.resources"]=function(require)
 -- In-game twin of tools/ie_resources.py: the same SPL, ITM, EFF, PRO and CRE records, read from the
 -- engine's resource table through EEex (Fetch, then Demand, as EEex_Resource_Demand does; CRes
@@ -11112,6 +11161,7 @@ local mind=require('combat-intent.mind')
 local orders=require('combat-intent.orders')
 local search=require('combat-intent.search')
 local backstab=require('combat-intent.backstab')
+local prep=require('combat-intent.prep')
 local rngs=require('kernel.rng')
 local M={}
 -- Every family a hook asks for (kernel/hook.lua): the ones api:setFamilies takes. The engine takes
@@ -11371,7 +11421,9 @@ function M.new(g,options)
     -- stays and insideOf: what the group has seen its enemies do in zones (look); lookedAt: the
     -- tick each area was last looked at.
     local stays,stayCount,insideOf,insideCount,lookedAt={},0,{},0,{}
-    local counts={waits=0,marked=0,escapes=0,escaped=0,unescaped=0,zoneFailures=0,stayed=0,left=0,pains=0,witFailures=0,decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
+    -- SCS's preparation blocks the engine held back, by creature, kind and spell, for one 'prep' row each.
+    local prepHeld,prepHeldCount={},0
+    local counts={preps=0,prepHolds=0,waits=0,marked=0,escapes=0,escaped=0,unescaped=0,zoneFailures=0,stayed=0,left=0,pains=0,witFailures=0,decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
         hits=0,misses=0,errors=0,holds=0,frozen=0,marks=0,markFailures=0,defences=0,guarded=0,unguarded=0,
         guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0,arms=0,attacks=0,attackHits=0,
         weaponFailures=0,releases=0,heals=0,cures=0,potions=0,cared=0,uncared=0,summons=0,conjured=0,
@@ -12967,6 +13019,41 @@ function M.new(g,options)
         failed('hides',result)
         return false
     end
+    -- Whether the engine holds back one of SCS's preparation blocks (BGSE_Prep) of kind, casting cast
+    -- and spending spent ('' for none), for creature id of family: only for a creature the engine
+    -- drives, as for its search; then its openers, as the engine chooses that round itself, and what
+    -- its orders hold back (combat-intent/prep.lua). Any other creature keeps SCS's own. A 'prep' row
+    -- with held=true says so once a creature, kind and spell.
+    function api:holdsPrep(family,id,kind,cast,spent)
+        if not api:searches(family,id) then return false end
+        local ok,result=pcall(function()
+            local resref=text(get(id).m_resref:get())
+            if not prep.holds(kind,cast,spent,orderBook[resref]) then return false end
+            local key=tostring(id)..'|'..tostring(kind)..'|'..tostring(cast)
+            if not prepHeld[key] then
+                if prepHeldCount>=M.cacheLimit then prepHeld,prepHeldCount={},0 end
+                prepHeld[key]=true;prepHeldCount=prepHeldCount+1
+                counts.prepHolds=counts.prepHolds+1
+                record({kind='prep',tick=now(),member=id,resref=resref,family=family,prep=kind,cast=cast,spent=spent,
+                    held=true})
+            end
+            return true
+        end)
+        if ok then return result==true end
+        failed('prep',result)
+        return false
+    end
+    -- One of SCS's preparation blocks ran for creature id of family (BGSE_Prepped): a 'prep' row, for
+    -- a creature the engine drives.
+    function api:prepped(family,id,kind,cast,spent)
+        if not api:searches(family,id) then return end
+        local ok,err=pcall(function()
+            counts.preps=counts.preps+1
+            record({kind='prep',tick=now(),member=id,resref=text(get(id).m_resref:get()),family=family,prep=kind,
+                cast=cast,spent=spent,held=false})
+        end)
+        if not ok then failed('prepped',err) end
+    end
     -- Whether the engine weighs danger zones for creature id of family now (BGSE_Zones: SCS's own
     -- cloud blocks stand aside meanwhile): not for a creature off the engine's
     -- side, and with no enemy in sight only when the engine has a way out of a zone that hurts it.
@@ -13033,6 +13120,7 @@ function M.new(g,options)
         stays,stayCount,insideOf,insideCount,lookedAt={},0,{},0,{}
         minds,mindCount,hurts,hurtCount,pained={},0,{},0,{}
         waits={}
+        prepHeld,prepHeldCount={},0
         seeker:invalidate()
         hider:invalidate()
     end
@@ -13067,9 +13155,11 @@ factories["adapters.eeex.hook"]=function(require)
 -- danger zones for the creature (D3e). SCS's hunting blocks ask BGSE_Search(object, family,
 -- script) the same way: the engine searches for every creature it drives. SCS's free
 -- invisibility asks BGSE_Hide(object, family, script, kind) the same way: the engine hides a thief
--- by its own skill (F2f). All go by the script that decides for the creature (kernel/hook.lua,
--- driver), which for a creature with two hooked scripts is the higher one, also in the lower one's
--- blocks.
+-- by its own skill (F2f). SCS's preparation (prebuffs, contingencies, chain contingencies,
+-- first-round casts) asks BGSE_Prep(object, family, script, kind, cast, spent) the same way, and a
+-- prebuff, contingency or chain that ran calls BGSE_Prepped with the same names from its response.
+-- All go by the script that decides for the creature (kernel/hook.lua, driver), which for a creature
+-- with two hooked scripts is the higher one, also in the lower one's blocks.
 -- Switches live in the player's Baldur.lua under [BGSE] (Enabled, Mages, Priests, Fighters,
 -- Monsters; all on unless set to 0). The install also writes M_BGSEHK.lua, which sets
 -- BGSE_HOOKED (hooked script -> family); the gate reads it on first use. Errors never escape
@@ -13340,6 +13430,27 @@ function M.install(g,options)
             return choice~=nil and driver~=nil and choice:hides(driver,a.id,kind)==true
         end)
         return ok and result==true
+    end
+    -- True for SCS's preparation the engine holds back for a creature it drives (gate:driver,
+    -- choice:holdsPrep): its first-round casts, and what the creature's orders hold back. Any error is
+    -- false, so SCS's block runs.
+    g.BGSE_Prep=function(object,family,script,kind,cast,spent)
+        local ok,result=pcall(function()
+            register()
+            local a=actor(object,script)
+            local driver=gate:driver(a)
+            return choice~=nil and driver~=nil and choice:holdsPrep(driver,a.id,kind,cast,spent)==true
+        end)
+        return ok and result==true
+    end
+    -- SCS's preparation ran for the creature (choice:prepped logs it for a creature the engine drives).
+    g.BGSE_Prepped=function(object,family,script,kind,cast,spent)
+        pcall(function()
+            register()
+            local a=actor(object,script)
+            local driver=gate:driver(a)
+            if choice~=nil and driver~=nil then choice:prepped(driver,a.id,kind,cast,spent) end
+        end)
     end
     -- The response replaces whatever the last one queued: the actions it queues now, if any, are
     -- the engine's own from here on.

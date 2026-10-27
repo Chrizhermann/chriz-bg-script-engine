@@ -186,6 +186,7 @@ local mind=require('combat-intent.mind')
 local orders=require('combat-intent.orders')
 local search=require('combat-intent.search')
 local backstab=require('combat-intent.backstab')
+local prep=require('combat-intent.prep')
 local rngs=require('kernel.rng')
 local M={}
 -- Every family a hook asks for (kernel/hook.lua): the ones api:setFamilies takes. The engine takes
@@ -445,7 +446,9 @@ function M.new(g,options)
     -- stays and insideOf: what the group has seen its enemies do in zones (look); lookedAt: the
     -- tick each area was last looked at.
     local stays,stayCount,insideOf,insideCount,lookedAt={},0,{},0,{}
-    local counts={waits=0,marked=0,escapes=0,escaped=0,unescaped=0,zoneFailures=0,stayed=0,left=0,pains=0,witFailures=0,decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
+    -- SCS's preparation blocks the engine held back, by creature, kind and spell, for one 'prep' row each.
+    local prepHeld,prepHeldCount={},0
+    local counts={preps=0,prepHolds=0,waits=0,marked=0,escapes=0,escaped=0,unescaped=0,zoneFailures=0,stayed=0,left=0,pains=0,witFailures=0,decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
         hits=0,misses=0,errors=0,holds=0,frozen=0,marks=0,markFailures=0,defences=0,guarded=0,unguarded=0,
         guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0,arms=0,attacks=0,attackHits=0,
         weaponFailures=0,releases=0,heals=0,cures=0,potions=0,cared=0,uncared=0,summons=0,conjured=0,
@@ -2041,6 +2044,41 @@ function M.new(g,options)
         failed('hides',result)
         return false
     end
+    -- Whether the engine holds back one of SCS's preparation blocks (BGSE_Prep) of kind, casting cast
+    -- and spending spent ('' for none), for creature id of family: only for a creature the engine
+    -- drives, as for its search; then its openers, as the engine chooses that round itself, and what
+    -- its orders hold back (combat-intent/prep.lua). Any other creature keeps SCS's own. A 'prep' row
+    -- with held=true says so once a creature, kind and spell.
+    function api:holdsPrep(family,id,kind,cast,spent)
+        if not api:searches(family,id) then return false end
+        local ok,result=pcall(function()
+            local resref=text(get(id).m_resref:get())
+            if not prep.holds(kind,cast,spent,orderBook[resref]) then return false end
+            local key=tostring(id)..'|'..tostring(kind)..'|'..tostring(cast)
+            if not prepHeld[key] then
+                if prepHeldCount>=M.cacheLimit then prepHeld,prepHeldCount={},0 end
+                prepHeld[key]=true;prepHeldCount=prepHeldCount+1
+                counts.prepHolds=counts.prepHolds+1
+                record({kind='prep',tick=now(),member=id,resref=resref,family=family,prep=kind,cast=cast,spent=spent,
+                    held=true})
+            end
+            return true
+        end)
+        if ok then return result==true end
+        failed('prep',result)
+        return false
+    end
+    -- One of SCS's preparation blocks ran for creature id of family (BGSE_Prepped): a 'prep' row, for
+    -- a creature the engine drives.
+    function api:prepped(family,id,kind,cast,spent)
+        if not api:searches(family,id) then return end
+        local ok,err=pcall(function()
+            counts.preps=counts.preps+1
+            record({kind='prep',tick=now(),member=id,resref=text(get(id).m_resref:get()),family=family,prep=kind,
+                cast=cast,spent=spent,held=false})
+        end)
+        if not ok then failed('prepped',err) end
+    end
     -- Whether the engine weighs danger zones for creature id of family now (BGSE_Zones: SCS's own
     -- cloud blocks stand aside meanwhile): not for a creature off the engine's
     -- side, and with no enemy in sight only when the engine has a way out of a zone that hurts it.
@@ -2107,6 +2145,7 @@ function M.new(g,options)
         stays,stayCount,insideOf,insideCount,lookedAt={},0,{},0,{}
         minds,mindCount,hurts,hurtCount,pained={},0,{},0,{}
         waits={}
+        prepHeld,prepHeldCount={},0
         seeker:invalidate()
         hider:invalidate()
     end

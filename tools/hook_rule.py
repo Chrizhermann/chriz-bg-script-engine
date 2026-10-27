@@ -66,6 +66,21 @@ comes back after the block's own timer, or after a round when SCS gives it whene
 counts its uses, the creature gets that many (frequency). A creature keeps an innate invisibility of
 its own of the same kind, and a thief hides by its skill instead of a plain one (creature_gifts).
 
+SCS's preparation (prep_kind; Christopher, 2026-10-28: the engine takes over how creatures prepare,
+first just as SCS does): its prebuffs, which it casts at once while instantprep is still 0 (a helper of
+the spell at the creature, then RemoveSpell spends the memorized spell, or a free precast such as its
+Stoneskin), its contingencies and sequencers, which fire once (ContingencyFired), its chain
+contingencies (ChainContingencyFired, at the creature or the party) and its first-round casts at the
+creature itself (openers: they set instantprep to 1). Each such block above the anchor gets a last
+condition that holds when BGSE_Prep says no: the engine holds back the openers of a creature it
+drives, as it chooses that round itself, and the rest runs as before unless the creature's orders hold
+it back. Every response of a prebuff, contingency or chain block that casts tells the engine what the
+creature prepared (BGSE_Prepped), before its closing Continue(). Both name the kind, the cast spell and
+the spell taken from the spellbook, as written. An opener the engine holds still ends SCS's preparation
+(opener_twin): right after it a block with its triggers, BGSE_Prep's answer the other way round, sets
+what the opener sets of SCS's state, without its cast, and lets the engine take that round. SCS's own
+blocks that end its preparation when no opener fires do not cover every one of its settings.
+
 Run it on a folder of decompiled scripts to see what an install would do:
     python tools/hook_rule.py <folder-with-baf> [report.json] [teleports.txt] [hides.txt]
 """
@@ -161,6 +176,24 @@ HIDE_BOOKKEEPING = {'SetGlobal', 'SetGlobalTimer', 'SetGlobalTimerRandom', 'Incr
                     'DisplayString', 'DisplayStringHead'}
 # SCS's contingencies and sequencers fire when the CONTINGENCY_TRIGGERED spell state is not set yet.
 CONTINGENCY = re.compile(r'^ +!?CheckSpellState\(Myself,CONTINGENCY_TRIGGERED\) *$', re.M)
+# SCS's preparation (prep_kind): a trigger that instantprep is still 0 (two spaces: not one of an OR
+# group), the variables its contingencies and chain contingencies set when they fire (any case), its
+# forced casts, its first-round casts and the spellbook entry a prebuff spends.
+PREP_STATE = re.compile(r'^  Global\("instantprep","LOCALS",0\) *$', re.M)
+FIRED = re.compile(r'^ {4}SetGlobal\("([A-Za-z]+)","LOCALS",1\) *$', re.M)
+FORCED = re.compile(r'^ {4}(ReallyForceSpell(?:RES)?)\((.*)\) *$')
+OPENER_CAST = re.compile(r'^ {4}((?:Force)?Spell(?:RES)?)\((.*)\) *$')
+SPENT = re.compile(r'^ {4}RemoveSpell(?:RES)?\((.*)\) *$')
+PREP_BOOKKEEPING = {'SetGlobal', 'SetGlobalTimer', 'SetGlobalTimerRandom', 'IncrementGlobal', 'Continue',
+                    'DisplayString', 'DisplayStringHead'}
+FORCED_CASTS = {'ReallyForceSpell', 'ReallyForceSpellRES', 'RemoveSpell', 'RemoveSpellRES'}
+OPENER_CASTS = {'Spell', 'SpellRES', 'ForceSpell', 'ForceSpellRES'}
+# What an opener the engine holds still sets (opener_twin): its variables and timers, but not the round
+# timer, which the engine's own first action sets.
+TWIN_KEEPS = {'SetGlobal', 'SetGlobalTimer', 'SetGlobalTimerRandom'}
+ROUND_TIMER_SET = re.compile(r'^ {4}SetGlobalTimer(?:Random)?\("castspell","LOCALS",')
+# A spell's name as it goes into Lua text inside a BAF string: what a creature's orders can name.
+TOKEN = re.compile(r'[A-Za-z0-9_#-]{1,64}')
 # How often SCS gives a free invisibility (frequency): a counter of its uses, a variable it checks for 0
 # and then sets, or a timer of its own that it checks for having run out and sets again (not the
 # round timer).
@@ -200,6 +233,16 @@ def search_guard(family, script):
 def hide_guard(family, script, kind):
     return ('EEex_LuaTrigger("return BGSE_Hide and BGSE_Hide(EEex_LuaTrigger_Object,'
             f"'{family}','{script}','{kind}') or false\")")
+
+
+def prep_guard(family, script, kind, cast, spent):
+    return ('EEex_LuaTrigger("return BGSE_Prep and BGSE_Prep(EEex_LuaTrigger_Object,'
+            f"'{family}','{script}','{kind}','{cast}','{spent}') or false\")")
+
+
+def prep_notice(family, script, kind, cast, spent):
+    return ('EEex_LuaAction("if BGSE_Prepped then BGSE_Prepped(EEex_LuaAction_Object,'
+            f"'{family}','{script}','{kind}','{cast}','{spent}') end\")")
 
 
 def hook_block(family, script):
@@ -334,14 +377,20 @@ def ungated_casts(block):
         return []
     out = []
     for m in UNGATED.finditer(resp):
-        action, args = m.group(1), m.group(2)
-        if action.endswith('RES'):
-            spell, _, target = args.partition(',')
-            spell = spell.strip().strip('"')
-        else:
-            target, _, spell = args.rpartition(',')
-        out.append((spell.strip().upper(), None if 'Point' in action else target.strip()))
+        spell, target = spell_and_target(m.group(1), m.group(2))
+        out.append((spell.upper(), target))
     return out
+
+
+def spell_and_target(action, args):
+    """(spell, target) of a cast's arguments, as written: the RES forms name the resource first (in
+    quotes), the others the target first (a point for the Point forms: target None) and the spell last."""
+    if action.endswith('RES'):
+        spell, _, target = args.partition(',')
+        spell = spell.strip().strip('"')
+    else:
+        target, _, spell = args.rpartition(',')
+    return spell.strip(), None if 'Point' in action else target.strip()
 
 
 def scripted_teleports(block, teleports):
@@ -579,6 +628,92 @@ def hide_skill(cls, levels, kit, points, kits):
     return min(255, int(total / 2))
 
 
+def token(name):
+    """A spell's name as it goes into Lua text (TOKEN), '' when it cannot."""
+    return name if TOKEN.fullmatch(name) else ''
+
+
+def prep_kind(block):
+    """(kind, cast, spent) for a block of SCS's preparation, else None. Every action is bookkeeping
+    (PREP_BOOKKEEPING) or a cast of its kind, with one cast at least. 'opener': casts at the creature
+    itself (Spell, SpellRES, ForceSpell or ForceSpellRES) that set instantprep to 1. The others cast at
+    once (ReallyForceSpell or ReallyForceSpellRES) and may take the spell from the spellbook
+    (RemoveSpell or RemoveSpellRES): 'chain' at the creature or [PC], setting ChainContingencyFired;
+    'contingency' at the creature, setting ContingencyFired; 'prebuff' at the creature while instantprep
+    is 0. cast is the first cast's spell, spent the first spell taken from the spellbook, as written ('':
+    none, or a name unsafe in Lua text)."""
+    block = COMMENT.sub('', block)
+    trig, resp = split(block)
+    names = {n for r in responses(block) for n in r}
+    lines = resp.split('\n')
+    opener = FIRST_ROUND in resp
+    cast, allowed = (OPENER_CAST, OPENER_CASTS) if opener else (FORCED, FORCED_CASTS)
+    casts = [spell_and_target(*m.groups()) for m in map(cast.match, lines) if m]
+    if not casts or not names <= PREP_BOOKKEEPING | allowed:
+        return None
+    targets = {t for _, t in casts}
+    fired = {m.group(1).lower() for m in FIRED.finditer(resp)}
+    if opener:
+        kind = 'opener' if targets == {'Myself'} else None
+    elif 'chaincontingencyfired' in fired:
+        kind = 'chain' if targets <= {'Myself', '[PC]'} else None
+    elif 'contingencyfired' in fired:
+        kind = 'contingency' if targets == {'Myself'} else None
+    else:
+        kind = 'prebuff' if targets == {'Myself'} and PREP_STATE.search(trig) else None
+    if kind is None:
+        return None
+    spent = [m.group(1).strip().strip('"') for m in map(SPENT.match, lines) if m]
+    return kind, token(casts[0][0]), token(spent[0] if spent else '')
+
+
+def preparations(text, spans, anchor):
+    """Index to (kind, cast, spent) of SCS's preparation blocks above the anchor (prep_kind)."""
+    if anchor is None:
+        return {}
+    out = {}
+    for i in range(anchor):
+        prep = prep_kind(text[spans[i][0]:spans[i][1]])
+        if prep:
+            out[i] = prep
+    return out
+
+
+def notify(block, notice):
+    """The block with the notice as the last action of each response that casts at once (FORCED),
+    before its closing Continue(), which stays last."""
+    trig, resp = split(block)
+    parts = resp.split('\n  RESPONSE #')
+    for k in range(1, len(parts)):
+        lines = parts[k].split('\n')
+        clean = [COMMENT.sub('', line) for line in lines]
+        acts = [j for j, line in enumerate(clean) if ACTION.match(line)]
+        if not any(FORCED.match(clean[j]) for j in acts):
+            continue
+        last = acts[-1]
+        lines.insert(last if clean[last].strip() == 'Continue()' else last + 1, '    ' + notice)
+        parts[k] = '\n'.join(lines)
+    return trig + '\n  RESPONSE #'.join(parts)
+
+
+def opener_twin(block, question):
+    """The block that ends SCS's preparation when the engine holds an opener (block, with question, its
+    prep_guard, asked as '!'): the same triggers, the question asked the other way, and in each response
+    only what the opener sets of SCS's state: its variables and timers (TWIN_KEEPS; SCS's instantprep and
+    redefend), not the round timer (ROUND_TIMER_SET: the engine's first action sets it), nor the cast, a
+    counter (a held cast counts nothing) or a message; then Continue(), so the engine takes that round
+    in the same pass."""
+    trig, resp = split(block.replace('!' + question, question, 1))
+    kept = []
+    for line in resp.split('\n'):
+        action = ACTION.match(line)
+        if action is None or (action.group(1) in TWIN_KEEPS and not ROUND_TIMER_SET.match(line)):
+            kept.append(line)
+    head, mark, rest = '\n'.join(kept).partition('\n  RESPONSE #')
+    rest = rest.replace('\n  RESPONSE #', '\n    Continue()\n  RESPONSE #')
+    return trig + head + mark + rest[:-len('\nEND\n')] + '\n    Continue()\nEND\n'
+
+
 def is_anchor(block):
     trig, resp = split(block)
     if CASTSPELL not in trig or FIRST_ROUND in resp:
@@ -701,14 +836,22 @@ def patch(text, script, teleports=frozenset(), hides=None):
     head, tail = text[:at], text[at:]
     cloudy = set(clouds(text, spans, anchor))
     hunting = set(hunts(text, spans)) | set(jumps(text, spans, teleports))
+    preps = preparations(text, spans, anchor)
     # From the last one up, so the blocks before keep their offsets.
     for i in reversed(range(len(spans))):
         conditions = ([f'  !{zones_guard(fam, script)}'] if i in cloudy else []) + (
             [f'  !{search_guard(fam, script)}'] if i in hunting else []) + (
-            [f'  !{hide_guard(fam, script, hidden[i])}'] if i in hidden else [])
+            [f'  !{hide_guard(fam, script, hidden[i])}'] if i in hidden else []) + (
+            [f'  !{prep_guard(fam, script, *preps[i])}'] if i in preps else [])
         if conditions:
             a, b = spans[i]
             block = aside(text[a:b], conditions)
+            # The engine hears of the preparation that ran; it chooses the first round itself, and an
+            # opener it holds still ends SCS's preparation.
+            if i in preps and preps[i][0] != 'opener':
+                block = notify(block, prep_notice(fam, script, *preps[i]))
+            elif i in preps:
+                block += '\n' + opener_twin(block, prep_guard(fam, script, *preps[i]))
             if i < anchor:
                 head = head[:a] + block + head[b:]
             else:
@@ -757,8 +900,9 @@ def main():
         hunting = len(hunts(text, spans)) if patched else 0
         jumping = len(jumps(text, spans, teleports)) if patched else 0
         hidden = len(hiding(text, spans, hides)) if patched else 0
+        preps = len(preparations(text, spans, anchor)) if patched else 0
         rows.append({'script': path.stem, 'family': fam, 'result': reason, 'copies': copies, 'clouds': cloudy,
-                     'hunts': hunting, 'jumps': jumping, 'hides': hidden,
+                     'hunts': hunting, 'jumps': jumping, 'hides': hidden, 'preps': preps,
                      'teleporter': bool(patched) and teleporter(text, teleports),
                      'gifts': script_gifts(text, hides, innates, times) if patched else []})
     summary = {}

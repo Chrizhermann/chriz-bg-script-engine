@@ -1,0 +1,103 @@
+IF
+  See(NearestEnemyOf(Myself))
+  Global("instantprep","LOCALS",0)
+  HaveSpellRES("dwsw408")
+  INI("DMWW_mage_prep_difficulty",0)
+THEN
+  RESPONSE #50
+    ReallyForceSpellRES("dwsw408",Myself)
+    RemoveSpellRES("dwsw408")
+    Continue()
+  RESPONSE #50
+    SetGlobal("prepskipped","LOCALS",1)
+    Continue()
+END
+
+IF
+  See(NearestEnemyOf(Myself))
+  Global("instantprep","LOCALS",0)
+  HaveSpell(WIZARD_MIRROR_IMAGE)
+THEN
+  RESPONSE #100
+    ReallyForceSpellRES("%WIZARD_SPELL_DEFLECTION_PREBUFF%",Myself)
+    RemoveSpell(WIZARD_MIRROR_IMAGE)
+    Continue()
+END
+
+IF
+  See(NearestEnemyOf(Myself))
+  OR(2)
+    Global("instantprep","LOCALS",0)
+    Global("prepagain","LOCALS",1)
+THEN
+  RESPONSE #100
+    ReallyForceSpellRES("dwsw212",Myself)
+    Continue()
+END
+
+IF
+  See(NearestEnemyOf(Myself))
+  Global("instantprep","LOCALS",0)
+THEN
+  RESPONSE #100
+    ReallyForceSpellRES("dwsw305",NearestEnemyOf(Myself))
+    Continue()
+END
+
+IF
+  HPPercentLT(Myself,50)
+  !CheckSpellState(Myself,CONTINGENCY_TRIGGERED)
+  Global("ContingencyFired","LOCALS",0)
+THEN
+  RESPONSE #100
+    SetGlobal("ContingencyFired","LOCALS",1)
+    ReallyForceSpellRES("dwsw305",Myself)
+    DisplayStringHead(Myself,1)
+END
+
+IF
+  See([PC])
+  Global("chaincontingencyfired","LOCALS",0)
+THEN
+  RESPONSE #100
+    SetGlobal("chaincontingencyfired","LOCALS",1)
+    ReallyForceSpellRES("dw#cc12",[PC])
+    ReallyForceSpellRES("%NULL%",Myself)
+    Continue()
+END
+
+IF
+  !GlobalTimerNotExpired("castspell","LOCALS")
+  Global("instantprep","LOCALS",0)
+  See(NearestEnemyOf(Myself))
+THEN
+  RESPONSE #80
+    SetGlobalTimer("castspell","LOCALS",6)
+    ForceSpellRES("dwsw305",Myself)
+    SetGlobal("instantprep","LOCALS",1)
+  RESPONSE #20
+    SetGlobalTimerRandom("castspell","LOCALS",3,6)
+    SetGlobalTimer("redefend","LOCALS",12)
+    SetGlobal("instantprep","LOCALS",1)
+END
+
+IF
+  !GlobalTimerNotExpired("castspell","LOCALS")
+  HaveSpell(WIZARD_MAGIC_MISSILE)
+  See(NearestEnemyOf(Myself))
+THEN
+  RESPONSE #100
+    SetGlobalTimer("castspell","LOCALS",6)
+    Spell(NearestEnemyOf(Myself),WIZARD_MAGIC_MISSILE)
+END
+
+IF
+  See(NearestEnemyOf(Myself))
+  Global("instantprep","LOCALS",0)
+  HaveSpell(WIZARD_MIRROR_IMAGE)
+THEN
+  RESPONSE #100
+    ReallyForceSpellRES("dwsw212",Myself)
+    RemoveSpell(WIZARD_MIRROR_IMAGE)
+    Continue()
+END

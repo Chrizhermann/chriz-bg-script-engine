@@ -6,9 +6,11 @@
 -- danger zones for the creature (D3e). SCS's hunting blocks ask BGSE_Search(object, family,
 -- script) the same way: the engine searches for every creature it drives. SCS's free
 -- invisibility asks BGSE_Hide(object, family, script, kind) the same way: the engine hides a thief
--- by its own skill (F2f). All go by the script that decides for the creature (kernel/hook.lua,
--- driver), which for a creature with two hooked scripts is the higher one, also in the lower one's
--- blocks.
+-- by its own skill (F2f). SCS's preparation (prebuffs, contingencies, chain contingencies,
+-- first-round casts) asks BGSE_Prep(object, family, script, kind, cast, spent) the same way, and a
+-- prebuff, contingency or chain that ran calls BGSE_Prepped with the same names from its response.
+-- All go by the script that decides for the creature (kernel/hook.lua, driver), which for a creature
+-- with two hooked scripts is the higher one, also in the lower one's blocks.
 -- Switches live in the player's Baldur.lua under [BGSE] (Enabled, Mages, Priests, Fighters,
 -- Monsters; all on unless set to 0). The install also writes M_BGSEHK.lua, which sets
 -- BGSE_HOOKED (hooked script -> family); the gate reads it on first use. Errors never escape
@@ -279,6 +281,27 @@ function M.install(g,options)
             return choice~=nil and driver~=nil and choice:hides(driver,a.id,kind)==true
         end)
         return ok and result==true
+    end
+    -- True for SCS's preparation the engine holds back for a creature it drives (gate:driver,
+    -- choice:holdsPrep): its first-round casts, and what the creature's orders hold back. Any error is
+    -- false, so SCS's block runs.
+    g.BGSE_Prep=function(object,family,script,kind,cast,spent)
+        local ok,result=pcall(function()
+            register()
+            local a=actor(object,script)
+            local driver=gate:driver(a)
+            return choice~=nil and driver~=nil and choice:holdsPrep(driver,a.id,kind,cast,spent)==true
+        end)
+        return ok and result==true
+    end
+    -- SCS's preparation ran for the creature (choice:prepped logs it for a creature the engine drives).
+    g.BGSE_Prepped=function(object,family,script,kind,cast,spent)
+        pcall(function()
+            register()
+            local a=actor(object,script)
+            local driver=gate:driver(a)
+            if choice~=nil and driver~=nil then choice:prepped(driver,a.id,kind,cast,spent) end
+        end)
     end
     -- The response replaces whatever the last one queued: the actions it queues now, if any, are
     -- the engine's own from here on.

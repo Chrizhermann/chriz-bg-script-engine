@@ -35,12 +35,12 @@ ACTION_BASH_FOR ~%argv[1]%~ ~^.+\.baf$~ BEGIN
     TO_LOWER script
     LPF bgse_hook_baf STR_VAR bgse_baf = EVAL ~%baf%~ bgse_script = EVAL ~%script%~ bgse_teleports = ~TELEPORTS~
         bgse_invisible = ~INVISIBLE~ bgse_improved = ~IMPROVED~ bgse_innate = ~INNATE~ bgse_times = ~TIMES~
-      RET bgse_result bgse_family bgse_copies bgse_clouds bgse_hunts bgse_jumps bgse_hides bgse_teleporter bgse_hider bgse_gifts
-          bgse_baf END
+      RET bgse_result bgse_family bgse_copies bgse_clouds bgse_hunts bgse_jumps bgse_hides bgse_preps bgse_teleporter bgse_hider
+          bgse_gifts bgse_baf END
     DELETE_BYTES 0 BUFFER_LENGTH
     INSERT_BYTES 0 (STRING_LENGTH ~%bgse_baf%~)
     WRITE_ASCIIE 0 ~%bgse_baf%~
-    PATCH_PRINT ~AGREE|%BASH_FOR_RES%|%bgse_result%|%bgse_family%|%bgse_copies%|%bgse_clouds%|%bgse_hunts%|%bgse_jumps%|%bgse_teleporter%|%bgse_hides%|%bgse_hider%|%bgse_gifts%~
+    PATCH_PRINT ~AGREE|%BASH_FOR_RES%|%bgse_result%|%bgse_family%|%bgse_copies%|%bgse_clouds%|%bgse_hunts%|%bgse_jumps%|%bgse_teleporter%|%bgse_hides%|%bgse_hider%|%bgse_preps%|%bgse_gifts%~
 END
 '''
 
@@ -54,7 +54,7 @@ def gift_list(gifts):
 
 def reference(text, stem, teleports=frozenset(), hides=None, innates=frozenset(), times=None):
     """The Python rule's (patched or stripped text, result, family, copies, clouds, hunts, jumps,
-    teleporter, hides, hider, gifts)."""
+    teleporter, hides, hider, preps, gifts)."""
     hides = hides or {}
     patched, reason, fam, copies = hook_rule.patch(text, stem, teleports, hides)
     text = text.replace('\r', '')
@@ -64,9 +64,10 @@ def reference(text, stem, teleports=frozenset(), hides=None, innates=frozenset()
     jumps = len(hook_rule.jumps(text, spans, teleports)) if patched else 0
     teleporter = int(bool(patched) and hook_rule.teleporter(text, teleports))
     hidden = len(hook_rule.hiding(text, spans, hides)) if patched else 0
+    preps = len(hook_rule.preparations(text, spans, anchor)) if patched else 0
     gifts = gift_list(hook_rule.script_gifts(text, hides, innates, times) if patched else [])
     return (patched if patched is not None else text), (reason, fam, copies, clouds, hunts, jumps, teleporter, hidden,
-                                                        int(hidden > 0), gifts)
+                                                        int(hidden > 0), preps, gifts)
 
 
 def main():
@@ -97,10 +98,11 @@ def main():
     weidu_rows = {}
     for line in run.stdout.splitlines():
         if line.startswith('AGREE|'):
-            _, res, result, fam, copies, clouds, hunts, jumps, teleporter, hidden, hider, gifts = line.split('|', 11)
+            _, res, result, fam, copies, clouds, hunts, jumps, teleporter, hidden, hider, preps, gifts = line.split('|', 12)
             # Python's gifts do not say how each spell is written (resref or SPELL.IDS name).
             weidu_rows[res.lower()] = (result, fam or None, int(copies), int(clouds), int(hunts), int(jumps),
-                                       int(teleporter), int(hidden), int(hider), re.sub(r'\|[RI]:', '|', gifts))
+                                       int(teleporter), int(hidden), int(hider), int(preps),
+                                       re.sub(r'\|[RI]:', '|', gifts))
     outcomes, mismatches = Counter(), []
     paths = sorted(folder.glob('*.baf'))
     for path in paths:
@@ -123,8 +125,10 @@ def main():
     teleporters = sum(row[6] for row in weidu_rows.values())
     hidden = sum(row[7] for row in weidu_rows.values())
     hiders = sum(row[8] for row in weidu_rows.values())
-    gifts = Counter(gift for row in weidu_rows.values() for gift in row[9].strip('|').split('|') if gift)
-    print(f'jumps {jumps}, teleporting scripts {teleporters}, free invisibility blocks {hidden} in {hiders} scripts')
+    preps = sum(row[9] for row in weidu_rows.values())
+    gifts = Counter(gift for row in weidu_rows.values() for gift in row[10].strip('|').split('|') if gift)
+    print(f'jumps {jumps}, teleporting scripts {teleporters}, free invisibility blocks {hidden} in {hiders} scripts, '
+          f'preparation blocks {preps}')
     print('gifts:', dict(sorted(gifts.items())))
     for m in mismatches[:40]:
         print('  ' + m)

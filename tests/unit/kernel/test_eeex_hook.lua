@@ -146,12 +146,16 @@ assert(adapter.stack(bare,bare.objects[1])==nil)
 -- BGSE_Hide) go by the script that decides for it: a mage script below SCS's general AI follows the
 -- general AI's family (here the engine's choice is on for mages only), and the general AI below a
 -- mage script follows the mage's. A script the creature does not carry never stands aside. BGSE_Hide
--- passes the kind of free invisibility that asks.
+-- passes the kind of free invisibility that asks; BGSE_Prep the kind, cast and spent spell of SCS's
+-- preparation, and BGSE_Prepped hands the same on for a creature the engine drives.
 local stacked=world()
 stacked.BGSE_HOOKED={s1='mage',dw1melas='fighter'}
+local prepped={}
 local fake={attach=function() end,inspect=function() return {} end,searches=function(_,family) return family=='mage' end,
     zones=function(_,family) return family=='mage' end,
-    hides=function(_,family,_,kind) return family=='mage' and kind=='plain' end}
+    hides=function(_,family,_,kind) return family=='mage' and kind=='plain' end,
+    holdsPrep=function(_,family,_,kind,cast,spent) return family=='mage' and kind=='opener' and cast=='SPWI212' and spent=='' end,
+    prepped=function(_,family,id,kind,cast,spent) prepped[#prepped+1]={family=family,id=id,kind=kind,cast=cast,spent=spent} end}
 local under=creature(1,{[6]='DW1MELAS',[7]='S1'})
 local over=creature(2,{[6]='S1',[7]='DW1MELAS'})
 stacked.objects[1],stacked.objects[2]=under,over
@@ -163,13 +167,32 @@ assert(stacked.BGSE_Zones(over,'fighter','dw1melas')==true and stacked.BGSE_Zone
 assert(stacked.BGSE_Search(over,'priest','s2')==false and stacked.BGSE_Zones(over,'priest','s2')==false)
 assert(stacked.BGSE_Hide(over,'fighter','dw1melas','plain')==true and stacked.BGSE_Hide(over,'mage','s1','plain')==true)
 assert(stacked.BGSE_Hide(over,'mage','s1','improved')==false and stacked.BGSE_Hide(under,'mage','s1','plain')==false)
+assert(stacked.BGSE_Prep(over,'fighter','dw1melas','opener','SPWI212','')==true and stacked.BGSE_Prep(over,'mage','s1','opener','SPWI212','')==true)
+assert(stacked.BGSE_Prep(over,'mage','s1','prebuff','SPWI212','')==false and stacked.BGSE_Prep(under,'mage','s1','opener','SPWI212','')==false)
+assert(stacked.BGSE_Prep(over,'priest','s2','opener','SPWI212','')==false)
+stacked.BGSE_Prepped(over,'fighter','dw1melas','prebuff','dwsw408','WIZARD_STONE_SKIN')
+stacked.BGSE_Prepped(over,'priest','s2','prebuff','dwsw408','WIZARD_STONE_SKIN')
+assert(#prepped==1 and prepped[1].family=='mage' and prepped[1].id==2 and prepped[1].kind=='prebuff')
+assert(prepped[1].cast=='dwsw408' and prepped[1].spent=='WIZARD_STONE_SKIN')
 stackedRoot.setFamily('mage',false)
 assert(stacked.BGSE_Search(over,'fighter','dw1melas')==false and stacked.BGSE_Zones(over,'fighter','dw1melas')==false)
 assert(stacked.BGSE_Hide(over,'fighter','dw1melas','plain')==false)
+assert(stacked.BGSE_Prep(over,'mage','s1','opener','SPWI212','')==false)
+stacked.BGSE_Prepped(over,'mage','s1','prebuff','dwsw408','')
+assert(#prepped==1)
 stackedRoot.setFamily('mage',true)
 over.alive=false
 assert(stacked.BGSE_Search(over,'mage','s1')==false and stacked.BGSE_Hide(over,'mage','s1','plain')==false)
+assert(stacked.BGSE_Prep(over,'mage','s1','opener','SPWI212','')==false)
 assert(stackedRoot.inspect().counts.errors==0)
+-- A choice that fails lets SCS's preparation run, and its notice never reaches the script.
+local failing=world()
+failing.BGSE_HOOKED={s1='mage'}
+failing.objects[1]=creature(1,{[7]='S1'})
+adapter.install(failing,{decide=function() return {hold=true} end,choice={attach=function() end,inspect=function() return {} end,
+    holdsPrep=function() error('boom') end,prepped=function() error('boom') end}})
+assert(failing.BGSE_Prep(failing.objects[1],'mage','s1','opener','SPWI212','')==false)
+failing.BGSE_Prepped(failing.objects[1],'mage','s1','prebuff','dwsw408','')
 
 -- 10. The game leaves the actions a block queued running while that block stays true. A claim for
 -- a new decision, or for a hold with the creature standing still, clears the response set number
