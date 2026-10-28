@@ -19,7 +19,9 @@
 -- started-action events; it acts only while the gate is on for the creature's family.
 -- options.choice (adapters/eeex/choice.lua) is the engine's own choice; options.prepare runs
 -- right before a decision's response is queued and may skip it ('skipped'): a target gone by
--- then is no error. options.held(object, decision) runs when the hook's response holds instead.
+-- then is no error. options.held(object, decision, family) runs when the hook's response holds
+-- instead; for a plain hold it may answer with a new decision, which is queued the same way
+-- (kernel/hook.lua: the response of a plain hold runs only once the action it held is gone).
 -- The game leaves the actions a script block queued running while that same block stays true,
 -- and runs its response again only once the creature has nothing left to do; any other block that
 -- fires interrupts them. So the hook block alone could never replace the engine's own running
@@ -193,9 +195,9 @@ function M.install(g,options)
             if counted then remember(object,before) end
             return true
         end,
-        held=held and function(a,decision)
+        held=held and function(a,decision,family)
             local object=sprite(g,a.id)
-            if object then held(object,decision) end
+            if object then return held(object,decision,family) end
         end,
     })
     local previous=rawget(g,'BGSE')

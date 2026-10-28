@@ -289,8 +289,9 @@ function M.new(g,options)
     function seeker:mode(sprite,tick)
         state(sprite.m_id).act={kind='modal',tick=tick,limit=M.modalTicks}
     end
-    -- Whether the creature's walk, look or detection mode goes on: not past its time, a walk not once
-    -- the creature has stopped walking, and none once an enemy shows or the creature was hurt.
+    -- Whether the creature's walk, look or detection mode goes on ('walk', 'look' or 'modal'; false
+    -- once it is over): not past its time, a walk not once the creature has stopped walking, and none
+    -- once an enemy shows or the creature was hurt.
     function seeker:holding(sprite,id,tick)
         local s=states[id]
         local a=s and s.act
@@ -299,8 +300,8 @@ function M.new(g,options)
         if not over and a.kind=='walk' and sprite.m_curAction.m_actionID~=M.MOVE and tick-a.tick>=M.walkGrace then over=true end
         if not over and type(s.hp)=='number' and sprite.m_baseStats.m_hitPoints<s.hp then over=true end
         if not over and sense.seesEnemy(g,sprite) then over=true end
-        if over then s.act=nil end
-        return not over
+        if over then s.act=nil;return false end
+        return a.kind
     end
     function seeker:stop(id)
         local s=states[id]

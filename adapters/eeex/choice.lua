@@ -25,6 +25,12 @@
 -- a round as in SCS's own order; a cast or drink of the engine's stretches it to cover its casting.
 -- It declines while the creature casts what the engine did not queue (a copy's special), which only
 -- that cast's own block may keep going, and when it sees no enemy.
+-- A hold's response runs only once the action it held is gone (kernel/hook.lua): a block of SCS's
+-- above the hook fired (a call for help, a timer, each with Continue()), the game counted the hook
+-- as another block, or the action ended early. The engine then ends its record of that action (a
+-- 'cut' row) and decides again at once (lab batch J: such holds left its fighters standing for the
+-- rest of the round, a median 32 ticks each time). A wait, a look around and a thief's stealth mode
+-- are idle holds: there the creature stands still on purpose.
 --
 -- Since the third slice the choice weighs the caster's protections and buffs against its attacks
 -- (combat-intent/defence.lua): the frame then also carries what protects each friend now and the
@@ -448,7 +454,7 @@ function M.new(g,options)
     local stays,stayCount,insideOf,insideCount,lookedAt={},0,{},0,{}
     -- SCS's preparation blocks the engine held back, by creature, kind and spell, for one 'prep' row each.
     local prepHeld,prepHeldCount={},0
-    local counts={preps=0,prepHolds=0,waits=0,marked=0,escapes=0,escaped=0,unescaped=0,zoneFailures=0,stayed=0,left=0,pains=0,witFailures=0,decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
+    local counts={preps=0,prepHolds=0,cut=0,waits=0,marked=0,escapes=0,escaped=0,unescaped=0,zoneFailures=0,stayed=0,left=0,pains=0,witFailures=0,decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
         hits=0,misses=0,errors=0,holds=0,frozen=0,marks=0,markFailures=0,defences=0,guarded=0,unguarded=0,
         guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0,arms=0,attacks=0,attackHits=0,
         weaponFailures=0,releases=0,heals=0,cures=0,potions=0,cared=0,uncared=0,summons=0,conjured=0,
@@ -1616,17 +1622,21 @@ function M.new(g,options)
         -- What follows decides anew: the last wait only tells whether a new one goes on with it.
         waits[id]=nil
         -- A search walk, look or detection mode runs while it lasts (adapters/eeex/search.lua);
-        -- meanwhile the creature may still walk out of a zone that hurts it.
-        if seeker:holding(sprite,id,tick) then
+        -- meanwhile the creature may still walk out of a zone that hurts it. A look is an idle hold:
+        -- the creature stands still.
+        local act=seeker:holding(sprite,id,tick)
+        if act then
             local d=flee(sprite,id,tick,family)
             if d then seeker:stop(id);return d end
-            return hold()
+            return act=='look' and still() or hold()
         end
-        -- A thief's try to hide runs while it lasts (adapters/eeex/stealth.lua), the same way.
-        if hider:holding(sprite,id,tick) then
+        -- A thief's try to hide runs while it lasts (adapters/eeex/stealth.lua), the same way; once
+        -- only the game's stealth mode runs, the thief stands still in it (an idle hold).
+        act=hider:holding(sprite,id,tick)
+        if act then
             local d=flee(sprite,id,tick,family)
             if d then hider:stop(id);return d end
-            return hold()
+            return act=='mode' and still() or hold()
         end
         if targeting.CASTS[sprite.m_curAction.m_actionID] then return decline('casting') end
         local frame=sense.frame(g,sprite,tick,true)
@@ -1800,7 +1810,7 @@ function M.new(g,options)
     -- From the gate, each time a hooked script asks: nil (the creature's script has the round),
     -- {hold=true,own=true} while the engine's queued cast has not started or its own action runs,
     -- {hold=true,own=true,idle=true} while it waits or looks around, or the decision.
-    function api:decide(view,family)
+    local function ask(view,family)
         lastReason,lastDetail,lastCharge=nil,nil,nil
         local ok,result=pcall(decide,view,family)
         if trace and sink and lastReason then
@@ -1810,6 +1820,7 @@ function M.new(g,options)
         if ok then return result end
         failed('decide',result)
     end
+    function api:decide(view,family) return ask(view,family) end
 
     -- Right before the gate queues the response: the target is still a living, visible creature
     -- without sanctuary; then the caster's EEex_Target table names it, and SCS's round timer marks
@@ -1956,6 +1967,13 @@ function M.new(g,options)
         local spell=classify(resref,level)
         if spell and defence.defence(spell) then lastDefence[id]=tick end
     end
+    -- The engine's running cast or drink r is over at tick: judged once its target could react.
+    local function over(r,sprite,tick)
+        M.castBegan(r,g.EEex_Sprite_GetCastTimer(sprite),tick)
+        r.ended=tick;running[sprite.m_id]=nil
+        watch(tick);wait(r,tick)
+        if #judging<M.judgeLimit then judging[#judging+1]=r end
+    end
     -- From the director's started-action listener, for every sprite's every action: the
     -- engine's queued cast starting (returned for the director's picture), or another action
     -- ending a running one.
@@ -1964,12 +1982,7 @@ function M.new(g,options)
         defended(sprite,action,tick)
         local p,r=pending[id],running[id]
         if not p and not r then return nil end
-        if r then
-            M.castBegan(r,g.EEex_Sprite_GetCastTimer(sprite),tick)
-            r.ended=tick;running[id]=nil
-            watch(tick);wait(r,tick)
-            if #judging<M.judgeLimit then judging[#judging+1]=r end
-        end
+        if r then over(r,sprite,tick) end
         if p and M.CASTS[action.m_actionID] and text(action.m_string1.m_pchData:get())==p.resref then
             pending[id]=nil;p.started=tick;running[id]=p
             counts.started=counts.started+1
@@ -1990,15 +2003,52 @@ function M.new(g,options)
         if ok then return result end
         failed('started',result)
     end
-    -- From the gate when the hook's response holds one of the engine's holds (the hook block
-    -- fired, so no block of SCS's above it did): SCS's round timer marks the round (round).
-    function api:held(object,decision)
+    -- A plain hold's response ran (api:held): what of the engine's own it held is no longer the
+    -- creature's action. Each record ends as the end of its kind is judged (a queued cast that never
+    -- started is lost), with a 'cut' row naming what ended.
+    local function cut(sprite,tick)
+        local id=sprite.m_id
+        local ended={}
+        local p=pending[id]
+        if p then
+            pending[id]=nil;counts.lost=counts.lost+1
+            record({kind='lost',tick=tick,member=id,spell=p.resref,target=p.target,queued=p.tick,cut=true})
+            if director then director:release(id,tick) end
+            ended[#ended+1]='queued'
+        end
+        local r=running[id]
+        if r then over(r,sprite,tick);ended[#ended+1]='cast' end
+        local s=strikes[id]
+        if s then
+            if s.weapon then attacked(s,tick)
+            elseif held(sprite)~=s.item then struck(s,tick)
+            else strikes[id]=nil end
+            ended[#ended+1]=s.weapon and 'attack' or 'strike'
+        end
+        local m=moves[id]
+        if m then moved(m,sprite,tick);ended[#ended+1]='move' end
+        if seeker:holding(sprite,id,tick) then seeker:stop(id);ended[#ended+1]='search' end
+        if hider:holding(sprite,id,tick) then hider:stop(id);ended[#ended+1]='hide' end
+        counts.cut=counts.cut+1
+        record({kind='cut',tick=tick,member=id,ended=ended})
+    end
+    -- From the gate when the hook's response holds one of the engine's holds: SCS's round timer marks
+    -- the round (round). The response of a plain hold runs only once the action it held is gone (a
+    -- block of SCS's above the hook cut it short, or it ended early: kernel/hook.lua), so its record
+    -- ends (cut) and the engine decides again at once; that decision, if any, is the answer, which
+    -- the gate queues. An idle hold's response runs while the creature stands still, as it should.
+    function api:held(object,decision,family)
         if not enabled or missing or type(decision)~='table' or not decision.own then return end
-        local ok,err=pcall(function()
+        local ok,result=pcall(function()
             local tick=now()
-            if type(tick)=='number' then round(object,tick) end
+            if type(tick)~='number' then return nil end
+            round(object,tick)
+            if decision.idle then return nil end
+            cut(object,tick)
+            return ask({id=object.m_id},family)
         end)
-        if not ok then failed('held',err) end
+        if ok then return result end
+        failed('held',result)
     end
     -- From the gate when a claim lets the engine's own running action give way (adapters/eeex/hook.lua):
     -- a 'replace' row with the action that gave way, the actions left of it and the claim's kind.

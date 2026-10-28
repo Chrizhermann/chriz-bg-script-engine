@@ -45,7 +45,8 @@ function M.new(config)
     assert(below==nil or type(below)=='function')
     assert(stack==nil or type(stack)=='function')
     local pending,blocked,answers={},{},{}
-    local counts={reached=0,repeats=0,claimed=0,acted=0,held=0,skipped=0,stale=0,errors=0,observeErrors=0,heldErrors=0}
+    local counts={reached=0,repeats=0,claimed=0,acted=0,held=0,renewed=0,skipped=0,stale=0,errors=0,observeErrors=0,
+        heldErrors=0}
     local declines={}
     local log=trace.new(config.traceCapacity or 64)
     local api={}
@@ -59,6 +60,11 @@ function M.new(config)
         bump(counts,'errors')
         if tick then blocked[id]=tick+backoff end
         log:record({kind='error',actorKey=tostring(id),family=family,reason=reason,tick=tick})
+    end
+    -- Whether a decider's answer, copied (copied, result), is no plain decision, hold or idle hold.
+    local function bad(copied,result)
+        return not copied or type(result)~='table' or (result.hold~=nil and result.hold~=true) or
+            (result.idle~=nil and (result.idle~=true or result.hold~=true))
     end
     local function evaluate(id,actor,family,tick,script)
         if not enabled then return decline('disabled') end
@@ -89,10 +95,7 @@ function M.new(config)
         if not ok then failed(id,family,'decide-error',tick);return decline('error') end
         if decision==nil then pending[id]=nil;return decline('no-decision') end
         local copied,result=pcall(values.copy,decision)
-        if not copied or type(result)~='table' or (result.hold~=nil and result.hold~=true) or
-            (result.idle~=nil and (result.idle~=true or result.hold~=true)) then
-            failed(id,family,'bad-decision',tick);return decline('error')
-        end
+        if bad(copied,result) then failed(id,family,'bad-decision',tick);return decline('error') end
         pending[id]={decision=result,tick=tick,family=family}
         bump(counts,'claimed')
         log:record({kind='claim',actorKey=tostring(id),family=family,
@@ -124,7 +127,12 @@ function M.new(config)
     -- A decision is performed once, by the hook's response. {hold=true} claims the round
     -- without queueing anything, so the creature's running action is left alone, and
     -- {hold=true,idle=true} claims it for the creature to stand still; config.held (optional)
-    -- hears of either, and its errors change nothing.
+    -- hears of either, with the claim's family, and its errors change nothing. The game runs a
+    -- block's response only once the creature has nothing left to do or another block interrupted
+    -- its actions, so a plain hold whose response runs finds the action it meant to leave alone
+    -- gone: config.held may answer such a hold with a new decision, performed here as a claimed one
+    -- is ('renewed'). Its answer to an idle hold, or a hold, changes nothing; an answer that is no
+    -- decision counts as one of its errors.
     function api:act(actor)
         local id=type(actor)=='table' and rawget(actor,'id')
         if not scalarId(id) then return false,'bad-actor' end
@@ -133,16 +141,29 @@ function M.new(config)
         local tick=now()
         if not tick or tick<p.tick or tick-p.tick>maxAge then bump(counts,'stale');return false,'stale' end
         if not enabled or not families[p.family] then return false,'disabled' end
-        if p.decision.hold then
+        local decision,reason=p.decision,'performed'
+        if decision.hold then
             bump(counts,'held')
-            if held and not pcall(function() held(values.copy(actor),values.copy(p.decision)) end) then
-                bump(counts,'heldErrors')
+            local answer
+            if held then
+                local ok,result=pcall(function() return held(values.copy(actor),values.copy(decision),p.family) end)
+                if ok then answer=result else bump(counts,'heldErrors') end
             end
-            log:record({kind='act',actorKey=tostring(id),family=p.family,reason='held',tick=tick})
-            return true,'held'
+            local renewed
+            if answer~=nil and not decision.idle then
+                local copied,result=pcall(values.copy,answer)
+                if bad(copied,result) then bump(counts,'heldErrors')
+                elseif not result.hold then renewed=result end
+            end
+            if not renewed then
+                log:record({kind='act',actorKey=tostring(id),family=p.family,reason='held',tick=tick})
+                return true,'held'
+            end
+            bump(counts,'renewed')
+            decision,reason=renewed,'renewed'
         end
         if not perform then failed(id,p.family,'no-performer',tick);return false,'no-performer' end
-        local ok,done=pcall(function() return perform(values.copy(actor),values.copy(p.decision)) end)
+        local ok,done=pcall(function() return perform(values.copy(actor),values.copy(decision)) end)
         -- 'skipped': the decision no longer fits (its target died meanwhile); no error, no backoff.
         if ok and done=='skipped' then
             bump(counts,'skipped')
@@ -151,8 +172,8 @@ function M.new(config)
         end
         if not ok or done~=true then failed(id,p.family,ok and 'not-performed' or 'perform-error',tick);return false,'error' end
         bump(counts,'acted')
-        log:record({kind='act',actorKey=tostring(id),family=p.family,reason='performed',tick=tick})
-        return true
+        log:record({kind='act',actorKey=tostring(id),family=p.family,reason=reason,tick=tick})
+        return true,reason=='renewed' and 'renewed' or nil
     end
     -- Whether the gate is on for a family right now (for helpers that act outside a claim).
     function api:allows(family) return enabled and known[family]==true and families[family]==true end

@@ -803,13 +803,19 @@ than its average left kills as often as the dice say, not always, and one with a
 still die. A cloud's explosions add up before the kill counts: a creature that one more explosion
 would likely kill now sees the worth of leaving.
 
+The big lab round's first whole fights (FIGHT-01, "Lab batch J", 2026-10-28) went to SCS: its
+groups won all 7, the engine's lost or did not finish in time. Two causes stood out. A call for help
+of SCS's above the hook cut the engine's attack short, and the creature then stood until its next
+decision; such a hold now decides anew at once. And the engine's fighters drank their buff potions
+late or never, while SCS's drink them at the start; that is next.
+
 Next, in the order agreed with Christopher on 2026-10-27 for the first release: the rest of the big
 lab round (light and shadow in a second hide probe, and a party of the same strength for the mixed
 fights, which also show the replacement in whole fights, thieves in whole fights, the veil in game,
 the prebuffs in game); then the boss fights, designed with Christopher one by one (Melissan's own
-among them). The Erinyes' withdrawal
-comes with a later "disengage" step (SCS's blueprint for it: FIGHT-01, "Disengage"). After the release: traps, scripted encounter phases, a harder
-Insane, groups that share spells, quests.
+among them). The Erinyes' withdrawal comes with a later "disengage" step (SCS's blueprint for it:
+FIGHT-01, "Disengage"). After the release: traps, scripted encounter phases, a harder Insane, groups
+that share spells, quests.
 
 ## To design with Christopher
 

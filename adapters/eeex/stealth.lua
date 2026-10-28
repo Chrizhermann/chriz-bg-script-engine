@@ -147,7 +147,8 @@ function M.new(g,options)
         if hidden then counts.veiled=counts.veiled+1 else counts.unveiled=counts.unveiled+1 end
         record({kind='veiled',tick=cast.ended,member=cast.caster,spell=cast.resref,hidden=hidden})
     end
-    -- Whether the try goes on (see the top); once it is over it is judged.
+    -- Whether the try goes on (see the top): 'mode' once only the game's stealth mode runs, else
+    -- 'action'; false once it is over, and then it is judged.
     function hider:holding(sprite,id,tick)
         local s=states[id]
         local a=s and s.act
@@ -161,7 +162,9 @@ function M.new(g,options)
         elseif took>=M.graceTicks and sprite.m_curAction.m_actionID~=M.HIDE and mode~=stealth.stealthMode then why='ended'
         elseif sprite.m_baseStats.m_hitPoints<a.hp then why='hurt'
         elseif sense.seesEnemy(g,sprite) then why='seen' end
-        if not why then return true end
+        if not why then
+            return (mode==stealth.stealthMode and sprite.m_curAction.m_actionID~=M.HIDE) and 'mode' or 'action'
+        end
         s.act=nil
         if hidden then counts.hidden=counts.hidden+1 else counts.unhidden=counts.unhidden+1 end
         record({kind='hidden',tick=tick,member=id,hidden=hidden,why=why,took=math.max(took,0),modal=mode,

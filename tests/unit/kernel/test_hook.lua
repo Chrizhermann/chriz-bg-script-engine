@@ -308,4 +308,40 @@ answer={idle=true};pass()
 claimed,kind=g:claim(actor,'mage');assert(claimed==false and kind==nil and g:inspect().counts.errors==1)
 answer={hold=true,idle=1};pass()
 assert(g:claim(actor,'mage')==false and g:inspect().counts.errors==2)
-return 19
+
+-- 20. The game runs a block's response only once its actions are gone, so a plain hold whose
+-- response runs held nothing: config.held hears of it with the claim's family and may answer with
+-- a new decision, performed once as a claimed one is ('renewed'). Its answer to an idle hold, or
+-- a hold, changes nothing; one that is no decision is an error of held's. A renewed decision that
+-- no longer fits is skipped.
+local hold,reply,heardFamily={hold=true,own=true},nil,nil
+performed={}
+g=hook.new({now=clock,decide=function() return hold end,
+    perform=function(a,d)
+        if d.skip then return 'skipped' end
+        performed[#performed+1]=d.response;return true
+    end,
+    held=function(a,d,family) heardFamily=family;return reply end})
+pass();reply={response='AttackOneRound(EEex_Target("BGSE"))',own=true}
+assert(g:claim(actor,'fighter')==true)
+ok,why=g:act(actor);assert(ok==true and why=='renewed' and heardFamily=='fighter')
+assert(#performed==1 and performed[1]=='AttackOneRound(EEex_Target("BGSE"))')
+s=g:inspect()
+assert(s.counts.held==1 and s.counts.renewed==1 and s.counts.acted==1 and s.trace[#s.trace].reason=='renewed')
+ok,why=g:act(actor);assert(ok==false and why=='no-pending' and #performed==1)
+hold={hold=true,idle=true,own=true};pass()
+assert(g:claim(actor,'fighter')==true)
+ok,why=g:act(actor);assert(ok==true and why=='held' and #performed==1 and g:inspect().counts.renewed==1)
+hold={hold=true,own=true};reply={hold=true,own=true};pass()
+assert(g:claim(actor,'fighter')==true)
+ok,why=g:act(actor);assert(ok==true and why=='held' and #performed==1 and g:inspect().counts.heldErrors==0)
+for _,wrong in ipairs({{hold='yes'},{idle=true},{f=function() end},'text'}) do
+    reply=wrong;pass()
+    assert(g:claim(actor,'fighter')==true)
+    ok,why=g:act(actor);assert(ok==true and why=='held' and #performed==1)
+end
+assert(g:inspect().counts.heldErrors==4 and g:inspect().counts.errors==0)
+reply={response='NoAction()',skip=true};pass()
+assert(g:claim(actor,'fighter')==true)
+ok,why=g:act(actor);assert(ok==false and why=='skipped' and g:inspect().counts.skipped==1 and g:inspect().counts.renewed==2)
+return 20

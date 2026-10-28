@@ -990,6 +990,51 @@ free themselves from melee with their own spells (Dimension Door, Mislead, Invis
 morale should make dull creatures run, for example when their leader falls. Settled by his rules:
 real, visible abilities only (no free teleports), and every tactic by wit.
 
+### Lab batch J: whole fights with a mirror party (2026-10-28)
+
+The big lab round of step 3 (Spell Revisions lab, cleaned up after). Two groups fought the lab's
+party of seven, which plays like a simple human player (everyone drinks the buff potions it carries
+at the start, the mage and priest cast their spells by their real areas): j1, the party's mirror (a
+fighter with potions, a kensai, an archer, a thief, an assassin, a mage and a priest), and j2, a
+glabrezu, a greater werewolf, that fighter, a bone fiend, an erinyes and a mind flayer. Each fought
+under the engine (`own`) and under SCS alone (`scs`).
+
+- **Result:** under SCS the groups won all 7 fights (j1 in 47 to 72 seconds without a loss). Under
+  the engine j1 lost 3 of 4 and ran out of time once with both sides nearly dead; j2 was ahead in all
+  3 (57 to 68 per cent of its hit points left, the party at 4 to 13) but did not finish them in 240
+  seconds.
+- **Standing idle after an interruption.** A block of SCS's above the hook that fires (a call for
+  help, `Shout(151)`, or one of its timers, with `Continue()`) interrupts the engine's running attack,
+  as the game interrupts any block's actions. The hook's hold then queued nothing, so the creature
+  stood until its next decision. Of 2,361 holds in the 7 fights, the hook's response ran 448 times:
+  75 times it had just cut the engine's action short (mostly an attack; 51 times with SCS's blocks
+  firing in the same pass), 373 times the action was already over; each time the creature stood a
+  median 32 ticks (two seconds). The hook block also cut the engine's own attack by itself, 19
+  times, each time an attack queued in a pass in which a call for help had fired (never one queued
+  in a pass without: 1,876 holds); why is open.
+- **Potions at the start.** SCS's fighters drink their buff potions at once (Oil of Speed, giant
+  strength, at tick 15); the engine's fighter drank its Oil of Speed after 14 seconds, the kensai
+  never. The party drank its own at the start, so the engine's fighters met hasted, stronger enemies.
+  Next step (below).
+- **What the engine does now.** The game runs a block's response only once that block's actions are
+  over or another block interrupted them, so a plain hold whose response runs finds the action it held
+  gone. The gate then lets the choice answer with a new decision (kernel/hook.lua, `renewed`), and the
+  choice ends its record of the cut action (its outcome judged as when it ends: a queued cast that
+  never started is lost) with a `cut` row and decides again at once, in the same response
+  (adapters/eeex/choice.lua). Waits, looks around and a thief's stealth mode are idle holds, whose
+  response runs while the creature stands still on purpose; they cut nothing. Under SCS's own scripts
+  the same calls for help interrupt SCS's attacks, and SCS's attack blocks below queue them again in
+  the same pass.
+- **Log:** a `cut` row (what ended: `queued`, `cast`, `attack`, `strike`, `move`, `search`, `hide`),
+  a `lost` row with `cut` for a queued cast, the choice's `cut` count and the gate's `renewed` count.
+
+Tests: the gate's group 20 (a decision answered for a plain hold is performed once; an idle hold, a
+hold and answers that are no decision change nothing; a renewed decision that no longer fits is
+skipped), the choice adapter's group 42 (an attack cut by a block above the hook, one ended early, a
+queued cast cut before it started, a wait's response), the search's look and the thief's stealth mode
+as idle holds (groups 33 and 38); 9 mutations checked.
+Still to see in game: batch J again with this and the potions step.
+
 ## Agreed (Christopher, 2026-10-25)
 
 1. **Target choice by worth, with overrides.** Not SCS's fixed list ("Ich würde es nicht eins zu

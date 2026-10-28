@@ -181,11 +181,10 @@ assert(m1.aux.EEex_Target.BGSE==12 and m1.locals.castspell==190)
 local state=root.inspect()
 assert(state.counts.acted==1 and state.choice.counts.claims==1 and state.choice.counts.performed==1 and state.choice.pending==1)
 assert(state.choice.counts.marked==1)
--- Queued, not started: the next pass holds, so SCS's blocks cannot replace the cast; the round's
--- marker still runs.
+-- Queued, not started: the next pass holds, so SCS's blocks cannot replace the cast, and the game
+-- runs no response of the hook block while the cast it queued waits; the round's marker still runs.
 assert(claim(m1,'mage','s1',101)==true)
-g.BGSE_Act(m1)
-assert(#g.queued==1 and root.inspect().counts.held==1 and root.inspect().choice.counts.holds==1)
+assert(#g.queued==1 and root.inspect().counts.held==0 and root.inspect().choice.counts.holds==1)
 assert(m1.locals.castspell==190 and root.inspect().choice.counts.marked==1)
 groups=groups+1
 
@@ -289,9 +288,8 @@ assert(#g.queued==queued+1 and root.inspect().choice.pending==1 and m1.locals.ca
 local holds=root.inspect().choice.counts.holds
 m1.castTimer=nil
 assert(claim(m1,'mage','s1',415)==true and root.inspect().choice.counts.holds==holds+1)
-g.BGSE_Act(m1)
 assert(claim(m1,'mage','s1',445)==true and root.inspect().choice.counts.lost==1)
-assert(last('lost').spell=='TESTBOLT' and last('lost').queued==395)
+assert(last('lost').spell=='TESTBOLT' and last('lost').queued==395 and last('lost').cut==nil)
 groups=groups+1
 
 -- 6. The creature's script keeps the round only with the switch off, while the creature casts what
@@ -1290,12 +1288,12 @@ assert(spot14 and spot14.space==3 and tonumber(mx)==spot14.x+3 and tonumber(my)=
     ch14:inspect().counts.zoneFailures==0)
 local mv14=last14('move')
 assert(mv14 and mv14.to.x==tonumber(mx) and mv14.to.y==tonumber(my) and ch14:inspect().moving==1)
--- It walks: held, nothing new queued.
+-- It walks: held, nothing new queued (the game runs no response of the hook block while the walk
+-- it queued runs).
 caster14.m_curAction={m_actionID=23}
 g14.ticks=105
 assert(g14.BGSE_Claim(caster14,'mage','s1')==true)
-g14.BGSE_Act(caster14)
-assert(#g14.queued==queued+1)
+assert(#g14.queued==queued+1 and ch14:inspect().moving==1)
 -- Out of the cloud: judged, and the bolt from where it stands.
 caster14.m_curAction={m_actionID=0};caster14.m_pos={x=tonumber(mx),y=tonumber(my)}
 g14.ticks=140
@@ -2025,7 +2023,13 @@ assert(claim33(m33,200)==true and seeker33().counts.looks==1)
 -- A look holds the round with the mage standing still, as a wait does.
 local trail33=root33.inspect().trace
 assert(trail33[#trail33].kind=='claim' and trail33[#trail33].reason=='idle')
+-- The look goes on the same way: an idle hold, whose response runs while the mage stands and cuts
+-- nothing.
 assert(claim33(m33,210)==true and seeker33().counts.looks==1)
+trail33=root33.inspect().trace
+assert(trail33[#trail33].kind=='claim' and trail33[#trail33].reason=='idle')
+g33.BGSE_Act(m33)
+assert(ch33:inspect().counts.cut==0 and g33.queued[#g33.queued].text=='MoveToPoint([300.0])')
 assert(claim33(m33,600)==true and last33('gave-up').since==140)
 g33.BGSE_Act(m33)
 assert(g33.queued[#g33.queued].text=='MoveToPoint([0.0])' and last33('return').gaveUp==true and seeker33().counts.gaveUp==1)
@@ -2651,10 +2655,13 @@ local h=last('hide')
 assert(h.member==1 and h.skill==60 and h.wit=='clever' and h.tactical==true and h.ordered==nil)
 local seen=ch:inspect().stealth
 assert(seen.counts.hides==1 and seen.counts.draws==1 and seen.trying==1)
--- Held while it runs Hide(); invisible ten ticks after the try, the 'hidden' row; nothing to search.
+-- Held while it runs Hide() (a plain hold); invisible ten ticks after the try, the 'hidden' row;
+-- nothing to search.
 t.m_curAction={m_actionID=18}
 local holds=ch:inspect().counts.holds
 assert(claim(t,105)==true and ch:inspect().counts.holds==holds+1)
+local trail=root.inspect().trace
+assert(trail[#trail].kind=='claim' and trail[#trail].reason=='hold')
 t.state=0x10;t.m_nModalState=3;t.m_curAction={m_actionID=0}
 assert(claim(t,110)==false and ch:inspect().reasons['no-enemy']==1)
 local done=last('hidden')
@@ -2685,9 +2692,16 @@ t.m_curAction={m_actionID=0};t.m_pos={x=200,y=0}
 assert(claim(t,490)==true)
 g.BGSE_Act(t)
 assert(g.queued[#g.queued].text=='Hide()' and count('hide')==3)
--- A try in the game's stealth mode is held until hideTicks (45) pass, then judged.
+-- A try in the game's stealth mode is held until hideTicks (45) pass, then judged. With Hide() over
+-- and only the stealth mode running, the thief stands still in it: an idle hold, whose response
+-- cuts nothing.
 t.m_nModalState=3
 assert(claim(t,520)==true and count('hidden')==2)
+trail=root.inspect().trace
+assert(trail[#trail].kind=='claim' and trail[#trail].reason=='idle')
+local queued=#g.queued
+g.BGSE_Act(t)
+assert(#g.queued==queued and ch:inspect().counts.cut==0 and ch:inspect().stealth.trying==1)
 claim(t,535)
 assert(last('hidden').why=='limit' and last('hidden').took==45 and last('hidden').hidden==false)
 -- Hurt during a try: it is over at once.
@@ -3028,6 +3042,92 @@ assert(#rows2()==2 and rows2()[1].spent=='WIZARD_STONE_SKIN' and rows2()[2].prep
 local g3,_,_,rows3=setup(83,{TEST1={prep=false}})
 local m3=g3.add(sprite(1,0,0,255))
 assert(g3.BGSE_Prep(m3,'mage','s1','contingency','WIZARD_IMPROVED_INVISIBILITY','')==true and #rows3()==1)
+end)()
+groups=groups+1
+
+-- 42. A hold's response runs only once the action it held is gone (lab batch J): a block of SCS's
+-- above the hook cut the engine's attack short (a call for help, with Continue()), or the attack
+-- ended early. The engine then ends its record of the attack, with a 'cut' row, and decides again
+-- at once; the gate queues that decision in the same response ('renewed'). A queued cast cut before
+-- it started is lost and cast again. A wait's response (an idle hold) cuts nothing.
+;(function()
+local function setup(seed)
+    local w=world()
+    local d=directors.new(w,{reader=reader9})
+    local c=choices.new(w,{reader=reader9,director=d,seed=seed})
+    local list={}
+    c:setSink(function(row) list[#list+1]=row end)
+    local r=runtime.install(w,{director=d,choice=c,version='test'})
+    local function last(kind) for n=#list,1,-1 do if list[n].kind==kind then return list[n] end end end
+    return w,c,r,last
+end
+local w,c,r,last=setup(91)
+local f=w.add(armed(sprite(1,0,0,255),35,'TESTSWRD'))
+w.add(sprite(11,60,0,2)).stats[2]=5
+w.ticks=100
+assert(w.BGSE_Claim(f,'mage','s1')==true and last('choice').castKind=='weapon')
+w.BGSE_Act(f)
+assert(#w.queued==1 and w.queued[1].text=='AttackOneRound(EEex_Target("BGSE"))')
+-- It attacks: held; the game runs no response of the hook block meanwhile.
+f.m_curAction=action(105,'',11)
+w.ticks=116
+assert(w.BGSE_Claim(f,'mage','s1')==true and #w.queued==1 and c:inspect().counts.holds==1)
+-- A block of SCS's above the hook fires: the claim still sees the attack and holds, then the game
+-- runs the response (its EEex_LuaAction the creature's action). The attack is over (an 'attack'
+-- row, a 'cut' row) and the engine attacks again in that response.
+w.ticks=132
+assert(w.BGSE_Claim(f,'mage','s1')==true and c:inspect().counts.holds==2)
+f.m_curAction=action(472,'',-1)
+w.BGSE_Act(f)
+assert(#w.queued==2 and w.queued[2].text=='AttackOneRound(EEex_Target("BGSE"))')
+local cut=last('cut')
+assert(cut.tick==132 and cut.member==1 and #cut.ended==1 and cut.ended[1]=='attack')
+assert(last('attack').started==100 and last('attack').tick==132 and last('swing').tick==132)
+local s=r.inspect()
+assert(s.counts.held==1 and s.counts.renewed==1 and s.counts.acted==2 and s.choice.counts.cut==1)
+assert(s.trace[#s.trace].reason=='renewed')
+-- The new attack ends early, within its round: the next pass still holds (a round from the attack)
+-- and the game runs the response at once, the creature having nothing left to do. Again the engine
+-- attacks at once.
+f.m_curAction={m_actionID=0}
+w.ticks=148
+assert(w.BGSE_Claim(f,'mage','s1')==true)
+w.BGSE_Act(f)
+assert(#w.queued==3 and last('cut').tick==148 and r.inspect().counts.renewed==2 and c:inspect().counts.cut==2)
+assert(c:inspect().counts.errors==0 and r.inspect().counts.heldErrors==0)
+-- A mage's bolt, queued and cut before it started: lost (cut=true), then cast again.
+local w2,c2,r2,last2=setup(92)
+local m=w2.add(sprite(1,0,0,255))
+learn(m,2,'TESTBOLT',2)
+w2.add(sprite(11,100,0,2))
+w2.ticks=100
+assert(w2.BGSE_Claim(m,'mage','s1')==true and last2('choice').spell=='TESTBOLT')
+w2.BGSE_Act(m)
+w2.ticks=110
+assert(w2.BGSE_Claim(m,'mage','s1')==true and c2:inspect().pending==1)
+m.m_curAction=action(472,'',-1)
+w2.BGSE_Act(m)
+local lost=last2('lost')
+assert(lost.cut==true and lost.queued==100 and lost.spell=='TESTBOLT' and last2('cut').ended[1]=='queued')
+assert(#w2.queued==2 and w2.queued[2].text=='SpellRES("TESTBOLT",EEex_Target("BGSE"))' and r2.inspect().counts.renewed==1)
+-- With its casting aura running and nothing else to do, a mage waits: an idle hold, whose response
+-- runs while it stands still and cuts nothing.
+local w3,c3,r3,last3=setup(93)
+local m3=w3.add(sprite(1,0,0,255))
+learn(m3,2,'TESTBOLT',2)
+w3.add(sprite(11,100,0,2))
+m3.castTimer=40
+w3.ticks=100
+assert(w3.BGSE_Claim(m3,'mage','s1')==true and last3('wait').tick==100)
+m3.m_curAction=action(472,'',-1)
+w3.BGSE_Act(m3)
+m3.m_curAction={m_actionID=0}
+w3.ticks=105
+assert(w3.BGSE_Claim(m3,'mage','s1')==true)
+m3.m_curAction=action(472,'',-1)
+w3.BGSE_Act(m3)
+assert(#w3.queued==0 and c3:inspect().counts.cut==0 and last3('cut')==nil and r3.inspect().counts.held==2)
+assert(r3.inspect().counts.renewed==0)
 end)()
 groups=groups+1
 
