@@ -991,8 +991,8 @@ Christopher's answers (2026-10-28):
   is bad too; a short retreat is fine.
 - **Escaping melee with own spells:** not every caster, only chosen encounters or creatures. A
   Dimension Door or the like would be cool, but buys little when the attacker is much faster than
-  the mage. Mislead is broken and should rather never be used (open: whether that also takes it
-  out of the mages' preparation, where SCS puts it up before a fight).
+  the mage. Mislead is too buggy for more uses: it stays in the mages' preparation, where SCS puts
+  it up before a fight, and gets no new ones (no escape); fixing Mislead itself may come later.
 - **Morale:** dull creatures may run, for example when their leader falls, but thin and rare, as
   running enemies annoy.
 

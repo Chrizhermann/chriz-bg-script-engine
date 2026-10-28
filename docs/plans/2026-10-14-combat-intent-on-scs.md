@@ -818,8 +818,8 @@ fights, which also show the replacement in whole fights, thieves in whole fights
 the prebuffs in game); then the boss fights, designed with Christopher one by one (Melissan's own
 among them). The Erinyes' withdrawal comes with a later "disengage" step (SCS's blueprint for it and
 Christopher's answers of 2026-10-28: FIGHT-01, "Disengage"): nobody flees for good, a short retreat
-is fine; escapes from melee with own spells only for chosen foes; Mislead rather never; morale
-flight thin and rare. After the release: traps, scripted encounter phases, a harder Insane, groups
+is fine; escapes from melee with own spells only for chosen foes; no new uses of Mislead (too
+buggy; it stays in the mages' preparation); morale flight thin and rare. After the release: traps, scripted encounter phases, a harder Insane, groups
 that share spells, quests.
 
 ## To design with Christopher
