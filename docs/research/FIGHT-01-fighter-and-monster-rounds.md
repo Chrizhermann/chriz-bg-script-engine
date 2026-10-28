@@ -984,11 +984,19 @@ source (credit DavidW) and the SR lab's spell files:
 - **Story exits** at low hit points (Bodhi's and Abazigal's dialogues, a dragon turning neutral)
   belong to their encounters, not to this step.
 
-Open for Christopher: whether badly hurt creatures leave at all, and if so whether they come back
-later healed or leave for good (the player then loses their experience and loot); whether casters
-free themselves from melee with their own spells (Dimension Door, Mislead, Invisibility); and whether
-morale should make dull creatures run, for example when their leader falls. Settled by his rules:
-real, visible abilities only (no free teleports), and every tactic by wit.
+Christopher's answers (2026-10-28):
+
+- **Badly hurt:** nobody leaves for good, or almost nobody (later we may look for the rare creature
+  where it makes sense); he finds the vanishing Erinyes and Melissan's allies dumb. Being gone long
+  is bad too; a short retreat is fine.
+- **Escaping melee with own spells:** not every caster, only chosen encounters or creatures. A
+  Dimension Door or the like would be cool, but buys little when the attacker is much faster than
+  the mage. Mislead is broken and should rather never be used (open: whether that also takes it
+  out of the mages' preparation, where SCS puts it up before a fight).
+- **Morale:** dull creatures may run, for example when their leader falls, but thin and rare, as
+  running enemies annoy.
+
+Settled by his rules: real, visible abilities only (no free teleports), and every tactic by wit.
 
 ### Lab batch J: whole fights with a mirror party (2026-10-28)
 
