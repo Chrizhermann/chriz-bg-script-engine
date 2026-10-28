@@ -89,13 +89,16 @@ function M.spellLevel(e)
     return clamp(math.ceil(level/2),1,top)
 end
 
--- The caster and its living allies.
+-- The caster and its living allies. A charmed ally is a foe the caster's side charmed: out of play
+-- (Christopher, 2026-10-29), so nobody heals, cures or buffs it, and it counts for nothing here;
+-- area spells still spare it (they check frame.allies), as harming it would break the charm by the
+-- rules text.
 function M.friends(frame)
     local out={}
     if type(frame)~='table' then return out end
     if targeting.alive(frame.self) then out[#out+1]=frame.self end
     for _,a in ipairs(type(frame.allies)=='table' and frame.allies or {}) do
-        if targeting.alive(a) then out[#out+1]=a end
+        if targeting.alive(a) and not targeting.charmed(a) then out[#out+1]=a end
     end
     return out
 end

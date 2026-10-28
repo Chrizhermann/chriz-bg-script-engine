@@ -129,6 +129,13 @@ assert(t[1].spell.hp==0 and near(t[2].spell.hp,12))
 i=input({fighter(11,130,{held=1}),fighter(12,1000,{actee=-1})})
 t=threat.picture(i.frame)
 assert(t[1].weapon.attacks==0)
+-- A charmed ally is a foe the caster's side charmed (Christopher, 2026-10-29): no friend, no threat
+-- of its own; the enemy that aims at it goes for the caster.
+i=input({fighter(11,130,{actee=2})})
+i.frame.allies={{id=2,x=120,y=100,hp=80,maxHp=80,state=0x2000,ac=2}}
+assert(#threat.friends(i.frame)==1 and threat.friends(i.frame)[1].id==1)
+t=threat.picture(i.frame)
+assert(t[2]==nil and near(t[1].weapon.attacks,2))
 groups=groups+1
 
 -- 2. Shields and what they block. Protection from Magical Weapons stops magical weapons while

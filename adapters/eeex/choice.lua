@@ -369,9 +369,12 @@ end
 
 -- Whether a friend in frame (the creature itself or an ally it sees) has lost hit points, is held
 -- or has a condition a cure takes away: then heals and cures are weighed with no enemy in sight.
+-- A charmed ally is a foe the creature's side charmed, no friend (combat-intent/threat.lua).
 function M.ailing(frame)
     local friends={frame.self}
-    for _,a in ipairs(frame.allies) do friends[#friends+1]=a end
+    for _,a in ipairs(frame.allies) do
+        if not targeting.charmed(a) then friends[#friends+1]=a end
+    end
     for _,f in ipairs(friends) do
         if type(f.hp)=='number' and type(f.maxHp)=='number' and f.hp<f.maxHp then return true end
         if (f.held or 0)>0 then return true end
@@ -1898,8 +1901,9 @@ function M.new(g,options)
                 target=flank and decision.target or nil,backstab=flank and decision.backstab or nil,
                 slot=flank and decision.slot or nil,cast=position and decision.cast or nil,
                 toward=position and decision.toward or nil})
-        elseif decision.kind=='search' or decision.kind=='return' then
-            -- A search walk or the way back: to the nearest open spot (no zones to keep out of).
+        elseif decision.kind=='search' or decision.kind=='return' or decision.kind=='guard' then
+            -- A search walk, a guard's walk to its place by a foe out of play or the way back: to the
+            -- nearest open spot (no zones to keep out of).
             local point=walkable(object,{point=decision.point})
             if not point then return 'skipped' end
             decision.response='MoveToPoint(['..point.x..'.'..point.y..'])'

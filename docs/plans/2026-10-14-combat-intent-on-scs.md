@@ -810,7 +810,14 @@ decision; such a hold now decides anew at once. And the engine's fighters drank 
 late or never, while SCS's drink them at the start: a buff counted only three rounds, and a giant
 strength potion nothing. Now what a buff adds to attacks counts over the rest of the fight, as
 summons do, and strength through the game's own tables (FIGHT-01, "Buffs over the rest of the
-fight").
+fight"). The fiend group's fights ran out of time because the party's last members were mazed or
+charmed, not beaten, and the group hunted them as if they were hiding. Christopher's answer
+(2026-10-29): play by the rules text; nobody attacks or hunts a foe its side charmed (it would
+break the charm), a mazed foe is awaited by wit, and the engine owns those waiting rounds. Built the
+same day (FIGHT-01, "Foes out of play"): the director keeps such foes apart from its picture, and
+the search awaits them instead of handing the round to SCS: clever creatures guard the foe's spot
+from a distance, normal ones wait at their post, dull ones stand; an imprisoned foe is forgotten.
+Re-buffing while waiting is not built yet.
 
 Next, in the order agreed with Christopher on 2026-10-27 for the first release: the rest of the big
 lab round (light and shadow in a second hide probe, and a party of the same strength for the mixed

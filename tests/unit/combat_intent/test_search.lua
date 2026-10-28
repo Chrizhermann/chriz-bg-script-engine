@@ -292,4 +292,74 @@ assert(d.kind=='detect')
 assert(select(1,search.jump(input({teleports={{resref='X',range=0,innate=true}}}),{x=2000,y=1000},1000,true))==nil)
 groups=groups+1
 
+-- 11. Foes out of play (Christopher, 2026-10-29): one the group charmed, one in a maze. Never a clue;
+-- awaited by wit once nothing else is left to search: a clever creature guards the nearest one's spot
+-- (240 for a caster, 96 for a fighter, on its own side, turned away from the spots other members make
+-- for) and looks out once there; a normal one waits at its post, a dull one stands where it is; a
+-- designer's orders can say which; a rooted one looks out where it is; one that guards its post guards
+-- only a foe near it. Giving up a search hands over to the wait, never to the creature's own life.
+local mazed={id=21,kind='maze',x=1300,y=1000,since=2900,lastTick=2995}
+d=search.decide(input({away={mazed}}))
+assert(d.kind=='guard' and d.point.x==1060 and d.point.y==1000 and d.await==21 and d.target==21 and d.away=='maze' and
+    d.how=='guard' and d.gaveUp==nil)
+d=search.decide(input({away={mazed},family='fighter'}))
+assert(d.kind=='guard' and d.point.x==1204 and d.point.y==1000)
+-- Another member makes for that place: the next one on the ring, one way, then the other.
+d=search.decide(input({away={mazed},group={{id=2,family='mage',point={x=1060,y=1000}}}}))
+assert(d.kind=='guard' and d.point.x==1130 and d.point.y==873)
+d=search.decide(input({away={mazed},group={{id=2,family='mage',point={x=1060,y=1000}},{id=3,family='mage',point={x=1130,y=873}}}}))
+assert(d.point.x==1130 and d.point.y==1127)
+local ring={}
+for i=0,7 do
+    local t=math.ceil(i/2)*(i%2==1 and 1 or -1)*search.guardTurn
+    ring[#ring+1]={id=10+i,family='mage',point={x=1300-math.cos(t)*240,y=1000-math.sin(t)*180}}
+end
+d=search.decide(input({away={mazed},group=ring}))
+assert(d.point.x==1060 and d.point.y==1000)
+-- At its place it looks out there, keeping the place.
+d=search.decide(input({frame={self=self({x=1060})},away={mazed}}))
+assert(d.kind=='look' and d.point.x==1060 and d.await==21 and d.how=='guard')
+-- The nearer foe first: a charmed one standing by.
+d=search.decide(input({away={mazed,{id=22,kind='charm',x=900,y=1000,since=2990,lastTick=3000}}}))
+assert(d.kind=='guard' and d.await==22 and d.away=='charm' and d.point.x==1140 and d.point.y==1000)
+-- A normal one waits at its post, a dull one stands; without a post the normal one stands as well.
+d=search.decide(input({away={mazed},post={x=600,y=1000},mind={wit='normal',tactics=0.5}}))
+assert(d.kind=='return' and d.point.x==600 and d.how=='post' and d.await==21)
+d=search.decide(input({frame={self=self({x=620})},away={mazed},post={x=600,y=1000},mind={wit='normal',tactics=0.5}}))
+assert(d.kind=='look' and d.how=='post' and d.point==nil)
+d=search.decide(input({away={mazed},mind={wit='normal',tactics=0.5}}))
+assert(d.kind=='look' and d.how=='post')
+d=search.decide(input({away={mazed},post={x=600,y=1000},mind={wit='dull',tactics=0}}))
+assert(d.kind=='look' and d.how=='stand' and d.await==21)
+-- Orders over wit; an unknown order leaves it to wit.
+d=search.decide(input({away={mazed},await='stand'}))
+assert(d.kind=='look' and d.how=='stand')
+d=search.decide(input({away={mazed},await='guard',mind={wit='dull',tactics=0}}))
+assert(d.kind=='guard' and d.how=='guard')
+d=search.decide(input({away={mazed},await='nope'}))
+assert(d.how=='guard')
+-- Rooted: looks out where it is. A creature that guards its post guards a foe near it only.
+d=search.decide(input({frame={self=self({rooted=true})},away={mazed}}))
+assert(d.kind=='look' and d.how=='guard' and d.point==nil)
+d=search.decide(input({away={mazed},guard=true,post={x=1000,y=1000}}))
+assert(d.kind=='look' and d.how=='post')
+d=search.decide(input({away={{id=21,kind='maze',x=1200,y=1000}},guard=true,post={x=1000,y=1000},family='fighter'}))
+assert(d.kind=='guard' and d.point.x==1104)
+-- A clue of the foe out of play is none; another foe's clue is still searched; giving up or running
+-- out of patience hands over to the wait (gaveUp marked once).
+d=search.decide(input({away={mazed},clues={{kind='seen',id=21,x=1300,y=1000,tick=2990}}}))
+assert(d.kind=='guard' and d.gaveUp==nil)
+d=search.decide(input({away={mazed},clues={{kind='seen',id=21,x=1300,y=1000,tick=2990}},since=2900}))
+assert(d.kind=='guard' and d.gaveUp==true)
+d=search.decide(input({away={mazed},clues={seen}}))
+assert(d.kind=='search' and d.target==11)
+d=search.decide(input({away={mazed},clues={{kind='seen',id=11,x=1300,y=1000,tick=3000-31*15}},since=2400}))
+assert(d.kind=='guard' and d.gaveUp==true)
+d=search.decide(input({away={mazed},clues={seen},gaveUp=2960,post={x=600,y=1000}}))
+assert(d.kind=='guard' and d.gaveUp==nil)
+-- Only charmed and mazed foes count, with a place and an id.
+d,why=search.decide(input({away={{id=23,kind='prison',x=1,y=1},{id=24,kind='maze',x='a',y=1},{kind='maze',x=1,y=1}}}))
+assert(d==nil and why=='no-clue')
+groups=groups+1
+
 return groups

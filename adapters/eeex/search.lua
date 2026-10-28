@@ -9,9 +9,10 @@
 -- and innate abilities. Each creature keeps where its fight began (its post, where it goes back when
 -- it gives up), whether its search draws its tactics, the spots it has searched, when it gave up,
 -- when it last detected and when it last teleported; its group's boss, or one whose orders say so,
--- guards its post. A walk is held while the creature walks it, a look and the rogue's detection mode
--- briefly; each ends early when an enemy shows or the creature is hurt. Session-local; a load
--- forgets it all.
+-- guards its post. The foes its group holds out of play (the director's away: one it charmed, one in
+-- a maze) are no clues; the search awaits them (combat-intent/search.lua, M.await). A walk is held
+-- while the creature walks it, a look and the rogue's detection mode briefly; each ends early when an
+-- enemy shows or the creature is hurt. Session-local; a load forgets it all.
 local sense=require('adapters.eeex.sense')
 local search=require('combat-intent.search')
 local targeting=require('combat-intent.targeting')
@@ -50,7 +51,7 @@ function M.new(g,options)
     local rng=options.rng
     local states,stateCount={},0
     local counts={hunts=0,walks=0,looks=0,returns=0,gaveUp=0,detects=0,modals=0,teleports=0,hitClues=0,guards=0,
-        stuck=0,guardFailures=0}
+        stuck=0,guardFailures=0,awaits=0,guardWalks=0}
     local seeker={}
     local function state(id)
         local s=states[id]
@@ -95,7 +96,7 @@ function M.new(g,options)
             s.guard=guards(sprite,id,tick,orders)
             if s.guard then counts.guards=counts.guards+1 end
         end
-        s.since,s.gaveUp,s.tactical,s.act,s.aim,s.back,s.stuck=nil,nil,nil,nil,nil,nil,0
+        s.since,s.gaveUp,s.tactical,s.act,s.aim,s.back,s.stuck,s.awaiting=nil,nil,nil,nil,nil,nil,0,nil
         s.searched,s.clues,s.hits={},{},{}
     end
 
@@ -124,10 +125,10 @@ function M.new(g,options)
         return object~=nil and g.EEex_GameObject_IsSprite(object,false)
     end
     -- The creature's clues now: the group's picture as it reads it, each enemy's kept while its
-    -- patience lasts (horizon, in ticks), and its own hits. An enemy lost from sight lately counts as
-    -- vanished where the creature sees its spot and, for one that was walking, the spot it would
-    -- have reached by now.
-    local function clues(s,sprite,frame,tick,horizon)
+    -- patience lasts (horizon, in ticks), and its own hits; none of a foe out of play (away, by id). An
+    -- enemy lost from sight lately counts as vanished where the creature sees its spot and, for one
+    -- that was walking, the spot it would have reached by now.
+    local function clues(s,sprite,frame,tick,horizon,away)
         if director then
             for _,c in ipairs(director:clues(frame.self.id,tick)) do
                 local had=s.clues[c.id]
@@ -137,7 +138,7 @@ function M.new(g,options)
         local out={}
         for key,c in pairs(s.clues) do
             local age=tick-c.tick
-            if age<0 or age>horizon or not living(c.id) then s.clues[key]=nil
+            if age<0 or age>horizon or away[c.id] or not living(c.id) then s.clues[key]=nil
             else
                 local near=false
                 if age<=search.vanishTicks then
@@ -152,7 +153,7 @@ function M.new(g,options)
             end
         end
         for key,c in pairs(s.hits) do
-            if tick<c.tick or tick-c.tick>horizon or not living(c.id) then s.hits[key]=nil else out[#out+1]=c end
+            if tick<c.tick or tick-c.tick>horizon or away[c.id] or not living(c.id) then s.hits[key]=nil else out[#out+1]=c end
         end
         table.sort(out,function(a,b) if a.kind~=b.kind then return a.kind<b.kind end return a.id<b.id end)
         return out
@@ -188,7 +189,9 @@ function M.new(g,options)
         if type(s.hp)=='number' and type(self.hp)=='number' and self.hp<s.hp then hit(s,sprite,frame,tick,s.hp-self.hp) end
         s.hp=self.hp
         local patience=search.patience({mind=m,frame=frame})
-        local list=clues(s,sprite,frame,tick,math.max(search.memorySeconds,patience)*M.ticksPerSecond)
+        local away,out=director and director.away and director:away(id,tick) or {},{}
+        for _,a in ipairs(away) do out[a.id]=true end
+        local list=clues(s,sprite,frame,tick,math.max(search.memorySeconds,patience)*M.ticksPerSecond,out)
         local newest
         for _,c in ipairs(list) do if not newest or c.tick>newest then newest=c.tick end end
         -- Something new since the creature gave up (a hit, a member seeing the enemy again): it
@@ -203,7 +206,7 @@ function M.new(g,options)
         local d,why=search.decide({tick=tick,frame=frame,mind=m,family=family,clues=list,post=s.post,since=s.since,
             searched=s.searched,gaveUp=s.gaveUp,detected=s.detected,jumped=s.jumped,group=group(id,frame.area,tick),
             guard=s.guard,detects=search.options(rows,carried),teleports=search.teleports(rows),illusion=illusion(sprite),
-            tactical=s.tactical})
+            tactical=s.tactical,away=away,await=type(orders)=='table' and orders.await or nil})
         if not d then
             if why=='given-up' then
                 giveUp(s,id,tick,newest and 'patience' or 'no-clue')
@@ -211,12 +214,15 @@ function M.new(g,options)
                 -- anew.
                 s.post,s.aim,s.act,s.back=nil,nil,nil,nil
             end
+            s.awaiting=nil
             return nil,why
         end
         if d.gaveUp then giveUp(s,id,tick,newest and 'patience' or 'no-clue') end
-        if (d.kind=='search' or d.kind=='teleport') and type(zoneAt)=='function' then
+        if (d.kind=='search' or d.kind=='teleport' or d.kind=='guard') and type(zoneAt)=='function' then
             if zoneAt(d.toward or d.point) then
-                d={kind='look',key=d.key,searched=d.key,zone=true}
+                -- A guard's place in a danger zone: it looks out where it is.
+                if d.kind=='guard' then d.kind,d.point,d.zone='look',nil,true
+                else d={kind='look',key=d.key,searched=d.key,zone=true} end
             elseif d.kind=='teleport' and zoneAt(d.point) then
                 -- A jump that would land in a danger zone short of its spot: the creature walks there.
                 d={kind='search',point=d.toward,clue=d.clue,target=d.target,key=d.key}
@@ -224,19 +230,36 @@ function M.new(g,options)
         end
         if d.searched then s.searched[d.searched]=true end
         if d.kind=='return' then
-            -- A creature that cannot come nearer its post stays where it is.
-            local away=targeting.distance(self,s.post)
-            if s.back and away>s.back-M.progress then s.stuck=s.stuck+1 end
-            s.back=away
+            -- A creature that cannot come nearer its post stays where it is; one that awaits a foe
+            -- out of play looks out there.
+            local left=targeting.distance(self,s.post)
+            if s.back and left>s.back-M.progress then s.stuck=s.stuck+1 end
+            s.back=left
             if s.stuck>=M.stuckLimit then
                 counts.stuck=counts.stuck+1
                 record({kind='stuck',tick=tick,member=id,post=s.post,at={x=self.x,y=self.y}})
                 giveUp(s,id,tick,'stuck')
                 s.post,s.aim,s.act,s.back=nil,nil,nil,nil
-                return nil,'given-up'
+                if not d.await then s.awaiting=nil;return nil,'given-up' end
+                d.kind,d.point='look',nil
             end
         else
             s.back,s.stuck=nil,0
+        end
+        -- Each new way of awaiting a foe out of play is logged once.
+        if d.await then
+            local key=d.await..':'..d.how
+            if s.awaiting~=key then
+                counts.awaits=counts.awaits+1
+                record({kind='await',tick=tick,member=id,family=family,target=d.await,away=d.away,how=d.how,wit=m.wit,
+                    point=d.point})
+            end
+            s.awaiting=key
+            -- A guard at its place keeps it as the spot it makes for, which the group's other guards
+            -- leave free.
+            if d.kind=='look' and d.point then s.aim,s.aimTick=d.point,tick end
+        else
+            s.awaiting=nil
         end
         if d.kind=='look' then
             s.act={kind='look',tick=tick,limit=M.lookTicks};counts.looks=counts.looks+1
@@ -248,8 +271,9 @@ function M.new(g,options)
         end
         return d
     end
-    -- The walk prepared for a search or a way back (decision: its kind, clue, target, gaveUp and
-    -- guard), to point, an open spot: held while the creature walks it.
+    -- The walk prepared for a search, a guard's walk to its place by a foe out of play or a way back
+    -- (decision: its kind, clue, target, gaveUp and guard), to point, an open spot: held while the
+    -- creature walks it.
     function seeker:walk(sprite,decision,point,tick)
         local id=sprite.m_id
         local s=state(id)
@@ -259,6 +283,9 @@ function M.new(g,options)
         if decision.kind=='search' then
             s.aim,s.aimTick=point,tick
             counts.walks=counts.walks+1
+        elseif decision.kind=='guard' then
+            s.aim,s.aimTick=point,tick
+            counts.guardWalks=counts.guardWalks+1
         else
             s.aim=nil
             counts.returns=counts.returns+1

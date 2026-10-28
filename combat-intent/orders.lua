@@ -17,6 +17,10 @@
 -- cannot see (combat-intent/search.lua); guard=false lets it search like anyone, also as its
 -- group's boss, which guards by default.
 --
+-- await says what the creature does about a foe out of play (one its side charmed, one in a maze)
+-- while it sees no enemy, whatever its wit (combat-intent/search.lua): 'guard' its spot from a
+-- distance, wait at its 'post' or 'stand' where it is.
+--
 -- hide=true has a thief hide in shadows whenever it sees no enemy, whatever its wit; hide=false never
 -- (combat-intent/stealth.lua).
 --
@@ -51,6 +55,8 @@ function M.check(o)
             if type(v)~='boolean' then return false,'always' end
         elseif k=='guard' or k=='hide' or k=='prep' then
             if type(v)~='boolean' then return false,k end
+        elseif k=='await' then
+            if v~='guard' and v~='post' and v~='stand' then return false,k end
         elseif k=='prepSkip' then
             if type(v)~='table' or #v==0 then return false,k end
             for i,s in pairs(v) do

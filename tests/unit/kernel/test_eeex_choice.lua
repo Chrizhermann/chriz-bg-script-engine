@@ -2048,6 +2048,42 @@ e33.state=0x800
 m33.m_curAction={m_actionID=0}
 assert(claim33(m33,830)==false and ch33:inspect().reasons['given-up']==2 and last33('gave-up').why=='no-clue')
 
+-- A mage whose last enemy vanishes into a maze (opcode 213 on it; its object stays where it vanished,
+-- out of every area search) does not hunt it (Christopher, 2026-10-29): the director holds it out of
+-- play, and the mage walks to its guard place 240 short of the spot (an 'await' row, then a 'guard'
+-- walk), never handing the round to SCS. The maze over, the enemy is in sight again and no longer out
+-- of play.
+local g44,ch44,root44,last44,claim44=setup(44)
+local m44=g44.add(sprite(1,0,0,255))
+local e44=g44.add(sprite(11,300,0,2))
+assert(claim44(m44,100)==true)
+e44.m_timedEffectList={{m_effectId=213}}
+table.remove(g44.order)
+assert(claim44(m44,140)==true)
+local w44=last44('await')
+assert(w44 and w44.how=='guard' and w44.target==11 and w44.away=='maze' and last44('hunt')==nil)
+assert(#root44.inspect().director.areas.AR0001.away==1)
+g44.BGSE_Act(m44)
+assert(g44.queued[#g44.queued].text=='MoveToPoint([60.0])' and last44('guard').target==11 and last44('search')==nil)
+assert(ch44:inspect().search.counts.guardWalks==1 and ch44:inspect().reasons['given-up']==nil)
+g44.order[#g44.order+1]=11
+e44.m_timedEffectList={}
+assert(claim44(m44,200)==true and #root44.inspect().director.areas.AR0001.away==0)
+-- A party member the group charmed (EA 255 now, in the charmed state) stands on the mage's side: out
+-- of play, not hunted, guarded like a mazed one; its wounds are no friend's (choices.ailing).
+local g45,ch45,root45,last45,claim45=setup(45)
+local m45=g45.add(sprite(1,0,0,255))
+local e45=g45.add(sprite(11,300,0,2))
+assert(claim45(m45,100)==true)
+e45.m_typeAI.m_EnemyAlly=255;e45.state=0x2000
+assert(claim45(m45,140)==true)
+local w45=last45('await')
+assert(w45 and w45.how=='guard' and w45.target==11 and w45.away=='charm' and last45('hunt')==nil)
+local held45=root45.inspect().director.areas.AR0001.away
+assert(#held45==1 and held45[1].id==11 and held45[1].kind=='charm')
+assert(choices.ailing({self={hp=20,maxHp=20,state=0},allies={{hp=4,maxHp=20,state=0x2000}}})==false)
+assert(choices.ailing({self={hp=20,maxHp=20,state=0},allies={{hp=4,maxHp=20,state=0}}})==true)
+
 -- With no enemy in sight a priest heals a hurt ally; with nobody hurt and no clue, its own life goes
 -- on.
 local g34,ch34,_,last34,claim34=setup(34)
@@ -2151,6 +2187,75 @@ seeker41:leapt(1,140)
 assert(seeker41:jumped(1)==140 and seekers.new(g40,{}):jumped(1)==nil)
 local d41=seeker41:decide(s40,frame40,150,'mage',{wit='clever',tactics=1},rows40,{},nil)
 assert(d41.kind=='search' and d41.point.x==400)
+-- Foes out of play (the director's away: one the group charmed, one in a maze) are no clues, not
+-- even ones the creature kept. A clever mage guards the mazed one's spot from 240 (a 'guard' walk,
+-- with one 'await' row for each new way of awaiting); at its place it keeps the place for the group's
+-- spreading. A place in a danger zone makes a look. A dull one stands; orders can send it back to
+-- its post. Once the foe is back, its clue counts again.
+local rows42={}
+local away42={{id=11,kind='maze',x=400,y=0,since=140,lastTick=150}}
+local director42={clues=function() return {{id=11,x=400,y=0,tick=100}} end,group=function() return {} end,
+    away=function() return away42 end}
+local seeker42=seekers.new(g40,{director=director42,record=function(row) rows42[#rows42+1]=row end})
+local function rows42of(kind)
+    local out={}
+    for _,row in ipairs(rows42) do if row.kind==kind then out[#out+1]=row end end
+    return out
+end
+local function decide42(seeker,mind,zoneAt,orders)
+    return seeker:decide(s40,frame40,150,'mage',mind or {wit='clever',tactics=1},{},{},zoneAt,orders)
+end
+local d42=decide42(seeker42)
+assert(d42.kind=='guard' and d42.point.x==160 and d42.point.y==0 and d42.await==11 and d42.away=='maze' and d42.how=='guard')
+local await42=rows42of('await')
+assert(#await42==1 and await42[1].target==11 and await42[1].how=='guard' and await42[1].away=='maze' and
+    await42[1].wit=='clever' and await42[1].point.x==160 and seeker42:inspect().counts.awaits==1)
+d42=decide42(seeker42)
+assert(d42.kind=='guard' and #rows42of('await')==1 and #rows42of('hunt')==0)
+seeker42:walk(s40,d42,{x=160,y=0},150)
+local walk42=rows42of('guard')
+assert(#walk42==1 and walk42[1].target==11 and walk42[1].to.x==160 and seeker42:inspect().counts.guardWalks==1)
+-- Arrived: it looks out there.
+frame40.self.x=160
+d42=decide42(seeker42)
+assert(d42.kind=='look' and d42.point.x==160 and #rows42of('await')==1)
+frame40.self.x=-300
+d42=decide42(seeker42,nil,function(p) return p.x>=100 and p.x<=200 end)
+assert(d42.kind=='look' and d42.zone==true and d42.point==nil and d42.how=='guard')
+local seeker43=seekers.new(g40,{director=director42,record=function(row) rows42[#rows42+1]=row end})
+local d43=decide42(seeker43,{wit='dull',tactics=0})
+assert(d43.kind=='look' and d43.how=='stand' and rows42of('await')[2].how=='stand')
+seeker43:fight(s40,{area='AR0002',self={id=1,x=600,y=0,hp=40,maxHp=40,ea=255},enemies={{id=11}}},140,nil)
+d43=decide42(seeker43,{wit='dull',tactics=0},nil,{await='post'})
+assert(d43.kind=='return' and d43.point.x==600 and d43.how=='post')
+-- A way back that comes no nearer: stuck, it looks out where it is (no hand-over to SCS).
+d43=decide42(seeker43,{wit='dull',tactics=0},nil,{await='post'})
+assert(d43.kind=='return')
+d43=decide42(seeker43,{wit='dull',tactics=0},nil,{await='post'})
+assert(d43.kind=='look' and d43.how=='post' and #rows42of('stuck')==1 and rows42of('gave-up')[1].why=='stuck')
+-- The foe is back: its clue counts again, and nothing is awaited.
+away42={}
+d42=decide42(seeker42)
+assert(d42.kind=='search' and d42.target==11 and d42.await==nil and #rows42of('hunt')==1)
+-- Two guards of one foe keep apart: the second takes the next place on the ring while the first
+-- walks to its own, and a guard looking out at its place keeps it longer than a walk would.
+local away47={{id=11,kind='maze',x=400,y=400,since=140,lastTick=150}}
+local seeker47=seekers.new(g40,{director={clues=function() return {} end,group=function() return {} end,
+    away=function() return away47 end}})
+local s47=g40.add(sprite(2,100,400,255))
+local fa={area='AR0002',self={id=1,x=100,y=400,hp=40,maxHp=40,ea=255},enemies={}}
+local fb={area='AR0002',self={id=2,x=100,y=400,hp=40,maxHp=40,ea=255},enemies={}}
+local clever={wit='clever',tactics=1}
+local da=seeker47:decide(s40,fa,150,'mage',clever,{},{},nil)
+assert(da.kind=='guard' and da.point.x==160 and da.point.y==400)
+seeker47:walk(s40,da,da.point,150)
+local db=seeker47:decide(s47,fb,151,'mage',clever,{},{},nil)
+assert(db.kind=='guard' and db.point.x==230 and db.point.y==273)
+fa.self.x=160
+local la=seeker47:decide(s40,fa,300,'mage',clever,{},{},nil)
+assert(la.kind=='look' and la.point.x==160 and la.point.y==400)
+db=seeker47:decide(s47,fb,400,'mage',clever,{},{},nil)
+assert(db.kind=='guard' and db.point.x==230 and db.point.y==273)
 end)()
 groups=groups+1
 

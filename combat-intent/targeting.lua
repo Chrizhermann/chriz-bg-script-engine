@@ -49,6 +49,10 @@ end
 function M.disabled(actor)
     return type(actor)=='table' and (M.has(actor.state,M.DISABLED) or (number(actor.held) and actor.held>0))
 end
+-- Under a charm (STATE_CHARMED). Among a creature's allies such a one is a foe its side charmed:
+-- the game puts it on the charmer's side (lab batch J: the party's thief the erinyes charmed stood
+-- with the group as EA ENEMY).
+function M.charmed(actor) return type(actor)=='table' and M.has(actor.state,M.STATE.charmed) end
 function M.casting(actor) return type(actor)=='table' and M.CASTS[actor.action]==true end
 function M.health(actor)
     if type(actor)~='table' or not number(actor.hp) or not number(actor.maxHp) or actor.maxHp<=0 then return 1 end

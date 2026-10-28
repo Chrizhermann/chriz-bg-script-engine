@@ -1876,6 +1876,10 @@ end
 function M.disabled(actor)
     return type(actor)=='table' and (M.has(actor.state,M.DISABLED) or (number(actor.held) and actor.held>0))
 end
+-- Under a charm (STATE_CHARMED). Among a creature's allies such a one is a foe its side charmed:
+-- the game puts it on the charmer's side (lab batch J: the party's thief the erinyes charmed stood
+-- with the group as EA ENEMY).
+function M.charmed(actor) return type(actor)=='table' and M.has(actor.state,M.STATE.charmed) end
 function M.casting(actor) return type(actor)=='table' and M.CASTS[actor.action]==true end
 function M.health(actor)
     if type(actor)~='table' or not number(actor.hp) or not number(actor.maxHp) or actor.maxHp<=0 then return 1 end
@@ -3029,13 +3033,16 @@ function M.spellLevel(e)
     return clamp(math.ceil(level/2),1,top)
 end
 
--- The caster and its living allies.
+-- The caster and its living allies. A charmed ally is a foe the caster's side charmed: out of play
+-- (Christopher, 2026-10-29), so nobody heals, cures or buffs it, and it counts for nothing here;
+-- area spells still spare it (they check frame.allies), as harming it would break the charm by the
+-- rules text.
 function M.friends(frame)
     local out={}
     if type(frame)~='table' then return out end
     if targeting.alive(frame.self) then out[#out+1]=frame.self end
     for _,a in ipairs(type(frame.allies)=='table' and frame.allies or {}) do
-        if targeting.alive(a) then out[#out+1]=a end
+        if targeting.alive(a) and not targeting.charmed(a) then out[#out+1]=a end
     end
     return out
 end
@@ -5414,6 +5421,10 @@ factories["combat-intent.orders"]=function(require)
 -- cannot see (combat-intent/search.lua); guard=false lets it search like anyone, also as its
 -- group's boss, which guards by default.
 --
+-- await says what the creature does about a foe out of play (one its side charmed, one in a maze)
+-- while it sees no enemy, whatever its wit (combat-intent/search.lua): 'guard' its spot from a
+-- distance, wait at its 'post' or 'stand' where it is.
+--
 -- hide=true has a thief hide in shadows whenever it sees no enemy, whatever its wit; hide=false never
 -- (combat-intent/stealth.lua).
 --
@@ -5448,6 +5459,8 @@ function M.check(o)
             if type(v)~='boolean' then return false,'always' end
         elseif k=='guard' or k=='hide' or k=='prep' then
             if type(v)~='boolean' then return false,k end
+        elseif k=='await' then
+            if v~='guard' and v~='post' and v~='stand' then return false,k end
         elseif k=='prepSkip' then
             if type(v)~='table' or #v==0 then return false,k end
             for i,s in pairs(v) do
@@ -8341,8 +8354,18 @@ local M={}
 -- least headingMin ticks apart; one seen again after more than headingTicks starts without one. An
 -- enemy is forgotten forgetTicks after it was last seen. It advises the casts of the members of
 -- families, all four since F1e.
+-- An enemy out of play is not missing (lab batch J: the party's last members were mazed or charmed,
+-- and the group hunted them as hidden; Christopher, 2026-10-29): one the group charmed stands with
+-- it (an ally in the charmed state that it has seen as an enemy, foeLimit kept, or that belongs to
+-- the party), one in a maze is gone until the maze ends where it vanished (the adapter checks the
+-- enemies no member has seen for removalTicks and tells, removed). Each is kept apart from the
+-- picture, for the search to await: no clue, no focus, until it shows as an enemy again; a mazed one
+-- that comes back is a fresh sighting where it vanished. One not seen or checked for awayTicks is
+-- forgotten, and any after awaitTicks. An imprisoned enemy is out of the game until the party frees
+-- it, which no waiting brings about: the picture forgets it at once.
 M.defaults={memberTicks=150,enemyTicks=90,reserveTicks=225,graceTicks=30,claimTicks=60,forgetTicks=450,
-    headingMin=5,headingTicks=45,logCapacity=256,families={mage=true,priest=true,fighter=true,monster=true}}
+    headingMin=5,headingTicks=45,logCapacity=256,families={mage=true,priest=true,fighter=true,monster=true},
+    awayTicks=450,awaitTicks=4500,removalTicks=15,foeLimit=1024}
 M.ticksPerSecond=15
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
@@ -8355,10 +8378,11 @@ function M.new(config)
     local area=type(config.area)=='string' and config.area or ''
     local sink=type(config.sink)=='function' and config.sink or nil
     local members,enemies,reservations,attempts,curses={},{},{},{},{}
+    local foes,foeCount,away={},0,{}
     local focus,lastTick=nil,nil
     local log,nextRow,size={},1,0
     local counts={checkIns=0,advice=0,redirects=0,keeps=0,focusChanges=0,focusLost=0,attempts=0,ended=0,
-        released=0,sinkErrors=0}
+        released=0,sinkErrors=0,away=0,back=0,awayEnded=0}
     local api={}
 
     local function record(row)
@@ -8448,6 +8472,27 @@ function M.new(config)
             seen.px,seen.py,seen.ptick=e.x,e.y,tick
         end
     end
+    -- An enemy out of play (kind 'charm' or 'maze') at at: kept apart from the picture, with what
+    -- the picture knew of it, for when it comes back.
+    local function hold(target,kind,at,tick)
+        local a=away[target]
+        if not a or a.kind~=kind then
+            local e=enemies[target]
+            a={kind=kind,since=tick,hp=e and e.hp,maxHp=e and e.maxHp,state=e and e.state}
+            away[target]=a;counts.away=counts.away+1
+            record({kind='away',tick=tick,target=target,away=kind,x=at.x,y=at.y})
+        end
+        a.x,a.y,a.lastTick=at.x,at.y,tick
+        enemies[target]=nil
+    end
+    local function gone(target,tick,why)
+        local a=away[target]
+        if not a then return end
+        away[target]=nil
+        if why=='back' then counts.back=counts.back+1 else counts.awayEnded=counts.awayEnded+1 end
+        record({kind=why=='back' and 'back' or 'away-end',tick=tick,target=target,away=a.kind,ticks=tick-a.since,
+            why=why~='back' and why or nil})
+    end
 
     function api:isMember(member) return members[member]~=nil end
     -- member = {id, family}; frame = the member's plain perception frame.
@@ -8466,6 +8511,19 @@ function M.new(config)
                 seen.state,seen.held,seen.minHp=e.state,e.held,e.minHp
                 seen.seenBy[member.id]=tick
                 enemies[e.id]=seen
+                if not foes[e.id] then
+                    if foeCount>=o.foeLimit then foes,foeCount={},0 end
+                    foes[e.id]=true;foeCount=foeCount+1
+                end
+                gone(e.id,tick,'back')
+            end
+        end
+        -- A foe the group charmed stands with it: an ally in the charmed state that it has seen as
+        -- an enemy or that belongs to the party (player).
+        for _,a in ipairs(type(frame.allies)=='table' and frame.allies or {}) do
+            if id(a.id) and (foes[a.id] or number(a.player)) and targeting.charmed(a) and targeting.alive(a) and
+                number(a.x) and number(a.y) then
+                hold(a.id,'charm',a,tick)
             end
         end
         -- A member no longer busy with its cast has finished it.
@@ -8623,6 +8681,59 @@ function M.new(config)
         table.sort(out,function(a,b) return a.id<b.id end)
         return out
     end
+    -- The enemies to check now for being out of the game, by id: each living one the picture keeps
+    -- that no member has seen for removalTicks, and each in a maze, at most once in removalTicks.
+    function api:removalChecks(tick)
+        clock(tick)
+        local out={}
+        for key,e in pairs(enemies) do
+            if targeting.alive(e) and tick-e.lastTick>=o.removalTicks and
+                not (e.checked and tick>=e.checked and tick-e.checked<o.removalTicks) then
+                e.checked=tick;out[#out+1]=key
+            end
+        end
+        for key,a in pairs(away) do
+            if a.kind=='maze' and not (a.checked and tick>=a.checked and tick-a.checked<o.removalTicks) then
+                a.checked=tick;out[#out+1]=key
+            end
+        end
+        table.sort(out)
+        return out
+    end
+    -- What the check of target found at tick: kind 'maze', in a maze at at, where it stands and will
+    -- come back; 'prison', imprisoned: forgotten; nil, in the game, and a mazed one that is out again
+    -- (at) is seen where it vanished. at nil: the creature is gone (dead, left), and a maze kept for
+    -- it ends.
+    function api:removed(target,kind,at,tick)
+        if not id(target) or not number(tick) then return end
+        clock(tick)
+        local a=away[target]
+        local spot=type(at)=='table' and number(at.x) and number(at.y)
+        if kind=='maze' and spot then
+            hold(target,'maze',at,tick)
+            away[target].checked=tick
+        elseif kind=='prison' then
+            if enemies[target] or a then
+                away[target],enemies[target]=nil,nil;counts.away=counts.away+1
+                record({kind='away',tick=tick,target=target,away='prison',x=spot and at.x or nil,y=spot and at.y or nil})
+            end
+        elseif a and a.kind=='maze' then
+            gone(target,tick,at and 'back' or 'gone')
+            if spot then
+                enemies[target]={seenBy={},lastTick=tick,x=at.x,y=at.y,hp=a.hp,maxHp=a.maxHp,state=a.state}
+            end
+        end
+    end
+    -- The enemies out of play at tick: {id, kind ('charm' or 'maze'), x, y, since, lastTick}, by id.
+    function api:away(tick)
+        clock(tick)
+        local out={}
+        for key,a in pairs(away) do
+            out[#out+1]={id=key,kind=a.kind,x=a.x,y=a.y,since=a.since,lastTick=a.lastTick}
+        end
+        table.sort(out,function(a,b) return a.id<b.id end)
+        return out
+    end
     -- The group's members at tick, by id: {id, family, x, y} (where each last checked in).
     function api:members(tick)
         local out={}
@@ -8681,6 +8792,10 @@ function M.new(config)
             end
         end
         for key,e in pairs(enemies) do if tick-e.lastTick>o.forgetTicks then enemies[key]=nil end end
+        for key,a in pairs(away) do
+            if tick-a.since>o.awaitTicks then gone(key,tick,'await')
+            elseif tick-a.lastTick>o.awayTicks then gone(key,tick,'unseen') end
+        end
         for key,r in pairs(reservations) do
             if r.untilTick<=tick or not members[r.owner] then reservations[key]=nil;counts.released=counts.released+1 end
         end
@@ -8693,12 +8808,14 @@ function M.new(config)
         if focus and not fresh(enemies[focus],tick) then
             local e=enemies[focus]
             counts.focusLost=counts.focusLost+1
-            record({kind='focus',tick=tick,previous=focus,why=e and not targeting.alive(e) and 'dead' or 'unseen'})
+            record({kind='focus',tick=tick,previous=focus,
+                why=e and not targeting.alive(e) and 'dead' or away[focus] and 'away' or 'unseen'})
             focus=nil
         end
     end
     function api:invalidate(reason)
         members,enemies,reservations,attempts,curses,focus,lastTick={},{},{},{},{},nil,nil
+        foes,foeCount,away={},0,{}
         record({kind='invalidated',reason=reason})
     end
     function api:inspect()
@@ -8726,8 +8843,11 @@ function M.new(config)
         table.sort(known,function(a,b) return a.id<b.id end)
         local rows,first={},(nextRow-size-1)%o.logCapacity+1
         for i=0,size-1 do rows[#rows+1]=values.copy(log[(first+i-1)%o.logCapacity+1]) end
+        local out={}
+        for key,a in pairs(away) do out[#out+1]={id=key,kind=a.kind,since=a.since,lastTick=a.lastTick} end
+        table.sort(out,function(a,b) return a.id<b.id end)
         return {area=area,members=count(members),enemies=count(enemies),focus=focus,reservations=held,
-            curses=cursed,known=known,counts=values.copy(counts),log=rows}
+            curses=cursed,known=known,away=out,foes=foeCount,counts=values.copy(counts),log=rows}
     end
     return api
 end
@@ -8764,7 +8884,13 @@ factories["combat-intent.search"]=function(require)
 --   One that guards (a boss, or by its orders) searches only near its post;
 -- - tactics by wit (mind.tactics): a clever creature always, a normal one when its search draws it
 --   (once a search), a dull one never. Seeing that a vanished enemy turned invisible is a tactic;
---   a hit from an unseen attacker on a spot in sight tells anyone.
+--   a hit from an unseen attacker on a spot in sight tells anyone;
+-- - foes out of play (combat-intent/director.lua's away: one the group charmed, one in a maze) are
+--   awaited, not searched (Christopher, 2026-10-29), by wit: a clever creature guards the foe's spot
+--   from a distance and strikes when it is back, a normal one waits at its post, a dull one forgets
+--   it and stands where it is; a designer's orders can say which (await). Neither hands the round
+--   back to SCS meanwhile: its last blocks attack the party even when charmed, and harming a charmed
+--   foe breaks the charm by the rules text.
 -- Inputs are plain values; nothing here touches the engine.
 local targeting=require('combat-intent.targeting')
 local M={}
@@ -8827,6 +8953,15 @@ M.jumpSlotGap=18
 -- bossLead levels below it.
 M.bossOthers=2
 M.bossLead=2
+-- How each wit awaits a foe out of play (M.await), and where a guard stands: guardNear from the
+-- foe's spot (fighters and monsters, a step from striking) or guardFar (casters), on the side the
+-- creature comes from, turned around the spot by guardTurn, one way and then the other, up to
+-- guardTurns places, away from the spots other members make for.
+M.AWAIT={clever='guard',normal='post',dull='stand'}
+M.guardNear=96
+M.guardFar=240
+M.guardTurn=math.pi/4
+M.guardTurns=8
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
 local function list(t) return type(t)=='table' and t or {} end
@@ -9000,13 +9135,15 @@ function M.key(clue)
 end
 
 -- The clues worth acting on: well formed, not from the future, not forgotten (kept for
--- memorySeconds, or longer while the creature's patience lasts).
+-- memorySeconds, or longer while the creature's patience lasts), not of a foe out of play.
 local function current(input,patience)
     local horizon=math.max(M.memorySeconds,patience)*M.ticksPerSecond
+    local away={}
+    for _,a in ipairs(list(input.away)) do if type(a)=='table' and a.id~=nil then away[a.id]=true end end
     local out={}
     for _,c in ipairs(list(input.clues)) do
         if type(c)=='table' and M.PRIORITY[c.kind] and point(c) and number(c.tick) and c.tick<=input.tick and
-            input.tick-c.tick<=horizon then out[#out+1]=c end
+            input.tick-c.tick<=horizon and not (c.id~=nil and away[c.id]) then out[#out+1]=c end
     end
     return out
 end
@@ -9129,19 +9266,86 @@ function M.aim(input,clue,tactical)
     return whole(p)
 end
 
+-- Where a creature guards a foe out of play at a: guardNear from its spot (guardFar for a caster), as
+-- targeting.distance counts it, on the side the creature stands, turned around the spot by guardTurn
+-- one way and then the other to the first place no other member of the group makes for within
+-- spread (group: {point}); the first place when all are taken.
+function M.guardPoint(input,a)
+    local self=input.frame.self
+    local r=M.CASTERS[input.family] and M.guardFar or M.guardNear
+    -- Turned in the space targeting.distance measures, where y counts 4/3.
+    local ux,uy=self.x-a.x,(self.y-a.y)*4/3
+    local len=math.sqrt(ux*ux+uy*uy)
+    if len<1 then ux,uy,len=1,0,1 end
+    ux,uy=ux/len,uy/len
+    local group=list(input.group)
+    local first
+    for i=0,M.guardTurns-1 do
+        local t=math.ceil(i/2)*(i%2==1 and 1 or -1)*M.guardTurn
+        local c,s=math.cos(t),math.sin(t)
+        local p={x=a.x+(ux*c-uy*s)*r,y=a.y+(ux*s+uy*c)*r*3/4}
+        first=first or p
+        local taken=false
+        for _,o in ipairs(group) do
+            if type(o)=='table' and point(o.point) and targeting.distance(o.point,p)<M.spread then taken=true end
+        end
+        if not taken then return whole(p) end
+    end
+    return whole(first)
+end
+
+local HOWS={guard=true,post=true,stand=true}
+-- How the creature awaits the foes out of play (input.away: {id, kind 'charm' or 'maze', x, y}), or
+-- nil when there are none: the nearest of them, by its wit (M.AWAIT) or its orders (input.await:
+-- 'guard', 'post' or 'stand'). A guard walks to its place by the foe (M.guardPoint) and looks out
+-- there; one that guards its post (input.guard) guards only a foe within guardRadius of the post and
+-- otherwise waits there. One that waits at its post walks back there and looks out; one that stands,
+-- and any rooted one, looks out where it is. The decision: {kind 'guard' or 'return' (with point) or
+-- 'look', await and target (the foe's id), away (its kind), how, point (a guard's place), gaveUp}.
+function M.await(input,gaveUp)
+    local self=input.frame.self
+    local foe,best
+    for _,a in ipairs(list(input.away)) do
+        if type(a)=='table' and (a.kind=='charm' or a.kind=='maze') and point(a) and number(a.id) then
+            local d=targeting.distance(self,a)
+            if foe==nil or d<best or (d==best and a.id<foe.id) then foe,best=a,d end
+        end
+    end
+    if not foe then return nil end
+    local how=HOWS[input.await] and input.await or M.AWAIT[input.mind.wit] or M.AWAIT.normal
+    local post=point(input.post) and input.post or nil
+    if how=='guard' and input.guard and not (post and targeting.distance(post,foe)<=M.guardRadius) then how='post' end
+    local d={await=foe.id,target=foe.id,away=foe.kind,how=how,gaveUp=gaveUp or nil}
+    if self.rooted then d.kind='look';return d end
+    if how=='guard' then
+        d.point=M.guardPoint(input,foe)
+        d.kind=targeting.distance(self,d.point)>M.arrive and 'guard' or 'look'
+        return d
+    end
+    if how=='post' and post and targeting.distance(self,post)>M.postSlack then
+        d.kind,d.point='return',whole(post)
+        return d
+    end
+    d.kind='look'
+    return d
+end
+
 -- What the creature does while it sees no enemy, or nil and why not:
 -- {kind='detect', resref, self=true or point, level, item, slot, speed, clue, target, key},
 -- {kind='modal', clue, target, key} (Detect Illusion), {kind='search', point, clue, target, key},
 -- {kind='teleport', resref, point, toward, level, speed, innate, clue, target, key} (a jump: point
 -- where it lands, toward the spot a walk would go to), {kind='look', key} (on a searched spot, or
 -- kept at its post or rooted),
--- {kind='return', point} (given up, or kept near its post: back there).
+-- {kind='return', point} (given up, or kept near its post: back there); while foes are out of play
+-- and nothing else is left to search, how it awaits them (M.await: a 'guard' walk, a 'return' or a
+-- 'look' with await set).
 -- input: tick; frame (self: x, y, hp, maxHp, moraleBreak, seeInvisible, rooted; enemies empty);
 -- mind (wit, tactics, searchPatience); family; clues; post; since (the tick its search began, if
 -- it searches); searched (keys of searched spots); gaveUp (the tick the creature gave up, if it
 -- did); detected (the tick of its last detection); jumped (the tick of its last teleport);
 -- group (other members: {id, family, point}); guard; detects (see M.detection); teleports (see
--- M.jump); illusion (its Detect Illusion skill); tactical (M.draw's, once a search).
+-- M.jump); illusion (its Detect Illusion skill); tactical (M.draw's, once a search); away (foes out
+-- of play, M.await) and await (its orders' way to await them).
 -- The decision says what the adapter keeps: searched (a key now searched), gaveUp (true when the
 -- creature gives up now).
 function M.decide(input)
@@ -9153,6 +9357,8 @@ function M.decide(input)
     local clues=current(input,patience)
     local post=point(input.post) and input.post or nil
     local function back(gaveUp)
+        local d=M.await(input,gaveUp)
+        if d then return d end
         if post and targeting.distance(self,post)>M.postSlack and not self.rooted then
             return {kind='return',point=whole(post),gaveUp=gaveUp or nil}
         end
@@ -9161,8 +9367,10 @@ function M.decide(input)
     local newest
     for _,c in ipairs(clues) do if not newest or c.tick>newest then newest=c.tick end end
     if not newest then
-        -- Nothing to go on: one that searched goes back to its post.
+        -- Nothing to go on: one that searched goes back to its post; foes out of play are awaited.
         if number(input.gaveUp) or number(input.since) then return back(not number(input.gaveUp)) end
+        local d=M.await(input)
+        if d then return d end
         return nil,'no-clue'
     end
     -- Given up, and nothing new since: back to the post, then the creature's own life.
@@ -9662,6 +9870,11 @@ M.stats={maxHp=1,mr=18,held=58,sanctuary=63,seeInvisible=81,trueSight=118,levelD
     minHp=83}
 -- Opcode 208, minimum hit points.
 M.minimumHp=208
+-- Opcodes that take a creature out of the game for a while (IESDP): Maze (213) until the delayed
+-- opcode 212 it applies itself ends it, where it vanished; Imprisonment (211) until a Freedom
+-- (opcode 212) frees it. Either stays in the creature's effect list meanwhile, and the creature's
+-- object and position remain while no area search finds it (lab batch J).
+M.outOfGame={[213]='maze',[211]='prison'}
 -- STATE_INVISIBLE and STATE_IMPROVEDINVISIBILITY; STATE_BLIND.
 M.unseen,M.blind=0x400010,0x40000
 -- What a backstab needs to know (F2d): STATS.IDS BACKSTABDAMAGEMULTIPLIER and
@@ -9769,6 +9982,32 @@ function M.minimumSources(g,sprite)
     return from
 end
 
+-- Whether a creature is out of the game for now (M.outOfGame): 'maze' or 'prison', else nil.
+function M.removed(g,sprite)
+    local found
+    for _,list in ipairs({sprite.m_timedEffectList,sprite.m_equipedEffectList}) do
+        local seen=0
+        g.EEex_Utility_IterateCPtrList(list,function(effect)
+            seen=seen+1
+            if seen>M.maxEffects then return true end
+            local kind=M.outOfGame[effect.m_effectId]
+            if kind then found=kind;return true end
+        end)
+        if found then return found end
+    end
+    return nil
+end
+
+-- A party member's place in the party (1 for Player1, the protagonist, up to 6, by joining, as the
+-- game's Player1 to Player6 count; EEex_Sprite_GetCharacterIndex), nil for anyone else.
+local function partyPlace(g,sprite)
+    local place=rawget(g,'EEex_Sprite_GetCharacterIndex')
+    if type(place)~='function' then return nil end
+    local ok,n=pcall(place,sprite)
+    if ok and type(n)=='number' and n>=0 and n<=5 then return n+1 end
+    return nil
+end
+
 -- The direction a creature faces (M.directions), or nil when the engine gives none it could mean.
 local function facing(sprite)
     local ok,v=pcall(function() return sprite.m_nDirection end)
@@ -9870,11 +10109,7 @@ function M.details(g,sprite,entry)
     if stat(g,sprite,M.physicalMirror)>0 then entry.reflects=true end
     local resref=name(sprite.m_resref)
     entry.resref=resref~='' and resref or nil
-    local place=rawget(g,'EEex_Sprite_GetCharacterIndex')
-    if type(place)=='function' then
-        local ok,n=pcall(place,sprite)
-        if ok and type(n)=='number' and n>=0 and n<=5 then entry.player=n+1 end
-    end
+    entry.player=partyPlace(g,sprite)
     return entry
 end
 
@@ -10375,7 +10610,10 @@ function M.frame(g,sprite,tick,detailed)
         if other==nil then return end
         if other~=side and not self.seeInvisible and band(g,g.EEex_Sprite_GetState(object),M.unseen)~=0 then return end
         local entry=M.actor(g,object)
-        if other==side then frame.allies[#frame.allies+1]=entry
+        if other==side then
+            -- A charmed ally from the party is a foe its side charmed (combat-intent/director.lua).
+            if targeting.charmed(entry) then entry.player=partyPlace(g,object) end
+            frame.allies[#frame.allies+1]=entry
         else
             if detailed then M.details(g,object,entry) end
             frame.enemies[#frame.enemies+1]=entry
@@ -10546,7 +10784,9 @@ factories["adapters.eeex.director"]=function(require)
 -- creature it would hit. The spell's own SPLPROT checks are answered by the engine for each
 -- enemy (sense.splprot), so a new target meets them as the original does. The engine's own
 -- casts (adapters/eeex/choice.lua) are recorded for the picture and the reservations but never
--- advised. Session-local; a load forgets it all.
+-- advised. An enemy the group lost from sight is looked up by id now and then: one in a maze or a
+-- prison is out of the game (sense.removed), and the director keeps it apart from the picture.
+-- Session-local; a load forgets it all.
 -- Errors never reach the engine: the cast then goes ahead as the creature's script chose it.
 local sense=require('adapters.eeex.sense')
 local resources=require('adapters.eeex.resources')
@@ -10565,7 +10805,7 @@ function M.new(g,options)
     local directors,memberArea,memberFamily,lastCheck={},{},{},{}
     local cache,cached={},0
     local root,sink,choice
-    local counts={checkIns=0,starts=0,advised=0,redirected=0,own=0,errors=0,marks=0,markFailures=0}
+    local counts={checkIns=0,starts=0,advised=0,redirected=0,own=0,errors=0,marks=0,markFailures=0,removalChecks=0}
     local adapter={}
     local function now() return root and root.now and root.now() end
     local function director(area)
@@ -10597,6 +10837,20 @@ function M.new(g,options)
         return cache[key] or nil
     end
 
+    -- The enemies the group lost from sight may be out of the game (a maze, a prison: sense.removed).
+    -- The director names whom to look up by id and when; a mazed one stays where it vanished.
+    local function removals(d,tick)
+        for _,target in ipairs(d:removalChecks(tick)) do
+            local object=g.EEex_GameObject_Get(target)
+            if object and g.EEex_GameObject_IsSprite(object,false) then
+                counts.removalChecks=counts.removalChecks+1
+                d:removed(target,sense.removed(g,object),{x=object.m_pos.x,y=object.m_pos.y},tick)
+            else
+                d:removed(target,nil,nil,tick)
+            end
+        end
+    end
+
     local function observe(view,family)
         local tick=now()
         if type(tick)~='number' then return end
@@ -10611,6 +10865,8 @@ function M.new(g,options)
         if d:checkIn({id=id,family=family},frame) then
             memberArea[id],memberFamily[id]=frame.area,family;counts.checkIns=counts.checkIns+1
         end
+        local ok,err=pcall(removals,d,tick)
+        if not ok then failed('removed',err) end
         d:tick(tick)
     end
     -- From the gate, each time a hooked script asks and passes the gate's own checks.
@@ -10749,6 +11005,17 @@ function M.new(g,options)
         failed('clues',list)
         return {}
     end
+    -- The enemies out of play in member id's group at tick (combat-intent/director.lua's away: one the
+    -- group charmed, one in a maze), for the search to await; empty outside a group.
+    function adapter:away(id,tick)
+        local area=memberArea[id]
+        local d=area and directors[area]
+        if not d then return {} end
+        local ok,list=pcall(d.away,d,tick)
+        if ok then return list end
+        failed('away',list)
+        return {}
+    end
     function adapter:group(id,tick)
         local area=memberArea[id]
         local d=area and directors[area]
@@ -10789,9 +11056,10 @@ factories["adapters.eeex.search"]=function(require)
 -- and innate abilities. Each creature keeps where its fight began (its post, where it goes back when
 -- it gives up), whether its search draws its tactics, the spots it has searched, when it gave up,
 -- when it last detected and when it last teleported; its group's boss, or one whose orders say so,
--- guards its post. A walk is held while the creature walks it, a look and the rogue's detection mode
--- briefly; each ends early when an enemy shows or the creature is hurt. Session-local; a load
--- forgets it all.
+-- guards its post. The foes its group holds out of play (the director's away: one it charmed, one in
+-- a maze) are no clues; the search awaits them (combat-intent/search.lua, M.await). A walk is held
+-- while the creature walks it, a look and the rogue's detection mode briefly; each ends early when an
+-- enemy shows or the creature is hurt. Session-local; a load forgets it all.
 local sense=require('adapters.eeex.sense')
 local search=require('combat-intent.search')
 local targeting=require('combat-intent.targeting')
@@ -10830,7 +11098,7 @@ function M.new(g,options)
     local rng=options.rng
     local states,stateCount={},0
     local counts={hunts=0,walks=0,looks=0,returns=0,gaveUp=0,detects=0,modals=0,teleports=0,hitClues=0,guards=0,
-        stuck=0,guardFailures=0}
+        stuck=0,guardFailures=0,awaits=0,guardWalks=0}
     local seeker={}
     local function state(id)
         local s=states[id]
@@ -10875,7 +11143,7 @@ function M.new(g,options)
             s.guard=guards(sprite,id,tick,orders)
             if s.guard then counts.guards=counts.guards+1 end
         end
-        s.since,s.gaveUp,s.tactical,s.act,s.aim,s.back,s.stuck=nil,nil,nil,nil,nil,nil,0
+        s.since,s.gaveUp,s.tactical,s.act,s.aim,s.back,s.stuck,s.awaiting=nil,nil,nil,nil,nil,nil,0,nil
         s.searched,s.clues,s.hits={},{},{}
     end
 
@@ -10904,10 +11172,10 @@ function M.new(g,options)
         return object~=nil and g.EEex_GameObject_IsSprite(object,false)
     end
     -- The creature's clues now: the group's picture as it reads it, each enemy's kept while its
-    -- patience lasts (horizon, in ticks), and its own hits. An enemy lost from sight lately counts as
-    -- vanished where the creature sees its spot and, for one that was walking, the spot it would
-    -- have reached by now.
-    local function clues(s,sprite,frame,tick,horizon)
+    -- patience lasts (horizon, in ticks), and its own hits; none of a foe out of play (away, by id). An
+    -- enemy lost from sight lately counts as vanished where the creature sees its spot and, for one
+    -- that was walking, the spot it would have reached by now.
+    local function clues(s,sprite,frame,tick,horizon,away)
         if director then
             for _,c in ipairs(director:clues(frame.self.id,tick)) do
                 local had=s.clues[c.id]
@@ -10917,7 +11185,7 @@ function M.new(g,options)
         local out={}
         for key,c in pairs(s.clues) do
             local age=tick-c.tick
-            if age<0 or age>horizon or not living(c.id) then s.clues[key]=nil
+            if age<0 or age>horizon or away[c.id] or not living(c.id) then s.clues[key]=nil
             else
                 local near=false
                 if age<=search.vanishTicks then
@@ -10932,7 +11200,7 @@ function M.new(g,options)
             end
         end
         for key,c in pairs(s.hits) do
-            if tick<c.tick or tick-c.tick>horizon or not living(c.id) then s.hits[key]=nil else out[#out+1]=c end
+            if tick<c.tick or tick-c.tick>horizon or away[c.id] or not living(c.id) then s.hits[key]=nil else out[#out+1]=c end
         end
         table.sort(out,function(a,b) if a.kind~=b.kind then return a.kind<b.kind end return a.id<b.id end)
         return out
@@ -10968,7 +11236,9 @@ function M.new(g,options)
         if type(s.hp)=='number' and type(self.hp)=='number' and self.hp<s.hp then hit(s,sprite,frame,tick,s.hp-self.hp) end
         s.hp=self.hp
         local patience=search.patience({mind=m,frame=frame})
-        local list=clues(s,sprite,frame,tick,math.max(search.memorySeconds,patience)*M.ticksPerSecond)
+        local away,out=director and director.away and director:away(id,tick) or {},{}
+        for _,a in ipairs(away) do out[a.id]=true end
+        local list=clues(s,sprite,frame,tick,math.max(search.memorySeconds,patience)*M.ticksPerSecond,out)
         local newest
         for _,c in ipairs(list) do if not newest or c.tick>newest then newest=c.tick end end
         -- Something new since the creature gave up (a hit, a member seeing the enemy again): it
@@ -10983,7 +11253,7 @@ function M.new(g,options)
         local d,why=search.decide({tick=tick,frame=frame,mind=m,family=family,clues=list,post=s.post,since=s.since,
             searched=s.searched,gaveUp=s.gaveUp,detected=s.detected,jumped=s.jumped,group=group(id,frame.area,tick),
             guard=s.guard,detects=search.options(rows,carried),teleports=search.teleports(rows),illusion=illusion(sprite),
-            tactical=s.tactical})
+            tactical=s.tactical,away=away,await=type(orders)=='table' and orders.await or nil})
         if not d then
             if why=='given-up' then
                 giveUp(s,id,tick,newest and 'patience' or 'no-clue')
@@ -10991,12 +11261,15 @@ function M.new(g,options)
                 -- anew.
                 s.post,s.aim,s.act,s.back=nil,nil,nil,nil
             end
+            s.awaiting=nil
             return nil,why
         end
         if d.gaveUp then giveUp(s,id,tick,newest and 'patience' or 'no-clue') end
-        if (d.kind=='search' or d.kind=='teleport') and type(zoneAt)=='function' then
+        if (d.kind=='search' or d.kind=='teleport' or d.kind=='guard') and type(zoneAt)=='function' then
             if zoneAt(d.toward or d.point) then
-                d={kind='look',key=d.key,searched=d.key,zone=true}
+                -- A guard's place in a danger zone: it looks out where it is.
+                if d.kind=='guard' then d.kind,d.point,d.zone='look',nil,true
+                else d={kind='look',key=d.key,searched=d.key,zone=true} end
             elseif d.kind=='teleport' and zoneAt(d.point) then
                 -- A jump that would land in a danger zone short of its spot: the creature walks there.
                 d={kind='search',point=d.toward,clue=d.clue,target=d.target,key=d.key}
@@ -11004,19 +11277,36 @@ function M.new(g,options)
         end
         if d.searched then s.searched[d.searched]=true end
         if d.kind=='return' then
-            -- A creature that cannot come nearer its post stays where it is.
-            local away=targeting.distance(self,s.post)
-            if s.back and away>s.back-M.progress then s.stuck=s.stuck+1 end
-            s.back=away
+            -- A creature that cannot come nearer its post stays where it is; one that awaits a foe
+            -- out of play looks out there.
+            local left=targeting.distance(self,s.post)
+            if s.back and left>s.back-M.progress then s.stuck=s.stuck+1 end
+            s.back=left
             if s.stuck>=M.stuckLimit then
                 counts.stuck=counts.stuck+1
                 record({kind='stuck',tick=tick,member=id,post=s.post,at={x=self.x,y=self.y}})
                 giveUp(s,id,tick,'stuck')
                 s.post,s.aim,s.act,s.back=nil,nil,nil,nil
-                return nil,'given-up'
+                if not d.await then s.awaiting=nil;return nil,'given-up' end
+                d.kind,d.point='look',nil
             end
         else
             s.back,s.stuck=nil,0
+        end
+        -- Each new way of awaiting a foe out of play is logged once.
+        if d.await then
+            local key=d.await..':'..d.how
+            if s.awaiting~=key then
+                counts.awaits=counts.awaits+1
+                record({kind='await',tick=tick,member=id,family=family,target=d.await,away=d.away,how=d.how,wit=m.wit,
+                    point=d.point})
+            end
+            s.awaiting=key
+            -- A guard at its place keeps it as the spot it makes for, which the group's other guards
+            -- leave free.
+            if d.kind=='look' and d.point then s.aim,s.aimTick=d.point,tick end
+        else
+            s.awaiting=nil
         end
         if d.kind=='look' then
             s.act={kind='look',tick=tick,limit=M.lookTicks};counts.looks=counts.looks+1
@@ -11028,8 +11318,9 @@ function M.new(g,options)
         end
         return d
     end
-    -- The walk prepared for a search or a way back (decision: its kind, clue, target, gaveUp and
-    -- guard), to point, an open spot: held while the creature walks it.
+    -- The walk prepared for a search, a guard's walk to its place by a foe out of play or a way back
+    -- (decision: its kind, clue, target, gaveUp and guard), to point, an open spot: held while the
+    -- creature walks it.
     function seeker:walk(sprite,decision,point,tick)
         local id=sprite.m_id
         local s=state(id)
@@ -11039,6 +11330,9 @@ function M.new(g,options)
         if decision.kind=='search' then
             s.aim,s.aimTick=point,tick
             counts.walks=counts.walks+1
+        elseif decision.kind=='guard' then
+            s.aim,s.aimTick=point,tick
+            counts.guardWalks=counts.guardWalks+1
         else
             s.aim=nil
             counts.returns=counts.returns+1
@@ -11664,9 +11958,12 @@ end
 
 -- Whether a friend in frame (the creature itself or an ally it sees) has lost hit points, is held
 -- or has a condition a cure takes away: then heals and cures are weighed with no enemy in sight.
+-- A charmed ally is a foe the creature's side charmed, no friend (combat-intent/threat.lua).
 function M.ailing(frame)
     local friends={frame.self}
-    for _,a in ipairs(frame.allies) do friends[#friends+1]=a end
+    for _,a in ipairs(frame.allies) do
+        if not targeting.charmed(a) then friends[#friends+1]=a end
+    end
     for _,f in ipairs(friends) do
         if type(f.hp)=='number' and type(f.maxHp)=='number' and f.hp<f.maxHp then return true end
         if (f.held or 0)>0 then return true end
@@ -13193,8 +13490,9 @@ function M.new(g,options)
                 target=flank and decision.target or nil,backstab=flank and decision.backstab or nil,
                 slot=flank and decision.slot or nil,cast=position and decision.cast or nil,
                 toward=position and decision.toward or nil})
-        elseif decision.kind=='search' or decision.kind=='return' then
-            -- A search walk or the way back: to the nearest open spot (no zones to keep out of).
+        elseif decision.kind=='search' or decision.kind=='return' or decision.kind=='guard' then
+            -- A search walk, a guard's walk to its place by a foe out of play or the way back: to the
+            -- nearest open spot (no zones to keep out of).
             local point=walkable(object,{point=decision.point})
             if not point then return 'skipped' end
             decision.response='MoveToPoint(['..point.x..'.'..point.y..'])'

@@ -403,4 +403,94 @@ assert(pairsSeen['11>1'] and pairsSeen['1>11'] and entry.splprot['row:104:3']==f
 end)()
 groups=groups+1
 
+-- 10. Foes out of play (Christopher, 2026-10-29). sense.removed reads a maze (opcode 213) or a prison
+-- (211) from either effect list; a charmed ally from the party carries its place in it. An enemy no
+-- member has seen for 15 ticks is looked up by id: a mazed one (its object kept where it vanished,
+-- out of every area search) is held there and comes back as a fresh sighting, an imprisoned one is
+-- forgotten, a dead one ends its maze; the search gets the group's foes out of play. A lookup that
+-- fails is named, and the director's tick still runs.
+;(function()
+local w=world()
+local a1=w.add(sprite(1,0,0,255))
+local e21=w.add(sprite(21,100,0,2))
+local e22=w.add(sprite(22,200,0,2))
+local e23=w.add(sprite(23,300,0,2))
+assert(sense.removed(w,e21)==nil)
+e21.m_timedEffectList={effect(12,5,0),effect(213,0,0)}
+assert(sense.removed(w,e21)=='maze')
+e22.m_equipedEffectList={effect(211,0,0)}
+assert(sense.removed(w,e22)=='prison')
+e21.m_timedEffectList,e22.m_equipedEffectList={},{}
+w.EEex_Sprite_GetCharacterIndex=function(s) return s.party or -1 end
+local thrall=w.add(sprite(24,150,0,255,{state=0x2000,party=1}))
+local pet=w.add(sprite(25,160,0,255,{state=0x2000}))
+local friend=w.add(sprite(26,170,0,255,{party=2}))
+local f=sense.frame(w,a1,100,false)
+assert(#f.allies==3 and f.allies[1].id==24 and f.allies[1].player==2 and f.allies[2].player==nil and f.allies[3].player==nil)
+thrall.blocked,pet.blocked,friend.blocked=true,true,true
+local d=adapter.new(w,{reader=reader})
+local out={}
+d:setSink(function(row) out[#out+1]=row end)
+d:attach({now=function() return w.ticks end})
+local function rows(kind)
+    local list={}
+    for _,row in ipairs(out) do if row.kind==kind then list[#list+1]=row end end
+    return list
+end
+local function clueIds(tick)
+    local list={}
+    for _,c in ipairs(d:clues(1,tick)) do list[#list+1]=c.id end
+    return table.concat(list,',')
+end
+w.ticks=100
+d:observe({id=1},'mage')
+assert(clueIds(100)=='21,22,23' and #d:away(1,100)==0)
+-- 21 vanishes into a maze.
+e21.blocked=true
+e21.m_timedEffectList={effect(213,0,0)}
+w.ticks=115
+d:observe({id=1},'mage')
+local away=d:away(1,115)
+assert(#away==1 and away[1].id==21 and away[1].kind=='maze' and away[1].x==100 and away[1].y==0)
+assert(clueIds(115)=='22,23' and #d:away(2,115)==0)
+-- 22 imprisoned: forgotten; 21 still in its maze.
+e22.blocked=true
+e22.m_timedEffectList={effect(211,0,0)}
+w.ticks=145
+d:observe({id=1},'mage')
+away=d:away(1,145)
+assert(#away==1 and away[1].id==21 and clueIds(145)=='23')
+local aw=rows('away')
+assert(#aw==2 and aw[1].target==21 and aw[1].away=='maze' and aw[2].target==22 and aw[2].away=='prison')
+-- The maze ends with 21 still out of sight: seen afresh where it vanished.
+e21.m_timedEffectList={}
+w.ticks=160
+d:observe({id=1},'mage')
+assert(#d:away(1,160)==0 and clueIds(160)=='21,23')
+assert(rows('back')[1].target==21 and rows('back')[1].away=='maze')
+-- Mazed again, then dead: the maze ends, no clue.
+e21.m_timedEffectList={effect(213,0,0)}
+w.ticks=175
+d:observe({id=1},'mage')
+assert(#d:away(1,175)==1)
+e21.state=0x800
+w.ticks=190
+d:observe({id=1},'mage')
+assert(#d:away(1,190)==0 and rows('away-end')[1].why=='gone' and clueIds(190)=='23')
+local seen=d:inspect()
+assert(seen.counts.removalChecks==5 and seen.counts.errors==0)
+-- A lookup that fails: named, and the tick still runs (23's record of the old maze would lapse).
+local iterate=w.EEex_Utility_IterateCPtrList
+local poisoned={}
+e23.m_timedEffectList=poisoned
+w.EEex_Utility_IterateCPtrList=function(t,fn) if t==poisoned then error('freed list') end return iterate(t,fn) end
+e23.blocked=true
+w.ticks=205
+d:observe({id=1},'mage')
+seen=d:inspect()
+assert(seen.counts.errors==1 and seen.lastError:find('^removed: ')~=nil and rows('error')[1].where=='removed')
+w.EEex_Utility_IterateCPtrList=iterate
+end)()
+groups=groups+1
+
 return groups

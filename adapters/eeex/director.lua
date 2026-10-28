@@ -9,7 +9,9 @@
 -- creature it would hit. The spell's own SPLPROT checks are answered by the engine for each
 -- enemy (sense.splprot), so a new target meets them as the original does. The engine's own
 -- casts (adapters/eeex/choice.lua) are recorded for the picture and the reservations but never
--- advised. Session-local; a load forgets it all.
+-- advised. An enemy the group lost from sight is looked up by id now and then: one in a maze or a
+-- prison is out of the game (sense.removed), and the director keeps it apart from the picture.
+-- Session-local; a load forgets it all.
 -- Errors never reach the engine: the cast then goes ahead as the creature's script chose it.
 local sense=require('adapters.eeex.sense')
 local resources=require('adapters.eeex.resources')
@@ -28,7 +30,7 @@ function M.new(g,options)
     local directors,memberArea,memberFamily,lastCheck={},{},{},{}
     local cache,cached={},0
     local root,sink,choice
-    local counts={checkIns=0,starts=0,advised=0,redirected=0,own=0,errors=0,marks=0,markFailures=0}
+    local counts={checkIns=0,starts=0,advised=0,redirected=0,own=0,errors=0,marks=0,markFailures=0,removalChecks=0}
     local adapter={}
     local function now() return root and root.now and root.now() end
     local function director(area)
@@ -60,6 +62,20 @@ function M.new(g,options)
         return cache[key] or nil
     end
 
+    -- The enemies the group lost from sight may be out of the game (a maze, a prison: sense.removed).
+    -- The director names whom to look up by id and when; a mazed one stays where it vanished.
+    local function removals(d,tick)
+        for _,target in ipairs(d:removalChecks(tick)) do
+            local object=g.EEex_GameObject_Get(target)
+            if object and g.EEex_GameObject_IsSprite(object,false) then
+                counts.removalChecks=counts.removalChecks+1
+                d:removed(target,sense.removed(g,object),{x=object.m_pos.x,y=object.m_pos.y},tick)
+            else
+                d:removed(target,nil,nil,tick)
+            end
+        end
+    end
+
     local function observe(view,family)
         local tick=now()
         if type(tick)~='number' then return end
@@ -74,6 +90,8 @@ function M.new(g,options)
         if d:checkIn({id=id,family=family},frame) then
             memberArea[id],memberFamily[id]=frame.area,family;counts.checkIns=counts.checkIns+1
         end
+        local ok,err=pcall(removals,d,tick)
+        if not ok then failed('removed',err) end
         d:tick(tick)
     end
     -- From the gate, each time a hooked script asks and passes the gate's own checks.
@@ -210,6 +228,17 @@ function M.new(g,options)
         local ok,list=pcall(d.clues,d,id,tick)
         if ok then return list end
         failed('clues',list)
+        return {}
+    end
+    -- The enemies out of play in member id's group at tick (combat-intent/director.lua's away: one the
+    -- group charmed, one in a maze), for the search to await; empty outside a group.
+    function adapter:away(id,tick)
+        local area=memberArea[id]
+        local d=area and directors[area]
+        if not d then return {} end
+        local ok,list=pcall(d.away,d,tick)
+        if ok then return list end
+        failed('away',list)
         return {}
     end
     function adapter:group(id,tick)

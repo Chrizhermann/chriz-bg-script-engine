@@ -319,4 +319,114 @@ assert(kd:curse(priest,{12},'TESTDOOM',140)==1 and kd:release(priest,141)==1 and
 assert(kd:curse(mage,{11},nil,150)==0 and kd:curse({id=-1},{11},'TESTDOOM',150)==0 and kd:curse(mage,nil,'TESTDOOM',150)==0)
 groups=groups+1
 
+-- 12. Foes out of play (lab batch J; Christopher, 2026-10-29). One the group charmed stands among
+-- its allies (seen as an enemy before, or one of the party): it leaves the picture, no clue and no
+-- focus, until it shows as an enemy again. One no member has seen for removalTicks is checked for a
+-- maze or a prison, each at most once in removalTicks: a mazed one is held where it vanished until
+-- the maze ends, then seen there afresh; an imprisoned one is forgotten; one gone ends its maze.
+-- Records lapse unseen after awayTicks, any after awaitTicks.
+local od=director.new({})
+local function thrall(id,fields)
+    local a={id=id,x=100*(id-10),y=0,state=0x2000,hp=20,maxHp=20}
+    for k,v in pairs(fields or {}) do a[k]=v end
+    return a
+end
+local function logged(dd,kind)
+    local out={}
+    for _,row in ipairs(dd:inspect().log) do if row.kind==kind then out[#out+1]=row end end
+    return out
+end
+local function clueIds(dd,tick)
+    local out={}
+    for _,c in ipairs(dd:clues(fighter.id,tick)) do out[#out+1]=c.id end
+    return table.concat(out,',')
+end
+od:checkIn(mage,frame(10,nil,{enemy(11),enemy(12),enemy(13)}))
+assert(od:focus(10)==11)
+local cf=frame(20,nil,{enemy(12),enemy(13)})
+cf.allies={thrall(11),thrall(14),thrall(15,{player=2}),thrall(16,{state=0})}
+od:checkIn(mage,cf)
+local out=od:away(20)
+assert(#out==2 and out[1].id==11 and out[1].kind=='charm' and out[1].x==100 and out[1].since==20 and out[1].lastTick==20)
+assert(out[2].id==15 and out[2].kind=='charm' and out[2].x==500)
+assert(clueIds(od,20)=='12,13')
+od:tick(20)
+local lost=logged(od,'focus')
+assert(lost[#lost].previous==11 and lost[#lost].why=='away' and od:focus(20)==12)
+local aw=logged(od,'away')
+assert(#aw==2 and aw[1].target==11 and aw[1].away=='charm')
+-- The charm ends: an enemy again.
+od:checkIn(mage,frame(30,nil,{enemy(11),enemy(12),enemy(13)}))
+out=od:away(30)
+assert(#out==1 and out[1].id==15)
+local backs=logged(od,'back')
+assert(#backs==1 and backs[1].target==11 and backs[1].away=='charm' and backs[1].ticks==10)
+-- 12 vanishes into a maze: checked once it is 15 ticks unseen, held where it stands, checked again
+-- each 15 ticks.
+od:checkIn(mage,frame(40,nil,{enemy(11),enemy(13)}))
+assert(#od:removalChecks(40)==0)
+od:checkIn(mage,frame(45,nil,{enemy(11),enemy(13)}))
+local checks=od:removalChecks(45)
+assert(#checks==1 and checks[1]==12)
+od:removed(12,'maze',{x=210,y=5},45)
+assert(#od:removalChecks(46)==0)
+out=od:away(46)
+assert(#out==2 and out[1].id==12 and out[1].kind=='maze' and out[1].x==210 and out[1].y==5 and out[2].id==15)
+assert(clueIds(od,46)=='11,13')
+od:checkIn(mage,frame(60,nil,{enemy(11),enemy(13)}))
+checks=od:removalChecks(60)
+assert(#checks==1 and checks[1]==12)
+od:removed(12,'maze',{x=210,y=5},60)
+assert(#od:removalChecks(74)==0)
+-- Out again, still unseen: a fresh sighting where it vanished.
+od:checkIn(mage,frame(75,nil,{enemy(11),enemy(13)}))
+checks=od:removalChecks(75)
+assert(#checks==1 and checks[1]==12)
+od:removed(12,nil,{x=210,y=5},75)
+out=od:away(75)
+assert(#out==1 and out[1].id==15)
+local c12
+for _,c in ipairs(od:clues(fighter.id,75)) do if c.id==12 then c12=c end end
+assert(c12 and c12.x==210 and c12.y==5 and c12.tick==75 and c12.by==false)
+-- 13 imprisoned: forgotten at once, nothing to await.
+od:checkIn(mage,frame(80,nil,{enemy(11)}))
+od:checkIn(mage,frame(95,nil,{enemy(11)}))
+checks=od:removalChecks(95)
+assert(#checks==2 and checks[1]==12 and checks[2]==13)
+od:removed(12,nil,{x=210,y=5},95)
+od:removed(13,'prison',{x=300,y=0},95)
+assert(clueIds(od,95)=='11,12' and #od:away(95)==1)
+aw=logged(od,'away')
+assert(aw[#aw].target==13 and aw[#aw].away=='prison' and aw[#aw].x==300)
+-- Unseen for awayTicks: 15's record lapses.
+od:tick(470)
+assert(#od:away(470)==1)
+od:tick(471)
+assert(#od:away(471)==0)
+local ends=logged(od,'away-end')
+assert(#ends==1 and ends[1].target==15 and ends[1].why=='unseen' and ends[1].away=='charm')
+local info=od:inspect()
+assert(info.foes==3 and info.counts.away==4 and info.counts.back==2 and info.counts.awayEnded==1 and #info.away==0)
+-- Kept up for awaitTicks at most; one gone (dead, left) ends its maze; odd input changes nothing.
+local wd=director.new({awaitTicks=100})
+wd:checkIn(mage,frame(10,nil,{enemy(11)}))
+wd:removed(11,'maze',{x=100,y=0},30)
+for t=45,105,15 do wd:removed(11,'maze',{x=100,y=0},t) end
+wd:tick(130)
+assert(#wd:away(130)==1)
+wd:tick(131)
+assert(#wd:away(131)==0 and logged(wd,'away-end')[1].why=='await')
+wd:removed(11,'maze',{x=100,y=0},140)
+wd:removed(11,nil,nil,150)
+assert(#wd:away(150)==0 and #wd:clues(fighter.id,150)==0 and logged(wd,'away-end')[2].why=='gone')
+wd:removed('x','maze',{x=1,y=1},160)
+wd:removed(12,'maze',nil,160)
+wd:removed(12,'maze',{x='a',y=1},160)
+assert(#wd:away(160)==0)
+wd:removed(12,'maze',{x=1,y=1},160)
+assert(#wd:away(160)==1)
+wd:invalidate('test')
+assert(#wd:away(170)==0 and wd:inspect().foes==0)
+groups=groups+1
+
 return groups

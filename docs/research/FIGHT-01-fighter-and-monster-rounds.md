@@ -1024,6 +1024,24 @@ under the engine (`own`) and under SCS alone (`scs`).
   the start. The mazed or charmed party member came back only near the time limit. A lab defect
   beside it: the party bot went on ordering the charmed thief to attack (196 orders, which the game
   overrode).
+- **What SCS does with a charmed party member** ([src] genai/ssl/move.ssl and shoot.ssl, ssl/
+  library.slb, credit DavidW): its target blocks take only creatures not on its own side
+  (`!Allegiance(target,ENEMY)`) and not disabled, so a party member it charmed (EA ENEMY) is
+  skipped; only its last blocks, when no good target is near, attack any party member (Player1 to
+  6), charmed or confused, and then anything hostile. The lab's watcher is Player1, hence SCS's
+  attacks on it.
+- **The rules text and the game.** Charm Person and Dire Charm break when the caster harms the
+  charmed creature, and Dispel Magic ends them (the game's descriptions with Spell Revisions, as in
+  AD&D 2e); Domination allows no release. The game (opcode 5, types 0 to 3; Domination is type
+  1003) ends a charm only when the good side (GOODCUTOFF) attacks the charmed creature: the party
+  frees a friend it hits, but a group that hits a party member it charmed keeps it charmed, so SCS's
+  last blocks work.
+- **Christopher's answer (2026-10-29):** play by the rules text. A creature never attacks a foe its
+  side charmed, nobody hunts it, and it is an enemy again once the charm ends; no change to the
+  game's charm rule. A mazed foe is not searched: clever creatures guard its spot at a distance,
+  heal and re-buff and strike when it comes back, normal ones wait at their post and heal, dull ones
+  forget it. The engine owns those waiting rounds, so SCS's last blocks do not run. Built since
+  (below, "Foes out of play").
 - **Standing idle after an interruption.** A block of SCS's above the hook that fires (a call for
   help, `Shout(151)`, or one of its timers, with `Continue()`) interrupts the engine's running attack,
   as the game interrupts any block's actions. The hook's hold then queued nothing, so the creature
@@ -1099,6 +1117,55 @@ the choice adapter's group 43 (a fighter's strength and its sword's flags from t
 the choice, `UseItem` before the first swing, the installed table against another); 24 mutations
 checked.
 Still to see in game: batch J again.
+
+### Foes out of play: charmed and mazed (Christopher's answer, 2026-10-29)
+
+What the engine does now (`combat-intent/director.lua`, `search.lua`, `threat.lua`, `orders.lua`;
+`adapters/eeex/sense.lua`, `director.lua`, `search.lua`, `choice.lua`):
+
+- **A charmed foe.** One the group charmed stands among its allies (EA ENEMY, in the charmed state):
+  an ally the group has seen as an enemy, or a party member. The director takes it out of the
+  picture (no clue, no focus); its side never attacks it, as it is no enemy, and the area spells that
+  spare allies spare it, since harming it would break the charm by the rules text. It is no friend
+  either: nobody heals, cures or buffs it, and it counts for nothing in the fight's balance. Once the
+  charm ends it is an enemy again.
+- **A mazed foe.** An enemy no member has seen for a second is looked up by id. Maze (opcode 213)
+  stays in its effect list until the delayed opcode 212 it applies ends it, and its object stays
+  where it vanished, out of every area search (IESDP; lab batch J). The director holds it there until
+  the maze ends; out again but still unseen, it is a fresh sighting where it vanished, which the
+  search follows. Imprisonment (opcode 211) lasts until the party frees it, which no waiting brings
+  about: the picture forgets the foe at once (not in Christopher's answer; the rules text's reading,
+  for him to confirm).
+- **Awaiting by wit.** A foe out of play is no clue. When nothing else is left to search, the search
+  awaits the nearest one instead of giving the round back to SCS. A clever creature walks to a place
+  by the foe's spot, 96 away (fighters and monsters: a step from striking) or 240 (casters), on the
+  side it comes from and turned around the spot so that the group's guards stand apart, and looks out
+  there. A normal one walks back to its post and waits; a dull one stands where it is. A boss that
+  guards its post guards only a foe near it. A designer's orders can set it per creature (`await`:
+  `guard`, `post` or `stand`). Healing goes on as without an enemy in sight, for real friends only.
+- **No hand-over.** While a foe is out of play the engine owns the creature's rounds, also after it
+  gave up a search and when its way back to its post is stuck, so SCS's last blocks (which attack the
+  party, a charmed member too) never run. A record lapses when the director has neither seen nor
+  checked the foe for 30 seconds, any after 5 minutes.
+- **Log:** the director's `away` row (`charm`, `maze` or `prison`), `back`, `away-end` (why `unseen`,
+  `await` or `gone`) and the focus row's why `away`; the search's `await` row (target, how, wit) once
+  for each new way of awaiting and its `guard` walks; counts `awaits`, `guardWalks` and the director
+  adapter's `removalChecks`.
+
+Example: the mind flayer mazes the party's thief. A clever fighter of the group walks to a place 96
+from the spot where the thief vanished and waits there, the mind flayer itself 240 off; a normal one
+goes back to where its fight began, a dull one stands. When the thief comes out about a minute later,
+the clever fighter strikes at once.
+
+Not built yet: re-buffing while awaiting (a buff counts only with an enemy within a round's walk, so
+with the foe away nothing is worth casting); a creature of the group that the party charmed is
+attacked as any enemy, as before.
+
+Tests: the search's group 11, the director's group 12, the director adapter's group 10, the choice
+adapter's group 32 (guard walks, `await` rows, a place in a danger zone, the dull, an order to the
+post, a stuck way back, two guards apart; whole claims with a mazed and a charmed foe), the orders
+check and the defence tests' group 1 (a charmed ally is no friend); 33 mutations checked.
+Still to see in game: batch J again (the j2 fights should end now).
 
 ## Agreed (Christopher, 2026-10-25)
 

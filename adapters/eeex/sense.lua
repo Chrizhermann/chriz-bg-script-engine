@@ -26,6 +26,11 @@ M.stats={maxHp=1,mr=18,held=58,sanctuary=63,seeInvisible=81,trueSight=118,levelD
     minHp=83}
 -- Opcode 208, minimum hit points.
 M.minimumHp=208
+-- Opcodes that take a creature out of the game for a while (IESDP): Maze (213) until the delayed
+-- opcode 212 it applies itself ends it, where it vanished; Imprisonment (211) until a Freedom
+-- (opcode 212) frees it. Either stays in the creature's effect list meanwhile, and the creature's
+-- object and position remain while no area search finds it (lab batch J).
+M.outOfGame={[213]='maze',[211]='prison'}
 -- STATE_INVISIBLE and STATE_IMPROVEDINVISIBILITY; STATE_BLIND.
 M.unseen,M.blind=0x400010,0x40000
 -- What a backstab needs to know (F2d): STATS.IDS BACKSTABDAMAGEMULTIPLIER and
@@ -133,6 +138,32 @@ function M.minimumSources(g,sprite)
     return from
 end
 
+-- Whether a creature is out of the game for now (M.outOfGame): 'maze' or 'prison', else nil.
+function M.removed(g,sprite)
+    local found
+    for _,list in ipairs({sprite.m_timedEffectList,sprite.m_equipedEffectList}) do
+        local seen=0
+        g.EEex_Utility_IterateCPtrList(list,function(effect)
+            seen=seen+1
+            if seen>M.maxEffects then return true end
+            local kind=M.outOfGame[effect.m_effectId]
+            if kind then found=kind;return true end
+        end)
+        if found then return found end
+    end
+    return nil
+end
+
+-- A party member's place in the party (1 for Player1, the protagonist, up to 6, by joining, as the
+-- game's Player1 to Player6 count; EEex_Sprite_GetCharacterIndex), nil for anyone else.
+local function partyPlace(g,sprite)
+    local place=rawget(g,'EEex_Sprite_GetCharacterIndex')
+    if type(place)~='function' then return nil end
+    local ok,n=pcall(place,sprite)
+    if ok and type(n)=='number' and n>=0 and n<=5 then return n+1 end
+    return nil
+end
+
 -- The direction a creature faces (M.directions), or nil when the engine gives none it could mean.
 local function facing(sprite)
     local ok,v=pcall(function() return sprite.m_nDirection end)
@@ -234,11 +265,7 @@ function M.details(g,sprite,entry)
     if stat(g,sprite,M.physicalMirror)>0 then entry.reflects=true end
     local resref=name(sprite.m_resref)
     entry.resref=resref~='' and resref or nil
-    local place=rawget(g,'EEex_Sprite_GetCharacterIndex')
-    if type(place)=='function' then
-        local ok,n=pcall(place,sprite)
-        if ok and type(n)=='number' and n>=0 and n<=5 then entry.player=n+1 end
-    end
+    entry.player=partyPlace(g,sprite)
     return entry
 end
 
@@ -739,7 +766,10 @@ function M.frame(g,sprite,tick,detailed)
         if other==nil then return end
         if other~=side and not self.seeInvisible and band(g,g.EEex_Sprite_GetState(object),M.unseen)~=0 then return end
         local entry=M.actor(g,object)
-        if other==side then frame.allies[#frame.allies+1]=entry
+        if other==side then
+            -- A charmed ally from the party is a foe its side charmed (combat-intent/director.lua).
+            if targeting.charmed(entry) then entry.player=partyPlace(g,object) end
+            frame.allies[#frame.allies+1]=entry
         else
             if detailed then M.details(g,object,entry) end
             frame.enemies[#frame.enemies+1]=entry

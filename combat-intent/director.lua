@@ -20,8 +20,18 @@ local M={}
 -- least headingMin ticks apart; one seen again after more than headingTicks starts without one. An
 -- enemy is forgotten forgetTicks after it was last seen. It advises the casts of the members of
 -- families, all four since F1e.
+-- An enemy out of play is not missing (lab batch J: the party's last members were mazed or charmed,
+-- and the group hunted them as hidden; Christopher, 2026-10-29): one the group charmed stands with
+-- it (an ally in the charmed state that it has seen as an enemy, foeLimit kept, or that belongs to
+-- the party), one in a maze is gone until the maze ends where it vanished (the adapter checks the
+-- enemies no member has seen for removalTicks and tells, removed). Each is kept apart from the
+-- picture, for the search to await: no clue, no focus, until it shows as an enemy again; a mazed one
+-- that comes back is a fresh sighting where it vanished. One not seen or checked for awayTicks is
+-- forgotten, and any after awaitTicks. An imprisoned enemy is out of the game until the party frees
+-- it, which no waiting brings about: the picture forgets it at once.
 M.defaults={memberTicks=150,enemyTicks=90,reserveTicks=225,graceTicks=30,claimTicks=60,forgetTicks=450,
-    headingMin=5,headingTicks=45,logCapacity=256,families={mage=true,priest=true,fighter=true,monster=true}}
+    headingMin=5,headingTicks=45,logCapacity=256,families={mage=true,priest=true,fighter=true,monster=true},
+    awayTicks=450,awaitTicks=4500,removalTicks=15,foeLimit=1024}
 M.ticksPerSecond=15
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
@@ -34,10 +44,11 @@ function M.new(config)
     local area=type(config.area)=='string' and config.area or ''
     local sink=type(config.sink)=='function' and config.sink or nil
     local members,enemies,reservations,attempts,curses={},{},{},{},{}
+    local foes,foeCount,away={},0,{}
     local focus,lastTick=nil,nil
     local log,nextRow,size={},1,0
     local counts={checkIns=0,advice=0,redirects=0,keeps=0,focusChanges=0,focusLost=0,attempts=0,ended=0,
-        released=0,sinkErrors=0}
+        released=0,sinkErrors=0,away=0,back=0,awayEnded=0}
     local api={}
 
     local function record(row)
@@ -127,6 +138,27 @@ function M.new(config)
             seen.px,seen.py,seen.ptick=e.x,e.y,tick
         end
     end
+    -- An enemy out of play (kind 'charm' or 'maze') at at: kept apart from the picture, with what
+    -- the picture knew of it, for when it comes back.
+    local function hold(target,kind,at,tick)
+        local a=away[target]
+        if not a or a.kind~=kind then
+            local e=enemies[target]
+            a={kind=kind,since=tick,hp=e and e.hp,maxHp=e and e.maxHp,state=e and e.state}
+            away[target]=a;counts.away=counts.away+1
+            record({kind='away',tick=tick,target=target,away=kind,x=at.x,y=at.y})
+        end
+        a.x,a.y,a.lastTick=at.x,at.y,tick
+        enemies[target]=nil
+    end
+    local function gone(target,tick,why)
+        local a=away[target]
+        if not a then return end
+        away[target]=nil
+        if why=='back' then counts.back=counts.back+1 else counts.awayEnded=counts.awayEnded+1 end
+        record({kind=why=='back' and 'back' or 'away-end',tick=tick,target=target,away=a.kind,ticks=tick-a.since,
+            why=why~='back' and why or nil})
+    end
 
     function api:isMember(member) return members[member]~=nil end
     -- member = {id, family}; frame = the member's plain perception frame.
@@ -145,6 +177,19 @@ function M.new(config)
                 seen.state,seen.held,seen.minHp=e.state,e.held,e.minHp
                 seen.seenBy[member.id]=tick
                 enemies[e.id]=seen
+                if not foes[e.id] then
+                    if foeCount>=o.foeLimit then foes,foeCount={},0 end
+                    foes[e.id]=true;foeCount=foeCount+1
+                end
+                gone(e.id,tick,'back')
+            end
+        end
+        -- A foe the group charmed stands with it: an ally in the charmed state that it has seen as
+        -- an enemy or that belongs to the party (player).
+        for _,a in ipairs(type(frame.allies)=='table' and frame.allies or {}) do
+            if id(a.id) and (foes[a.id] or number(a.player)) and targeting.charmed(a) and targeting.alive(a) and
+                number(a.x) and number(a.y) then
+                hold(a.id,'charm',a,tick)
             end
         end
         -- A member no longer busy with its cast has finished it.
@@ -302,6 +347,59 @@ function M.new(config)
         table.sort(out,function(a,b) return a.id<b.id end)
         return out
     end
+    -- The enemies to check now for being out of the game, by id: each living one the picture keeps
+    -- that no member has seen for removalTicks, and each in a maze, at most once in removalTicks.
+    function api:removalChecks(tick)
+        clock(tick)
+        local out={}
+        for key,e in pairs(enemies) do
+            if targeting.alive(e) and tick-e.lastTick>=o.removalTicks and
+                not (e.checked and tick>=e.checked and tick-e.checked<o.removalTicks) then
+                e.checked=tick;out[#out+1]=key
+            end
+        end
+        for key,a in pairs(away) do
+            if a.kind=='maze' and not (a.checked and tick>=a.checked and tick-a.checked<o.removalTicks) then
+                a.checked=tick;out[#out+1]=key
+            end
+        end
+        table.sort(out)
+        return out
+    end
+    -- What the check of target found at tick: kind 'maze', in a maze at at, where it stands and will
+    -- come back; 'prison', imprisoned: forgotten; nil, in the game, and a mazed one that is out again
+    -- (at) is seen where it vanished. at nil: the creature is gone (dead, left), and a maze kept for
+    -- it ends.
+    function api:removed(target,kind,at,tick)
+        if not id(target) or not number(tick) then return end
+        clock(tick)
+        local a=away[target]
+        local spot=type(at)=='table' and number(at.x) and number(at.y)
+        if kind=='maze' and spot then
+            hold(target,'maze',at,tick)
+            away[target].checked=tick
+        elseif kind=='prison' then
+            if enemies[target] or a then
+                away[target],enemies[target]=nil,nil;counts.away=counts.away+1
+                record({kind='away',tick=tick,target=target,away='prison',x=spot and at.x or nil,y=spot and at.y or nil})
+            end
+        elseif a and a.kind=='maze' then
+            gone(target,tick,at and 'back' or 'gone')
+            if spot then
+                enemies[target]={seenBy={},lastTick=tick,x=at.x,y=at.y,hp=a.hp,maxHp=a.maxHp,state=a.state}
+            end
+        end
+    end
+    -- The enemies out of play at tick: {id, kind ('charm' or 'maze'), x, y, since, lastTick}, by id.
+    function api:away(tick)
+        clock(tick)
+        local out={}
+        for key,a in pairs(away) do
+            out[#out+1]={id=key,kind=a.kind,x=a.x,y=a.y,since=a.since,lastTick=a.lastTick}
+        end
+        table.sort(out,function(a,b) return a.id<b.id end)
+        return out
+    end
     -- The group's members at tick, by id: {id, family, x, y} (where each last checked in).
     function api:members(tick)
         local out={}
@@ -360,6 +458,10 @@ function M.new(config)
             end
         end
         for key,e in pairs(enemies) do if tick-e.lastTick>o.forgetTicks then enemies[key]=nil end end
+        for key,a in pairs(away) do
+            if tick-a.since>o.awaitTicks then gone(key,tick,'await')
+            elseif tick-a.lastTick>o.awayTicks then gone(key,tick,'unseen') end
+        end
         for key,r in pairs(reservations) do
             if r.untilTick<=tick or not members[r.owner] then reservations[key]=nil;counts.released=counts.released+1 end
         end
@@ -372,12 +474,14 @@ function M.new(config)
         if focus and not fresh(enemies[focus],tick) then
             local e=enemies[focus]
             counts.focusLost=counts.focusLost+1
-            record({kind='focus',tick=tick,previous=focus,why=e and not targeting.alive(e) and 'dead' or 'unseen'})
+            record({kind='focus',tick=tick,previous=focus,
+                why=e and not targeting.alive(e) and 'dead' or away[focus] and 'away' or 'unseen'})
             focus=nil
         end
     end
     function api:invalidate(reason)
         members,enemies,reservations,attempts,curses,focus,lastTick={},{},{},{},{},nil,nil
+        foes,foeCount,away={},0,{}
         record({kind='invalidated',reason=reason})
     end
     function api:inspect()
@@ -405,8 +509,11 @@ function M.new(config)
         table.sort(known,function(a,b) return a.id<b.id end)
         local rows,first={},(nextRow-size-1)%o.logCapacity+1
         for i=0,size-1 do rows[#rows+1]=values.copy(log[(first+i-1)%o.logCapacity+1]) end
+        local out={}
+        for key,a in pairs(away) do out[#out+1]={id=key,kind=a.kind,since=a.since,lastTick=a.lastTick} end
+        table.sort(out,function(a,b) return a.id<b.id end)
         return {area=area,members=count(members),enemies=count(enemies),focus=focus,reservations=held,
-            curses=cursed,known=known,counts=values.copy(counts),log=rows}
+            curses=cursed,known=known,away=out,foes=foeCount,counts=values.copy(counts),log=rows}
     end
     return api
 end

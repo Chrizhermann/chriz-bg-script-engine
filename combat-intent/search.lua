@@ -28,7 +28,13 @@
 --   One that guards (a boss, or by its orders) searches only near its post;
 -- - tactics by wit (mind.tactics): a clever creature always, a normal one when its search draws it
 --   (once a search), a dull one never. Seeing that a vanished enemy turned invisible is a tactic;
---   a hit from an unseen attacker on a spot in sight tells anyone.
+--   a hit from an unseen attacker on a spot in sight tells anyone;
+-- - foes out of play (combat-intent/director.lua's away: one the group charmed, one in a maze) are
+--   awaited, not searched (Christopher, 2026-10-29), by wit: a clever creature guards the foe's spot
+--   from a distance and strikes when it is back, a normal one waits at its post, a dull one forgets
+--   it and stands where it is; a designer's orders can say which (await). Neither hands the round
+--   back to SCS meanwhile: its last blocks attack the party even when charmed, and harming a charmed
+--   foe breaks the charm by the rules text.
 -- Inputs are plain values; nothing here touches the engine.
 local targeting=require('combat-intent.targeting')
 local M={}
@@ -91,6 +97,15 @@ M.jumpSlotGap=18
 -- bossLead levels below it.
 M.bossOthers=2
 M.bossLead=2
+-- How each wit awaits a foe out of play (M.await), and where a guard stands: guardNear from the
+-- foe's spot (fighters and monsters, a step from striking) or guardFar (casters), on the side the
+-- creature comes from, turned around the spot by guardTurn, one way and then the other, up to
+-- guardTurns places, away from the spots other members make for.
+M.AWAIT={clever='guard',normal='post',dull='stand'}
+M.guardNear=96
+M.guardFar=240
+M.guardTurn=math.pi/4
+M.guardTurns=8
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
 local function list(t) return type(t)=='table' and t or {} end
@@ -264,13 +279,15 @@ function M.key(clue)
 end
 
 -- The clues worth acting on: well formed, not from the future, not forgotten (kept for
--- memorySeconds, or longer while the creature's patience lasts).
+-- memorySeconds, or longer while the creature's patience lasts), not of a foe out of play.
 local function current(input,patience)
     local horizon=math.max(M.memorySeconds,patience)*M.ticksPerSecond
+    local away={}
+    for _,a in ipairs(list(input.away)) do if type(a)=='table' and a.id~=nil then away[a.id]=true end end
     local out={}
     for _,c in ipairs(list(input.clues)) do
         if type(c)=='table' and M.PRIORITY[c.kind] and point(c) and number(c.tick) and c.tick<=input.tick and
-            input.tick-c.tick<=horizon then out[#out+1]=c end
+            input.tick-c.tick<=horizon and not (c.id~=nil and away[c.id]) then out[#out+1]=c end
     end
     return out
 end
@@ -393,19 +410,86 @@ function M.aim(input,clue,tactical)
     return whole(p)
 end
 
+-- Where a creature guards a foe out of play at a: guardNear from its spot (guardFar for a caster), as
+-- targeting.distance counts it, on the side the creature stands, turned around the spot by guardTurn
+-- one way and then the other to the first place no other member of the group makes for within
+-- spread (group: {point}); the first place when all are taken.
+function M.guardPoint(input,a)
+    local self=input.frame.self
+    local r=M.CASTERS[input.family] and M.guardFar or M.guardNear
+    -- Turned in the space targeting.distance measures, where y counts 4/3.
+    local ux,uy=self.x-a.x,(self.y-a.y)*4/3
+    local len=math.sqrt(ux*ux+uy*uy)
+    if len<1 then ux,uy,len=1,0,1 end
+    ux,uy=ux/len,uy/len
+    local group=list(input.group)
+    local first
+    for i=0,M.guardTurns-1 do
+        local t=math.ceil(i/2)*(i%2==1 and 1 or -1)*M.guardTurn
+        local c,s=math.cos(t),math.sin(t)
+        local p={x=a.x+(ux*c-uy*s)*r,y=a.y+(ux*s+uy*c)*r*3/4}
+        first=first or p
+        local taken=false
+        for _,o in ipairs(group) do
+            if type(o)=='table' and point(o.point) and targeting.distance(o.point,p)<M.spread then taken=true end
+        end
+        if not taken then return whole(p) end
+    end
+    return whole(first)
+end
+
+local HOWS={guard=true,post=true,stand=true}
+-- How the creature awaits the foes out of play (input.away: {id, kind 'charm' or 'maze', x, y}), or
+-- nil when there are none: the nearest of them, by its wit (M.AWAIT) or its orders (input.await:
+-- 'guard', 'post' or 'stand'). A guard walks to its place by the foe (M.guardPoint) and looks out
+-- there; one that guards its post (input.guard) guards only a foe within guardRadius of the post and
+-- otherwise waits there. One that waits at its post walks back there and looks out; one that stands,
+-- and any rooted one, looks out where it is. The decision: {kind 'guard' or 'return' (with point) or
+-- 'look', await and target (the foe's id), away (its kind), how, point (a guard's place), gaveUp}.
+function M.await(input,gaveUp)
+    local self=input.frame.self
+    local foe,best
+    for _,a in ipairs(list(input.away)) do
+        if type(a)=='table' and (a.kind=='charm' or a.kind=='maze') and point(a) and number(a.id) then
+            local d=targeting.distance(self,a)
+            if foe==nil or d<best or (d==best and a.id<foe.id) then foe,best=a,d end
+        end
+    end
+    if not foe then return nil end
+    local how=HOWS[input.await] and input.await or M.AWAIT[input.mind.wit] or M.AWAIT.normal
+    local post=point(input.post) and input.post or nil
+    if how=='guard' and input.guard and not (post and targeting.distance(post,foe)<=M.guardRadius) then how='post' end
+    local d={await=foe.id,target=foe.id,away=foe.kind,how=how,gaveUp=gaveUp or nil}
+    if self.rooted then d.kind='look';return d end
+    if how=='guard' then
+        d.point=M.guardPoint(input,foe)
+        d.kind=targeting.distance(self,d.point)>M.arrive and 'guard' or 'look'
+        return d
+    end
+    if how=='post' and post and targeting.distance(self,post)>M.postSlack then
+        d.kind,d.point='return',whole(post)
+        return d
+    end
+    d.kind='look'
+    return d
+end
+
 -- What the creature does while it sees no enemy, or nil and why not:
 -- {kind='detect', resref, self=true or point, level, item, slot, speed, clue, target, key},
 -- {kind='modal', clue, target, key} (Detect Illusion), {kind='search', point, clue, target, key},
 -- {kind='teleport', resref, point, toward, level, speed, innate, clue, target, key} (a jump: point
 -- where it lands, toward the spot a walk would go to), {kind='look', key} (on a searched spot, or
 -- kept at its post or rooted),
--- {kind='return', point} (given up, or kept near its post: back there).
+-- {kind='return', point} (given up, or kept near its post: back there); while foes are out of play
+-- and nothing else is left to search, how it awaits them (M.await: a 'guard' walk, a 'return' or a
+-- 'look' with await set).
 -- input: tick; frame (self: x, y, hp, maxHp, moraleBreak, seeInvisible, rooted; enemies empty);
 -- mind (wit, tactics, searchPatience); family; clues; post; since (the tick its search began, if
 -- it searches); searched (keys of searched spots); gaveUp (the tick the creature gave up, if it
 -- did); detected (the tick of its last detection); jumped (the tick of its last teleport);
 -- group (other members: {id, family, point}); guard; detects (see M.detection); teleports (see
--- M.jump); illusion (its Detect Illusion skill); tactical (M.draw's, once a search).
+-- M.jump); illusion (its Detect Illusion skill); tactical (M.draw's, once a search); away (foes out
+-- of play, M.await) and await (its orders' way to await them).
 -- The decision says what the adapter keeps: searched (a key now searched), gaveUp (true when the
 -- creature gives up now).
 function M.decide(input)
@@ -417,6 +501,8 @@ function M.decide(input)
     local clues=current(input,patience)
     local post=point(input.post) and input.post or nil
     local function back(gaveUp)
+        local d=M.await(input,gaveUp)
+        if d then return d end
         if post and targeting.distance(self,post)>M.postSlack and not self.rooted then
             return {kind='return',point=whole(post),gaveUp=gaveUp or nil}
         end
@@ -425,8 +511,10 @@ function M.decide(input)
     local newest
     for _,c in ipairs(clues) do if not newest or c.tick>newest then newest=c.tick end end
     if not newest then
-        -- Nothing to go on: one that searched goes back to its post.
+        -- Nothing to go on: one that searched goes back to its post; foes out of play are awaited.
         if number(input.gaveUp) or number(input.since) then return back(not number(input.gaveUp)) end
+        local d=M.await(input)
+        if d then return d end
         return nil,'no-clue'
     end
     -- Given up, and nothing new since: back to the post, then the creature's own life.
