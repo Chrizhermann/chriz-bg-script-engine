@@ -23,7 +23,7 @@ local SAVES={{1,'spell'},{2,'breath'},{4,'death'},{8,'wand'},{16,'poly'}}
 local RESIST={[27]='acid',[28]='cold',[29]='electricity',[30]='fire',[31]='magic',[84]='magicfire',
     [85]='magiccold',[86]='slashing',[87]='crushing',[88]='piercing',[89]='missile',[173]='poison'}
 local STATS={[6]='charisma',[10]='constitution',[15]='dexterity',[19]='intelligence',[44]='strength',
-    [49]='wisdom',[97]='strength'}
+    [49]='wisdom'}
 local TOHIT={[54]=true,[167]=true,[278]=true,[284]=true,[288]=true,[305]=true,[306]=true}
 local WEAPON_DAMAGE={[73]=true,[285]=true,[286]=true,[289]=true}
 local SAVE_MODS={[33]=true,[34]=true,[35]=true,[36]=true,[37]=true,[325]=true,[346]=true}
@@ -360,16 +360,41 @@ H[78]=function(c,e,who,p)
     end
 end
 
+-- Strength (44) counts through the game's strength tables (combat-intent/defence.lua): the points a
+-- spell adds or takes (amounts.strength) and the score it sets (strengthSet, a buff's highest and a
+-- debuff's lowest: the giant strength potions set 19 to 25). A percentage of it (mode 2) counts by
+-- its sign alone, and so does Bull's Strength (mode 3, IESDP: a bonus by class from CLSSPLAB).
 for op,label in pairs(STATS) do
     H[op]=function(c,e,who,p)
         local mode=e.p2%65536
         if (op==15 or op==44) and mode==3 then kind(c,'buff',label,who,e,p);return end
         if mode==1 then
-            if e.p1>=15 then kind(c,'buff',label,who,e,p) elseif e.p1<=8 then kind(c,'debuff',label,who,e,p) end
+            local r,good
+            if e.p1>=15 then r,good=kind(c,'buff',label,who,e,p),true elseif e.p1<=8 then r=kind(c,'debuff',label,who,e,p) end
+            if r and op==44 then r.strengthSet=r.strengthSet and (good and math.max or math.min)(r.strengthSet,e.p1) or e.p1 end
+            return
+        end
+        if op==44 and mode==2 then
+            if e.p1~=100 then kind(c,e.p1>100 and 'buff' or 'debuff',label,who,e,p) end
             return
         end
         modifier(c,e,who,p,label,'buff','debuff')
     end
+end
+-- Exceptional strength (97), which the game counts only at strength 18 (STRMODEX): the points a spell
+-- adds or takes (amounts.strengthExtra) and the highest it sets (strengthExtraSet); a percentage of it
+-- by its sign alone.
+H[97]=function(c,e,who,p)
+    local mode=e.p2%65536
+    if mode==1 then
+        if e.p1>0 then local r=kind(c,'buff','strengthExtra',who,e,p);r.strengthExtraSet=math.max(r.strengthExtraSet or 0,e.p1) end
+        return
+    end
+    if mode==2 then
+        if e.p1~=100 then kind(c,e.p1>100 and 'buff' or 'debuff','strengthExtra',who,e,p) end
+        return
+    end
+    modifier(c,e,who,p,'strengthExtra','buff','debuff')
 end
 for op in pairs(TOHIT) do H[op]=function(c,e,who,p) modifier(c,e,who,p,'thac0','buff','debuff') end end
 -- Opcode 54 changes the base THAC0 by a bonus (type 0: more is better), or the value itself, set
@@ -422,7 +447,10 @@ H[42]=function(c,e,who,p) if e.p1>0 then kind(c,'buff','slots',who,e,p) end end
 H[62]=H[42]
 H[261]=function(c,e,who,p) kind(c,'buff','restore',who,e,p) end
 H[193]=function(c,e,who,p) kind(c,'buff','seeInvisible',who,e,p) end
+-- Haste (IESDP opcode 16): parameter 2 is 0 for a normal haste (an attack more a round), 1 for an
+-- improved one (twice the attacks) and 2 for a weak one, which hastens movement alone.
 H[16]=function(c,e,who,p)
+    if e.p2==2 then kind(c,'buff','movement',who,e,p);return end
     local r=kind(c,'buff','haste',who,e,p)
     if e.p2==1 then r.kinds.improvedHaste=true end
 end

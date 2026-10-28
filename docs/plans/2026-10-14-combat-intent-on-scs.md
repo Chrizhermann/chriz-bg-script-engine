@@ -807,7 +807,10 @@ The big lab round's first whole fights (FIGHT-01, "Lab batch J", 2026-10-28) wen
 groups won all 7, the engine's lost or did not finish in time. Two causes stood out. A call for help
 of SCS's above the hook cut the engine's attack short, and the creature then stood until its next
 decision; such a hold now decides anew at once. And the engine's fighters drank their buff potions
-late or never, while SCS's drink them at the start; that is next.
+late or never, while SCS's drink them at the start: a buff counted only three rounds, and a giant
+strength potion nothing. Now what a buff adds to attacks counts over the rest of the fight, as
+summons do, and strength through the game's own tables (FIGHT-01, "Buffs over the rest of the
+fight").
 
 Next, in the order agreed with Christopher on 2026-10-27 for the first release: the rest of the big
 lab round (light and shadow in a second hide probe, and a party of the same strength for the mixed

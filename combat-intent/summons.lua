@@ -31,6 +31,7 @@ local targeting=require('combat-intent.targeting')
 local threat=require('combat-intent.threat')
 local defence=require('combat-intent.defence')
 local weapons=require('combat-intent.weapons')
+local arsenal=require('combat-intent.arsenal')
 local M={}
 M.ROUND=6
 -- Opcodes of a creature's own effects that make it no fighter: avatar removal, selection circle
@@ -69,21 +70,9 @@ function M.side(ea)
     if ea>=2 and ea<=M.GOOD_CUTOFF then return 'good' end
 end
 
--- STRMOD.2DA's bonuses to hit and to damage for a strength (the game's default table; exceptional
+-- STRMOD.2DA's bonuses to hit and to damage for a strength (the game's shipped table; exceptional
 -- strength 18/01 to 18/00 by its percentile).
-function M.strength(str,extra)
-    str=number(str) and str or 0
-    extra=number(extra) and extra or 0
-    if str>=25 then return 7,14 end
-    if str==18 and extra>0 then
-        local hit=(extra>=100 and 3) or (extra>=51 and 2) or 1
-        local damage=(extra>=100 and 6) or (extra>=91 and 5) or (extra>=76 and 4) or 3
-        return hit,damage
-    end
-    local hit={[17]=1,[18]=1,[19]=3,[20]=3,[21]=4,[22]=4,[23]=5,[24]=6}
-    local damage={[16]=1,[17]=1,[18]=2,[19]=7,[20]=8,[21]=9,[22]=10,[23]=11,[24]=12}
-    return hit[str] or 0,damage[str] or 0
-end
+M.strength=arsenal.shippedStrength
 
 -- A creature as a fighter, from its CRE record (adapters/eeex/resources.lua), the record of the
 -- weapon in its first weapon slot and, for a launcher, of the ammunition in its first filled

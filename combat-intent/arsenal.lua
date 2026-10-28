@@ -157,6 +157,30 @@ function M.strength(tables,str,extra)
     if type(ex)=='table' then hit,damage=hit+value(ex.hit),damage+value(ex.damage) end
     return hit,damage
 end
+-- STRMOD.2DA's bonuses as the game ships them, strengths 1 to 25 (none for those left out), and
+-- exceptional strength 18/01 to 18/00 by its percentile (STRMODEX.2DA on top of 18's).
+local SHIPPED_HIT={[1]=-5,[2]=-3,[3]=-3,[4]=-2,[5]=-2,[6]=-1,[7]=-1,[17]=1,[18]=1,[19]=3,[20]=3,[21]=4,[22]=4,
+    [23]=5,[24]=6,[25]=7}
+local SHIPPED_DAMAGE={[1]=-4,[2]=-2,[3]=-1,[4]=-1,[5]=-1,[16]=1,[17]=1,[18]=2,[19]=7,[20]=8,[21]=9,[22]=10,
+    [23]=11,[24]=12,[25]=14}
+-- Strength's bonus to hit and to damage by the game's shipped tables, for when the installed ones
+-- cannot be read and for summoned creatures (combat-intent/summons.lua). A strength above 25 counts
+-- as 25 (the game caps it there); none for one below 1.
+function M.shippedStrength(str,extra)
+    str=number(str) and math.min(math.floor(str),25) or 0
+    extra=number(extra) and extra or 0
+    if str==18 and extra>0 then
+        local hit=(extra>=100 and 3) or (extra>=51 and 2) or 1
+        local damage=(extra>=100 and 6) or (extra>=91 and 5) or (extra>=76 and 4) or 3
+        return hit,damage
+    end
+    return SHIPPED_HIT[str] or 0,SHIPPED_DAMAGE[str] or 0
+end
+-- Strength's bonus to hit and to damage by the installed tables, else by the shipped ones.
+function M.might(tables,str,extra)
+    if type(tables)=='table' and type(tables.strmod)=='table' then return M.strength(tables,str,extra) end
+    return M.shippedStrength(str,extra)
+end
 -- The proficiency's bonus to hit and to damage with the stars c has in it (WSPECIAL); with none,
 -- the class's penalty to hit (ZERO_SKILL_THAC0). An item of no proficiency, or stars not known,
 -- get neither.
@@ -242,12 +266,16 @@ end
 -- the first) and the ammunition, the damage type and the hitting item's flags and enchantment
 -- (plain ammunition from a magical launcher hits as magical), the projectile a missile flies as,
 -- slot and abilityNum for SelectWeaponAbility, whether it can backstab (M.THIEF) and the item's
--- category (ITEMCAT.IDS, for critical hit effects of one category).
+-- category (ITEMCAT.IDS, for critical hit effects of one category); also the creature's strength
+-- and exceptional strength and which of strength's bonuses the weapon takes (strengthHit,
+-- strengthDamage), for buffs that change its strength (combat-intent/defence.lua).
 local function attack(c,s,hit,damage)
     local stats=c.stats
     local melee=not s.ranged
     local out={item=s.item,ability=s.number+1,slot=s.slot,abilityNum=s.number,ammo=s.ammo,ranged=s.ranged,
-        launcher=s.launcher,fist=s.slot==M.FIST or nil,itemType=number(s.record.itemType) and s.record.itemType or nil}
+        launcher=s.launcher,fist=s.slot==M.FIST or nil,itemType=number(s.record.itemType) and s.record.itemType or nil,
+        str=number(c.str) and c.str or nil,strExtra=number(c.strExtra) and c.strExtra or nil,
+        strengthHit=takes(s,M.STRENGTH_HIT) or nil,strengthDamage=takes(s,M.STRENGTH_DAMAGE) or nil}
     if melee and number(s.record.usability) and not targeting.has(s.record.usability,M.THIEF) then out.backstab=true end
     out.thac0=value(stats.thac0)-hit-value(stats.hitBonus)-value(melee and stats.meleeHit or stats.missileHit)
     out.damage=math.max(0,damage+value(stats.damageBonus)+value(melee and stats.meleeDamage or stats.missileDamage))

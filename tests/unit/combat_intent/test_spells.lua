@@ -1037,4 +1037,40 @@ assert(veil({invisible,fx(171,{target=1,timing=4,duration=18,res='BGW20606'}),
 end)()
 groups=groups+1
 
+-- Strength and haste as combat-intent/defence.lua weighs them (lab batch J's potions): a giant
+-- strength potion sets strength (opcode 44, mode 1) and keeps the highest set, a lowering one the
+-- lowest; points added are amounts; a percentage and Bull's Strength count by their sign alone.
+-- Exceptional strength (97) is a stat of its own, never strength points. A weak haste (16, type 2)
+-- hastens movement alone; an improved one doubles the attacks.
+;(function()
+local function self(e) return one(e,{target=5}) end
+local c=classify(spl('TESTGIAN',{ability({fx(44,{p1=22,p2=1,target=1}),fx(44,{p1=19,p2=1,target=1})},{target=5})}),world({}))
+assert(c.roles.buff.kinds.strength and c.roles.buff.strengthSet==22 and c.roles.buff.amounts==nil)
+c=classify(spl('TESTWEAK',{ability({fx(44,{p1=5,p2=1,target=1}),fx(44,{p1=3,p2=1,target=1})},{target=5})}),world({}))
+assert(c.roles.debuff.kinds.strength and c.roles.debuff.strengthSet==3 and c.roles.buff==nil)
+assert(next(self(fx(44,{p1=12,p2=1,target=1})).roles)==nil)
+c=self(fx(44,{p1=2,target=1}))
+assert(c.roles.buff.amounts.strength==2 and c.roles.buff.strengthSet==nil)
+c=self(fx(44,{p1=150,p2=2,target=1}))
+assert(c.roles.buff.kinds.strength and c.roles.buff.amounts==nil)
+assert(self(fx(44,{p1=50,p2=2,target=1})).roles.debuff.kinds.strength and next(self(fx(44,{p1=100,p2=2,target=1})).roles)==nil)
+c=self(fx(97,{p1=25,target=1}))
+assert(c.roles.buff.kinds.strengthExtra and c.roles.buff.amounts.strengthExtra==25 and not c.roles.buff.kinds.strength)
+assert(c.roles.buff.amounts.strength==nil)
+c=self(fx(97,{p1=100,p2=1,target=1}))
+assert(c.roles.buff.strengthExtraSet==100 and next(self(fx(97,{p1=0,p2=1,target=1})).roles)==nil)
+assert(self(fx(97,{p1=10,target=1})).roles.buff.amounts.strengthExtra==10)
+assert(self(fx(97,{p1=-10,target=1})).roles.debuff.amounts.strengthExtra==10)
+c=self(fx(97,{p1=150,p2=2,target=1}))
+assert(c.roles.buff.kinds.strengthExtra and c.roles.buff.amounts==nil)
+assert(self(fx(97,{p1=50,p2=2,target=1})).roles.debuff.kinds.strengthExtra and next(self(fx(97,{p1=100,p2=2,target=1})).roles)==nil)
+c=self(fx(16,{p2=2,target=1}))
+assert(c.roles.buff.kinds.movement and not c.roles.buff.kinds.haste)
+c=self(fx(16,{p2=1,target=1}))
+assert(c.roles.buff.kinds.haste and c.roles.buff.kinds.improvedHaste)
+c=self(fx(16,{target=1}))
+assert(c.roles.buff.kinds.haste and not c.roles.buff.kinds.improvedHaste)
+end)()
+groups=groups+1
+
 return groups

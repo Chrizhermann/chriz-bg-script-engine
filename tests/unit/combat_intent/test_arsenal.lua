@@ -164,4 +164,23 @@ assert(hand.itemType==19 and find(others,'BOW').itemType==15 and find(others,'GR
 assert(find(others,'AXE',1).itemType==25 and arsenal.hand(TABLES,c).itemType==28)
 groups=groups+1
 
+-- 7. Strength for buffs that change it (combat-intent/defence.lua): each weapon carries its wielder's
+-- strength and which of strength's bonuses it takes (the sword's flag gives both, the bow neither).
+-- The bonuses come from the installed tables, else from the ones the game ships: 1 to 25 (above 25
+-- counts as 25, none below 1) and 18/01 to 18/00 by the percentile.
+hand=arsenal.hand(TABLES,fighter(35,0,{apr=2,thac0Right=3,damageRight=2}))
+assert(hand.str==18 and hand.strExtra==0 and hand.strengthHit and hand.strengthDamage)
+bow=find(arsenal.others(TABLES,fighter(35,0,{apr=2,thac0Right=3,damageRight=2})),'BOW')
+assert(bow.str==18 and bow.strengthHit==nil and bow.strengthDamage==nil)
+assert(select(1,arsenal.shippedStrength(22,0))==4 and select(2,arsenal.shippedStrength(22,0))==10)
+assert(select(1,arsenal.shippedStrength(3,0))==-3 and select(2,arsenal.shippedStrength(3,0))==-1)
+assert(select(2,arsenal.shippedStrength(30,0))==14 and select(1,arsenal.shippedStrength(0,0))==0)
+assert(select(1,arsenal.shippedStrength(18,100))==3 and select(2,arsenal.shippedStrength(18,100))==6)
+assert(select(2,arsenal.shippedStrength(18,80))==4 and select(2,arsenal.shippedStrength(17,80))==1)
+hit,damage=arsenal.might(TABLES,18,50)
+assert(hit==2 and damage==3)
+hit,damage=arsenal.might(nil,18,50)
+assert(hit==1 and damage==3 and select(2,arsenal.might({},22,0))==10)
+groups=groups+1
+
 return groups

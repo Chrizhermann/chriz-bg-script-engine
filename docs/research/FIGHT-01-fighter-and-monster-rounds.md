@@ -1015,7 +1015,7 @@ under the engine (`own`) and under SCS alone (`scs`).
 - **Potions at the start.** SCS's fighters drink their buff potions at once (Oil of Speed, giant
   strength, at tick 15); the engine's fighter drank its Oil of Speed after 14 seconds, the kensai
   never. The party drank its own at the start, so the engine's fighters met hasted, stronger enemies.
-  Next step (below).
+  Fixed since (below, "Buffs over the rest of the fight").
 - **What the engine does now.** The game runs a block's response only once that block's actions are
   over or another block interrupted them, so a plain hold whose response runs finds the action it held
   gone. The gate then lets the choice answer with a new decision (kernel/hook.lua, `renewed`), and the
@@ -1033,7 +1033,51 @@ hold and answers that are no decision change nothing; a renewed decision that no
 skipped), the choice adapter's group 42 (an attack cut by a block above the hook, one ended early, a
 queued cast cut before it started, a wait's response), the search's look and the thief's stealth mode
 as idle holds (groups 33 and 38); 9 mutations checked.
-Still to see in game: batch J again with this and the potions step.
+Still to see in game: batch J again with this and the potions fix (below).
+
+### Buffs over the rest of the fight (lab batch J's potions, 2026-10-28)
+
+Why the engine's fighters drank late (batch J's log, j1 at 5 seconds): the fighter's Oil of Speed
+counted three rounds, the horizon protections use, though it lasts 300 seconds. Worth 0.17, it stayed
+below the minimum (0.2) at which a fighter leaves its weapon for something else, so the fighter
+walked up and swung (0.07). Its Potion of Fire Giant Strength counted nothing: a strength a potion
+sets (opcode 44, type 1) was no gain at all.
+
+What the engine does now (`combat-intent/defence.lua`, `spells.lua`, `arsenal.lua`):
+
+- **Over the rest of the fight.** What a buff adds to attacks counts for the time the fight probably
+  still lasts (`threat.rest`: until the faster side would have killed the other, at most the
+  profile's `fightCap`, 60 seconds), cut by the buff's duration, as summons count since 2026-10-22
+  ("an early summons counts much and a late one little"). At the start of a long fight both potions
+  count ten rounds; with the enemy nearly dead, two. Protections keep the 18-second horizon: they
+  count the harm they save while it comes.
+- **Strength by the game's tables.** The classifier records what a spell sets (`strengthSet`: a
+  buff's highest, a debuff's lowest), adds or takes; the worth goes through STRMOD and, at 18,
+  STRMODEX, the installed ones when the adapter reads them, else the game's shipped values. Only a
+  weapon that takes strength's bonuses gains (`strengthHit`, `strengthDamage`), and a creature
+  stronger already loses by a lower set. A percentage and Bull's Strength (type 3, a bonus by class
+  from CLSSPLAB) count by their sign only. Exceptional strength (opcode 97) is a stat of its own.
+- **Haste once.** A haste the creature has already adds nothing; an improved one over a normal one
+  adds what doubling the attacks before it brings; a weak haste (opcode 16, type 2) only hastens the
+  legs.
+- **What a potion takes** from its drinker (its own debuff role) counts against it, strength too.
+- Unchanged: a buff for attacks counts only with an enemy within a round's walk, so a fighter drinks
+  as the enemy comes, not at first sight across the area.
+
+Example (the defence tests' group 14): a fighter of 18/50 with a sword of 10 a hit swings twice a
+round at 0.75 against an enemy of 300 hit points. Oil of Speed adds a swing, 7.5 a round: over ten
+rounds a quarter of the enemy. The Potion of Fire Giant Strength (22: 4 to hit and 10 damage instead
+of 1 and 3) hits at 0.9 for 17, 15.6 more a round. With the enemy at 30 both count two rounds, and
+the swing wins.
+
+Not valued yet: Bull's Strength's real bonus; dispelling an enemy's giant strength (the removal
+compares the potion's set with the strength the enemy has now, which the potion already raised).
+
+Tests: the defence tests' group 14, the classifier's strength and haste group, the arsenal's group 7,
+the choice adapter's group 43 (a fighter's strength and its sword's flags from the game's stats to
+the choice, `UseItem` before the first swing, the installed table against another); 24 mutations
+checked.
+Still to see in game: batch J again.
 
 ## Agreed (Christopher, 2026-10-25)
 

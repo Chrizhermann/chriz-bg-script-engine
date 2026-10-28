@@ -471,7 +471,7 @@ local SAVES={{1,'spell'},{2,'breath'},{4,'death'},{8,'wand'},{16,'poly'}}
 local RESIST={[27]='acid',[28]='cold',[29]='electricity',[30]='fire',[31]='magic',[84]='magicfire',
     [85]='magiccold',[86]='slashing',[87]='crushing',[88]='piercing',[89]='missile',[173]='poison'}
 local STATS={[6]='charisma',[10]='constitution',[15]='dexterity',[19]='intelligence',[44]='strength',
-    [49]='wisdom',[97]='strength'}
+    [49]='wisdom'}
 local TOHIT={[54]=true,[167]=true,[278]=true,[284]=true,[288]=true,[305]=true,[306]=true}
 local WEAPON_DAMAGE={[73]=true,[285]=true,[286]=true,[289]=true}
 local SAVE_MODS={[33]=true,[34]=true,[35]=true,[36]=true,[37]=true,[325]=true,[346]=true}
@@ -808,16 +808,41 @@ H[78]=function(c,e,who,p)
     end
 end
 
+-- Strength (44) counts through the game's strength tables (combat-intent/defence.lua): the points a
+-- spell adds or takes (amounts.strength) and the score it sets (strengthSet, a buff's highest and a
+-- debuff's lowest: the giant strength potions set 19 to 25). A percentage of it (mode 2) counts by
+-- its sign alone, and so does Bull's Strength (mode 3, IESDP: a bonus by class from CLSSPLAB).
 for op,label in pairs(STATS) do
     H[op]=function(c,e,who,p)
         local mode=e.p2%65536
         if (op==15 or op==44) and mode==3 then kind(c,'buff',label,who,e,p);return end
         if mode==1 then
-            if e.p1>=15 then kind(c,'buff',label,who,e,p) elseif e.p1<=8 then kind(c,'debuff',label,who,e,p) end
+            local r,good
+            if e.p1>=15 then r,good=kind(c,'buff',label,who,e,p),true elseif e.p1<=8 then r=kind(c,'debuff',label,who,e,p) end
+            if r and op==44 then r.strengthSet=r.strengthSet and (good and math.max or math.min)(r.strengthSet,e.p1) or e.p1 end
+            return
+        end
+        if op==44 and mode==2 then
+            if e.p1~=100 then kind(c,e.p1>100 and 'buff' or 'debuff',label,who,e,p) end
             return
         end
         modifier(c,e,who,p,label,'buff','debuff')
     end
+end
+-- Exceptional strength (97), which the game counts only at strength 18 (STRMODEX): the points a spell
+-- adds or takes (amounts.strengthExtra) and the highest it sets (strengthExtraSet); a percentage of it
+-- by its sign alone.
+H[97]=function(c,e,who,p)
+    local mode=e.p2%65536
+    if mode==1 then
+        if e.p1>0 then local r=kind(c,'buff','strengthExtra',who,e,p);r.strengthExtraSet=math.max(r.strengthExtraSet or 0,e.p1) end
+        return
+    end
+    if mode==2 then
+        if e.p1~=100 then kind(c,e.p1>100 and 'buff' or 'debuff','strengthExtra',who,e,p) end
+        return
+    end
+    modifier(c,e,who,p,'strengthExtra','buff','debuff')
 end
 for op in pairs(TOHIT) do H[op]=function(c,e,who,p) modifier(c,e,who,p,'thac0','buff','debuff') end end
 -- Opcode 54 changes the base THAC0 by a bonus (type 0: more is better), or the value itself, set
@@ -870,7 +895,10 @@ H[42]=function(c,e,who,p) if e.p1>0 then kind(c,'buff','slots',who,e,p) end end
 H[62]=H[42]
 H[261]=function(c,e,who,p) kind(c,'buff','restore',who,e,p) end
 H[193]=function(c,e,who,p) kind(c,'buff','seeInvisible',who,e,p) end
+-- Haste (IESDP opcode 16): parameter 2 is 0 for a normal haste (an attack more a round), 1 for an
+-- improved one (twice the attacks) and 2 for a weak one, which hastens movement alone.
 H[16]=function(c,e,who,p)
+    if e.p2==2 then kind(c,'buff','movement',who,e,p);return end
     local r=kind(c,'buff','haste',who,e,p)
     if e.p2==1 then r.kinds.improvedHaste=true end
 end
@@ -3096,14 +3124,16 @@ function M.picture(frame)
 end
 
 -- The caster's weapon in hand (frame.self.weapon, adapters/eeex/sense.lua) as attack data, or
--- false without one: the caster strikes with it or not at all.
+-- false without one: the caster strikes with it or not at all. Its strength and which of
+-- strength's bonuses the weapon takes go along (combat-intent/defence.lua's strength buffs).
 function M.wielded(caster)
     local w=type(caster)=='table' and caster.weapon
     if type(w)~='table' or not number(w.damage) then return false end
     local flags=number(w.flags) and w.flags or 0
     return {apr=number(w.apr) and w.apr or caster.apr,thac0=number(w.thac0) and w.thac0 or caster.thac0,
         damage=w.damage,ranged=w.ranged==true,range=w.range,damageType=w.damageType,fist=w.fist==true or nil,
-        magical=(number(w.enchantment) and w.enchantment>0) or math.floor(flags/64)%2==1}
+        magical=(number(w.enchantment) and w.enchantment>0) or math.floor(flags/64)%2==1,
+        str=w.str,strExtra=w.strExtra,strengthHit=w.strengthHit,strengthDamage=w.strengthDamage}
 end
 
 -- How many seconds the fight is expected to last from now, from both sides' strength: each side's
@@ -3634,6 +3664,30 @@ function M.strength(tables,str,extra)
     if type(ex)=='table' then hit,damage=hit+value(ex.hit),damage+value(ex.damage) end
     return hit,damage
 end
+-- STRMOD.2DA's bonuses as the game ships them, strengths 1 to 25 (none for those left out), and
+-- exceptional strength 18/01 to 18/00 by its percentile (STRMODEX.2DA on top of 18's).
+local SHIPPED_HIT={[1]=-5,[2]=-3,[3]=-3,[4]=-2,[5]=-2,[6]=-1,[7]=-1,[17]=1,[18]=1,[19]=3,[20]=3,[21]=4,[22]=4,
+    [23]=5,[24]=6,[25]=7}
+local SHIPPED_DAMAGE={[1]=-4,[2]=-2,[3]=-1,[4]=-1,[5]=-1,[16]=1,[17]=1,[18]=2,[19]=7,[20]=8,[21]=9,[22]=10,
+    [23]=11,[24]=12,[25]=14}
+-- Strength's bonus to hit and to damage by the game's shipped tables, for when the installed ones
+-- cannot be read and for summoned creatures (combat-intent/summons.lua). A strength above 25 counts
+-- as 25 (the game caps it there); none for one below 1.
+function M.shippedStrength(str,extra)
+    str=number(str) and math.min(math.floor(str),25) or 0
+    extra=number(extra) and extra or 0
+    if str==18 and extra>0 then
+        local hit=(extra>=100 and 3) or (extra>=51 and 2) or 1
+        local damage=(extra>=100 and 6) or (extra>=91 and 5) or (extra>=76 and 4) or 3
+        return hit,damage
+    end
+    return SHIPPED_HIT[str] or 0,SHIPPED_DAMAGE[str] or 0
+end
+-- Strength's bonus to hit and to damage by the installed tables, else by the shipped ones.
+function M.might(tables,str,extra)
+    if type(tables)=='table' and type(tables.strmod)=='table' then return M.strength(tables,str,extra) end
+    return M.shippedStrength(str,extra)
+end
 -- The proficiency's bonus to hit and to damage with the stars c has in it (WSPECIAL); with none,
 -- the class's penalty to hit (ZERO_SKILL_THAC0). An item of no proficiency, or stars not known,
 -- get neither.
@@ -3719,12 +3773,16 @@ end
 -- the first) and the ammunition, the damage type and the hitting item's flags and enchantment
 -- (plain ammunition from a magical launcher hits as magical), the projectile a missile flies as,
 -- slot and abilityNum for SelectWeaponAbility, whether it can backstab (M.THIEF) and the item's
--- category (ITEMCAT.IDS, for critical hit effects of one category).
+-- category (ITEMCAT.IDS, for critical hit effects of one category); also the creature's strength
+-- and exceptional strength and which of strength's bonuses the weapon takes (strengthHit,
+-- strengthDamage), for buffs that change its strength (combat-intent/defence.lua).
 local function attack(c,s,hit,damage)
     local stats=c.stats
     local melee=not s.ranged
     local out={item=s.item,ability=s.number+1,slot=s.slot,abilityNum=s.number,ammo=s.ammo,ranged=s.ranged,
-        launcher=s.launcher,fist=s.slot==M.FIST or nil,itemType=number(s.record.itemType) and s.record.itemType or nil}
+        launcher=s.launcher,fist=s.slot==M.FIST or nil,itemType=number(s.record.itemType) and s.record.itemType or nil,
+        str=number(c.str) and c.str or nil,strExtra=number(c.strExtra) and c.strExtra or nil,
+        strengthHit=takes(s,M.STRENGTH_HIT) or nil,strengthDamage=takes(s,M.STRENGTH_DAMAGE) or nil}
     if melee and number(s.record.usability) and not targeting.has(s.record.usability,M.THIEF) then out.backstab=true end
     out.thac0=value(stats.thac0)-hit-value(stats.hitBonus)-value(melee and stats.meleeHit or stats.missileHit)
     out.damage=math.max(0,damage+value(stats.damageBonus)+value(melee and stats.meleeDamage or stats.missileDamage))
@@ -3988,11 +4046,16 @@ factories["combat-intent.defence"]=function(require)
 --   get past weapon immunity), and a fresh Stoneskin over skins that last the horizon gains
 --   nothing: SCS keeps "at least one" up.
 -- - A buff is worth the share of an enemy its receivers' extra weapon damage takes: more attacks,
---   hits, damage and critical hits, less what the spell puts on its own receiver (Whirlwind
---   Attack's penalties), and what its on-hit effects do on the hits they land (F2a: Smite Evil's
---   first hit, every hit of a poisoned blade). The caster's own weapon counts only when its
---   profile fights with it (mind.ownWeapon: fighters and monsters); a caster that casts does not
---   swing.
+--   hits, damage and critical hits, more strength by the game's strength tables (the giant strength
+--   potions), less what the spell puts on its own receiver (Whirlwind Attack's penalties), and what
+--   its on-hit effects do on the hits they land (F2a: Smite Evil's first hit, every hit of a
+--   poisoned blade). A haste the receiver has already adds nothing. The caster's own weapon counts
+--   only when its profile fights with it (mind.ownWeapon: fighters and monsters); a caster that
+--   casts does not swing. A buff adds to its receivers' fight over the rest of the fight
+--   (threat.rest, at most the profile's fightCap) as long as it lasts, as a summons does
+--   (combat-intent/summons.lua): drunk or cast early it counts much, late little (lab batch J: SCS's
+--   fighters drink their Oil of Speed and giant strength at the start). A protection counts over the
+--   horizon, against the harm the caster sees now.
 -- Harm comes from combat-intent/threat.lua: weapons, spells aimed at one creature, areas and
 -- disables, as the caster perceives them.
 -- In the caster's own Time Stop (D2a) nothing threatens it until time resumes: a cast that ends
@@ -4003,6 +4066,7 @@ local openers=require('combat-intent.openers')
 local weapons=require('combat-intent.weapons')
 local spells=require('combat-intent.spells')
 local harm=require('combat-intent.harm')
+local arsenal=require('combat-intent.arsenal')
 local M={}
 M.ROUND=6
 -- Worth of a round a friend is in the fight, as a share of it (attacks count a hold for the full
@@ -4262,6 +4326,28 @@ local function edge(role,a,debuff)
     local percent=(number(by[0]) and by[0] or 0)+(label and number(by[M.PERCENT_TYPES[label]]) and by[M.PERCENT_TYPES[label]] or 0)
     return hit,amount(role,'damage'),percent,amount(role,'critical')
 end
+-- What a buff or debuff role's strength changes of the bonuses to hit and to damage of weapon held
+-- (its attack data: the wielder's strength and exceptional strength, and which bonuses the weapon
+-- takes), by the game's strength tables (arsenal.might: the installed ones, else the shipped ones):
+-- the score it sets, else its own plus the points it adds or takes; exceptional strength likewise
+-- (the game caps strength at 25, exceptional strength at 100). A buff's gain, a debuff's loss; a set
+-- below what the wielder has is a loss for a buff. None for a weapon that takes neither bonus or a
+-- strength not known.
+local function might(role,held,debuff,tables)
+    if type(role)~='table' or type(held)~='table' or not number(held.str) or not (held.strengthHit or held.strengthDamage) then
+        return 0,0
+    end
+    local sign=debuff and -1 or 1
+    local extra=number(held.strExtra) and held.strExtra or 0
+    local str=number(role.strengthSet) and role.strengthSet or held.str+sign*amount(role,'strength')
+    local ex=number(role.strengthExtraSet) and role.strengthExtraSet or extra+sign*amount(role,'strengthExtra')
+    str,ex=clamp(math.floor(str+0.5),0,25),clamp(math.floor(ex+0.5),0,100)
+    local hit0,damage0=arsenal.might(tables,clamp(math.floor(held.str+0.5),0,25),clamp(math.floor(extra+0.5),0,100))
+    local hit1,damage1=arsenal.might(tables,str,ex)
+    local hit=held.strengthHit and hit1-hit0 or 0
+    local damage=held.strengthDamage and damage1-damage0 or 0
+    return sign*hit,sign*damage
+end
 -- A swing's expected damage: d on a hit; a critical hit (a roll of 20 less crit, at least 1 in
 -- 20) always hits and doubles d where no helmet keeps it off.
 local function swing(h,d,crit)
@@ -4319,8 +4405,10 @@ end
 -- The share of an enemy a buff's extra weapon damage takes through friend f over r rounds; only
 -- friends with attack data and an enemy within a round's walk fight. held: the attack data f
 -- swings with (f.attack when nil); own: what the spell puts on f itself (its debuff role); hits:
--- the on-hit effects it gives f (payload).
-function M.offense(buff,f,frame,r,held,own,hits)
+-- the on-hit effects it gives f (payload); tables: the game's strength tables (might). A haste f
+-- holds already (its guard's roles) is not hastened again; an improved one over a normal one adds
+-- what doubling its attacks before that brings.
+function M.offense(buff,f,frame,r,held,own,hits,tables)
     held=held or f.attack
     if type(buff)~='table' or type(held)~='table' then return 0 end
     local ac,hp,n=enemies(frame)
@@ -4333,9 +4421,18 @@ function M.offense(buff,f,frame,r,held,own,hits)
     local a=threat.attack({attack=held})
     local k=type(buff.kinds)=='table' and buff.kinds or {}
     local apr=a.apr+M.attacks(amount(buff,'attacks'))
-    if k.haste then apr=apr+(k.improvedHaste and a.apr or 1) end
+    local guard=type(f.guard)=='table' and type(f.guard.roles)=='table' and f.guard.roles.buff
+    local had=type(guard)=='table' and type(guard.kinds)=='table' and guard.kinds or {}
+    if k.haste and not had.improvedHaste then
+        if k.improvedHaste then apr=apr+(had.haste and math.max(0,a.apr-2) or a.apr)
+        elseif not had.haste then apr=apr+1 end
+    end
     local hit,damage,percent,crit=edge(buff,a)
+    local stronger,harder=might(buff,held,false,tables)
+    hit,damage=hit+stronger,damage+harder
     local lost,less,fewer,blunt=edge(own,a,true)
+    local weaker,softer=might(own,held,true,tables)
+    lost,less=lost+weaker,less+softer
     local d=math.max(0,a.damage+damage-less+a.damage*(percent-fewer)/100)
     local before=a.apr*swing(threat.hitChance(a.thac0,ac),a.damage,0)
     local after=apr*swing(threat.hitChance(a.thac0-hit+lost,ac),d,crit-blunt)
@@ -4523,7 +4620,9 @@ end
 -- spell's area weakens of enemies (weakens) adds to what it gives its side, which caution weighs.
 -- A defence that leaves the caster invisible as a backstab needs (plain invisibility, F2d) adds what
 -- the backstab after it gains (input.hideOpening, combat-intent/choice.lua), less the part of a
--- round its casting takes (weapons.paced); such an option carries hides and that opening.
+-- round its casting takes (weapons.paced); such an option carries hides and that opening. A buff
+-- counts over the rest of the fight as long as it lasts (rest, the seconds it reckoned with), a
+-- protection over the horizon; input.tables holds the game's strength tables (might).
 function M.options(input,rejected)
     local out={}
     local function reject(why) if rejected then rejected[why]=(rejected[why] or 0)+1 end end
@@ -4535,6 +4634,8 @@ function M.options(input,rejected)
     local waiting=number(input.lastDefence) and number(input.tick) and input.tick-input.lastDefence<pause*15
         and not M.acute(input,pictures)
     local horizon=number(mind.horizon) and mind.horizon or 18
+    local rest=threat.rest(frame,number(mind.fightCap) and mind.fightCap or 60)
+    local tables=type(input.tables)=='table' and input.tables or nil
     local killBonus=number(mind.killBonus) and mind.killBonus or 0
     local stop=openers.ownStop(input) or 0
     local held={}
@@ -4557,6 +4658,7 @@ function M.options(input,rejected)
         local shield=M.shield(gives)
         local length=math.max(seconds(gives.protection),seconds(gives.buff))
         local rounds=math.max(0,math.min(horizon,length-stop))/M.ROUND
+        local fights=math.max(0,math.min(rest,seconds(gives.buff)-stop))/M.ROUND
         local cast=(number(spell.speed) and spell.speed or 0)*M.speedSeconds
         local hide=input.hideOpening
         local opening=type(hide)=='table' and number(hide.worth) and hide.worth>0 and shield.invisible and
@@ -4579,8 +4681,8 @@ function M.options(input,rejected)
                         gain=M.loss(now,f,t,rounds,killBonus)-M.loss(M.union(now,shield),f,t,rounds,killBonus)
                     end
                     local own=hitsFor(gives.hits,f,caster,aim)
-                    if f~=caster then gain=gain+M.offense(gives.buff,f,frame,rounds,nil,nil,own)
-                    elseif wielded then gain=gain+M.offense(gives.buff,f,frame,rounds,wielded,gives.own,own) end
+                    if f~=caster then gain=gain+M.offense(gives.buff,f,frame,fights,nil,nil,own,tables)
+                    elseif wielded then gain=gain+M.offense(gives.buff,f,frame,fights,wielded,gives.own,own,tables) end
                     if gain>0 then worth=worth+gain;hits[#hits+1]=f.id end
                 end
             end
@@ -4606,7 +4708,8 @@ function M.options(input,rejected)
         local worth=best.total*through
         local option={resref=row.resref,kind='defence',worth=worth,cost=cost,score=worth-cost,
             hits=best.hits,slack=0,speed=number(spell.speed) and spell.speed or 0,release=spell.release or nil,
-            use=row.item or nil,hides=best.open>0 or nil,opening=best.open>0 and best.open or nil}
+            use=row.item or nil,hides=best.open>0 or nil,opening=best.open>0 and best.open or nil,
+            rest=gives.buff and rest or nil}
         local aim=best.aim
         if aim.self then option.self=true;option.mode='self'
         elseif aim.friend then option.target=aim.friend.id;option.mode='ally'
@@ -5025,6 +5128,7 @@ local targeting=require('combat-intent.targeting')
 local threat=require('combat-intent.threat')
 local defence=require('combat-intent.defence')
 local weapons=require('combat-intent.weapons')
+local arsenal=require('combat-intent.arsenal')
 local M={}
 M.ROUND=6
 -- Opcodes of a creature's own effects that make it no fighter: avatar removal, selection circle
@@ -5063,21 +5167,9 @@ function M.side(ea)
     if ea>=2 and ea<=M.GOOD_CUTOFF then return 'good' end
 end
 
--- STRMOD.2DA's bonuses to hit and to damage for a strength (the game's default table; exceptional
+-- STRMOD.2DA's bonuses to hit and to damage for a strength (the game's shipped table; exceptional
 -- strength 18/01 to 18/00 by its percentile).
-function M.strength(str,extra)
-    str=number(str) and str or 0
-    extra=number(extra) and extra or 0
-    if str>=25 then return 7,14 end
-    if str==18 and extra>0 then
-        local hit=(extra>=100 and 3) or (extra>=51 and 2) or 1
-        local damage=(extra>=100 and 6) or (extra>=91 and 5) or (extra>=76 and 4) or 3
-        return hit,damage
-    end
-    local hit={[17]=1,[18]=1,[19]=3,[20]=3,[21]=4,[22]=4,[23]=5,[24]=6}
-    local damage={[16]=1,[17]=1,[18]=2,[19]=7,[20]=8,[21]=9,[22]=10,[23]=11,[24]=12}
-    return hit[str] or 0,damage[str] or 0
-end
+M.strength=arsenal.shippedStrength
 
 -- A creature as a fighter, from its CRE record (adapters/eeex/resources.lua), the record of the
 -- weapon in its first weapon slot and, for a launcher, of the ammunition in its first filled
@@ -11893,14 +11985,16 @@ function M.new(g,options)
     -- the one in hand or another, and what a hit casts or applies (the weapon's ability, or the
     -- ammunition a launcher shoots, classified), with the slot, ability number and ammunition
     -- SelectWeaponAbility takes it up by, the projectile a missile flies as, whether it can backstab
-    -- and the item's category. A launcher without ammunition is none.
+    -- and the item's category; the wielder's strength and which of its bonuses the weapon takes (for
+    -- strength buffs). A launcher without ammunition is none.
     local function arms(a)
         if type(a)~='table' or type(a.item)~='string' or type(a.damage)~='number' or (a.launcher and not a.ammo) then return nil end
         local strike
         if a.ammo then strike=item(a.ammo)[1] else strike=item(a.item)[a.ability] end
         return {item=a.item,damage=a.damage,damageType=a.damageType,apr=a.apr or weapons.baseApr,thac0=a.thac0,
             ranged=a.ranged==true,range=a.range,flags=a.flags,enchantment=a.enchantment,strike=strike,fist=a.fist,
-            slot=a.slot,abilityNum=a.abilityNum,ammo=a.ammo,projectile=a.projectile,backstab=a.backstab,itemType=a.itemType}
+            slot=a.slot,abilityNum=a.abilityNum,ammo=a.ammo,projectile=a.projectile,backstab=a.backstab,itemType=a.itemType,
+            str=a.str,strExtra=a.strExtra,strengthHit=a.strengthHit,strengthDamage=a.strengthDamage}
     end
     -- The 'arms' row (see the top) when the weapon in the creature's hand (a, sense.arsenal's) is
     -- another than when last read.
@@ -12868,7 +12962,7 @@ function M.new(g,options)
         local input={tick=tick,family=family,frame=frame,spells=rows,items=carried,lastDefence=lastDefence[id],
             plan=director and director:plan(id,tick) or {},memory=memory[id] or {},mind=mindFor(sprite,family),rng=rng,
             creatures=summoned(rows),stays=stays,orders=orderBook[text(sprite.m_resref:get())],
-            teleports=search.teleports(rows),jumped=seeker:jumped(id),kited=kited[id]}
+            teleports=search.teleports(rows),jumped=seeker:jumped(id),kited=kited[id],tables=(sense.tables(g))}
         -- The zones in the area, with what they weigh about the caster itself.
         local raw=zoneList(sprite,tick)
         local seen={}

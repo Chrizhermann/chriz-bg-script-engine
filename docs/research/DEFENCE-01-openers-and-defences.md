@@ -218,6 +218,13 @@ An area buff is worth what it adds to every ally it reaches, including their ext
 as a share of an enemy. Single-target spells on allies come only from the profile's `allySpells`,
 empty until Christopher agrees exceptions.
 
+Since lab batch J (2026-10-28) what a buff adds to attacks counts over the rest of the fight, not
+the horizon: the time the fight probably still lasts (`threat.rest`, at most the profile's
+`fightCap`, 60 seconds), cut by the buff's duration, as summons count. Protections keep the
+horizon. Strength counts through the game's strength tables (STRMOD, and STRMODEX at 18) for
+weapons that take its bonuses, a haste a friend has already adds nothing, and a weak haste
+(opcode 16, type 2) only hastens the legs. Details: FIGHT-01, "Buffs over the rest of the fight".
+
 Since F2b (2026-10-26) an area defence that also weakens the enemies it reaches counts that too:
 Prayer and Recitation give the caster's side luck and to-hit and take the same from enemies, as
 Chant does. What it takes from each enemy in its area that its spell protections let it reach and

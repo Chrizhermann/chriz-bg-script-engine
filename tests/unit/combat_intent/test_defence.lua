@@ -287,15 +287,19 @@ groups=groups+1
 
 -- 6. Areas around the caster: a blessing counts for allies that fight (attack data, an enemy
 -- within a round's walk), not for the casting caster; an area that cuts allies is no defence;
--- Haste's fatigue later does not count against it now.
+-- Haste's fatigue later does not count against it now. A buff counts over the rest of the fight
+-- (threat.rest) as long as it lasts: the two fighters at a held enemy of 60 hit points end the
+-- fight in 360/40.8 seconds, so Recitation's two minutes count for that.
 local ally={id=2,x=140,y=100,hp=80,maxHp=80,state=0,ac=2,attack={apr=2,thac0=8,damage=12},guard={}}
 local far={id=3,x=2000,y=100,hp=80,maxHp=80,state=0,ac=2,attack={apr=2,thac0=8,damage=12},guard={}}
 i=input({fighter(11,200,{actee=2,held=1})},{row('TESTRECI',recitation,4)})
 i.frame.allies={ally,far}
+local rest=threat.rest(i.frame,60)
+assert(near(rest,360/40.8))
 opts=defence.options(i,{})
 o=find(opts,'TESTRECI')
-assert(o and o.self and #o.hits==1 and o.hits[1]==2)
-assert(near(o.worth,2*(0.95-0.85)*12*3/60))
+assert(o and o.self and #o.hits==1 and o.hits[1]==2 and near(o.rest,rest))
+assert(near(o.worth,2*(0.95-0.85)*12*(rest/6)/60))
 i.frame.allies={far}
 rejected={}
 assert(#defence.options(i,rejected)==0 and rejected['no-worth']==1)
@@ -304,11 +308,12 @@ assert(#defence.options(i,rejected)==0 and rejected['no-worth']==1)
 -- that carries it.
 i=input({fighter(11,200,{actee=2})},{row('TESTRECI',recitation,4)})
 i.frame.allies={ally}
+rest=threat.rest(i.frame,60)
 o=find(defence.options(i,{}),'TESTRECI')
-assert(o and near(o.worth,2*(0.95-0.85)*12*3/60+(1-14/16)))
+assert(o and near(o.worth,2*(0.95-0.85)*12*(rest/6)/60+(1-14/16)))
 i.frame.enemies[1].wards={{source='TESTRECB',opcode=54}}
 o=find(defence.options(i,{}),'TESTRECI')
-assert(o and near(o.worth,2*(0.95-0.85)*12*3/60))
+assert(o and near(o.worth,2*(0.95-0.85)*12*(rest/6)/60))
 rejected={}
 assert(#defence.options(input({fighter(11,130)},{row('TESTBLAD',blades,6)}),rejected)==0 and rejected['harms-friends']==1)
 local given=defence.defence(haste)
@@ -316,7 +321,7 @@ assert(given and given.buff and given.buff.kinds.attacks and haste.later.debuff)
 i=input({fighter(11,200,{actee=2,held=1})},{row('TESTHAST',haste,3)})
 i.frame.allies={ally}
 o=find(defence.options(i,{}),'TESTHAST')
-assert(o and o.point and o.hits[1]==2 and near(o.worth,0.5*0.85*12*3/60))
+assert(o and o.point and o.hits[1]==2 and near(o.worth,0.5*0.85*12*(threat.rest(i.frame,60)/6)/60))
 -- An ally whose spell protections keep the spell out gains nothing from it (lab batch H: a globe).
 local haste3=spell('TESTHST3',3,{fx(1,{p1=6,target=2,duration=144,power=3}),fx(176,{p1=6,target=2,duration=144,power=3})},
     {target=4,projectile=99,speed=3},{[99]=area(256,192)})
@@ -392,9 +397,13 @@ assert(#defence.options(i,rejected)==0 and rejected['no-worth']==4)
 i.mind=mind.new({ownWeapon=true})
 opts=defence.options(i,{})
 o=find(opts,'TESTKAI')
+-- The fighter of 40 hit points falls to the enemy's 19 a round in 240/19 seconds: the twelve seconds
+-- of Kai all count, of the Potion of Power's four minutes only those.
+rest=threat.rest(i.frame,60)
+assert(near(rest,240/19))
 assert(o.self and near(o.worth,(2*0.95*12-2*0.75*10)*2/60))
 assert(near(find(opts,'TESTCRIT').worth,(2*10*(1+0.95*defence.critOpen)-2*0.75*10)/60))
-assert(near(find(opts,'TESTPOWR').worth,(2*0.85*10-2*0.75*10)*3/60))
+assert(near(find(opts,'TESTPOWR').worth,(2*0.85*10-2*0.75*10)*(rest/6)/60))
 -- Whirlwind Attack's penalties outweigh its doubled attacks for a weapon that hits three times in
 -- four, not for one that nearly always hits.
 assert(find(opts,'TESTWHRL')==nil)
@@ -419,7 +428,9 @@ rejected={}
 opts=defence.options(i,rejected)
 assert(#opts==2 and next(rejected)==nil)
 o=find(opts,'TESTPOWR')
-assert(o.use and o.self and o.mode=='self' and near(o.worth,0.1) and near(o.cost,defence.costPerLevel))
+-- Against the light enemy the fight lasts 24 seconds (the fighter's 15 a round at 60 hit points).
+assert(near(threat.rest(i.frame,60),24))
+assert(o.use and o.self and o.mode=='self' and near(o.worth,2*4/60) and near(o.cost,defence.costPerLevel))
 o=find(opts,'TESTSKIN')
 assert(o.use and o.self and o.worth>0)
 -- Stoneskin cast takes a round; drunk, the same skins are not interrupted.
@@ -459,21 +470,23 @@ i=input({fighter(11,130)},{row('TESTSMIT',smite,1),row('TESTPOIS',poison,1),row(
 i.frame.self.weapon={damage=10,damageType=3,apr=2,thac0=10}
 rejected={}
 opts=defence.options(i,rejected)
--- Two swings hit three times in four: 3 hits in Smite Evil's two rounds, 4.5 in the poison's three.
+-- Two swings hit three times in four: 3 hits in Smite Evil's two rounds, in the poison's thirty
+-- seconds as many as the 240/19 seconds the fight lasts bring (a round's 1.5 for each).
+local landed=1.5*threat.rest(i.frame,60)/6
 assert(#opts==3 and rejected['no-worth']==2)
-assert(near(find(opts,'TESTSMIT').worth,3.5/60) and near(find(opts,'TESTPOIS').worth,4.5*4/60))
+assert(near(find(opts,'TESTSMIT').worth,3.5/60) and near(find(opts,'TESTPOIS').worth,landed*4/60))
 assert(near(find(opts,'TESTSTUN').worth,(12/18)*1))
 i.frame.self.weapon.fist=true
-assert(near(find(defence.options(i,{}),'TESTFSTS').worth,4.5*4/60))
+assert(near(find(defence.options(i,{}),'TESTFSTS').worth,landed*4/60))
 i.frame.self.weapon={damage=10,damageType=4,apr=2,thac0=10,ranged=true,range=400}
 opts=defence.options(i,{})
-assert(near(find(opts,'TESTARRW').worth,4.5*4/60) and find(opts,'TESTPOIS')==nil and find(opts,'TESTSMIT')==nil)
--- Six Mirror Images take six of the 4.5 hits: none lands; one hit is enough for the smite's.
+assert(near(find(opts,'TESTARRW').worth,landed*4/60) and find(opts,'TESTPOIS')==nil and find(opts,'TESTSMIT')==nil)
+-- Six Mirror Images take all the hits: none lands; one hit is enough for the smite's.
 i.frame.self.weapon={damage=10,damageType=3,apr=2,thac0=10}
 i.frame.enemies[1].mirror=6
 assert(find(defence.options(i,{}),'TESTPOIS')==nil)
 i.frame.enemies[1].mirror=2
-assert(near(find(defence.options(i,{}),'TESTPOIS').worth,2.5*4/60) and near(find(defence.options(i,{}),'TESTSMIT').worth,3.5/60))
+assert(near(find(defence.options(i,{}),'TESTPOIS').worth,(landed-2)*4/60) and near(find(defence.options(i,{}),'TESTSMIT').worth,3.5/60))
 i.frame.enemies[1].mirror=nil
 i.frame.self.guard={sources={TESTPOIS=true}}
 assert(find(defence.options(i,{}),'TESTPOIS')==nil)
@@ -492,12 +505,12 @@ assert(#defence.options(i,{})==0)
 groups=groups+1
 
 -- 13. Critical hit effects and on-hit debuffs (F2e). A buff whose opcode 341 casts 10 fire at each
--- creature its melee hits strike critically: of the 4.5 hits in three rounds, 0.05/0.75 are
--- critical hits, half of them past a helmet (0.15), worth 1.5 fire; past two Mirror Images 2.5 hits
--- land. One for missiles alone does not come with a sword, one of a single weapon never with a
--- spell's. Critical Strike's sure critical hits make all landing hits critical (1.5 hits in its one
--- round, 0.75 past helmets: 7.5 fire beside what the doubled hits add). A critical hit that stuns
--- counts as likely as one lands (0.15 of the stun's 2/3).
+-- creature its melee hits strike critically: of the hits in the fight's rest (1.5 a round), 0.05/0.75
+-- are critical hits, half of them past a helmet, each worth 10 fire; past two Mirror Images two
+-- fewer land. One for missiles alone does not come with a sword, one of a single weapon never with
+-- a spell's. Critical Strike's sure critical hits make all landing hits critical (1.5 hits in its
+-- one round, 0.75 past helmets: 7.5 fire beside what the doubled hits add). A critical hit that
+-- stuns counts as likely as one lands (of the stun's 2/3).
 hitWorld['SPL:TESTCRFI']=sub('TESTCRFI',{fx(12,{p1=10,p2=8*65536,timing=1,target=2,duration=0})},1)
 hitWorld['SPL:TESTCRST']=sub('TESTCRST',{fx(45,{target=2,duration=12})},1)
 hitWorld['EFF:TESTWKEF']={kind='EFF',resref='TESTWKEF',effect=fx(54,{p1=-4,target=2,duration=12})}
@@ -511,11 +524,13 @@ i=input({fighter(11,130)},{row('TESTBURN',burn,1),row('TESTVOLY',volley,1),row('
 i.frame.self.weapon={item='TESTSWRD',damage=10,damageType=3,apr=2,thac0=10}
 rejected={}
 opts=defence.options(i,rejected)
+landed=1.5*threat.rest(i.frame,60)/6
+local crits=landed*(0.05/0.75)*0.5
 assert(#opts==3 and rejected['no-worth']==2 and find(opts,'TESTVOLY')==nil and find(opts,'TESTEDGE')==nil)
-assert(near(find(opts,'TESTBURN').worth,1.5/60) and near(find(opts,'TESTDAZE').worth,0.15*2/3))
+assert(near(find(opts,'TESTBURN').worth,crits*10/60) and near(find(opts,'TESTDAZE').worth,crits*2/3))
 assert(near(find(opts,'TESTSURE').worth,(2*10*(1+0.95*defence.critOpen)-2*0.75*10)/60+7.5/60))
 i.frame.enemies[1].mirror=2
-assert(near(find(defence.options(i,{}),'TESTBURN').worth,2.5*(0.05/0.75)*0.5*10/60))
+assert(near(find(defence.options(i,{}),'TESTBURN').worth,(landed-2)*(0.05/0.75)*0.5*10/60))
 i.frame.enemies[1].mirror=nil
 -- A buff whose hits weaken (THAC0 4 worse for 12 seconds) takes 4/19 of the fight of a fighter that
 -- swings twice at the caster's armour class 8 (it hits 0.95, then 0.75), for two thirds of the full
@@ -524,12 +539,104 @@ local sap=onHits('TESTSAP',{fx(248,{duration=30,res='TESTWKEF'})})
 i=input({fighter(11,130)},{row('TESTSAP',sap,1)},{mind=mind.new({ownWeapon=true})})
 i.frame.self.weapon={damage=10,damageType=3,apr=2,thac0=10}
 assert(near(find(defence.options(i,{}),'TESTSAP').worth,4/19*2/3))
--- Past four Mirror Images half a hit lands in the three rounds: the debuff counts half as likely.
-i.frame.enemies[1].mirror=4
-assert(near(find(defence.options(i,{}),'TESTSAP').worth,4/19*2/3*0.5))
+-- Past three Mirror Images what is left of a hit lands: the debuff counts that likely.
+i.frame.enemies[1].mirror=3
+assert(landed>3 and landed<4 and near(find(defence.options(i,{}),'TESTSAP').worth,4/19*2/3*(landed-3)))
 i.frame.enemies[1].mirror=nil
 i.frame.enemies[1].wards={{source='TESTSAP'}}
 assert(find(defence.options(i,{}),'TESTSAP')==nil)
+groups=groups+1
+
+-- 14. Buffs over the rest of the fight (lab batch J: SCS's fighters drink their Oil of Speed and giant
+-- strength at the start, the engine's waited or never did). Oil of Speed (haste for 300 seconds) and
+-- a Potion of Fire Giant Strength (strength 22 for 600 seconds) for a fighter of strength 18/50
+-- whose sword takes strength's bonuses. Against a big fresh enemy the fight lasts the cap's minute:
+-- both count for ten rounds. Strength counts by the game's tables (the shipped ones here: 18/50
+-- gives 1 to hit and 3 damage, 22 gives 4 and 10).
+local oil=spell('TESTOIL',1,{fx(16,{duration=300})},{speed=0})
+local giant=spell('TESTGIAN',1,{fx(44,{p1=22,p2=1,duration=600})},{speed=0})
+local improvedOil=spell('TESTIOIL',1,{fx(16,{p2=1,duration=300})},{speed=0})
+local weakOil=spell('TESTWOIL',1,{fx(16,{p2=2,duration=300})},{speed=0})
+local function sword(fields)
+    local w={item='TESTSWRD',damage=10,damageType=3,apr=2,thac0=10,str=18,strExtra=50,strengthHit=true,strengthDamage=true}
+    for k,v in pairs(fields or {}) do w[k]=v end
+    return w
+end
+local function potions(...)
+    local list={}
+    for _,s in ipairs({...}) do list[#list+1]={resref=s.resref,abilities={{effect=s,uses=1}}} end
+    return list
+end
+i=input({fighter(11,130,{hp=300,maxHp=300})},{},{mind=mind.new({ownWeapon=true}),items=potions(oil,giant,improvedOil,weakOil)})
+i.frame.self.hp,i.frame.self.maxHp=200,200
+i.frame.self.weapon=sword()
+assert(threat.rest(i.frame,60)==60)
+rejected={}
+opts=defence.options(i,rejected)
+-- Haste: three swings for two, hitting 0.75 for 10, of an enemy of 300; improved haste four. Giant
+-- strength: 3 more to hit (0.9) and 7 more damage (17). A weak haste only hastens the legs.
+assert(near(find(opts,'TESTOIL').worth,(3*0.75*10-2*0.75*10)*10/300) and find(opts,'TESTOIL').rest==60)
+assert(near(find(opts,'TESTIOIL').worth,(4*0.75*10-2*0.75*10)*10/300))
+assert(near(find(opts,'TESTGIAN').worth,(2*0.9*17-2*0.75*10)*10/300))
+assert(find(opts,'TESTWOIL')==nil and rejected['no-worth']==1)
+-- Near the end (30 of the enemy's hit points left: 12 seconds) the same potions count two rounds.
+i.frame.enemies[1].hp=30
+assert(near(threat.rest(i.frame,60),12))
+opts=defence.options(i,{})
+assert(near(find(opts,'TESTOIL').worth,(3*0.75*10-2*0.75*10)*2/300) and find(opts,'TESTOIL').rest==12)
+assert(near(find(opts,'TESTGIAN').worth,(2*0.9*17-2*0.75*10)*2/300))
+-- A shorter fight cap shortens it too; a buff never counts beyond its own duration.
+i.frame.enemies[1].hp=300
+i.mind=mind.new({ownWeapon=true,fightCap=30})
+assert(near(find(defence.options(i,{}),'TESTOIL').worth,(3*0.75*10-2*0.75*10)*5/300))
+i.mind=mind.new({ownWeapon=true})
+i.items=potions(spell('TESTSHRT',1,{fx(16,{duration=12})},{speed=0}))
+assert(near(find(defence.options(i,{}),'TESTSHRT').worth,(3*0.75*10-2*0.75*10)*2/300))
+-- The installed tables count when the adapter read them (input.tables): here 22 gives 2 to hit and
+-- 5 damage, 18/50 1 and 3.
+i.items=potions(giant)
+i.tables={strmod={[18]={hit=1,damage=2},[22]={hit=2,damage=5}},strmodex={[50]={hit=0,damage=1}}}
+assert(near(find(defence.options(i,{}),'TESTGIAN').worth,(2*0.8*12-2*0.75*10)*10/300))
+i.tables=nil
+-- A fighter stronger already loses by it (23 gives 5 and 11): no option. A bow that takes no
+-- strength gains nothing, nor a wielder whose strength is not known.
+i.frame.self.weapon=sword({str=23,strExtra=0})
+rejected={}
+assert(find(defence.options(i,rejected),'TESTGIAN')==nil and rejected['no-worth']==1)
+i.frame.self.weapon=sword({strengthHit=false,strengthDamage=false})
+assert(find(defence.options(i,{}),'TESTGIAN')==nil)
+i.frame.self.weapon=sword({str=false})
+assert(find(defence.options(i,{}),'TESTGIAN')==nil)
+-- Exceptional strength too: strength 18 and 18/00 set for a fighter of 16 (1 damage) give 3 to hit
+-- and 6 damage.
+local righteous=spell('TESTRIGH',1,{fx(44,{p1=18,p2=1,duration=60}),fx(97,{p1=100,p2=1,duration=60})},{speed=0})
+i.items=potions(righteous)
+i.frame.self.weapon=sword({str=16,strExtra=0})
+assert(near(find(defence.options(i,{}),'TESTRIGH').worth,(2*0.9*15-2*0.75*10)*10/300))
+-- What a potion takes from its drinker counts against it: a haste that takes 2 strength from the
+-- fighter of 18/50 (16: nothing to hit, 1 damage) gives three swings at 0.7 for 8.
+i.items=potions(spell('TESTBERS',1,{fx(16,{duration=300}),fx(44,{p1=-2,duration=300})},{speed=0}))
+i.frame.self.weapon=sword()
+assert(near(find(defence.options(i,{}),'TESTBERS').worth,(3*0.7*8-2*0.75*10)*10/300))
+-- A haste the fighter has already (its guard) adds nothing; an improved one over it doubles the two
+-- attacks it had before it (three now, four after).
+i.items=potions(oil,improvedOil)
+i.frame.self.weapon=sword({apr=3})
+i.frame.self.guard={roles={buff={kinds={haste=true}}}}
+opts=defence.options(i,{})
+assert(find(opts,'TESTOIL')==nil and near(find(opts,'TESTIOIL').worth,(4*0.75*10-3*0.75*10)*10/300))
+i.frame.self.guard={roles={buff={kinds={haste=true,improvedHaste=true}}}}
+assert(#defence.options(i,{})==0)
+-- The choice: at the start the fighter drinks its giant strength before it swings; near the end the
+-- swing beats it.
+i=input({fighter(11,130,{hp=300,maxHp=300})},{},{family='fighter',mind=mind.forFamily(mind.new(),'fighter'),items=potions(giant)})
+i.frame.self.hp,i.frame.self.maxHp=200,200
+i.frame.self.weapon=sword()
+pick=choice.decide(i)
+assert(pick.resref=='TESTGIAN' and pick.kind=='defence' and pick.use)
+i.frame.enemies[1].hp=30
+pick=choice.decide(i)
+assert(pick.kind=='weapon')
 groups=groups+1
 
 return groups

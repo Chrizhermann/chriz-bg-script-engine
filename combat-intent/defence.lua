@@ -19,11 +19,16 @@
 --   get past weapon immunity), and a fresh Stoneskin over skins that last the horizon gains
 --   nothing: SCS keeps "at least one" up.
 -- - A buff is worth the share of an enemy its receivers' extra weapon damage takes: more attacks,
---   hits, damage and critical hits, less what the spell puts on its own receiver (Whirlwind
---   Attack's penalties), and what its on-hit effects do on the hits they land (F2a: Smite Evil's
---   first hit, every hit of a poisoned blade). The caster's own weapon counts only when its
---   profile fights with it (mind.ownWeapon: fighters and monsters); a caster that casts does not
---   swing.
+--   hits, damage and critical hits, more strength by the game's strength tables (the giant strength
+--   potions), less what the spell puts on its own receiver (Whirlwind Attack's penalties), and what
+--   its on-hit effects do on the hits they land (F2a: Smite Evil's first hit, every hit of a
+--   poisoned blade). A haste the receiver has already adds nothing. The caster's own weapon counts
+--   only when its profile fights with it (mind.ownWeapon: fighters and monsters); a caster that
+--   casts does not swing. A buff adds to its receivers' fight over the rest of the fight
+--   (threat.rest, at most the profile's fightCap) as long as it lasts, as a summons does
+--   (combat-intent/summons.lua): drunk or cast early it counts much, late little (lab batch J: SCS's
+--   fighters drink their Oil of Speed and giant strength at the start). A protection counts over the
+--   horizon, against the harm the caster sees now.
 -- Harm comes from combat-intent/threat.lua: weapons, spells aimed at one creature, areas and
 -- disables, as the caster perceives them.
 -- In the caster's own Time Stop (D2a) nothing threatens it until time resumes: a cast that ends
@@ -34,6 +39,7 @@ local openers=require('combat-intent.openers')
 local weapons=require('combat-intent.weapons')
 local spells=require('combat-intent.spells')
 local harm=require('combat-intent.harm')
+local arsenal=require('combat-intent.arsenal')
 local M={}
 M.ROUND=6
 -- Worth of a round a friend is in the fight, as a share of it (attacks count a hold for the full
@@ -293,6 +299,28 @@ local function edge(role,a,debuff)
     local percent=(number(by[0]) and by[0] or 0)+(label and number(by[M.PERCENT_TYPES[label]]) and by[M.PERCENT_TYPES[label]] or 0)
     return hit,amount(role,'damage'),percent,amount(role,'critical')
 end
+-- What a buff or debuff role's strength changes of the bonuses to hit and to damage of weapon held
+-- (its attack data: the wielder's strength and exceptional strength, and which bonuses the weapon
+-- takes), by the game's strength tables (arsenal.might: the installed ones, else the shipped ones):
+-- the score it sets, else its own plus the points it adds or takes; exceptional strength likewise
+-- (the game caps strength at 25, exceptional strength at 100). A buff's gain, a debuff's loss; a set
+-- below what the wielder has is a loss for a buff. None for a weapon that takes neither bonus or a
+-- strength not known.
+local function might(role,held,debuff,tables)
+    if type(role)~='table' or type(held)~='table' or not number(held.str) or not (held.strengthHit or held.strengthDamage) then
+        return 0,0
+    end
+    local sign=debuff and -1 or 1
+    local extra=number(held.strExtra) and held.strExtra or 0
+    local str=number(role.strengthSet) and role.strengthSet or held.str+sign*amount(role,'strength')
+    local ex=number(role.strengthExtraSet) and role.strengthExtraSet or extra+sign*amount(role,'strengthExtra')
+    str,ex=clamp(math.floor(str+0.5),0,25),clamp(math.floor(ex+0.5),0,100)
+    local hit0,damage0=arsenal.might(tables,clamp(math.floor(held.str+0.5),0,25),clamp(math.floor(extra+0.5),0,100))
+    local hit1,damage1=arsenal.might(tables,str,ex)
+    local hit=held.strengthHit and hit1-hit0 or 0
+    local damage=held.strengthDamage and damage1-damage0 or 0
+    return sign*hit,sign*damage
+end
 -- A swing's expected damage: d on a hit; a critical hit (a roll of 20 less crit, at least 1 in
 -- 20) always hits and doubles d where no helmet keeps it off.
 local function swing(h,d,crit)
@@ -350,8 +378,10 @@ end
 -- The share of an enemy a buff's extra weapon damage takes through friend f over r rounds; only
 -- friends with attack data and an enemy within a round's walk fight. held: the attack data f
 -- swings with (f.attack when nil); own: what the spell puts on f itself (its debuff role); hits:
--- the on-hit effects it gives f (payload).
-function M.offense(buff,f,frame,r,held,own,hits)
+-- the on-hit effects it gives f (payload); tables: the game's strength tables (might). A haste f
+-- holds already (its guard's roles) is not hastened again; an improved one over a normal one adds
+-- what doubling its attacks before that brings.
+function M.offense(buff,f,frame,r,held,own,hits,tables)
     held=held or f.attack
     if type(buff)~='table' or type(held)~='table' then return 0 end
     local ac,hp,n=enemies(frame)
@@ -364,9 +394,18 @@ function M.offense(buff,f,frame,r,held,own,hits)
     local a=threat.attack({attack=held})
     local k=type(buff.kinds)=='table' and buff.kinds or {}
     local apr=a.apr+M.attacks(amount(buff,'attacks'))
-    if k.haste then apr=apr+(k.improvedHaste and a.apr or 1) end
+    local guard=type(f.guard)=='table' and type(f.guard.roles)=='table' and f.guard.roles.buff
+    local had=type(guard)=='table' and type(guard.kinds)=='table' and guard.kinds or {}
+    if k.haste and not had.improvedHaste then
+        if k.improvedHaste then apr=apr+(had.haste and math.max(0,a.apr-2) or a.apr)
+        elseif not had.haste then apr=apr+1 end
+    end
     local hit,damage,percent,crit=edge(buff,a)
+    local stronger,harder=might(buff,held,false,tables)
+    hit,damage=hit+stronger,damage+harder
     local lost,less,fewer,blunt=edge(own,a,true)
+    local weaker,softer=might(own,held,true,tables)
+    lost,less=lost+weaker,less+softer
     local d=math.max(0,a.damage+damage-less+a.damage*(percent-fewer)/100)
     local before=a.apr*swing(threat.hitChance(a.thac0,ac),a.damage,0)
     local after=apr*swing(threat.hitChance(a.thac0-hit+lost,ac),d,crit-blunt)
@@ -554,7 +593,9 @@ end
 -- spell's area weakens of enemies (weakens) adds to what it gives its side, which caution weighs.
 -- A defence that leaves the caster invisible as a backstab needs (plain invisibility, F2d) adds what
 -- the backstab after it gains (input.hideOpening, combat-intent/choice.lua), less the part of a
--- round its casting takes (weapons.paced); such an option carries hides and that opening.
+-- round its casting takes (weapons.paced); such an option carries hides and that opening. A buff
+-- counts over the rest of the fight as long as it lasts (rest, the seconds it reckoned with), a
+-- protection over the horizon; input.tables holds the game's strength tables (might).
 function M.options(input,rejected)
     local out={}
     local function reject(why) if rejected then rejected[why]=(rejected[why] or 0)+1 end end
@@ -566,6 +607,8 @@ function M.options(input,rejected)
     local waiting=number(input.lastDefence) and number(input.tick) and input.tick-input.lastDefence<pause*15
         and not M.acute(input,pictures)
     local horizon=number(mind.horizon) and mind.horizon or 18
+    local rest=threat.rest(frame,number(mind.fightCap) and mind.fightCap or 60)
+    local tables=type(input.tables)=='table' and input.tables or nil
     local killBonus=number(mind.killBonus) and mind.killBonus or 0
     local stop=openers.ownStop(input) or 0
     local held={}
@@ -588,6 +631,7 @@ function M.options(input,rejected)
         local shield=M.shield(gives)
         local length=math.max(seconds(gives.protection),seconds(gives.buff))
         local rounds=math.max(0,math.min(horizon,length-stop))/M.ROUND
+        local fights=math.max(0,math.min(rest,seconds(gives.buff)-stop))/M.ROUND
         local cast=(number(spell.speed) and spell.speed or 0)*M.speedSeconds
         local hide=input.hideOpening
         local opening=type(hide)=='table' and number(hide.worth) and hide.worth>0 and shield.invisible and
@@ -610,8 +654,8 @@ function M.options(input,rejected)
                         gain=M.loss(now,f,t,rounds,killBonus)-M.loss(M.union(now,shield),f,t,rounds,killBonus)
                     end
                     local own=hitsFor(gives.hits,f,caster,aim)
-                    if f~=caster then gain=gain+M.offense(gives.buff,f,frame,rounds,nil,nil,own)
-                    elseif wielded then gain=gain+M.offense(gives.buff,f,frame,rounds,wielded,gives.own,own) end
+                    if f~=caster then gain=gain+M.offense(gives.buff,f,frame,fights,nil,nil,own,tables)
+                    elseif wielded then gain=gain+M.offense(gives.buff,f,frame,fights,wielded,gives.own,own,tables) end
                     if gain>0 then worth=worth+gain;hits[#hits+1]=f.id end
                 end
             end
@@ -637,7 +681,8 @@ function M.options(input,rejected)
         local worth=best.total*through
         local option={resref=row.resref,kind='defence',worth=worth,cost=cost,score=worth-cost,
             hits=best.hits,slack=0,speed=number(spell.speed) and spell.speed or 0,release=spell.release or nil,
-            use=row.item or nil,hides=best.open>0 or nil,opening=best.open>0 and best.open or nil}
+            use=row.item or nil,hides=best.open>0 or nil,opening=best.open>0 and best.open or nil,
+            rest=gives.buff and rest or nil}
         local aim=best.aim
         if aim.self then option.self=true;option.mode='self'
         elseif aim.friend then option.target=aim.friend.id;option.mode='ally'

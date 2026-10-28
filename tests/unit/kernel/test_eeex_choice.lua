@@ -2302,7 +2302,7 @@ local tablesOf=(function()
         WSPECIAL=twoda({'HIT','DAMAGE','SPEED'},{{'0',0,0,0},{'1',0,0,0},{'2',1,2,0},{'3',3,3,0},{'4',3,4,-1},{'5',3,5,-3}}),
         WSPATCK=twoda(LEVELS,{attacks('0',0,-1),attacks('1',0,-1),attacks('2',-1,1),attacks('3',-1,1),attacks('4',-1,1),
             attacks('5',-2,2)}),
-        STRMOD=twoda({'TO_HIT','DAMAGE'},{{'16',0,1},{'17',1,1},{'18',1,2}}),
+        STRMOD=twoda({'TO_HIT','DAMAGE'},{{'16',0,1},{'17',1,1},{'18',1,2},{'22',2,5}}),
         STRMODEX=twoda({'TO_HIT','DAMAGE'},{{'0',0,0}}),
         DEXMOD=twoda({'REACTION','MISSILE','AC'},{{'16',1,1,-2}}),
         CLSWPBON=twoda({'GETS_PROF_APR','UNARMED_DIVISOR','ZERO_SKILL_THAC0'},{{'MAGE',0,0,5},{'FIGHTER',1,0,2}})}
@@ -3128,6 +3128,59 @@ m3.m_curAction=action(472,'',-1)
 w3.BGSE_Act(m3)
 assert(#w3.queued==0 and c3:inspect().counts.cut==0 and last3('cut')==nil and r3.inspect().counts.held==2)
 assert(r3.inspect().counts.renewed==0)
+end)()
+groups=groups+1
+
+-- 43. A giant strength potion at the start of a fight (lab batch J): a fighter of strength 18 whose
+-- sword takes strength's bonuses drinks it before it swings, its strength and the sword's flags going
+-- from the game's stats through the weapon in hand to the choice, which counts the potion over the
+-- rest of the fight. The installed strength table counts (here 22 gives 2 to hit and 5 damage): an
+-- installed table that gives 22 the shipped 4 and 10 makes the potion worth more. Without the game's
+-- tables the shipped one counts, and the fighter still drinks first.
+;(function()
+local profiles=require('combat-intent.mind')
+ITEMS.TESTGIAN={kind='ITM',resref='TESTGIAN',flags=0,abilities={{form=3,flags=0,location=3,target=5,range=1,speed=0,
+    projectile=1,effects={fx(44,{p1=22,p2=1,target=1,duration=600})}}}}
+ITEMS.TESTSTRS=weapon('TESTSTRS',{},{flags=1})
+local function fight(tables,seed)
+    local w=world()
+    if tables then tablesOf(w) end
+    if tables=='strong' then
+        local load=w.EEex_Resource_Load2DA
+        w.EEex_Resource_Load2DA=function(name)
+            local t=load(name)
+            if name~='STRMOD' then return t end
+            local copy={columns=t.columns,labels=t.labels,cells={},width=t.width,height=t.height}
+            for y=0,t.height-1 do copy.cells[y]=t.labels[y]=='22' and {[0]='4','10'} or t.cells[y] end
+            return copy
+        end
+    end
+    local d=directors.new(w,{reader=reader9})
+    local c=choices.new(w,{reader=reader9,director=d,seed=seed,
+        mindFor=function() return profiles.forFamily(profiles.new(),'fighter') end})
+    local list={}
+    c:setSink(function(row) list[#list+1]=row end)
+    runtime.install(w,{director=d,choice=c,version='test'})
+    local f=w.add(armed(sprite(1,0,0,255),35,'TESTSTRS'))
+    f.stats[36]=18
+    f.items[18]={cResRef=str('TESTGIAN'),m_useCount1=1}
+    f.m_baseStats.m_hitPoints=200;f.stats[1]=200
+    local foe=w.add(sprite(11,60,0,2))
+    foe.stats[2]=5;foe.m_baseStats.m_hitPoints=100;foe.stats[1]=100
+    w.ticks=100
+    assert(w.BGSE_Claim(f,'mage','s1')==true)
+    local picked
+    for n=#list,1,-1 do if list[n].kind=='choice' then picked=list[n];break end end
+    w.BGSE_Act(f)
+    return picked,w,c
+end
+local installed,w,c=fight(true,94)
+assert(installed.spell=='TESTGIAN' and installed.use==true and installed.castKind=='defence' and installed.rest>0)
+assert(w.queued[#w.queued].text:find('UseItem%("TESTGIAN",Myself%)')~=nil and c:inspect().counts.errors==0)
+local strong=fight('strong',94)
+assert(strong.spell=='TESTGIAN' and strong.worth>installed.worth)
+local shipped=fight(false,94)
+assert(shipped.spell=='TESTGIAN' and shipped.use==true)
 end)()
 groups=groups+1
 

@@ -184,14 +184,16 @@ function M.picture(frame)
 end
 
 -- The caster's weapon in hand (frame.self.weapon, adapters/eeex/sense.lua) as attack data, or
--- false without one: the caster strikes with it or not at all.
+-- false without one: the caster strikes with it or not at all. Its strength and which of
+-- strength's bonuses the weapon takes go along (combat-intent/defence.lua's strength buffs).
 function M.wielded(caster)
     local w=type(caster)=='table' and caster.weapon
     if type(w)~='table' or not number(w.damage) then return false end
     local flags=number(w.flags) and w.flags or 0
     return {apr=number(w.apr) and w.apr or caster.apr,thac0=number(w.thac0) and w.thac0 or caster.thac0,
         damage=w.damage,ranged=w.ranged==true,range=w.range,damageType=w.damageType,fist=w.fist==true or nil,
-        magical=(number(w.enchantment) and w.enchantment>0) or math.floor(flags/64)%2==1}
+        magical=(number(w.enchantment) and w.enchantment>0) or math.floor(flags/64)%2==1,
+        str=w.str,strExtra=w.strExtra,strengthHit=w.strengthHit,strengthDamage=w.strengthDamage}
 end
 
 -- How many seconds the fight is expected to last from now, from both sides' strength: each side's
