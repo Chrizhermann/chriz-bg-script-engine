@@ -1011,6 +1011,19 @@ under the engine (`own`) and under SCS alone (`scs`).
   the engine j1 lost 3 of 4 and ran out of time once with both sides nearly dead; j2 was ahead in all
   3 (57 to 68 per cent of its hit points left, the party at 4 to 13) but did not finish them in 240
   seconds.
+- **Why j2 did not finish (run 2).** In all three fights the party's last members were not beaten but
+  taken out of the fight: by the mind flayer's Maze (`SPIN774`, 9 of 11 casts hit; a creature of the
+  party's intelligence, 9 to 11, stays 4d4 rounds in the maze, here about 65 to 95 seconds) and by
+  the erinyes' Charm (`SPIN558`, 120 seconds; the charmed thief stood among the group as its ally).
+  The group then hunted the missing enemy as if it were hiding: the mazed one as vanished, walking and
+  teleporting to its spot (the mind flayer and the bone fiend in j2-own-2), the charmed one as last
+  seen (39 search rows and a teleport on the thief in j2-own-1 while he was charmed, in sight). After
+  its patience (30 seconds for the clever)
+  it gave up, and SCS's own blocks went on below the hook: they attacked the lab's watcher, the
+  player character the lab makes unkillable and neutral, as SCS's groups do in the SCS fights from
+  the start. The mazed or charmed party member came back only near the time limit. A lab defect
+  beside it: the party bot went on ordering the charmed thief to attack (196 orders, which the game
+  overrode).
 - **Standing idle after an interruption.** A block of SCS's above the hook that fires (a call for
   help, `Shout(151)`, or one of its timers, with `Continue()`) interrupts the engine's running attack,
   as the game interrupts any block's actions. The hook's hold then queued nothing, so the creature
