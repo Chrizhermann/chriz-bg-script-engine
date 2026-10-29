@@ -4704,7 +4704,9 @@ end
 -- the backstab after it gains (input.hideOpening, combat-intent/choice.lua), less the part of a
 -- round its casting takes (weapons.paced); such an option carries hides and that opening. A buff
 -- counts over the rest of the fight as long as it lasts (rest, the seconds it reckoned with), a
--- protection over the horizon; input.tables holds the game's strength tables (might).
+-- protection over the horizon; input.tables holds the game's strength tables (might). boosts: what
+-- the option gives adds to attacks (a buff potion, which a creature drinks before its attack:
+-- combat-intent/choice.lua).
 function M.options(input,rejected)
     local out={}
     local function reject(why) if rejected then rejected[why]=(rejected[why] or 0)+1 end end
@@ -4749,7 +4751,7 @@ function M.options(input,rejected)
         local list=row.item and {{self=true,friend=caster,point=spell.area and {x=caster.x,y=caster.y} or nil}}
             or aims(input,row,spell)
         for _,aim in ipairs(list) do
-            local worth,hits,open=0,{},0
+            local worth,hits,open,boost=0,{},0,0
             for _,f in ipairs(receivers(input,row,spell,aim)) do
                 if f==caster then open=opening end
                 -- What protects a friend whose effects could not be read is unknown: it gets
@@ -4757,15 +4759,16 @@ function M.options(input,rejected)
                 if f.guard==false then unknown=true
                 elseif not guarded(f,row.resref) then
                     local t=pictures[f.id]
-                    local gain=0
+                    local gain,more=0,0
                     if t and rounds>0 then
                         local now=heldOf(f)
                         gain=M.loss(now,f,t,rounds,killBonus)-M.loss(M.union(now,shield),f,t,rounds,killBonus)
                     end
                     local own=hitsFor(gives.hits,f,caster,aim)
-                    if f~=caster then gain=gain+M.offense(gives.buff,f,frame,fights,nil,nil,own,tables)
-                    elseif wielded then gain=gain+M.offense(gives.buff,f,frame,fights,wielded,gives.own,own,tables) end
-                    if gain>0 then worth=worth+gain;hits[#hits+1]=f.id end
+                    if f~=caster then more=M.offense(gives.buff,f,frame,fights,nil,nil,own,tables)
+                    elseif wielded then more=M.offense(gives.buff,f,frame,fights,wielded,gives.own,own,tables) end
+                    gain=gain+more
+                    if gain>0 then worth=worth+gain;hits[#hits+1]=f.id;boost=boost+more end
                 end
             end
             if open>0 then
@@ -4777,7 +4780,7 @@ function M.options(input,rejected)
             local weak=row.item and 0 or weakens(input,row,spell,aim,ac)
             local total=worth*caution+weak+open
             if worth+weak+open>0 and (not best or total>best.total or (total==best.total and worth>best.worth)) then
-                best={aim=aim,total=total,worth=worth,hits=hits,open=open}
+                best={aim=aim,total=total,worth=worth,hits=hits,open=open,boost=boost}
             end
         end
         if not best then return false,unknown and 'unknown-guard' or 'no-worth' end
@@ -4791,7 +4794,7 @@ function M.options(input,rejected)
         local option={resref=row.resref,kind='defence',worth=worth,cost=cost,score=worth-cost,
             hits=best.hits,slack=0,speed=number(spell.speed) and spell.speed or 0,release=spell.release or nil,
             use=row.item or nil,hides=best.open>0 or nil,opening=best.open>0 and best.open or nil,
-            rest=gives.buff and rest or nil}
+            rest=gives.buff and rest or nil,boosts=best.boost>0 or nil}
         local aim=best.aim
         if aim.self then option.self=true;option.mode='self'
         elseif aim.friend then option.target=aim.friend.id;option.mode='ally'
@@ -6631,6 +6634,14 @@ factories["combat-intent.choice"]=function(require)
 -- more (mind.alwaysAttack); a caster that has no attack worth anything takes the best spell that is
 -- worth something.
 --
+-- Buff potions (Christopher, 2026-10-29: the first one right at the start of the fight; a potion
+-- takes no round, the creature still attacks and moves): a drink takes a moment, and the attack
+-- follows it. So where the creature would attack, the best drink that adds to attacks (Oil of
+-- Speed, giant strength) comes first when it is worth more than the part of the attack its moment
+-- takes, with no minimum worth: the creature does not leave its weapon for it. Healing and
+-- protection potions are weighed against the attack as before (his call, later, with how long a
+-- drink should take).
+--
 -- Worth is counted in shares of an enemy taken out of the fight: the hit points a cast takes
 -- (as a share of the enemy's maximum, no more than it has left), the worth of a kill, or the
 -- chance and length of a disable. A spell's level costs a little, so small spells do small
@@ -6837,6 +6848,10 @@ M.stayWeight=4
 M.ROUND=threat.ROUND
 M.auraLead=0.5
 M.idle=1
+-- Seconds of the attack's round a drink takes before the attack after it (see the top): in lab
+-- batch J the fighters' potions started at once and their attacks were chosen 0.6 and 1 second
+-- after.
+M.drinkSeconds=1
 -- Interrupting (see the top): a casting aura counts from 0 at a cast's start to about 99, a tick at
 -- a time (adapters/eeex/choice.lua reads it); a count up to castSlack seconds past the casting time
 -- is still the cast's own.
@@ -8385,6 +8400,16 @@ local function pick(input)
         for _,o in ipairs(options) do if not (number(o.speed) and o.speed>=mind.slowSpeed) then quick[#quick+1]=o end end
         if quick[1] and quick[1].score>=mind.minValue then options=quick end
     end
+    -- The attack, or the best buff potion before it (see the top): the drink is taken when it is
+    -- worth more than the part of the attack its moment takes.
+    local boost
+    for _,o in ipairs(options) do
+        if o.use and o.boosts and number(o.score) and o.score>0 then boost=o;break end
+    end
+    local function attack()
+        if boost and boost.score>value*(1-weapons.paced(M.drinkSeconds)) then return boost,'drink',all() end
+        return swing,'weapon',all()
+    end
     local best=options[1]
     if best.score<mind.minValue then
         if swinging then
@@ -8396,13 +8421,13 @@ local function pick(input)
                     break
                 end
             end
-            return swing,'weapon',all()
+            return attack()
         end
         -- No attack is worth anything: the best that is worth something, rather than nothing.
         if best.score>0 then return best,'weak',options end
         return M.wait(M.idle),'nothing-good',options,rejected
     end
-    if swing and swing.score>best.score then return swing,'weapon',all() end
+    if swing and swing.score>best.score then return attack() end
     local rng=input.rng
     if not rng or rng:nextInt(1,1000)<=math.floor(mind.best*1000+0.5) then return best,'best',options end
     local floor=math.max(mind.minValue,best.score-math.abs(best.score)*mind.band)
@@ -8415,7 +8440,7 @@ end
 -- fight, step away from melee enemies ('kite'), walk into position for the next cast ('position'),
 -- way out of a zone or wait to do now, and why
 -- ('aura', 'no-option' or 'nothing-good' for a wait; 'jump' for a jump taken over the attack it
--- brings sooner), or nil and why for bad input; the options come along for the log, and with a wait for want of options the
+-- brings sooner; 'drink' for a buff potion drunk before the attack), or nil and why for bad input; the options come along for the log, and with a wait for want of options the
 -- count of reasons the ready spells gave none. Leaving costs no spell, only the seconds of the
 -- walk: it comes first when it is worth more than that share of a round of the choice, or when the
 -- pain drives a dull creature out (forced). Spell slots cost input.slots of their price,

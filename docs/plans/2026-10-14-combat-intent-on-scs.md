@@ -829,6 +829,20 @@ does not let happen, so heals and buffs now aim only at allies the caster sees; 
 waited in front of a mage behind Stoneskin, counting all their hits as lost to the skins, so now
 the hits that skins and Mirror Images take count as progress toward the kill.
 
+Christopher's answers of 2026-10-29: a buff potion is drunk right at the start of the fight, since a
+potion takes no round (whether potions should take one to three seconds or longer, so that healing
+spells matter more, is a balance question for later); an imprisoned foe is forgotten at once
+(something cleverer later); clever creatures free a member of their group whom the party charmed,
+with Dispel Magic when they have it (not built yet); the boss fights, phase 2 of the prebuffs and
+whether free prebuffs should cost a spell slot wait until phase 1 is settled and works. The
+August design on `codex/aoe-prebuff-design` had already decided how area prebuffs are delivered
+(one real cast of SCS's prebuff copy, whose own area picks who gets it, and one memorized spell
+spent), and phase 1 does just that. Two causes of the late Oil of Speed are fixed: the rest of the
+fight now counts round by round, with harm falling as creatures fall and skins and images counted
+(it had come out a tenth of what the fights lasted, so every buff and summons counted too little),
+and a buff potion comes before the attack when it is worth more than the moment it takes, with no
+minimum worth (FIGHT-01, "How long the fight lasts" and "Buff potions before the attack").
+
 Next, in the order agreed with Christopher on 2026-10-27 for the first release: the rest of the big
 lab round (light and shadow in a second hide probe, and a party of the same strength for the mixed
 fights, which also show the replacement in whole fights, thieves in whole fights, the veil in game,
@@ -1058,7 +1072,10 @@ Christopher's ideas so far (living list; more will follow):
   lab probe on `codex/aoe-prebuff-design` cast SCS's Haste prebuff for real and both the
   caster and a nearby ally got it. Since 2026-10-28 SCS's prebuffs run through the engine (phase
   1), and SCS's Haste prebuff keeps Haste's area projectile (Improved Haste too with Spell
-  Revisions); what more phase 2 should do is Christopher's call.
+  Revisions); what more phase 2 should do is Christopher's call. The August design already
+  settled the delivery (one real cast, the spell's own area, one memorized spell spent), which
+  phase 1 does; phase 2 and whether free prebuffs should cost a slot come once phase 1 works
+  (Christopher, 2026-10-29).
 - **Smart enemies dodge slow area spells** (clouds, webs, dragon breath and the like) when
   they could see the cast. Recorded as later work on Oct 12: ground-targeted, delayed
   effects are the best candidates; homing projectiles can't be outrun.
@@ -1067,6 +1084,11 @@ Christopher's ideas so far (living list; more will follow):
 - **Harder fights on the top difficulties, once the engine runs everything.** Oct 14: "I
   want to increase some in difficulty, especially on insane and above (even though there
   should not be anything above) once we have taken over everything."
+- **How long a potion takes.** Oct 29: potions take no round today and are almost instant;
+  "Vielleicht sollten Potions zumindest 1, 2 oder 3 Sekunden dauern. Vielleicht sogar
+  länger", if that makes the game more fun because healing spells matter more. A balance
+  question to discuss later, in peace. The engine already counts a drink's moment
+  (`choice.drinkSeconds`), so a longer drink would weigh in by itself.
 - **Spells that differ between installs.** Oct 14: "Wir müssen auch hinterher dann uns mal
   unterhalten über ähm, die großen Unterschiede zwischen ein paar Spells bei Spell
   Revisions und ohne. Ob da die Engine die Unterschiede intelligent genug übernimmt. Ähm,

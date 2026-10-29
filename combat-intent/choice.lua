@@ -14,6 +14,14 @@
 -- more (mind.alwaysAttack); a caster that has no attack worth anything takes the best spell that is
 -- worth something.
 --
+-- Buff potions (Christopher, 2026-10-29: the first one right at the start of the fight; a potion
+-- takes no round, the creature still attacks and moves): a drink takes a moment, and the attack
+-- follows it. So where the creature would attack, the best drink that adds to attacks (Oil of
+-- Speed, giant strength) comes first when it is worth more than the part of the attack its moment
+-- takes, with no minimum worth: the creature does not leave its weapon for it. Healing and
+-- protection potions are weighed against the attack as before (his call, later, with how long a
+-- drink should take).
+--
 -- Worth is counted in shares of an enemy taken out of the fight: the hit points a cast takes
 -- (as a share of the enemy's maximum, no more than it has left), the worth of a kill, or the
 -- chance and length of a disable. A spell's level costs a little, so small spells do small
@@ -220,6 +228,10 @@ M.stayWeight=4
 M.ROUND=threat.ROUND
 M.auraLead=0.5
 M.idle=1
+-- Seconds of the attack's round a drink takes before the attack after it (see the top): in lab
+-- batch J the fighters' potions started at once and their attacks were chosen 0.6 and 1 second
+-- after.
+M.drinkSeconds=1
 -- Interrupting (see the top): a casting aura counts from 0 at a cast's start to about 99, a tick at
 -- a time (adapters/eeex/choice.lua reads it); a count up to castSlack seconds past the casting time
 -- is still the cast's own.
@@ -1768,6 +1780,16 @@ local function pick(input)
         for _,o in ipairs(options) do if not (number(o.speed) and o.speed>=mind.slowSpeed) then quick[#quick+1]=o end end
         if quick[1] and quick[1].score>=mind.minValue then options=quick end
     end
+    -- The attack, or the best buff potion before it (see the top): the drink is taken when it is
+    -- worth more than the part of the attack its moment takes.
+    local boost
+    for _,o in ipairs(options) do
+        if o.use and o.boosts and number(o.score) and o.score>0 then boost=o;break end
+    end
+    local function attack()
+        if boost and boost.score>value*(1-weapons.paced(M.drinkSeconds)) then return boost,'drink',all() end
+        return swing,'weapon',all()
+    end
     local best=options[1]
     if best.score<mind.minValue then
         if swinging then
@@ -1779,13 +1801,13 @@ local function pick(input)
                     break
                 end
             end
-            return swing,'weapon',all()
+            return attack()
         end
         -- No attack is worth anything: the best that is worth something, rather than nothing.
         if best.score>0 then return best,'weak',options end
         return M.wait(M.idle),'nothing-good',options,rejected
     end
-    if swing and swing.score>best.score then return swing,'weapon',all() end
+    if swing and swing.score>best.score then return attack() end
     local rng=input.rng
     if not rng or rng:nextInt(1,1000)<=math.floor(mind.best*1000+0.5) then return best,'best',options end
     local floor=math.max(mind.minValue,best.score-math.abs(best.score)*mind.band)
@@ -1798,7 +1820,7 @@ end
 -- fight, step away from melee enemies ('kite'), walk into position for the next cast ('position'),
 -- way out of a zone or wait to do now, and why
 -- ('aura', 'no-option' or 'nothing-good' for a wait; 'jump' for a jump taken over the attack it
--- brings sooner), or nil and why for bad input; the options come along for the log, and with a wait for want of options the
+-- brings sooner; 'drink' for a buff potion drunk before the attack), or nil and why for bad input; the options come along for the log, and with a wait for want of options the
 -- count of reasons the ready spells gave none. Leaving costs no spell, only the seconds of the
 -- walk: it comes first when it is worth more than that share of a round of the choice, or when the
 -- pain drives a dull creature out (forced). Spell slots cost input.slots of their price,

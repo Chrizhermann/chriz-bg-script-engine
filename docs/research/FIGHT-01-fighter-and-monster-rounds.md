@@ -1135,8 +1135,8 @@ What the engine does now (`combat-intent/director.lua`, `search.lua`, `threat.lu
   where it vanished, out of every area search (IESDP; lab batch J). The director holds it there until
   the maze ends; out again but still unseen, it is a fresh sighting where it vanished, which the
   search follows. Imprisonment (opcode 211) lasts until the party frees it, which no waiting brings
-  about: the picture forgets the foe at once (not in Christopher's answer; the rules text's reading,
-  for him to confirm).
+  about: the picture forgets the foe at once (Christopher, 2026-10-29: "Ja"; something cleverer
+  later, in peace).
 - **Awaiting by wit.** A foe out of play is no clue. When nothing else is left to search, the search
   awaits the nearest one instead of giving the round back to SCS. A clever creature walks to a place
   by the foe's spot, 96 away (fighters and monsters: a step from striking) or 240 (casters), on the
@@ -1160,7 +1160,9 @@ the clever fighter strikes at once.
 
 Not built yet: re-buffing while awaiting (a buff counts only with an enemy within a round's walk, so
 with the foe away nothing is worth casting); a creature of the group that the party charmed is
-attacked as any enemy, as before.
+attacked as any enemy, as before. For that reverse case Christopher agreed on 2026-10-29 ("klingt
+gut") that clever creatures free such a member with Dispel Magic when they have it, and otherwise
+it stays as it is.
 
 Tests: the search's group 11, the director's group 12, the director adapter's group 10, the choice
 adapter's group 32 (guard walks, `await` rows, a place in a danger zone, the dull, an order to the
@@ -1217,8 +1219,8 @@ Tests: the harm tests' group 8, the choice tests' groups 15 and 23 (a charm and 
 on the last foe), the director's group 12, the targeting tests' group 1, the care tests' groups 3
 and 4 and the defence tests' groups 6 and 7; 17 mutations checked.
 Still open: a member of the group that the party charmed and the group charmed back is awaited as a
-charmed foe (part of the reverse case, for Christopher); Oil of Speed's worth against a round of
-swings.
+charmed foe (part of the reverse case, agreed since: above, "Foes out of play"). Oil of Speed: fixed
+since (below, "Buff potions before the attack").
 
 ### Hits that skins take (lab batch J, run 3, 2026-10-29)
 
@@ -1274,6 +1276,42 @@ the estimate still errs short; the choice record keeps it (`rest`) for the lab t
 
 Tests: the summons tests' group 8; 11 mutations checked.
 Still to see in game: batch J again (summons, buffs and lasting areas at the start).
+
+### Buff potions before the attack (Christopher, 2026-10-29)
+
+Christopher, 2026-10-29: "Ich finde, dass der erste Trank, falls wir einen Stärkungstrank (oil of
+speed, irgendwelche stärke potions, was auch immer) vergeben, sollte direkt am Anfang des Kampfes
+getrunken werden"; healing potions and further potions are more complex. A potion takes no round
+now: the drinker still attacks and moves, and it is almost instant. Whether potions should take one
+to three seconds or longer, so that healing spells matter more, is a balance question for later.
+
+Why the Oil came late or never (batch J, run 3; j1-own-2, the group's fighter):
+
+- At the start both potions counted the rest of the fight as 13 seconds (`threat.rest`), though the
+  fight lasted 131: the Potion of Fire Giant Strength still won (0.40, drunk at 0.4 seconds), Oil of
+  Speed counted 0.09. Fixed (above, "How long the fight lasts").
+- After that every choice set the Oil against a round of swings, as if the drink took the round: the
+  swing at the focus won each time (0.53 against 0.37 at 19.6 seconds), and below the minimum worth
+  (0.2) a fighter does not leave its weapon for anything. But the drink takes a moment: its attack
+  followed 0.6 and 1 second after the potion started.
+
+What the engine does now (`combat-intent/choice.lua`, `defence.lua`): where the creature would
+attack, the best drink that adds to attacks (a defence option of an item that `boosts`: Oil of Speed,
+giant strength, a potion of heroism's THAC0) comes first when it is worth more than the part of the
+attack its moment takes (`M.drinkSeconds`, one second: a seventh of a round of swings), and needs no
+minimum worth, since the creature does not leave its weapon for it. The attack follows. A drink waits
+for the casting aura as before, a pause after a defence (`mind.redefend`) too, and a cast worth more
+than the attack still comes first. Healing and protection potions are weighed against the attack as
+before (Christopher: more complex; with the time a drink takes, later). The choice record's `how` is
+`drink`.
+
+Example (the defence tests' group 15, batch J's case): a fighter with Oil of Speed beside an enemy
+at half of its 40 hit points, whose round of swings is worth 0.63 (a kill as likely as not); the Oil
+is worth 0.22. It drinks, then swings. With giant strength and Oil of Speed at the start it drinks
+the giant strength (the larger), swings while the pause after it runs, and drinks the Oil then.
+
+Tests: the defence tests' groups 14 and 15; 10 mutations checked.
+Still to see in game: batch J again.
 
 ## Agreed (Christopher, 2026-10-25)
 

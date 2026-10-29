@@ -600,7 +600,9 @@ end
 -- the backstab after it gains (input.hideOpening, combat-intent/choice.lua), less the part of a
 -- round its casting takes (weapons.paced); such an option carries hides and that opening. A buff
 -- counts over the rest of the fight as long as it lasts (rest, the seconds it reckoned with), a
--- protection over the horizon; input.tables holds the game's strength tables (might).
+-- protection over the horizon; input.tables holds the game's strength tables (might). boosts: what
+-- the option gives adds to attacks (a buff potion, which a creature drinks before its attack:
+-- combat-intent/choice.lua).
 function M.options(input,rejected)
     local out={}
     local function reject(why) if rejected then rejected[why]=(rejected[why] or 0)+1 end end
@@ -645,7 +647,7 @@ function M.options(input,rejected)
         local list=row.item and {{self=true,friend=caster,point=spell.area and {x=caster.x,y=caster.y} or nil}}
             or aims(input,row,spell)
         for _,aim in ipairs(list) do
-            local worth,hits,open=0,{},0
+            local worth,hits,open,boost=0,{},0,0
             for _,f in ipairs(receivers(input,row,spell,aim)) do
                 if f==caster then open=opening end
                 -- What protects a friend whose effects could not be read is unknown: it gets
@@ -653,15 +655,16 @@ function M.options(input,rejected)
                 if f.guard==false then unknown=true
                 elseif not guarded(f,row.resref) then
                     local t=pictures[f.id]
-                    local gain=0
+                    local gain,more=0,0
                     if t and rounds>0 then
                         local now=heldOf(f)
                         gain=M.loss(now,f,t,rounds,killBonus)-M.loss(M.union(now,shield),f,t,rounds,killBonus)
                     end
                     local own=hitsFor(gives.hits,f,caster,aim)
-                    if f~=caster then gain=gain+M.offense(gives.buff,f,frame,fights,nil,nil,own,tables)
-                    elseif wielded then gain=gain+M.offense(gives.buff,f,frame,fights,wielded,gives.own,own,tables) end
-                    if gain>0 then worth=worth+gain;hits[#hits+1]=f.id end
+                    if f~=caster then more=M.offense(gives.buff,f,frame,fights,nil,nil,own,tables)
+                    elseif wielded then more=M.offense(gives.buff,f,frame,fights,wielded,gives.own,own,tables) end
+                    gain=gain+more
+                    if gain>0 then worth=worth+gain;hits[#hits+1]=f.id;boost=boost+more end
                 end
             end
             if open>0 then
@@ -673,7 +676,7 @@ function M.options(input,rejected)
             local weak=row.item and 0 or weakens(input,row,spell,aim,ac)
             local total=worth*caution+weak+open
             if worth+weak+open>0 and (not best or total>best.total or (total==best.total and worth>best.worth)) then
-                best={aim=aim,total=total,worth=worth,hits=hits,open=open}
+                best={aim=aim,total=total,worth=worth,hits=hits,open=open,boost=boost}
             end
         end
         if not best then return false,unknown and 'unknown-guard' or 'no-worth' end
@@ -687,7 +690,7 @@ function M.options(input,rejected)
         local option={resref=row.resref,kind='defence',worth=worth,cost=cost,score=worth-cost,
             hits=best.hits,slack=0,speed=number(spell.speed) and spell.speed or 0,release=spell.release or nil,
             use=row.item or nil,hides=best.open>0 or nil,opening=best.open>0 and best.open or nil,
-            rest=gives.buff and rest or nil}
+            rest=gives.buff and rest or nil,boosts=best.boost>0 or nil}
         local aim=best.aim
         if aim.self then option.self=true;option.mode='self'
         elseif aim.friend then option.target=aim.friend.id;option.mode='ally'

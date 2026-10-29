@@ -652,16 +652,87 @@ opts=defence.options(i,{})
 assert(find(opts,'TESTOIL')==nil and near(find(opts,'TESTIOIL').worth,(4*0.75*10-3*0.75*10)*10/300))
 i.frame.self.guard={roles={buff={kinds={haste=true,improvedHaste=true}}}}
 assert(#defence.options(i,{})==0)
--- The choice: at the start the fighter drinks its giant strength before it swings; near the end the
--- swing beats it.
+-- The choice: at the start the fighter drinks its giant strength before it swings. Near the end (30
+-- left) the drink, worth two rounds of its strength, still beats the moment it takes of the attack
+-- (group 15); with the enemy about to fall (10 left, which the attack kills) the attack comes first.
 i=input({fighter(11,130,{hp=300,maxHp=300})},{},{family='fighter',mind=mind.forFamily(mind.new(),'fighter'),items=potions(giant)})
 i.frame.self.hp,i.frame.self.maxHp=200,200
 i.frame.self.weapon=sword()
 pick=choice.decide(i)
 assert(pick.resref=='TESTGIAN' and pick.kind=='defence' and pick.use)
 i.frame.enemies[1].hp=30
+local why
+pick,why=choice.decide(i)
+assert(pick.resref=='TESTGIAN' and why=='drink')
+i.frame.enemies[1].hp=10
 pick=choice.decide(i)
 assert(pick.kind=='weapon')
+groups=groups+1
+
+-- 15. A buff potion takes a moment, not the round (Christopher, 2026-10-29: the first one right at
+-- the start; a potion takes no round, the creature still attacks and moves). Where the fighter would
+-- attack, it drinks first when the drink is worth more than the part of the attack its moment takes
+-- (a second of the round: a seventh), with no minimum worth. Lab batch J, run 3: the attack (0.528)
+-- beat Oil of Speed (0.369) round after round, and the Oil was never drunk.
+local function fighterInput(items,enemy)
+    local f=input({enemy or fighter(11,130,{hp=300,maxHp=300})},{},{family='fighter',
+        mind=mind.forFamily(mind.new(),'fighter'),items=items})
+    f.frame.self.hp,f.frame.self.maxHp=200,200
+    f.frame.self.weapon=sword()
+    return f
+end
+-- A short haste (two rounds) is worth 0.02 after its price: below the minimum worth and below the
+-- attack, above a seventh of it.
+local short=spell('TESTSHRT',1,{fx(16,{duration=12})},{speed=0})
+i=fighterInput(potions(short))
+opts=defence.options(i,{})
+assert(near(find(opts,'TESTSHRT').score,(3*0.75*10-2*0.75*10)*2/300-0.03) and find(opts,'TESTSHRT').boosts)
+pick,why=choice.decide(i)
+assert(pick.resref=='TESTSHRT' and pick.use and why=='drink')
+-- A drink that took the whole round would not be worth it.
+choice.drinkSeconds=600
+assert(choice.decide(i).kind=='weapon')
+choice.drinkSeconds=1
+-- While the casting aura runs the drink waits for it, as casts do; the attack goes on.
+i.frame.self.aura=3
+assert(choice.decide(i).kind=='weapon')
+i.frame.self.aura=nil
+-- The same haste as a spell takes its casting, not a moment: the fighter attacks.
+i=fighterInput({})
+i.spells={row('TESTSHRT',short,1)}
+o=find(defence.options(i,{}),'TESTSHRT')
+assert(o and o.boosts and not o.use and o.score>0)
+assert(choice.decide(i).kind=='weapon')
+-- Lab batch J's case: Oil of Speed worth more than the minimum, the attack on a hurt enemy (half its
+-- 40 hit points left, a kill as likely as not) worth more than the Oil. The Oil comes first.
+i=fighterInput(potions(oil),fighter(11,130,{hp=20,maxHp=40}))
+local swing=choice.weaponOptions(i,{})[1]
+local o=find(defence.options(i,{}),'TESTOIL')
+assert(o.score>=i.mind.minValue and swing.worth>o.score and o.score>swing.worth/7)
+pick,why=choice.decide(i)
+assert(pick.resref=='TESTOIL' and why=='drink')
+-- Healing and protection potions are weighed against the attack as before: a fighter with half its
+-- hit points and a potion of 27 attacks, as does one with a potion of 4 armour.
+local care=require('combat-intent.care')
+local heal=spell('TESTHEAL',1,{fx(17,{p1=27,duration=0})},{speed=0})
+i=fighterInput(potions(heal))
+i.frame.self.hp=100
+o=find(care.options(i,{}),'TESTHEAL')
+assert(o and o.score>0 and not o.boosts and o.score<i.mind.minValue)
+assert(choice.decide(i).kind=='weapon')
+i=fighterInput(potions(armour))
+o=find(defence.options(i,{}),'TESTARMR')
+assert(o and o.score>0 and not o.boosts and o.score<i.mind.minValue)
+assert(choice.decide(i).kind=='weapon')
+-- Giant strength and Oil of Speed at the start: the giant strength first (the larger), the Oil once
+-- the pause after a defence is over (mind.redefend), meanwhile the attack.
+i=fighterInput(potions(giant,oil))
+assert(choice.decide(i).resref=='TESTGIAN')
+i.frame.self.weapon=sword({str=22,strExtra=0})
+i.lastDefence=i.tick
+assert(choice.decide(i).kind=='weapon')
+i.tick=i.lastDefence+7*15
+assert(choice.decide(i).resref=='TESTOIL')
 groups=groups+1
 
 return groups
