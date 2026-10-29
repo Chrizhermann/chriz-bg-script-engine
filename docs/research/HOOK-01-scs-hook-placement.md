@@ -441,6 +441,63 @@ engine's, but there is none. WeiDU, installing on copies of the SR lab's 1,196 S
 hooked the same 1,148 with the same 3,173 copies; its output decompiles to exactly the
 Python rule's text on all of them, and every other script kept its bytes.
 
+## Install time
+
+The component took 9.5 minutes in the SR lab in lab batch J, run 4 (2026-10-29): 551 of its 571
+seconds went into the pass over the scripts, up to 1.5 seconds for each big SCS script. Small
+WeiDU benchmarks on Chris's PC showed why (learned.md, section 3):
+
+- Every function call copies all of its caller's variables. The hook kept 13 variables for each
+  block of a script, so each helper call for a block copied more of them than the one before;
+  SCS's biggest scripts have about 1,700 blocks.
+- `REPLACE_EVALUATE` copies its whole text for every match, so a pass over a whole script with
+  many matches costs the script's size times the matches.
+- Every statement costs a few microseconds, and every regexp is compiled again at each use.
+
+What changed on 2026-10-30 (`bgse/lib/hook.tpa`, `bgse/setup-bgse.tp2`; the rule is the same):
+
+- A block's flags are bits of one number, kept in records of a string: blocks above the anchor
+  that change, blocks from the anchor on with a flag (with their number, for the runs and the
+  target picks). The helpers are called with few variables in scope.
+- The spell scans of a whole script (`bgse_cast_spells`, `bgse_self_spells`) collect the
+  matching lines first (`bgse_matching_lines`); the comments are stripped once for both.
+- `bgse_classify_block` and `bgse_hunt_block` count the actions of a block by kind
+  (`COUNT_REGEXP_INSTANCES`) and find each response's last action from the end, instead of
+  testing every action with regexps. `bgse_classify_block` works out only what decides: the anchor
+  only until it is found, items only for bookkeeping, lastseen only for specials and encounters.
+- A block is looked at for free invisibility only when it has a cast or application at the
+  creature itself.
+- Each block that stands aside or asks the engine changes on its own, and the parts above and
+  below the hook are put together again in pieces of about 64 KB: a change in a whole part copied
+  all of it each time.
+- The family checks look at the script in place, and the creature pass calls its three functions
+  only for creatures with one of the named scripts.
+
+Old and new build installed in turn into the same copy of each lab, twice (`.work/speed`, not in
+Git; seconds, two runs each; CPU is the WeiDU process's own time, steadier than the wall time on a
+PC that other work shares):
+
+| Lab | Build | Wall time (s) | CPU time (s) |
+| --- | --- | --- | --- |
+| SR | before (`100eab2`) | 583 / 499 | 510 / 492 |
+| SR | after | 255 / 274 | 251 / 259 |
+| no SR | before (`100eab2`) | 415 / 373 | 385 / 363 |
+| no SR | after | 190 / 188 | 186 / 186 |
+
+So the install takes about 4.5 instead of 8.5 to 9.5 minutes with SR (EET), about 3 instead of
+6 to 7 without. Both builds left the same files: every file in `override` (40,786 in the SR lab,
+8,481 without SR), `WeiDU.log` and `dialog.tlk` byte for byte, in all four pairs of runs.
+`tools/hook_agree.py` agrees with the new build on all 1,153 and 826 SCS scripts of the two labs,
+with the spell lists the install itself builds.
+
+Where the time goes now (SR lab, all 1,153 SCS scripts, timed per step): WeiDU's own decompiling
+about 65 seconds and compiling about 47, the rule about 100, the two spell scans about 20; the rest
+is reading and writing files. Opening a file costs this PC 2.5 to 5 ms the first time (more in a lab
+copy under the repository than in the lab) and 0.15 ms when it comes again soon, so the pass over
+the 9,399 creatures took between 8 and 50 seconds, mostly waiting. Much faster still would need
+patching compiled scripts directly or a helper program, so that WeiDU decompiles less; that is
+Christopher's call.
+
 ## Lab fights
 
 Quiet room BG2602, one baseline save, one PC kept alive (minimum 1 HP plus protection from
