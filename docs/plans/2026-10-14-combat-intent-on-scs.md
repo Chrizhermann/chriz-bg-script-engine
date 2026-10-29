@@ -843,9 +843,16 @@ fight now counts round by round, with harm falling as creatures fall and skins a
 and a buff potion comes before the attack when it is worth more than the moment it takes, with no
 minimum worth (FIGHT-01, "How long the fight lasts" and "Buff potions before the attack").
 
+The second hide probe (FIGHT-01, lab batch K, 2026-10-29): light lowers the chance to hide a lot,
+and skill makes up for it (at 215/210 in the game's numbers no try in bright light failed); armour
+changed nothing for these creatures; the game does not refuse a scripted try in the grey-out after
+a failure, so the engine keeps its one try a round, as a player's button allows; a shadowdancer
+hides even in sight. The engine's thieves hide only out of sight, which fits. A shadowdancer hiding
+in sight and a clever thief stepping into shadow first are ideas for Christopher.
+
 Next, in the order agreed with Christopher on 2026-10-27 for the first release: the rest of the big
-lab round (light and shadow in a second hide probe, and a party of the same strength for the mixed
-fights, which also show the replacement in whole fights, thieves in whole fights, the veil in game,
+lab round (freeing a member the party charmed and re-buffing while a foe is out of play, then batch
+J again, and a party of the same strength for the mixed fights, which also show the replacement in whole fights, thieves in whole fights, the veil in game,
 the prebuffs in game); then the boss fights, designed with Christopher one by one (Melissan's own
 among them). The Erinyes' withdrawal comes with a later "disengage" step (SCS's blueprint for it and
 Christopher's answers of 2026-10-28: FIGHT-01, "Disengage"): nobody flees for good, a short retreat

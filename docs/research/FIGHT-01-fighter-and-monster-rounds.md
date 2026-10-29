@@ -748,8 +748,27 @@ level-10 thief `RETHIE01`, each with its own Hide in Shadows and Move Silently i
 - A hidden thief walked up to the PC unseen (14 samples, the PC never saw it) and hit it; whether
   that hit was a backstab stays open (3 hit points from behind, 11 from the front, at 12).
 
-Still to see (a second hide probe is built): light and shadow, armour, whether the game refuses a
-try inside the grey-out, and whether rangers, monks and shadowdancers hide the same way.
+The second hide probe (lab batch K, 2026-10-29, the same lab and area; scriptless copies standing
+in spots of known light, by the luminance of BD0072's light map: dark 35, mid 124, lit 188, bright
+239; 8 to 20 tries each), cleaned up after:
+
+- **Light** lowers the chance a lot. At 65/60 (Move Silently / Hide in Shadows, the game's
+  numbers): dark 14 of 16, mid 9 of 16, lit 5 of 12, bright 5 of 16.
+- **Skill** wins in bright light: 65/60 hid 5 of 16, 115/110 9 of 12, 215/210 12 of 12, as
+  Christopher said (200 in both to hide in light without fail).
+- **Armour** showed nothing at 115/110 in the dark: leather 8 of 8, chain mail and plate 12 of 12
+  each, and the game's skills read 115/110 in all three, so these creatures lose nothing for armour,
+  at least at that skill and light.
+- **The grey-out does not stop a scripted try.** Each of 6 failed tries was followed at once by a
+  second `Hide()`, 86 ticks of grey-out still to run, and all 6 hid. The engine keeps its one try a
+  round: a player's button stays greyed out that long (play fair).
+- **Classes** in the dark at 65/60: thief 14 of 16, ranger 7 of 12, monk 8 of 12, shadowdancer 10
+  of 12.
+- **In sight:** a thief of 215/210 never hid in the PC's sight (0 of 4); a shadowdancer of the same
+  skill hid every time (8 of 8: Hide in Plain Sight).
+
+For the engine: its thieves hide only out of sight, which fits. Not used yet: a shadowdancer could
+hide in sight, and a clever thief could step into shadow first (for Christopher to decide).
 
 ### A new decision replaces the engine's own running action (2026-10-28)
 
