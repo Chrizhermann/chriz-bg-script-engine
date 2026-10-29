@@ -260,10 +260,13 @@ The engine searches with what the creature and its group perceived instead
     spot left, it looks behind a closed door within 240 of it (SCS's range of 15): a tactical creature
     takes the door the enemy was heading for, any other the nearest, and walks on 96 past the door's
     middle. A guard only near its post (240), a rooted creature never.
-  - *Which doors*: closed ones; never a door with an armed trap (or one whose trap cannot be read), a
-    secret door nobody has found, or a door into another area (one linked to a travel trigger, or
-    whose link cannot be read); a locked door only when the creature carries its key, the game's own
-    rule for `OpenDoor`. A door it could not open (it stood again, or its time ran out, with the door
+  - *Which doors*: closed ones with a leaf that blocks the way: a closed outline of at least three
+    points that impedes search-map cells (`m_nClosedPolygon`, `m_nClosedSearch`). Areas also keep
+    cages, vines, a harp, a tree, temple links and scripted barriers as doors without one (139 of the
+    SR lab's 1,485 door entries; learned.md); those stay shut. Never a door with an armed trap (or
+    one whose trap cannot be read), a secret door nobody has found, or a door into another area (one
+    linked to a travel trigger, or whose link cannot be read); a locked door only when the creature
+    carries its key, the game's own rule for `OpenDoor`. A door it could not open (it stood again, or its time ran out, with the door
     shut; also when a block of SCS's cut its try short once it was under way) is left for 30 seconds.
     A try ended by a hit, an enemy in sight or a danger zone, or cut short right at the start, leaves
     the door to try again. A door whose spot, or the spot behind it, lies in a danger zone waits; a

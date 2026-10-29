@@ -53,9 +53,11 @@ local orders=require('combat-intent.orders')
 assert(orders.check({doors=true}) and orders.check({doors=false,guard=true}) and select(2,orders.check({doors='yes'}))=='doors')
 groups=groups+1
 
--- 2. Which doors may be opened: closed ones with a box; not open or of unknown state, not a secret door
--- nobody found, not trapped, not into another area; a locked one only with its key.
-assert(doors.usable(door(1,0,0))==true)
+-- 2. Which doors may be opened: closed ones with a box; not open or of unknown state, not one that
+-- blocks nothing when closed, not a secret door nobody found, not trapped, not into another area; a
+-- locked one only with its key.
+assert(doors.usable(door(1,0,0))==true and doors.usable(door(1,0,0,{blocks=true}))==true)
+assert(doors.usable(door(1,0,0,{blocks=false}))==false)
 local unknown=door(1,0,0);unknown.open=nil
 assert(doors.usable(door(1,0,0,{open=true}))==false and doors.usable(unknown)==false)
 assert(doors.usable(door(1,0,0,{hidden=true}))==false and doors.usable(door(1,0,0,{trapped=true}))==false)

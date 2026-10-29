@@ -3549,11 +3549,12 @@ groups=groups+1
 local doorReader=require('adapters.eeex.doors')
 local seekers=require('adapters.eeex.search')
 local DOOR=8
--- A closed door across x (its leaf from y=-40 to 40), with the spots on either side the game gives
--- for opening it.
+-- A closed door across x (its leaf from y=-40 to 40, an outline of 4 points that impedes 6 cells),
+-- with the spots on either side the game gives for opening it.
 local function door(id,x,fields)
     local d={m_id=id,m_objectType=DOOR,m_dwFlags=0,m_rClosedBounding={left=x-10,top=-40,right=x+10,bottom=40},
-        m_ptDest1={x=x-20,y=0},m_ptDest2={x=x+20,y=0},m_triggerName=str(''),m_keyType=str(''),m_trapActivated=0}
+        m_nClosedPolygon=4,m_nClosedSearch=6,m_ptDest1={x=x-20,y=0},m_ptDest2={x=x+20,y=0},m_triggerName=str(''),
+        m_keyType=str(''),m_trapActivated=0}
     for k,v in pairs(fields or {}) do d[k]=v end
     return d
 end
@@ -3570,7 +3571,8 @@ local function doorWorld()
 end
 
 -- The reader: doors in the back list and the front list, a creature lying there passed over, and
--- doors that cannot be read left out and counted, the last error kept.
+-- doors that cannot be read left out and counted, the last error kept. A "door" without a closed leaf
+-- (a harp kept as a door, a barrier for a script) or whose leaf impedes no cell blocks nothing.
 local w=doorWorld()
 local s=w.add(sprite(1,0,0,255,{m_pArea=w.area}))
 table.insert(w.area.m_lVertSortBack,1)
@@ -3582,11 +3584,20 @@ w.door(blind)
 w.door(door(53,800,{m_dwFlags=0x180}))
 w.door(door(54,900,{m_dwFlags='x'}))
 w.door(door(55,950,{m_rClosedBounding={left=1}}))
+w.door(door(56,1000,{m_rClosedBounding={left=-1,top=-1,right=0,bottom=0},m_nClosedPolygon=0,m_nClosedSearch=0}))
+w.door(door(57,1050,{m_nClosedPolygon=0,m_nClosedSearch=10}))
+w.door(door(58,1100,{m_nClosedPolygon=1}))
+w.door(door(59,1150,{m_nClosedSearch=0}))
+local leafless=door(60,1200)
+leafless.m_nClosedSearch=nil
+w.door(leafless)
 local list,failed,last=doorReader.read(w,w.area)
-assert(#list==4 and failed==2 and last:find('door box')~=nil)
+assert(#list==8 and failed==3 and last:find('door leaf')~=nil)
 local d50,d51,d52,d53=list[1],list[2],list[3],list[4]
 assert(d50.id==50 and d50.open==false and d50.locked==false and d50.hidden==false and d50.trapped==false and
     d50.travel==false and d50.keyType==nil and #d50.points==2 and d50.points[1].x==130 and d50.points[2].x==170)
+assert(d50.blocks==true and d51.blocks==true and d53.blocks==true)
+for i=5,8 do assert(list[i].id==55+i-4 and list[i].blocks==false) end
 assert(d50.box.left==140 and d50.box.top==-40 and d50.box.right==160 and d50.box.bottom==40)
 assert(d51.id==51 and d51.open==true and d51.locked==true and d51.keyType=='TESTKEY' and d51.trapped==true and
     d51.travel==true)

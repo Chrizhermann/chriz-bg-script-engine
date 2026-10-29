@@ -12,7 +12,9 @@
 --   looks behind the door. A tactical creature takes the door the enemy was heading for.
 -- A door it failed to open (a door the game keeps shut, a lock it misjudged) is left for retrySeconds.
 -- Never: a door with an armed trap (the trap would spring on the creature), a secret door nobody has
--- found, a door into another area; a locked door only with its key (the game's own rule).
+-- found, a door into another area, a "door" that blocks nothing when closed (areas keep cages, vines,
+-- a harp and scripted barriers as doors without a leaf); a locked door only with its key (the game's
+-- own rule).
 -- Inputs are plain values; nothing here touches the engine.
 local targeting=require('combat-intent.targeting')
 local M={}
@@ -65,12 +67,12 @@ function M.middle(door)
     return {x=(b.left+b.right)/2,y=(b.top+b.bottom)/2}
 end
 
--- Whether door is one the creature may open: closed, with a box, not a secret door nobody has found
--- (hidden), without an armed trap, not into another area (travel), and not locked unless the creature
--- carries its key (key).
+-- Whether door is one the creature may open: closed, with a box, a leaf that blocks the way when
+-- closed (blocks), not a secret door nobody has found (hidden), without an armed trap, not into
+-- another area (travel), and not locked unless the creature carries its key (key).
 function M.usable(door)
-    return type(door)=='table' and number(door.id) and door.open==false and M.box(door)~=nil and door.hidden~=true and
-        door.trapped~=true and door.travel~=true and (door.locked~=true or door.key==true)
+    return type(door)=='table' and number(door.id) and door.open==false and M.box(door)~=nil and door.blocks~=false and
+        door.hidden~=true and door.trapped~=true and door.travel~=true and (door.locked~=true or door.key==true)
 end
 
 -- Whether the straight way from a to b crosses box, widened by margin (Liang and Barsky's clipping).
