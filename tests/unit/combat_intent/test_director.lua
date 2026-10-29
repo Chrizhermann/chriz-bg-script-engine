@@ -374,11 +374,14 @@ assert(#out==1 and out[1].id==15)
 local backs=logged(od,'back')
 assert(#backs==1 and backs[1].target==11 and backs[1].away=='charm' and backs[1].ticks==10)
 -- 12 vanishes into a maze: checked once it is 15 ticks unseen, held where it stands, checked again
--- each 15 ticks.
+-- each 15 ticks. 15, charmed and unseen since tick 20, is checked each 15 ticks too (it may be dead:
+-- group 13); still in the game, it stays charmed.
 od:checkIn(mage,frame(40,nil,{enemy(11),enemy(13)}))
-assert(#od:removalChecks(40)==0)
+local checks=od:removalChecks(40)
+assert(#checks==1 and checks[1]==15)
+od:removed(15,nil,{x=500,y=0},40)
 od:checkIn(mage,frame(45,nil,{enemy(11),enemy(13)}))
-local checks=od:removalChecks(45)
+checks=od:removalChecks(45)
 assert(#checks==1 and checks[1]==12)
 od:removed(12,'maze',{x=210,y=5},45)
 assert(#od:removalChecks(46)==0)
@@ -387,13 +390,13 @@ assert(#out==2 and out[1].id==12 and out[1].kind=='maze' and out[1].x==210 and o
 assert(clueIds(od,46)=='11,13' and inPlay(od,46)=='11,13')
 od:checkIn(mage,frame(60,nil,{enemy(11),enemy(13)}))
 checks=od:removalChecks(60)
-assert(#checks==1 and checks[1]==12)
+assert(#checks==2 and checks[1]==12 and checks[2]==15)
 od:removed(12,'maze',{x=210,y=5},60)
 assert(#od:removalChecks(74)==0)
 -- Out again, still unseen: a fresh sighting where it vanished.
 od:checkIn(mage,frame(75,nil,{enemy(11),enemy(13)}))
 checks=od:removalChecks(75)
-assert(#checks==1 and checks[1]==12)
+assert(#checks==2 and checks[1]==12 and checks[2]==15)
 od:removed(12,nil,{x=210,y=5},75)
 out=od:away(75)
 assert(#out==1 and out[1].id==15)
@@ -404,7 +407,7 @@ assert(c12 and c12.x==210 and c12.y==5 and c12.tick==75 and c12.by==false)
 od:checkIn(mage,frame(80,nil,{enemy(11)}))
 od:checkIn(mage,frame(95,nil,{enemy(11)}))
 checks=od:removalChecks(95)
-assert(#checks==2 and checks[1]==12 and checks[2]==13)
+assert(#checks==3 and checks[1]==12 and checks[2]==13 and checks[3]==15)
 od:removed(12,nil,{x=210,y=5},95)
 od:removed(13,'prison',{x=300,y=0},95)
 assert(clueIds(od,95)=='11,12' and #od:away(95)==1)
@@ -439,6 +442,51 @@ wd:removed(12,'maze',{x=1,y=1},160)
 assert(#wd:away(160)==1)
 wd:invalidate('test')
 assert(#wd:away(170)==0 and wd:inspect().foes==0)
+groups=groups+1
+
+-- 13. Gone (lab batch J, run 4): members see only the living, so a dead enemy's last sighting kept
+-- it in play and as the focus; the mage charmed the party's last living member while the party's
+-- mage, dead for three seconds, still counted. Told that a creature is gone (neither kind nor spot),
+-- the picture forgets it at once: no foe in play, no clue, no focus; a charm kept for it ends. A foe
+-- the group charmed that no member has seen for removalTicks is checked too.
+local gd=director.new({})
+gd:checkIn(mage,frame(10,nil,{enemy(11),enemy(12,{hp=5})}))
+gd:checkIn(fighter,frame(10,nil,{enemy(12,{hp=5})}))
+assert(gd:focus(10)==12 and inPlay(gd,10)=='11,12')
+gd:removed(12,nil,nil,12)
+assert(inPlay(gd,12)=='11' and clueIds(gd,12)=='11' and gd:plan(12).focus==11)
+local lostFocus=logged(gd,'focus')
+assert(lostFocus[#lostFocus-1].previous==12 and lostFocus[#lostFocus-1].why=='gone' and lostFocus[#lostFocus].target==11 and
+    lostFocus[#lostFocus].previous==nil)
+local goneRows=logged(gd,'gone')
+assert(#goneRows==1 and goneRows[1].target==12 and goneRows[1].tick==12 and gd:inspect().counts.gone==1)
+-- Told again, or of one it never knew: nothing more.
+gd:removed(12,nil,nil,13)
+gd:removed(99,nil,nil,13)
+assert(#logged(gd,'gone')==1 and gd:inspect().counts.gone==1)
+-- A kind without a spot, or a spot without a kind, is no word that it is gone.
+gd:removed(11,'maze',nil,14)
+gd:removed(11,nil,{x=100,y=0},14)
+assert(inPlay(gd,14)=='11' and #gd:away(14)==0)
+-- 11 charmed: checked once no member has seen it for removalTicks, not while one does.
+local gf=frame(20,nil,{})
+gf.allies={thrall(11)}
+gd:checkIn(mage,gf)
+assert(#gd:away(20)==1 and #gd:removalChecks(34)==0)
+local charmChecks=gd:removalChecks(35)
+assert(#charmChecks==1 and charmChecks[1]==11 and #gd:removalChecks(36)==0)
+gf.tick=40
+gd:checkIn(mage,gf)
+assert(#gd:removalChecks(54)==0)
+-- Still charmed somewhere unseen: kept; gone: its charm ends, and nothing is in play.
+charmChecks=gd:removalChecks(55)
+assert(#charmChecks==1 and charmChecks[1]==11)
+gd:removed(11,nil,{x=150,y=0},55)
+assert(#gd:away(55)==1)
+gd:removed(11,nil,nil,70)
+local charmEnds=logged(gd,'away-end')
+assert(#gd:away(70)==0 and #charmEnds==1 and charmEnds[1].target==11 and charmEnds[1].away=='charm' and
+    charmEnds[1].why=='gone' and inPlay(gd,70)=='' and #logged(gd,'gone')==1)
 groups=groups+1
 
 return groups

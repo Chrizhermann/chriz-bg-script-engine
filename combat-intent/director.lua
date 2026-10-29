@@ -28,7 +28,10 @@ local M={}
 -- picture, for the search to await: no clue, no focus, until it shows as an enemy again; a mazed one
 -- that comes back is a fresh sighting where it vanished. One not seen or checked for awayTicks is
 -- forgotten, and any after awaitTicks. An imprisoned enemy is out of the game until the party frees
--- it, which no waiting brings about: the picture forgets it at once.
+-- it, which no waiting brings about: the picture forgets it at once. It forgets one that is gone just
+-- as fast, dead or no creature any more (the adapter checks): members see only the living, and the
+-- last sighting kept a dead enemy in play and as the focus (lab batch J, run 4: a mage charmed the
+-- party's last living member while the party's mage, dead for three seconds, still counted).
 M.defaults={memberTicks=150,enemyTicks=90,reserveTicks=225,graceTicks=30,claimTicks=60,forgetTicks=450,
     headingMin=5,headingTicks=45,logCapacity=256,families={mage=true,priest=true,fighter=true,monster=true},
     awayTicks=450,awaitTicks=4500,removalTicks=15,foeLimit=1024}
@@ -48,7 +51,7 @@ function M.new(config)
     local focus,lastTick=nil,nil
     local log,nextRow,size={},1,0
     local counts={checkIns=0,advice=0,redirects=0,keeps=0,focusChanges=0,focusLost=0,attempts=0,ended=0,
-        released=0,sinkErrors=0,away=0,back=0,awayEnded=0}
+        released=0,sinkErrors=0,away=0,back=0,awayEnded=0,gone=0}
     local api={}
 
     local function record(row)
@@ -350,7 +353,8 @@ function M.new(config)
         return out
     end
     -- The enemies to check now for being out of the game, by id: each living one the picture keeps
-    -- that no member has seen for removalTicks, and each in a maze, at most once in removalTicks.
+    -- that no member has seen for removalTicks, each in a maze, and each the group charmed that no
+    -- member has seen for removalTicks (it may be dead), at most once in removalTicks.
     function api:removalChecks(tick)
         clock(tick)
         local out={}
@@ -361,7 +365,8 @@ function M.new(config)
             end
         end
         for key,a in pairs(away) do
-            if a.kind=='maze' and not (a.checked and tick>=a.checked and tick-a.checked<o.removalTicks) then
+            if (a.kind=='maze' or tick-a.lastTick>=o.removalTicks) and
+                not (a.checked and tick>=a.checked and tick-a.checked<o.removalTicks) then
                 a.checked=tick;out[#out+1]=key
             end
         end
@@ -370,8 +375,8 @@ function M.new(config)
     end
     -- What the check of target found at tick: kind 'maze', in a maze at at, where it stands and will
     -- come back; 'prison', imprisoned: forgotten; nil, in the game, and a mazed one that is out again
-    -- (at) is seen where it vanished. at nil: the creature is gone (dead, left), and a maze kept for
-    -- it ends.
+    -- (at) is seen where it vanished. Neither kind nor at: the creature is gone (dead, or no creature
+    -- any more): the picture forgets it at once, focus too, and a charm or maze kept for it ends.
     function api:removed(target,kind,at,tick)
         if not id(target) or not number(tick) then return end
         clock(tick)
@@ -384,6 +389,17 @@ function M.new(config)
             if enemies[target] or a then
                 away[target],enemies[target]=nil,nil;counts.away=counts.away+1
                 record({kind='away',tick=tick,target=target,away='prison',x=spot and at.x or nil,y=spot and at.y or nil})
+            end
+        elseif kind==nil and at==nil then
+            if a then gone(target,tick,'gone') end
+            if enemies[target] then
+                enemies[target]=nil;counts.gone=counts.gone+1
+                record({kind='gone',tick=tick,target=target})
+            end
+            if focus==target then
+                counts.focusLost=counts.focusLost+1
+                record({kind='focus',tick=tick,previous=focus,why='gone'})
+                focus=nil
             end
         elseif a and a.kind=='maze' then
             gone(target,tick,at and 'back' or 'gone')

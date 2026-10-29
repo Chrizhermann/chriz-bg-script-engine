@@ -503,4 +503,47 @@ w.EEex_Utility_IterateCPtrList=iterate
 end)()
 groups=groups+1
 
+-- 11. Gone at once (lab batch J, run 4: the party's mage, dead for three seconds, was still the
+-- group's focus and in play when the group's mage charmed the party's last living member). The plan
+-- and the clues re-check their enemies right before use: one dead, or no creature any more, is gone
+-- from the picture before any removal check, and the focus moves on. A failing re-check is named and
+-- gives no plan, so the creature decides without one.
+;(function()
+local w=world()
+w.add(sprite(1,0,0,255))
+local e31=w.add(sprite(31,100,0,2))
+local e32=w.add(sprite(32,200,0,2,{m_baseStats={m_hitPoints=5,m_generalState=0}}))
+local d=adapter.new(w,{reader=reader})
+local out={}
+d:setSink(function(row) out[#out+1]=row end)
+d:attach({now=function() return w.ticks end})
+local function rows(kind)
+    local list={}
+    for _,row in ipairs(out) do if row.kind==kind then list[#list+1]=row end end
+    return list
+end
+w.ticks=100
+d:observe({id=1},'mage')
+local plan=d:plan(1,100)
+assert(plan.focus==32 and plan.inPlay[31] and plan.inPlay[32] and #rows('gone')==0)
+e32.state=0x800
+plan=d:plan(1,103)
+assert(plan.focus==31 and plan.inPlay[31] and plan.inPlay[32]==nil)
+local goneRows,focusRows=rows('gone'),rows('focus')
+assert(#goneRows==1 and goneRows[1].target==32 and goneRows[1].tick==103)
+assert(focusRows[#focusRows-1].previous==32 and focusRows[#focusRows-1].why=='gone' and focusRows[#focusRows].target==31)
+assert(#d:clues(1,103)==1 and d:clues(1,103)[1].id==31)
+-- 31 is no creature any more: the clues find it gone.
+w.objects[31]=nil
+assert(#d:clues(1,104)==0 and #rows('gone')==2 and rows('gone')[2].target==31)
+assert(next(d:plan(1,104).inPlay)==nil and d:inspect().counts.errors==0)
+w.objects[31]=e31
+w.ticks=115
+d:observe({id=1},'mage')
+assert(d:plan(1,115).inPlay[31])
+w.EEex_GameObject_Get=function() error('freed object') end
+assert(d:plan(1,116)==nil and d:inspect().lastError:find('^plan: ')~=nil)
+end)()
+groups=groups+1
+
 return groups

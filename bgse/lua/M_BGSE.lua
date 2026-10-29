@@ -8679,7 +8679,10 @@ local M={}
 -- picture, for the search to await: no clue, no focus, until it shows as an enemy again; a mazed one
 -- that comes back is a fresh sighting where it vanished. One not seen or checked for awayTicks is
 -- forgotten, and any after awaitTicks. An imprisoned enemy is out of the game until the party frees
--- it, which no waiting brings about: the picture forgets it at once.
+-- it, which no waiting brings about: the picture forgets it at once. It forgets one that is gone just
+-- as fast, dead or no creature any more (the adapter checks): members see only the living, and the
+-- last sighting kept a dead enemy in play and as the focus (lab batch J, run 4: a mage charmed the
+-- party's last living member while the party's mage, dead for three seconds, still counted).
 M.defaults={memberTicks=150,enemyTicks=90,reserveTicks=225,graceTicks=30,claimTicks=60,forgetTicks=450,
     headingMin=5,headingTicks=45,logCapacity=256,families={mage=true,priest=true,fighter=true,monster=true},
     awayTicks=450,awaitTicks=4500,removalTicks=15,foeLimit=1024}
@@ -8699,7 +8702,7 @@ function M.new(config)
     local focus,lastTick=nil,nil
     local log,nextRow,size={},1,0
     local counts={checkIns=0,advice=0,redirects=0,keeps=0,focusChanges=0,focusLost=0,attempts=0,ended=0,
-        released=0,sinkErrors=0,away=0,back=0,awayEnded=0}
+        released=0,sinkErrors=0,away=0,back=0,awayEnded=0,gone=0}
     local api={}
 
     local function record(row)
@@ -9001,7 +9004,8 @@ function M.new(config)
         return out
     end
     -- The enemies to check now for being out of the game, by id: each living one the picture keeps
-    -- that no member has seen for removalTicks, and each in a maze, at most once in removalTicks.
+    -- that no member has seen for removalTicks, each in a maze, and each the group charmed that no
+    -- member has seen for removalTicks (it may be dead), at most once in removalTicks.
     function api:removalChecks(tick)
         clock(tick)
         local out={}
@@ -9012,7 +9016,8 @@ function M.new(config)
             end
         end
         for key,a in pairs(away) do
-            if a.kind=='maze' and not (a.checked and tick>=a.checked and tick-a.checked<o.removalTicks) then
+            if (a.kind=='maze' or tick-a.lastTick>=o.removalTicks) and
+                not (a.checked and tick>=a.checked and tick-a.checked<o.removalTicks) then
                 a.checked=tick;out[#out+1]=key
             end
         end
@@ -9021,8 +9026,8 @@ function M.new(config)
     end
     -- What the check of target found at tick: kind 'maze', in a maze at at, where it stands and will
     -- come back; 'prison', imprisoned: forgotten; nil, in the game, and a mazed one that is out again
-    -- (at) is seen where it vanished. at nil: the creature is gone (dead, left), and a maze kept for
-    -- it ends.
+    -- (at) is seen where it vanished. Neither kind nor at: the creature is gone (dead, or no creature
+    -- any more): the picture forgets it at once, focus too, and a charm or maze kept for it ends.
     function api:removed(target,kind,at,tick)
         if not id(target) or not number(tick) then return end
         clock(tick)
@@ -9035,6 +9040,17 @@ function M.new(config)
             if enemies[target] or a then
                 away[target],enemies[target]=nil,nil;counts.away=counts.away+1
                 record({kind='away',tick=tick,target=target,away='prison',x=spot and at.x or nil,y=spot and at.y or nil})
+            end
+        elseif kind==nil and at==nil then
+            if a then gone(target,tick,'gone') end
+            if enemies[target] then
+                enemies[target]=nil;counts.gone=counts.gone+1
+                record({kind='gone',tick=tick,target=target})
+            end
+            if focus==target then
+                counts.focusLost=counts.focusLost+1
+                record({kind='focus',tick=tick,previous=focus,why='gone'})
+                focus=nil
             end
         elseif a and a.kind=='maze' then
             gone(target,tick,at and 'back' or 'gone')
@@ -11199,7 +11215,8 @@ factories["adapters.eeex.director"]=function(require)
 -- enemy (sense.splprot), so a new target meets them as the original does. The engine's own
 -- casts (adapters/eeex/choice.lua) are recorded for the picture and the reservations but never
 -- advised. An enemy the group lost from sight is looked up by id now and then: one in a maze or a
--- prison is out of the game (sense.removed), and the director keeps it apart from the picture.
+-- prison is out of the game (sense.removed), and the director keeps it apart from the picture; one
+-- dead or no creature any more is gone, and the plan and clues check theirs right before use.
 -- Session-local; a load forgets it all.
 -- Errors never reach the engine: the cast then goes ahead as the creature's script chose it.
 local sense=require('adapters.eeex.sense')
@@ -11370,12 +11387,40 @@ function M.new(g,options)
         if not ok then failed('started',err) end
     end
 
+    -- Re-checked right before the group's plan or clues are used: an enemy of the picture that died,
+    -- or is no creature any more, since a member last saw it is gone, and the director forgets it at
+    -- once (members see only the living; lab batch J, run 4: the party's mage, dead for three seconds,
+    -- was still the group's focus and in play when a mage charmed the party's last living member).
+    -- Returns how many of keys were gone.
+    local function settle(d,keys,tick)
+        local n=0
+        for _,key in ipairs(keys) do
+            local object=g.EEex_GameObject_Get(key)
+            if not (object and g.EEex_GameObject_IsSprite(object,false)) then d:removed(key,nil,nil,tick);n=n+1 end
+        end
+        return n
+    end
+    local function planOf(d,tick)
+        local plan=d:plan(tick)
+        local keys={}
+        for key in pairs(plan.inPlay) do keys[#keys+1]=key end
+        if settle(d,keys,tick)>0 then plan=d:plan(tick) end
+        return plan
+    end
+    local function cluesOf(d,id,tick)
+        local list=d:clues(id,tick)
+        local keys={}
+        for _,c in ipairs(list) do keys[#keys+1]=c.id end
+        if settle(d,keys,tick)>0 then list=d:clues(id,tick) end
+        return list
+    end
+
     -- The group's plan for a member at tick (focus, reservations), or nil outside a group.
     function adapter:plan(id,tick)
         local area=memberArea[id]
         local d=area and directors[area]
         if not d then return nil end
-        local ok,plan=pcall(d.plan,d,tick)
+        local ok,plan=pcall(planOf,d,tick)
         if ok then return plan end
         failed('plan',plan)
     end
@@ -11417,7 +11462,7 @@ function M.new(g,options)
         local area=memberArea[id]
         local d=area and directors[area]
         if not d then return {} end
-        local ok,list=pcall(d.clues,d,id,tick)
+        local ok,list=pcall(cluesOf,d,id,tick)
         if ok then return list end
         failed('clues',list)
         return {}

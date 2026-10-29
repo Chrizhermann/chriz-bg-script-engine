@@ -10,7 +10,8 @@
 -- enemy (sense.splprot), so a new target meets them as the original does. The engine's own
 -- casts (adapters/eeex/choice.lua) are recorded for the picture and the reservations but never
 -- advised. An enemy the group lost from sight is looked up by id now and then: one in a maze or a
--- prison is out of the game (sense.removed), and the director keeps it apart from the picture.
+-- prison is out of the game (sense.removed), and the director keeps it apart from the picture; one
+-- dead or no creature any more is gone, and the plan and clues check theirs right before use.
 -- Session-local; a load forgets it all.
 -- Errors never reach the engine: the cast then goes ahead as the creature's script chose it.
 local sense=require('adapters.eeex.sense')
@@ -181,12 +182,40 @@ function M.new(g,options)
         if not ok then failed('started',err) end
     end
 
+    -- Re-checked right before the group's plan or clues are used: an enemy of the picture that died,
+    -- or is no creature any more, since a member last saw it is gone, and the director forgets it at
+    -- once (members see only the living; lab batch J, run 4: the party's mage, dead for three seconds,
+    -- was still the group's focus and in play when a mage charmed the party's last living member).
+    -- Returns how many of keys were gone.
+    local function settle(d,keys,tick)
+        local n=0
+        for _,key in ipairs(keys) do
+            local object=g.EEex_GameObject_Get(key)
+            if not (object and g.EEex_GameObject_IsSprite(object,false)) then d:removed(key,nil,nil,tick);n=n+1 end
+        end
+        return n
+    end
+    local function planOf(d,tick)
+        local plan=d:plan(tick)
+        local keys={}
+        for key in pairs(plan.inPlay) do keys[#keys+1]=key end
+        if settle(d,keys,tick)>0 then plan=d:plan(tick) end
+        return plan
+    end
+    local function cluesOf(d,id,tick)
+        local list=d:clues(id,tick)
+        local keys={}
+        for _,c in ipairs(list) do keys[#keys+1]=c.id end
+        if settle(d,keys,tick)>0 then list=d:clues(id,tick) end
+        return list
+    end
+
     -- The group's plan for a member at tick (focus, reservations), or nil outside a group.
     function adapter:plan(id,tick)
         local area=memberArea[id]
         local d=area and directors[area]
         if not d then return nil end
-        local ok,plan=pcall(d.plan,d,tick)
+        local ok,plan=pcall(planOf,d,tick)
         if ok then return plan end
         failed('plan',plan)
     end
@@ -228,7 +257,7 @@ function M.new(g,options)
         local area=memberArea[id]
         local d=area and directors[area]
         if not d then return {} end
-        local ok,list=pcall(d.clues,d,id,tick)
+        local ok,list=pcall(cluesOf,d,id,tick)
         if ok then return list end
         failed('clues',list)
         return {}
