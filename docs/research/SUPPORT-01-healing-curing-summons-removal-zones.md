@@ -140,12 +140,16 @@ attack's scale:
   no longer than the summons lasts: opcode 67 unsummons its creature when the effect ends, unless
   it is permanent (IESDP); a summons through an EFF lasts the 177's duration (`e468f19`).
 - **The rest of the fight** (`threat.rest`; agreed with Christopher 2026-10-22, before that the
-  horizon of 18 seconds): each side's harm a round (the weapons of its creatures that are not
-  disabled, against the other side's mean armour class, and its casters' spells at 1.2 hit points
-  a caster level) against the other side's hit points left. The side that needs fewer rounds ends
-  it, at most the profile's `fightCap` (60 seconds). So an early summons counts much and a late one
-  little; the kind of summons is in its creatures' worth. The choice record keeps the estimate
-  (`rest`). Preferences of single summoners come with the per-fight design.
+  horizon of 18 seconds): round by round, each side's harm (the weapons of its creatures that are
+  not disabled, against the other side's mean armour class, and its casters' spells at 1.2 hit
+  points a caster level) falls on the other side's creatures one by one, the one that deals the
+  most harm for its hit points first; a fallen creature deals no more harm, and Stoneskin skins and
+  Mirror Images take a weapon hit each first. It ends when a side has no one left, at most the
+  profile's `fightCap` (60 seconds). So an early summons counts much and a late one little; the
+  kind of summons is in its creatures' worth. The choice record keeps the estimate (`rest`).
+  Preferences of single summoners come with the per-fight design. (Until 2026-10-29 both sides'
+  harm stayed whole until one side was dead and skins counted nothing: the starts of lab batch J's
+  fights, which lasted 55 to 193 seconds, counted 7 and 13; FIGHT-01, "How long the fight lasts".)
 - **The creatures:** read from their CRE files (`adapters/eeex/resources.lua`: hit points, armour
   class, THAC0, attacks, strength, level, IDS values, items, slots and the opcodes of their own
   effects), the weapon in their first weapon slot and, for a launcher, the ammunition in the first

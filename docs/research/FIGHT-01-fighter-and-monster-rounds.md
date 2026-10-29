@@ -1244,6 +1244,37 @@ and kill: the round counts the kill.
 Tests: the weapons tests' groups 3, 5, 10 and 15; 12 mutations checked.
 Still to see in game: batch J again.
 
+### How long the fight lasts (lab batch J, run 3, 2026-10-29)
+
+Buffs and summons count over the rest of the fight (`threat.rest`), and so do a lasting area's
+explosions. In run 3 the estimate came out a tenth or less of what the fights lasted: 13.1 seconds at
+the start of every j1 fight (they lasted 131 to 193), 6.7 in j2 (57 to 126), and 2 to 4 seconds a
+minute in, in fights that went on for two more. So every buff and summons counted far too little,
+most at the start, where it counts most.
+
+Why: each side's harm a round stayed whole until the other side was dead, so a group lost no harm as
+its members fell, and Stoneskin skins and Mirror Images took nothing.
+
+What the engine does now (`combat-intent/threat.lua`, `M.rest`): round by round each side's harm
+falls on the other side's creatures one by one, the one that deals the most harm for its hit points
+first (each side strikes down what hurts it most), and a creature that has fallen deals no more
+harm. Skins and images take a weapon hit each first, a hit of the other side's mean damage; spells
+pass them. At most `fightCap` (60 seconds), as before. A fight of one against one comes out as
+before.
+
+Example (the summons tests' group 8): a mage (14.4 a round) and a fighter (8) against two fighters
+(8 each). The enemies strike down the mage first; the first enemy falls in the third round, the mage
+in the fourth, and with the fighter's 8 left the second enemy falls in the eighth round: 46.8
+seconds, where the old count said 32.1. An enemy with three skins and two images lasts 24.6 seconds
+instead of 16.1. Six against six, as in batch J's j1 (a fighter, a kensai, a mage, a priest, a thief
+and an archer on each side): 52 to 59 seconds at the start instead of 20.5.
+
+Still rough: healing, potions, disables, walking and casting time and invisibility do not count, so
+the estimate still errs short; the choice record keeps it (`rest`) for the lab to compare.
+
+Tests: the summons tests' group 8; 11 mutations checked.
+Still to see in game: batch J again (summons, buffs and lasting areas at the start).
+
 ## Agreed (Christopher, 2026-10-25)
 
 1. **Target choice by worth, with overrides.** Not SCS's fixed list ("Ich würde es nicht eins zu

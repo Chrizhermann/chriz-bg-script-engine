@@ -235,8 +235,8 @@ d,how=choice.decide(i)
 assert(d.kind=='weapon' and how=='weapon')
 groups=groups+1
 
--- 8. How long the fight lasts (combat-intent/threat.lua, M.rest): each side's harm a round against
--- the other side's hit points left; the side that needs fewer rounds ends it, at most the cap.
+-- 8. How long the fight lasts (combat-intent/threat.lua, M.rest): round by round each side's harm
+-- on the other side's hit points left, until a side has no one left, at most the cap.
 local threat=require('combat-intent.threat')
 local f=frame()
 assert(near(threat.rest(f,60),25) and near(threat.rest(f,20),20))
@@ -259,6 +259,34 @@ assert(near(threat.rest(f,60),37.5))
 f.enemies[1].attack=false
 assert(threat.rest(f,60)==60 and threat.rest(frame({enemies={}}),60)==0)
 assert(threat.rest(frame({enemies={enemy(11,{hp=0,state=0x800})}}),60)==0)
+-- Harm falls as creatures fall (lab batch J, run 3: the starts of fights that lasted 55 to 193
+-- seconds counted 7 and 13). The mage (14.4 a round) and a fighter (8) against two fighters (8
+-- each): the enemies strike down the mage first, which deals the most harm for its hit points. The
+-- first enemy falls in the third round, the mage in the fourth, and with only the fighter's 8 left
+-- the second enemy falls in the eighth round, at 46.8 seconds (32.1 with both sides' harm whole until
+-- the end).
+local ally={id=2,x=120,y=100,hp=60,maxHp=60,state=0,held=0,ac=5,attack={apr=1,thac0=10,damage=10}}
+f=frame({allies={ally},enemies={enemy(11),enemy(12)}})
+assert(near(threat.rest(f,60),46.8))
+-- With the second enemy held no one of ours falls: 120 hit points at 22.4 a round.
+f.enemies[2].held=1
+assert(near(threat.rest(f,60),6*(5+8/22.4)))
+-- With neither side harming and no cap, no end.
+f.enemies[1].attack,f.enemies[2].attack,f.allies[1]=false,false,nil
+f.self.ids={class=2,gender=1}
+assert(threat.rest(f)==math.huge)
+-- Stoneskin skins and Mirror Images take weapon hits first, each one of the fighter's 10; the mage's
+-- spells pass them. An enemy with three skins and two images lasts 24.6 seconds instead of 16.1.
+f=frame({allies={ally}})
+assert(near(threat.rest(f,60),6*(2+15.2/22.4)))
+f.enemies[1].skins,f.enemies[1].mirror=3,2
+assert(near(threat.rest(f,60),6*(4+2.4/22.4)))
+-- Against a sword of 20 each skin takes 20: an enemy of 12 hit points with five skins takes the
+-- fighter's 16 a round for seven rounds (the mage casts nothing here).
+local brute={id=2,x=120,y=100,hp=60,maxHp=60,state=0,held=0,ac=5,attack={apr=1,thac0=10,damage=20}}
+f=frame({allies={brute},enemies={enemy(11,{hp=12,skins=5})}})
+f.self.ids={class=2,gender=1}
+assert(near(threat.rest(f,60),42))
 -- Early the summons counts over the fight's 25 seconds, late (the enemy at 12 hit points) over its
 -- 5; one that takes longer to cast than the fight has left brings nothing.
 i=input()

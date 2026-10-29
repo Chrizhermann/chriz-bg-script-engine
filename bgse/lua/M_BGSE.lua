@@ -3159,12 +3159,17 @@ function M.wielded(caster)
         str=w.str,strExtra=w.strExtra,strengthHit=w.strengthHit,strengthDamage=w.strengthDamage}
 end
 
--- How many seconds the fight is expected to last from now, from both sides' strength: each side's
--- harm a round (the weapons of its living creatures that are not disabled, against the other
--- side's mean armour class, and its casters' spells at spellPerLevel a caster level) against the
--- other side's hit points left. The side that needs fewer rounds ends it; neither side's harm
--- falls as its creatures die, so this errs short. At most cap seconds; 0 when a side has no one
--- left.
+-- How many seconds the fight is expected to last from now, from both sides' strength, round by
+-- round: each side's living creatures that are not disabled deal their harm a round (their weapons
+-- against the other side's mean armour class, and their casters' spells at spellPerLevel a caster
+-- level) to the other side, whose creatures fall one by one, the one that deals the most harm for
+-- its hit points first (each side strikes down what hurts it most); a creature that has fallen
+-- deals no more harm. Stoneskin skins and Mirror Images take weapon hits first, each a hit of the
+-- other side's mean damage. It ends when a side has no one left: at most cap seconds, 0 when a side
+-- has no one left now. (Until lab batch J, run 3, both sides' harm stayed whole until one side was
+-- dead and skins counted nothing: the starts of fights that lasted 55 to 193 seconds counted 7 and
+-- 13.)
+M.longest=1000
 function M.rest(frame,cap)
     cap=number(cap) and cap>=0 and cap or math.huge
     if type(frame)~='table' then return 0 end
@@ -3174,35 +3179,84 @@ function M.rest(frame,cap)
         if targeting.alive(e) then enemies[#enemies+1]=e end
     end
     if #friends==0 or #enemies==0 then return 0 end
-    local function body(side)
-        local hp,ac=0,0
-        for _,c in ipairs(side) do
-            hp=hp+(number(c.hp) and c.hp>0 and c.hp or number(c.maxHp) and c.maxHp>0 and c.maxHp or 1)
-            ac=ac+(number(c.ac) and c.ac or 10)
-        end
-        return hp,ac/#side
+    local function meanAc(side)
+        local ac=0
+        for _,c in ipairs(side) do ac=ac+(number(c.ac) and c.ac or 10) end
+        return ac/#side
     end
-    local function harm(side,ac)
-        local total=0
+    -- Each creature of a side: its hit points, the hits its skins and images take, and what it deals
+    -- the other side (armour class ac) a round.
+    local function fighters(side,ac)
+        local out={}
         for _,c in ipairs(side) do
+            local f={hp=number(c.hp) and c.hp>0 and c.hp or number(c.maxHp) and c.maxHp>0 and c.maxHp or 1,
+                absorb=(number(c.skins) and c.skins>0 and c.skins or 0)+(number(c.mirror) and c.mirror>0 and c.mirror or 0),
+                hits=0,weapon=0,spell=0}
             if not targeting.disabled(c) then
                 local held=c.attack
                 if c==frame.self then held=M.wielded(c) end
                 if held~=false then
                     local a=M.attack({attack=held})
-                    total=total+a.apr*M.hitChance(a.thac0,ac)*a.damage
+                    f.hits=a.apr*M.hitChance(a.thac0,ac)
+                    f.weapon=f.hits*a.damage
                 end
-                total=total+M.casting(c)*M.spellPerLevel*(number(c.level) and c.level or 1)
+                f.spell=M.casting(c)*M.spellPerLevel*(number(c.level) and c.level or 1)
+            end
+            out[#out+1]=f
+        end
+        return out
+    end
+    local ours,theirs=fighters(friends,meanAc(enemies)),fighters(enemies,meanAc(friends))
+    -- A side's skins and images as hit points against the other side's weapons (its mean hit), and
+    -- the order the other side strikes it down in.
+    local function ready(side,against)
+        local hits,damage=0,0
+        for _,f in ipairs(against) do hits,damage=hits+f.hits,damage+f.weapon end
+        local hit=hits>0 and damage/hits or 0
+        for _,f in ipairs(side) do f.pool=f.absorb*hit end
+        table.sort(side,function(a,b)
+            local x,y=(a.weapon+a.spell)/(a.hp+a.pool),(b.weapon+b.spell)/(b.hp+b.pool)
+            if x~=y then return x>y end
+            return a.hp<b.hp
+        end)
+    end
+    ready(ours,theirs)
+    ready(theirs,ours)
+    -- What a side's creatures still standing deal in a round.
+    local function harm(side)
+        local weapon,spell=0,0
+        for _,f in ipairs(side) do if f.hp>0 then weapon,spell=weapon+f.weapon,spell+f.spell end end
+        return weapon,spell
+    end
+    -- A round's harm on side, creature after creature: when the last one falls, the share of the
+    -- round's harm that took, else nil.
+    local function strike(side,weapon,spell)
+        local total=weapon+spell
+        for _,f in ipairs(side) do
+            if f.hp>0 then
+                local s=math.min(spell,f.hp)
+                f.hp,spell=f.hp-s,spell-s
+                -- One the spells felled takes no weapon hits on its skins.
+                if f.hp>0 then
+                    local p=math.min(weapon,f.pool)
+                    f.pool,weapon=f.pool-p,weapon-p
+                    local w=math.min(weapon,f.hp)
+                    f.hp,weapon=f.hp-w,weapon-w
+                    if f.hp>0 then return nil end
+                end
             end
         end
-        return total
+        return total>0 and (total-weapon-spell)/total or 1
     end
-    local ourHp,ourAc=body(friends)
-    local theirHp,theirAc=body(enemies)
-    local ours,theirs=harm(friends,theirAc),harm(enemies,ourAc)
-    local win=ours>0 and M.ROUND*theirHp/ours or math.huge
-    local lose=theirs>0 and M.ROUND*ourHp/theirs or math.huge
-    return math.min(win,lose,cap)
+    local limit=cap<math.huge and math.ceil(cap/M.ROUND) or M.longest
+    for round=0,limit-1 do
+        local ow,os=harm(ours)
+        local tw,ts=harm(theirs)
+        if ow+os<=0 and tw+ts<=0 then return cap end
+        local won,lost=strike(theirs,ow,os),strike(ours,tw,ts)
+        if won or lost then return math.min(cap,M.ROUND*(round+math.min(won or 1,lost or 1))) end
+    end
+    return math.min(cap,M.ROUND*limit)
 end
 return M
 end

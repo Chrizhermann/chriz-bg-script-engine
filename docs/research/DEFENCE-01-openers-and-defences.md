@@ -220,7 +220,8 @@ empty until Christopher agrees exceptions.
 
 Since lab batch J (2026-10-28) what a buff adds to attacks counts over the rest of the fight, not
 the horizon: the time the fight probably still lasts (`threat.rest`, at most the profile's
-`fightCap`, 60 seconds), cut by the buff's duration, as summons count. Protections keep the
+`fightCap`, 60 seconds; since 2026-10-29 round by round, with harm falling as creatures fall and
+skins and images counted), cut by the buff's duration, as summons count. Protections keep the
 horizon. Strength counts through the game's strength tables (STRMOD, and STRMODEX at 18) for
 weapons that take its bonuses, a haste a friend has already adds nothing, and a weak haste
 (opcode 16, type 2) only hastens the legs. Details: FIGHT-01, "Buffs over the rest of the fight".
