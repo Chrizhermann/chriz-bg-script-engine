@@ -1535,7 +1535,8 @@ freeing members the party charmed, readiness), in the Spell Revisions lab, clean
   in j1-own-2 they were its best option at 12.5, 13.5 and 30.6 seconds, lost to a near-best draw
   once and to the casting pause twice, and they counted over the 13-second fight). The default mind
   takes a near-best option 4 times in 10 (`best` 0.6, `band` 0.2): 3 of the mage's 5 casts in
-  j1-own-2.
+  j1-own-2. Since 2026-10-29 that goes by wit: a clever creature strays 2 times in 10, a normal one
+  4, a dull one 6 (MIND-01, "The best option by wit").
 - **The mind flayer's escape.** In j2-own-3, at 36 per cent of its hit points (47 seconds), SCS's
   script cast the flayer's escape (`DW#MFESC`, a SpellNoDec cast above the hook); it vanished about
   2 seconds later. Run 3 shows the same at 51 seconds. It goes with the other vanishing exits

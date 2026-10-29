@@ -100,8 +100,8 @@
 -- Wit (combat-intent/mind.lua, MIND-01): each creature's profile is the default one with its wit,
 -- from its INT and WIS, its IDS values (by the names the game's IDS files give them, for the race
 -- groups), its family, its creature file (overrides) and the game's difficulty, worked out again
--- only when one of them changes; a 'wit' row logs it. A dull creature
--- sees no zone until it hurts: each time its hit points have dropped since it was last looked at
+-- only when one of them changes; a 'wit' row logs it, with the chance it takes the best option
+-- (best). A dull creature sees no zone until it hurts: each time its hit points have dropped since it was last looked at
 -- while a zone hurts it where it stands, it draws once whether the pain drives it out
 -- (zones.painChance); then it leaves until it is out. SCS's cloud blocks stand aside for a dull
 -- creature meanwhile, so it stays and fights. A creature in one of the game's rage states counts
@@ -518,7 +518,7 @@ function M.new(g,options)
         end
         minds[sprite.m_id]={key=key,mind=made}
         record({kind='wit',tick=now(),member=sprite.m_id,resref=c.resref,family=family,step=w.step,danger=w.danger,
-            int=w.int,wis=w.wis,from=w.from,group=w.group,race=c.race,difficulty=c.difficulty})
+            int=w.int,wis=w.wis,from=w.from,group=w.group,race=c.race,difficulty=c.difficulty,best=made.best})
         return made
     end
     mindFor=options.mindFor or function(sprite,family)

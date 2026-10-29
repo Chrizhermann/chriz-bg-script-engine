@@ -140,4 +140,23 @@ bad,why=mind.new({tactics=2});assert(bad==nil and why=='tactics')
 bad,why=mind.new({interrupt=-1});assert(bad==nil and why=='interrupt')
 groups=groups+1
 
+-- 8. The best option by wit (Christopher, 2026-10-29: imperfect on purpose, clever groups more
+-- dangerous than SCS's): the default 0.6 makes a clever creature take the best 8 times in 10, a
+-- normal one 6 and a dull one 4, the base unchanged. A profile that always takes the best keeps it
+-- at every step; one that never does takes it half the time when clever and never when dull. An
+-- unknown step keeps the profile's own; a lab can change the shares.
+assert(near(mind.withWit(base,{step='clever',danger=1}).best,0.8) and near(mind.withWit(base,{step='normal',danger=1}).best,0.6))
+assert(near(mind.withWit(base,{step='dull',danger=1}).best,0.4) and base.best==0.6)
+for _,step in ipairs({'clever','normal','dull'}) do
+    assert(mind.withWit(mind.new({best=1}),{step=step,danger=1}).best==1)
+end
+assert(near(mind.withWit(mind.new({best=0}),{step='clever',danger=1}).best,0.5))
+assert(mind.withWit(mind.new({best=0}),{step='dull',danger=1}).best==0)
+assert(near(mind.withWit(mind.new({best=0.9}),{step='dull',danger=1}).best,0.85))
+assert(near(mind.withWit(base,{step='genius',danger=1}).best,0.6))
+local stray=mind.STRAY.clever;mind.STRAY.clever=0
+assert(mind.withWit(base,{step='clever',danger=1}).best==1)
+mind.STRAY.clever=stray
+groups=groups+1
+
 return groups

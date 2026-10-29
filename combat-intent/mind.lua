@@ -7,8 +7,9 @@ local M={}
 M.default={
     -- 0 to 1: how much the group's plan counts (its focus target, one disabler per target).
     coordination=1,
-    -- Chance to take the best option outright; otherwise a random near-best one. A strategic
-    -- mind such as Irenicus would sit close to 1, never at it.
+    -- Chance to take the best option outright; otherwise a random near-best one. Its wit scales
+    -- how often it strays (M.STRAY). A strategic mind such as Irenicus would sit close to 1, never
+    -- at it.
     best=0.6,
     -- Near-best: within this share below the best score.
     band=0.2,
@@ -269,14 +270,22 @@ end
 -- not every creature does the clever thing, "um ein bisschen Varianz ins Spiel zu bringen"): a
 -- clever creature always, a normal one in half its decisions, a dull one never.
 M.TACTICS={clever=1,normal=0.5,dull=0}
+-- How often each step strays from the best option to a near-best one, as a share of how often the
+-- profile does (Christopher, 2026-10-29: our creatures play imperfectly on purpose, and clever
+-- groups end up more dangerous than SCS's): a clever creature half as often, a normal one as often,
+-- a dull one half as often again. The default profile's 0.6 makes 0.8, 0.6 and 0.4; a profile that
+-- always takes the best keeps doing so.
+M.STRAY={clever=0.5,normal=1,dull=1.5}
 -- The profile base with wit w: its step and danger weight, how often it sees a tactic's chance
--- (base's tactics times its step's), and its own clouds weighed as its step works them out: a
--- clever creature as base says, a normal one by the cheaper of staying and walking out at most, a
--- dull one by one explosion.
+-- (base's tactics times its step's), how often it takes the best option (M.STRAY), and its own
+-- clouds weighed as its step works them out: a clever creature as base says, a normal one by the
+-- cheaper of staying and walking out at most, a dull one by one explosion.
 function M.withWit(base,w)
     local m=copy(base)
     m.wit,m.danger=w.step,w.danger
     m.tactics=(type(base.tactics)=='number' and base.tactics or 1)*(M.TACTICS[w.step] or 1)
+    local best=share(base.best) and base.best or M.default.best
+    m.best=clamp(1-(1-best)*(M.STRAY[w.step] or 1),0,1)
     if w.step=='dull' then m.clouds='once' elseif w.step=='normal' and m.clouds=='learned' then m.clouds='best' end
     return m
 end

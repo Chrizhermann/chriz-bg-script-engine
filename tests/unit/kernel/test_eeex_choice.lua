@@ -1721,7 +1721,7 @@ assert(claim29(dull,100)==true)
 local w=last29('wit',1)
 assert(w and w.tick==100 and w.step=='dull' and w.from=='stats' and w.int==4 and w.wis==8 and
     math.abs(w.danger-0.9)<1e-9 and w.difficulty==nil and w.family=='mage' and w.resref=='TEST1' and
-    w.group=='high' and w.race=='HUMAN')
+    w.group=='high' and w.race=='HUMAN' and math.abs(w.best-0.4)<1e-9)
 local c=last29('choice',1)
 assert(c.tick==100 and c.spell=='TESTBOLT' and c.wit=='dull' and counts().pains==0)
 assert(g29.BGSE_Zones(dull,'mage','s1')==true)
@@ -1776,7 +1776,8 @@ local pains=counts().pains
 states[2]=75
 assert(claim29(clever,200)==true)
 w=last29('wit',2)
-assert(w and w.step=='clever' and w.from=='kind' and w.int==15 and w.wis==10 and w.danger==1)
+assert(w and w.step=='clever' and w.from=='kind' and w.int==15 and w.wis==10 and w.danger==1 and
+    math.abs(w.best-0.8)<1e-9)
 c=last29('choice',2)
 assert(c.castKind=='escape' and c.forced==nil and c.wit=='clever')
 states[2]=77

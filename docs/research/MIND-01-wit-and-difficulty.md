@@ -191,6 +191,19 @@ How long a creature searches goes by wit as well: 30 seconds after the newest cl
 creature, 18 for a normal one, 8 for a dull one, halved for the wounded and for cowards
 (`mind.searchPatience` scales it).
 
+## The best option by wit (built 2026-10-29)
+
+Christopher, 2026-10-29: our creatures play imperfectly on purpose ("Unsere Kreaturen spielen
+absichtlich nicht perfekt. Genau darum geht es ja."), and clever groups, or groups we tune, end up
+more dangerous than SCS's. So how often a creature strays from its best option to a near-best one
+(within `band` below the best score, never under `minValue`) goes by wit: a clever creature half
+as often as its profile says, a normal one as often, a dull one half as often again
+(`mind.STRAY`). The default profile's `best` of 0.6 makes a clever creature take its best option
+8 times in 10, a normal one 6 and a dull one 4. A profile that always takes the best keeps doing
+so at every step. Example: on Insane most peoples and casters are clever and take their best
+option 8 times in 10; an ogre stays normal (6 in 10), a wolf dull (4 in 10). The `wit` row logs the chance (`best`).
+Proposed with the numbers open to Christopher's veto.
+
 ## Guard rails (Christopher, 2026-10-23)
 
 - **Decisions must stay understandable.** "Ich will halt auch nicht … dass wir … so ein komplexes
