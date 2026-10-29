@@ -19,6 +19,20 @@ the CEBG collection) fight together more intelligently and more dynamically, whi
 creature keeps the personality SCS gave it. The first release is an optional,
 experimental CEBG component.
 
+**The difficulty goal** (Christopher, 2026-10-29). Not perfect play and not beating SCS groups
+head-to-head: imperfection is intended. Played as intended (Insane without double damage, hit
+points rolled for the party and the enemies, full only at level 1, a Tweaks Anthology option), the
+game with the engine is more immersive and on average somewhat harder than the classic challenge run
+of SCS + Insane + double damage. Core is a real challenge that normal players beat; Insane is
+insanely hard but not only for the top 1%; Insane without reloading (an iron man run) only a few
+percent finish, and they may be proud of it. Not the difficulty of Tactics Remix or Improved Anvil:
+no blanket buffs on every caster, no abilities a creature could not have. Clever groups, and groups
+we tune, end up more dangerous than SCS's; afterwards every fight is reviewed and tuned (examples:
+dragons that turn out too weak get a sharper AI; Grey Wolf, alone in BG1, might get an archer, priest
+or mage at his side). Long term the engine stands without SCS, on our own code; until then SCS stays
+the base. Difficulty is judged in that setup; comparisons of the engine with SCS need only equal
+conditions.
+
 ## Ground rules: this is a mod, not an MMO
 
 - **SCS is the base.** SCS's per-creature setup and rough fight logic already work and

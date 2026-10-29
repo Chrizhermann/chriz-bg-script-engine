@@ -20,6 +20,13 @@ It will ship as an optional, experimental CEBG component.
   SCS's rough fight logic is the blueprint. Reuse SCS ideas, never SCS code or files.
 - **Whole fights over single spells.** Judge progress by mixed lab fights (fighters drinking
   potions, buffing priests, mages, monsters, several of each), then by community playtesting.
+- **Difficulty goal (Chris, 2026-10-29).** Played as intended (Insane without double damage, hit
+  points rolled for party and enemies, full only at level 1), the game is more immersive and on
+  average somewhat harder than the classic SCS + Insane + double damage run: Core a real challenge
+  that normal players beat, Insane hard but not only for the top 1%, Insane without reloading for a
+  few percent. Fair play, no blanket buffs or abilities a creature could not have (not Tactics Remix
+  or Improved Anvil). Clever or tuned groups end up more dangerous than SCS's; each fight is tuned
+  with Chris later. Long term the engine stands without SCS; for now SCS stays the base.
 - **Gameplay design is Chris's.** Build the technical base and hooks, show what's possible, and
   design behaviour together with him. Don't decide gameplay content alone. Check in early and
   briefly.
