@@ -79,20 +79,42 @@
 // tools/hook_rule.py is the reference version of this rule. Keep the two in step;
 // tests/integration/test_hook_installer.py compares them.
 
+// The lines of bgse_text that bgse_regexp matches, a regexp that matches within one line from its
+// start to its end, each with its line end, in their order. REPLACE_EVALUATE copies its whole text
+// for each match, so a pass over a whole script goes over these lines instead.
+DEFINE_PATCH_FUNCTION bgse_matching_lines
+  STR_VAR bgse_text = ~~
+          bgse_regexp = ~~
+  RET bgse_lines
+BEGIN
+  TEXT_SPRINT bgse_lines ~~
+  INNER_PATCH ~%bgse_text%~ BEGIN
+    SET p = INDEX_BUFFER (CASE_SENSITIVE ~%bgse_regexp%~)
+    WHILE (p >= 0) BEGIN
+      SET e = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~%LNL%~ p)
+      PATCH_IF (e < 0) BEGIN
+        SET e = BUFFER_LENGTH
+      END
+      READ_ASCII p line (e - p)
+      TEXT_SPRINT bgse_lines ~%bgse_lines%%line%%LNL%~
+      SET p = INDEX_BUFFER (CASE_SENSITIVE ~%bgse_regexp%~ e)
+    END
+  END
+END
+
 // The spells of a script's casts without a spellbook (ForceSpell, ReallyForceSpell and their Point
 // and RES forms) as |R=RESREF| and |I=NAME| entries in upper case, each once: the RES forms name
-// the resource first, the others name the spell (a SPELL.IDS name or number) last. Comments go
-// first.
+// the resource first, the others name the spell (a SPELL.IDS name or number) last. bgse_text is the
+// script without its comments (bgse_hook_bcs).
 DEFINE_PATCH_FUNCTION bgse_cast_spells
-  STR_VAR bgse_baf = ~~
+  STR_VAR bgse_text = ~~
   RET bgse_spells
 BEGIN
   TEXT_SPRINT bgse_spells ~|~
-  INNER_PATCH_SAVE text ~%bgse_baf%~ BEGIN
-    REPLACE_TEXTUALLY CASE_SENSITIVE ~ *//.*$~ ~~
-  END
-  INNER_PATCH ~%text%~ BEGIN
-    REPLACE_EVALUATE CASE_SENSITIVE ~^    \(ReallyForceSpellPointRES\|ReallyForceSpellPoint\|ReallyForceSpellRES\|ReallyForceSpell\|ForceSpellPointRES\|ForceSpellPoint\|ForceSpellRES\|ForceSpell\)(\(.*\)) *$~ BEGIN
+  TEXT_SPRINT casts ~^    \(ReallyForceSpellPointRES\|ReallyForceSpellPoint\|ReallyForceSpellRES\|ReallyForceSpell\|ForceSpellPointRES\|ForceSpellPoint\|ForceSpellRES\|ForceSpell\)(\(.*\)) *$~
+  LPF bgse_matching_lines STR_VAR bgse_text = EVAL ~%bgse_text%~ bgse_regexp = EVAL ~%casts%~ RET bgse_lines END
+  INNER_PATCH ~%bgse_lines%~ BEGIN
+    REPLACE_EVALUATE CASE_SENSITIVE ~%casts%~ BEGIN
       TEXT_SPRINT action ~%MATCH1%~
       TEXT_SPRINT args ~%MATCH2%~
       LPF bgse_cast_parts STR_VAR bgse_action = EVAL ~%action%~ bgse_args = EVAL ~%args%~ RET bgse_spell bgse_target END
@@ -311,25 +333,28 @@ END
 
 // The spells of a script's casts and applications at the creature itself without a spellbook
 // (ApplySpell, ForceSpell, ReallyForceSpell, SpellNoDec and their RES forms, at Myself) as |R=RESREF|
-// and |I=NAME| entries in upper case, each once (tools/hook_rule.py: self_spells). Comments go
-// first.
+// and |I=NAME| entries in upper case, each once (tools/hook_rule.py: self_spells). bgse_text is the
+// script without its comments (bgse_hook_bcs).
 DEFINE_PATCH_FUNCTION bgse_self_spells
-  STR_VAR bgse_baf = ~~
+  STR_VAR bgse_text = ~~
   RET bgse_spells
 BEGIN
   TEXT_SPRINT bgse_spells ~|~
-  INNER_PATCH_SAVE text ~%bgse_baf%~ BEGIN
-    REPLACE_TEXTUALLY CASE_SENSITIVE ~ *//.*$~ ~~
-  END
-  INNER_PATCH ~%text%~ BEGIN
-    REPLACE_EVALUATE CASE_SENSITIVE ~^    \(ApplySpellRES\|ForceSpellRES\|ReallyForceSpellRES\|SpellNoDecRES\)("\([^"]*\)",Myself) *$~ BEGIN
+  TEXT_SPRINT by_res ~^    \(ApplySpellRES\|ForceSpellRES\|ReallyForceSpellRES\|SpellNoDecRES\)("\([^"]*\)",Myself) *$~
+  LPF bgse_matching_lines STR_VAR bgse_text = EVAL ~%bgse_text%~ bgse_regexp = EVAL ~%by_res%~ RET bgse_lines END
+  INNER_PATCH ~%bgse_lines%~ BEGIN
+    REPLACE_EVALUATE CASE_SENSITIVE ~%by_res%~ BEGIN
       TEXT_SPRINT name ~%MATCH2%~
       TO_UPPER name
       PATCH_IF (STRING_LENGTH ~%name%~ > 0) AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~|R=%name%|~ ~%bgse_spells%~) < 0) BEGIN
         TEXT_SPRINT bgse_spells ~%bgse_spells%R=%name%|~
       END
     END ~%MATCH0%~
-    REPLACE_EVALUATE CASE_SENSITIVE ~^    \(ApplySpell\|ForceSpell\|ReallyForceSpell\|SpellNoDec\)(Myself,\([^,()" ]+\)) *$~ BEGIN
+  END
+  TEXT_SPRINT by_name ~^    \(ApplySpell\|ForceSpell\|ReallyForceSpell\|SpellNoDec\)(Myself,\([^,()" ]+\)) *$~
+  LPF bgse_matching_lines STR_VAR bgse_text = EVAL ~%bgse_text%~ bgse_regexp = EVAL ~%by_name%~ RET bgse_lines END
+  INNER_PATCH ~%bgse_lines%~ BEGIN
+    REPLACE_EVALUATE CASE_SENSITIVE ~%by_name%~ BEGIN
       TEXT_SPRINT name ~%MATCH2%~
       TO_UPPER name
       PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~|I=%name%|~ ~%bgse_spells%~) < 0) BEGIN
@@ -365,9 +390,12 @@ BEGIN
       READ_ASCII then resp (BUFFER_LENGTH - then)
     END
   END
+  // Only a block with a cast or application at the creature itself can give it (in any case, as
+  // below), so the others need no look at each action.
   PATCH_IF (STRING_LENGTH ~%resp%~ > 0)
       AND ((~%trig%~ STRING_CONTAINS_REGEXP ~[^A-Za-z0-9_]\(HaveSpell\|HaveSpellRES\|HasItem\|KnowSpell\)(~) != 0)
-      AND ((~%trig%~ STRING_CONTAINS_REGEXP ~^ +!?CheckSpellState(Myself,CONTINGENCY_TRIGGERED) *$~) != 0) BEGIN
+      AND ((~%trig%~ STRING_CONTAINS_REGEXP ~^ +!?CheckSpellState(Myself,CONTINGENCY_TRIGGERED) *$~) != 0)
+      AND (INDEX (CASE_INSENSITIVE ~^    \(\(ApplySpellRES\|ForceSpellRES\|ReallyForceSpellRES\|SpellNoDecRES\)("[^"]*",Myself)\|\(ApplySpell\|ForceSpell\|ReallyForceSpell\|SpellNoDec\)(Myself,[^,()" ]+)\) *$~ ~%resp%~) >= 0) BEGIN
     SET kind = 0
     SET foreign = 0
     INNER_PATCH ~%resp%~ BEGIN
@@ -707,18 +735,18 @@ BEGIN
   END
 END
 
-// Flags for one block (BAF text with \n line ends, from its IF line to its END line).
+// Flags for one block (BAF text with \n line ends, from its IF line to its END line), as bits of
+// bgse_flags: 1 book, 2 items, 4 special, 8 pick, 16 lastseen and 32 encounter, each only where it
+// decides: items only for bookkeeping (a run of it carries them), lastseen only for a special or an
+// encounter (it aims at the target picks before it). bgse_anchor is 1 for the anchor, looked for only
+// when bgse_seek is 1.
 DEFINE_PATCH_FUNCTION bgse_classify_block
+  INT_VAR bgse_seek = 1
   STR_VAR bgse_block = ~~
-  RET bgse_anchor bgse_book bgse_items bgse_special bgse_pick bgse_lastseen bgse_encounter
+  RET bgse_anchor bgse_flags
 BEGIN
   SET bgse_anchor = 0
-  SET bgse_encounter = 0
-  SET bgse_book = 0
-  SET bgse_items = 0
-  SET bgse_special = 0
-  SET bgse_pick = 0
-  SET bgse_lastseen = 0
+  SET bgse_flags = 0
   TEXT_SPRINT trig ~~
   TEXT_SPRINT resp ~~
   INNER_PATCH ~%bgse_block%~ BEGIN
@@ -732,89 +760,99 @@ BEGIN
     SET responses = 0
     SET ends_continue = 0
     SET only_continue = 0
-    SET not_book = 0
-    SET apply_names = 0
-    SET not_retarget = 0
-    SET clears = 0
-    SET item_names = 0
-    SET ungated = 0
-    SET nodec = 0
-    SET removes = 0
+    TEXT_SPRINT parts ~~
     INNER_PATCH ~%resp%~ BEGIN
+      // Each response, whether its last action is Continue() and whether that is its only one
+      // (action names compare in any case); without a Continue() no response ends with one.
       SET pos = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~%LNL%  RESPONSE #~)
+      PATCH_IF (pos >= 0) BEGIN
+        READ_ASCII pos parts (BUFFER_LENGTH - pos)
+      END
+      SET continues = INDEX_BUFFER (CASE_INSENSITIVE EXACT_MATCH ~    Continue(~)
       WHILE (pos >= 0) BEGIN
         SET next = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~%LNL%  RESPONSE #~ (pos + 1))
-        SET stop = (next >= 0) ? next : BUFFER_LENGTH
-        READ_ASCII pos chunk (stop - pos)
         SET responses += 1
-        SET actions = 0
-        TEXT_SPRINT last ~~
-        INNER_PATCH ~%chunk%~ BEGIN
-          REPLACE_EVALUATE CASE_SENSITIVE ~^    \([A-Za-z_][A-Za-z0-9_]*\)(~ BEGIN
-            SET actions += 1
-            TEXT_SPRINT last ~%MATCH1%~
-            PATCH_IF ((~%MATCH1%~ STRING_MATCHES_REGEXP ~^\(SetGlobal\|SetGlobalTimer\|IncrementGlobal\|Continue\|DisplayString\|DisplayStringHead\|GiveItemCreate\|DestroyItem\|CreateItem\)$~) != 0) BEGIN
-              SET not_book += 1
+        PATCH_IF (continues >= 0) BEGIN
+          SET last = RINDEX_BUFFER (CASE_SENSITIVE ~^    [A-Za-z_][A-Za-z0-9_]*(~ ((next >= 0) ? next : BUFFER_LENGTH))
+          PATCH_IF (last > pos) BEGIN
+            PATCH_IF (INDEX_BUFFER (CASE_INSENSITIVE EXACT_MATCH ~    Continue(~ last) = last) BEGIN
+              SET ends_continue += 1
+              PATCH_IF (INDEX_BUFFER (CASE_SENSITIVE ~^    [A-Za-z_][A-Za-z0-9_]*(~ pos) = last) BEGIN
+                SET only_continue += 1
+              END
             END
-            PATCH_IF ((~%MATCH1%~ STRING_MATCHES_REGEXP ~^ApplySpellRES$~) = 0) BEGIN
-              SET apply_names += 1
-            END
-            PATCH_IF ((~%MATCH1%~ STRING_MATCHES_REGEXP ~^\(SetGlobal\|SetGlobalTimer\|IncrementGlobal\|ClearActions\)$~) != 0) BEGIN
-              SET not_retarget += 1
-            END
-            PATCH_IF ((~%MATCH1%~ STRING_MATCHES_REGEXP ~^ClearActions$~) = 0) BEGIN
-              SET clears += 1
-            END
-            PATCH_IF ((~%MATCH1%~ STRING_MATCHES_REGEXP ~^\(GiveItemCreate\|DestroyItem\|CreateItem\)$~) = 0) BEGIN
-              SET item_names += 1
-            END
-            PATCH_IF ((~%MATCH1%~ STRING_MATCHES_REGEXP ~^\(ForceSpell\|ForceSpellRES\|ReallyForceSpell\|ReallyForceSpellRES\|ForceSpellPoint\|ForceSpellPointRES\|ReallyForceSpellPoint\|ReallyForceSpellPointRES\)$~) = 0) BEGIN
-              SET ungated += 1
-            END
-            PATCH_IF ((~%MATCH1%~ STRING_MATCHES_REGEXP ~^\(SpellNoDec\|SpellNoDecRES\)$~) = 0) BEGIN
-              SET nodec += 1
-            END
-            PATCH_IF ((~%MATCH1%~ STRING_MATCHES_REGEXP ~^RemoveSpell$~) = 0) BEGIN
-              SET removes += 1
-            END
-          END ~%MATCH0%~
-        END
-        PATCH_IF ((~%last%~ STRING_MATCHES_REGEXP ~^Continue$~) = 0) BEGIN
-          SET ends_continue += 1
-          PATCH_IF (actions = 1) BEGIN
-            SET only_continue += 1
           END
         END
         SET pos = next
       END
-      SET self_applies = 0
-      COUNT_REGEXP_INSTANCES CASE_SENSITIVE ~^    ApplySpellRES("[^"]*",Myself)~ self_applies
-      SET self_powers = 0
-      COUNT_REGEXP_INSTANCES CASE_SENSITIVE ~^    \(ApplySpellRES("[^"]*",Myself)\|ApplySpell(Myself,\)~ self_powers
     END
-    SET perceives = ((~%trig%~ STRING_CONTAINS_REGEXP ~[^A-Za-z0-9_]\(See\|Detect\|Heard\|Range\|AttackedBy\|HitBy\|LastSeenBy\|LastHeardBy\|LastAttackerOf\|LastTargetedBy\|NearestEnemyOf\|Nearest\|SecondNearest\|ThirdNearest\|InParty\|SpellCast\|SpellCastOnMe\|SpellCastPriest\|SpellCastInnate\)(\|\[\(PC\|ENEMY\|ANYONE\|GOODCUTOFF\|EVILCUTOFF\|NEUTRAL\)\|Player[1-6]~) = 0) ? 1 : 0
-    SET gated = ((~%trig%~ STRING_CONTAINS_REGEXP ~[^A-Za-z0-9_]\(HaveSpell\|HaveSpellRES\|HasItem\|KnowSpell\)(~) = 0) ? 1 : 0
-    PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~GlobalTimerNotExpired("castspell","LOCALS")~ ~%trig%~) >= 0)
-         AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~SetGlobal("instantprep","LOCALS",1)~ ~%resp%~) < 0)
-         AND NOT ((not_retarget = 0) AND (clears > 0)) BEGIN
-      SET bgse_anchor = 1
+    // The actions of the responses go by kind, as above, each counted only where it decides. The
+    // anchor checks the round timer, is no first-round cast and no retarget alone (only SetGlobal,
+    // SetGlobalTimer, IncrementGlobal and ClearActions, with a ClearActions).
+    PATCH_IF (bgse_seek = 1) AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~GlobalTimerNotExpired("castspell","LOCALS")~ ~%trig%~) >= 0)
+         AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~SetGlobal("instantprep","LOCALS",1)~ ~%resp%~) < 0) BEGIN
+      INNER_PATCH ~%parts%~ BEGIN
+        COUNT_REGEXP_INSTANCES CASE_SENSITIVE ~^    [A-Za-z_][A-Za-z0-9_]*(~ all
+        COUNT_REGEXP_INSTANCES CASE_INSENSITIVE ~^    \(SetGlobal\|SetGlobalTimer\|IncrementGlobal\|ClearActions\)(~ retargets
+        COUNT_REGEXP_INSTANCES CASE_INSENSITIVE ~^    ClearActions(~ clears
+      END
+      PATCH_IF NOT ((all = retargets) AND (clears > 0)) BEGIN
+        SET bgse_anchor = 1
+      END
     END
-    PATCH_IF (responses > 0) AND (ends_continue = responses) AND (not_book = self_applies)
-         AND (apply_names = self_applies) AND (perceives = 0) BEGIN
-      SET bgse_book = 1
+    // Bookkeeping: every response ends with Continue(), the only actions beyond SetGlobal,
+    // SetGlobalTimer, IncrementGlobal, Continue, DisplayString, DisplayStringHead and items are its
+    // ApplySpellRES at itself, and no trigger perceives anyone. It carries items or what it applies.
+    PATCH_IF (responses > 0) AND (ends_continue = responses) BEGIN
+      INNER_PATCH ~%resp%~ BEGIN
+        COUNT_REGEXP_INSTANCES CASE_SENSITIVE ~^    ApplySpellRES("[^"]*",Myself)~ self_applies
+      END
+      INNER_PATCH ~%parts%~ BEGIN
+        COUNT_REGEXP_INSTANCES CASE_SENSITIVE ~^    [A-Za-z_][A-Za-z0-9_]*(~ all
+        COUNT_REGEXP_INSTANCES CASE_INSENSITIVE ~^    \(SetGlobal\|SetGlobalTimer\|IncrementGlobal\|Continue\|DisplayString\|DisplayStringHead\|GiveItemCreate\|DestroyItem\|CreateItem\)(~ booked
+        COUNT_REGEXP_INSTANCES CASE_INSENSITIVE ~^    ApplySpellRES(~ apply_names
+      END
+      PATCH_IF (all - booked = self_applies) AND (apply_names = self_applies)
+          AND ((~%trig%~ STRING_CONTAINS_REGEXP ~[^A-Za-z0-9_]\(See\|Detect\|Heard\|Range\|AttackedBy\|HitBy\|LastSeenBy\|LastHeardBy\|LastAttackerOf\|LastTargetedBy\|NearestEnemyOf\|Nearest\|SecondNearest\|ThirdNearest\|InParty\|SpellCast\|SpellCastOnMe\|SpellCastPriest\|SpellCastInnate\)(\|\[\(PC\|ENEMY\|ANYONE\|GOODCUTOFF\|EVILCUTOFF\|NEUTRAL\)\|Player[1-6]~) != 0) BEGIN
+        SET bgse_flags = 1
+        INNER_PATCH ~%parts%~ BEGIN
+          COUNT_REGEXP_INSTANCES CASE_INSENSITIVE ~^    \(GiveItemCreate\|DestroyItem\|CreateItem\)(~ item_names
+        END
+        PATCH_IF (item_names > 0) OR (self_applies > 0) BEGIN
+          SET bgse_flags = bgse_flags BOR 2
+        END
+      END
     END
-    SET bgse_items = ((item_names > 0) OR (self_applies > 0)) ? 1 : 0
-    // A SpellNoDec cast without a spellbook check is a special too, unless the block also
-    // removes the spell (tools/hook_rule.py: NO_DECREMENT), and so is a power the creature
+    // A cast without a spellbook check is a special. So is a SpellNoDec cast without one, unless the
+    // block also removes the spell (tools/hook_rule.py: NO_DECREMENT), and a power the creature
     // applies to itself (SELF_POWER).
-    SET bgse_special = ((gated = 0) AND ((ungated > 0) OR ((nodec > 0) AND (removes = 0)) OR (self_powers > 0))) ? 1 : 0
-    PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~See(~ ~%trig%~) >= 0) AND (responses > 0)
-         AND (only_continue = responses) BEGIN
-      SET bgse_pick = 1
+    PATCH_IF ((~%trig%~ STRING_CONTAINS_REGEXP ~[^A-Za-z0-9_]\(HaveSpell\|HaveSpellRES\|HasItem\|KnowSpell\)(~) != 0) BEGIN
+      INNER_PATCH ~%parts%~ BEGIN
+        COUNT_REGEXP_INSTANCES CASE_INSENSITIVE ~^    \(ForceSpell\|ForceSpellRES\|ReallyForceSpell\|ReallyForceSpellRES\|ForceSpellPoint\|ForceSpellPointRES\|ReallyForceSpellPoint\|ReallyForceSpellPointRES\)(~ ungated
+        COUNT_REGEXP_INSTANCES CASE_INSENSITIVE ~^    \(SpellNoDec\|SpellNoDecRES\)(~ nodec
+        COUNT_REGEXP_INSTANCES CASE_INSENSITIVE ~^    RemoveSpell(~ removes
+      END
+      INNER_PATCH ~%resp%~ BEGIN
+        COUNT_REGEXP_INSTANCES CASE_SENSITIVE ~^    \(ApplySpellRES("[^"]*",Myself)\|ApplySpell(Myself,\)~ self_powers
+      END
+      PATCH_IF (ungated > 0) OR ((nodec > 0) AND (removes = 0)) OR (self_powers > 0) BEGIN
+        SET bgse_flags = bgse_flags BOR 4
+      END
     END
-    SET bgse_lastseen = (INDEX (CASE_SENSITIVE EXACT_MATCH ~LastSeenBy(Myself)~ ~%bgse_block%~) >= 0) ? 1 : 0
-    LPF bgse_foreign_actions STR_VAR bgse_resp = EVAL ~%resp%~ RET bgse_foreign END
-    SET bgse_encounter = ((bgse_foreign > 0) OR (INDEX (CASE_SENSITIVE EXACT_MATCH ~Die()~ ~%trig%~) >= 0)) ? 1 : 0
+    PATCH_IF (responses > 0) AND (only_continue = responses) AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~See(~ ~%trig%~) >= 0) BEGIN
+      SET bgse_flags = bgse_flags BOR 8
+    END
+    PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~Die()~ ~%trig%~) >= 0) BEGIN
+      SET bgse_flags = bgse_flags BOR 32
+    END ELSE BEGIN
+      LPF bgse_foreign_actions STR_VAR bgse_resp = EVAL ~%resp%~ RET bgse_foreign END
+      PATCH_IF (bgse_foreign > 0) BEGIN
+        SET bgse_flags = bgse_flags BOR 32
+      END
+    END
+    PATCH_IF ((bgse_flags BAND 36) > 0) AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~LastSeenBy(Myself)~ ~%bgse_block%~) >= 0) BEGIN
+      SET bgse_flags = bgse_flags BOR 16
+    END
   END
 END
 
@@ -904,29 +942,32 @@ BEGIN
     // bookkeeping (tools/hook_rule.py: HUNT_BOOKKEEPING).
     SET responses = 0
     SET ends_continue = 0
-    SET acts = 0
+    TEXT_SPRINT parts ~~
     INNER_PATCH ~%resp%~ BEGIN
+      // Whether each response's last action is Continue() (action names compare in any case).
       SET pos = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~%LNL%  RESPONSE #~)
+      PATCH_IF (pos >= 0) BEGIN
+        READ_ASCII pos parts (BUFFER_LENGTH - pos)
+      END
       WHILE (pos >= 0) BEGIN
         SET next = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~%LNL%  RESPONSE #~ (pos + 1))
         SET stop = (next >= 0) ? next : BUFFER_LENGTH
-        READ_ASCII pos chunk (stop - pos)
         SET responses += 1
-        TEXT_SPRINT last ~~
-        INNER_PATCH ~%chunk%~ BEGIN
-          REPLACE_EVALUATE CASE_SENSITIVE ~^    \([A-Za-z_][A-Za-z0-9_]*\)(~ BEGIN
-            TEXT_SPRINT last ~%MATCH1%~
-            PATCH_IF ((~%MATCH1%~ STRING_MATCHES_REGEXP ~^\(SetGlobal\|SetGlobalTimer\|SetGlobalTimerRandom\|IncrementGlobal\|Continue\|DisplayString\|DisplayStringHead\)$~) != 0) BEGIN
-              SET acts += 1
-            END
-          END ~%MATCH0%~
-        END
-        PATCH_IF ((~%last%~ STRING_MATCHES_REGEXP ~^Continue$~) = 0) BEGIN
-          SET ends_continue += 1
+        SET last = RINDEX_BUFFER (CASE_SENSITIVE ~^    [A-Za-z_][A-Za-z0-9_]*(~ stop)
+        PATCH_IF (last > pos) BEGIN
+          PATCH_IF (INDEX_BUFFER (CASE_INSENSITIVE EXACT_MATCH ~    Continue(~ last) = last) BEGIN
+            SET ends_continue += 1
+          END
         END
         SET pos = next
       END
     END
+    // The actions of the responses beyond the bookkeeping, as above.
+    INNER_PATCH ~%parts%~ BEGIN
+      COUNT_REGEXP_INSTANCES CASE_SENSITIVE ~^    [A-Za-z_][A-Za-z0-9_]*(~ all
+      COUNT_REGEXP_INSTANCES CASE_INSENSITIVE ~^    \(SetGlobal\|SetGlobalTimer\|SetGlobalTimerRandom\|IncrementGlobal\|Continue\|DisplayString\|DisplayStringHead\)(~ booked
+    END
+    SET acts = all - booked
     PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~%LNL%    OpenDoor(NearestDoor)~ ~%resp%~) >= 0)
         OR ((acts > 0) AND (INDEX (CASE_INSENSITIVE EXACT_MATCH ~%LNL%    SetGlobalTimer("detect","LOCALS",~ ~%resp%~) >= 0)) BEGIN
       SET bgse_hunt = 1
@@ -1256,18 +1297,23 @@ BEGIN
   TEXT_SPRINT bgse_gifts ~|~
   TEXT_SPRINT gifts ~|~
   SET teleporting = 0
+  // The checks look at the text in place: each look at a whole script through its variable copies it.
   INNER_PATCH_SAVE bgse_baf ~%bgse_baf%~ BEGIN
-    REPLACE_TEXTUALLY CASE_SENSITIVE EXACT_MATCH ~%MNL%~ ~~
-  END
-  PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~DMWW_mage_~ ~%bgse_baf%~) >= 0) BEGIN
-    TEXT_SPRINT bgse_family ~mage~
-  END ELSE PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~DMWW_priest_~ ~%bgse_baf%~) >= 0) BEGIN
-    TEXT_SPRINT bgse_family ~priest~
-  END ELSE PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~DMWW_genai_~ ~%bgse_baf%~) >= 0) BEGIN
-    TEXT_SPRINT bgse_family ~fighter~
-  END ELSE PATCH_IF (~%bgse_baf%~ STRING_CONTAINS_REGEXP ~DMWW_[a-z_]+_difficulty~) = 0 BEGIN
-    // Any other SCS difficulty setting (fiend, dragon, vampire, genie, ...): a monster script.
-    TEXT_SPRINT bgse_family ~monster~
+    PATCH_IF (INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~%MNL%~) >= 0) BEGIN
+      REPLACE_TEXTUALLY CASE_SENSITIVE EXACT_MATCH ~%MNL%~ ~~
+    END
+    PATCH_IF (INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~DMWW_mage_~) >= 0) BEGIN
+      TEXT_SPRINT bgse_family ~mage~
+    END ELSE PATCH_IF (INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~DMWW_priest_~) >= 0) BEGIN
+      TEXT_SPRINT bgse_family ~priest~
+    END ELSE PATCH_IF (INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~DMWW_genai_~) >= 0) BEGIN
+      TEXT_SPRINT bgse_family ~fighter~
+    END ELSE PATCH_IF (INDEX_BUFFER (CASE_INSENSITIVE ~DMWW_[a-z_]+_difficulty~) >= 0) BEGIN
+      // Any other SCS difficulty setting (fiend, dragon, vampire, genie, ...): a monster script.
+      TEXT_SPRINT bgse_family ~monster~
+    END
+    SET castspell = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~GlobalTimerNotExpired("castspell","LOCALS")~)
+    SET claimed = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~BGSE_Claim~)
   END
   PATCH_IF (STRING_LENGTH ~%bgse_family%~ = 0) BEGIN
     TEXT_SPRINT bgse_result ~not-scs~
@@ -1275,28 +1321,32 @@ BEGIN
       OR (INDEX (EXACT_MATCH ~\~ ~%bgse_script%~) >= 0) BEGIN
     // The name goes into Lua text inside a BAF string.
     TEXT_SPRINT bgse_result ~unsafe-name~
-  END ELSE PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~GlobalTimerNotExpired("castspell","LOCALS")~ ~%bgse_baf%~) < 0) BEGIN
+  END ELSE PATCH_IF (castspell < 0) BEGIN
     TEXT_SPRINT bgse_result ~no-castspell~
-  END ELSE PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~BGSE_Claim~ ~%bgse_baf%~) >= 0) BEGIN
+  END ELSE PATCH_IF (claimed >= 0) BEGIN
     TEXT_SPRINT bgse_result ~already-hooked~
   END ELSE BEGIN
-    // Block boundaries and, from the anchor on, block flags. Index n is a sentinel.
+    // Block boundaries and flags. They go into records in strings, not into variables of their
+    // own: each function call copies every variable, so the thousands of a big script would slow
+    // down every call. A block's flags are the bits of one number: 1 book, 2 items, 4 special, 8 pick,
+    // 16 lastseen, 32 encounter, 64 copy, 128 cloud, 256 hunt, 512 jump, 1024 and 2048 plain and
+    // improved free invisibility, 4096 maybe SCS's preparation. plan has a record for each block from
+    // the anchor on with flags (the others have none), its number, start, end and flags as longs; edits
+    // and tail_edits one for each block above the anchor and from it that stands aside or, above it,
+    // may be the preparation, its start, end and flags.
     SET n = 0
     SET anchor = 0 - 1
+    SET at = 0
+    TEXT_SPRINT plan ~~
+    TEXT_SPRINT edits ~~
+    TEXT_SPRINT tail_edits ~~
+    SET hides_known = (STRING_LENGTH ~%bgse_invisible%~ > 1) ? 1 : 0
+    SET teleports_known = (STRING_LENGTH ~%bgse_teleports%~ > 1) ? 1 : 0
     INNER_PATCH ~%bgse_baf%~ BEGIN
       SET pos = 0
       WHILE (pos >= 0) BEGIN
-        SET start = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~IF%LNL%~ pos)
-        SET at_line = (start = 0) ? 1 : 0
-        WHILE (start > 0) AND (at_line = 0) BEGIN
-          READ_BYTE (start - 1) prev
-          PATCH_IF (prev = 10) BEGIN
-            SET at_line = 1
-          END ELSE BEGIN
-            SET start = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~IF%LNL%~ (start + 1))
-          END
-        END
         SET stop = 0 - 1
+        SET start = INDEX_BUFFER (CASE_SENSITIVE ~^IF%LNL%~ pos)
         PATCH_IF (start >= 0) BEGIN
           SET end = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~%LNL%END%LNL%~ start)
           PATCH_IF (end >= 0) BEGIN
@@ -1306,25 +1356,16 @@ BEGIN
         PATCH_IF (stop < 0) BEGIN
           SET pos = 0 - 1
         END ELSE BEGIN
-          SET $bgse_start(~%n%~) = start
-          SET $bgse_stop(~%n%~) = stop
-          SET $bgse_book(~%n%~) = 0
-          SET $bgse_items(~%n%~) = 0
-          SET $bgse_special(~%n%~) = 0
-          SET $bgse_pick(~%n%~) = 0
-          SET $bgse_lastseen(~%n%~) = 0
-          SET $bgse_encounter(~%n%~) = 0
-          SET $bgse_copy(~%n%~) = 0
-          SET $bgse_cloud(~%n%~) = 0
-          SET $bgse_hunt(~%n%~) = 0
-          SET $bgse_jump(~%n%~) = 0
-          SET $bgse_hide(~%n%~) = 0
+          SET flags = 0
           READ_ASCII start block (stop - start)
-          PATCH_IF (STRING_LENGTH ~%bgse_invisible%~ > 1) AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~Myself~ ~%block%~) >= 0) BEGIN
-            // SCS's free invisibility, above and below the anchor (every such cast names Myself).
+          PATCH_IF (hides_known = 1)
+              AND (INDEX (CASE_INSENSITIVE ~^    \(\(ApplySpellRES\|ForceSpellRES\|ReallyForceSpellRES\|SpellNoDecRES\)("[^"]*",Myself)\|\(ApplySpell\|ForceSpell\|ReallyForceSpell\|SpellNoDec\)(Myself,\)~ ~%block%~) >= 0)
+              AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~Myself~ ~%block%~) >= 0) BEGIN
+            // SCS's free invisibility, above and below the anchor (every such cast names Myself, and
+            // only a block with a cast or application at the creature itself can give it).
             LPF bgse_hide_block STR_VAR bgse_block = EVAL ~%block%~ bgse_invisible = EVAL ~%bgse_invisible%~
               bgse_improved = EVAL ~%bgse_improved%~ RET bgse_hide END
-            SET $bgse_hide(~%n%~) = bgse_hide
+            SET flags = bgse_hide * 1024
             PATCH_IF (bgse_hide > 0) BEGIN
               // The real abilities that stand in for it, each once in the script.
               LPF bgse_block_gifts STR_VAR bgse_block = EVAL ~%block%~ bgse_invisible = EVAL ~%bgse_invisible%~
@@ -1339,27 +1380,23 @@ BEGIN
               END
             END
           END
-          PATCH_IF (INDEX (CASE_INSENSITIVE EXACT_MATCH ~chas~ ~%block%~) >= 0)
-              OR (INDEX (CASE_INSENSITIVE EXACT_MATCH ~teleportpursuetimer~ ~%block%~) >= 0)
-              OR (INDEX (CASE_INSENSITIVE EXACT_MATCH ~"detect"~ ~%block%~) >= 0)
-              OR (INDEX (CASE_SENSITIVE EXACT_MATCH ~OpenDoor(NearestDoor)~ ~%block%~) >= 0)
-              OR (INDEX (CASE_SENSITIVE EXACT_MATCH ~!See(~ ~%block%~) >= 0)
-              OR (INDEX (CASE_SENSITIVE EXACT_MATCH ~!Detect(~ ~%block%~) >= 0) BEGIN
+          PATCH_IF (INDEX (CASE_INSENSITIVE ~chas\|teleportpursuetimer\|"detect"~ ~%block%~) >= 0)
+              OR (INDEX (CASE_SENSITIVE ~OpenDoor(NearestDoor)\|!See(\|!Detect(~ ~%block%~) >= 0) BEGIN
             // SCS's hunt, above and below the anchor (only blocks with these words can be part
             // of it: a pursuit needs a trigger that says the creature does not see or detect
             // someone).
             LPF bgse_hunt_block STR_VAR bgse_block = EVAL ~%block%~ RET bgse_hunt END
-            SET $bgse_hunt(~%n%~) = bgse_hunt
+            SET flags = flags BOR (bgse_hunt * 256)
           END
-          PATCH_IF (STRING_LENGTH ~%bgse_teleports%~ > 1) AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~ForceSpell~ ~%block%~) >= 0) BEGIN
+          PATCH_IF (teleports_known = 1) AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~ForceSpell~ ~%block%~) >= 0) BEGIN
             // Its scripted teleports; a jump into the fight that is not part of the hunt.
             LPF bgse_block_teleports STR_VAR bgse_block = EVAL ~%block%~ bgse_teleports = EVAL ~%bgse_teleports%~
               RET bgse_scripted bgse_jump END
             PATCH_IF (bgse_scripted > 0) BEGIN
               SET teleporting = 1
             END
-            PATCH_IF (bgse_jump = 1) AND ($bgse_hunt(~%n%~) = 0) BEGIN
-              SET $bgse_jump(~%n%~) = 1
+            PATCH_IF (bgse_jump = 1) AND ((flags BAND 256) = 0) BEGIN
+              SET flags = flags BOR 512
             END
           END
           PATCH_IF (anchor < 0) BEGIN
@@ -1372,7 +1409,7 @@ BEGIN
                 READ_ASCII then resp (BUFFER_LENGTH - then)
               END
               PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~SetGlobalTimer("seencloud","LOCALS",~ ~%resp%~) >= 0) BEGIN
-                SET $bgse_cloud(~%n%~) = 1
+                SET flags = flags BOR 128
               END ELSE PATCH_IF ((~%trig%~ STRING_CONTAINS_REGEXP ~%LNL% +Heard(\[ANYONE\],\(40[4-9]\|41[0-3]\))~) = 0) BEGIN
                 // It hears a marker's shout (not !Heard). Every response is NoAction() alone, or
                 // it runs from the marker it heard once a response with nothing else but
@@ -1391,17 +1428,14 @@ BEGIN
                 END
                 PATCH_IF (still_parts > 0) AND (((still_actions = still_parts) AND (still_waits = still_parts))
                     OR ((still_runs = still_parts) AND (still_actions = still_runs + still_switches))) BEGIN
-                  SET $bgse_cloud(~%n%~) = 1
+                  SET flags = flags BOR 128
                 END
               END
             END
           END
           PATCH_IF (anchor < 0) AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~castspell~ ~%block%~) < 0) BEGIN
             // Cannot be the anchor and nothing before the anchor is copied.
-          END ELSE PATCH_IF (anchor >= 0) AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~Continue()~ ~%block%~) < 0)
-              AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~ForceSpell~ ~%block%~) < 0)
-              AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~SpellNoDec~ ~%block%~) < 0)
-              AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~ApplySpell~ ~%block%~) < 0) BEGIN
+          END ELSE PATCH_IF (anchor >= 0) AND (INDEX (CASE_SENSITIVE ~Continue()\|ForceSpell\|SpellNoDec\|ApplySpell~ ~%block%~) < 0) BEGIN
             // Neither bookkeeping nor a target pick (no Continue) nor a special (no ForceSpell,
             // SpellNoDec or ApplySpell), but it may still do more than an ordinary combat round.
             SET then = INDEX (CASE_SENSITIVE EXACT_MATCH ~%LNL%THEN%LNL%~ ~%block%~)
@@ -1410,23 +1444,58 @@ BEGIN
                 READ_ASCII 0 trig (then)
                 READ_ASCII then resp (BUFFER_LENGTH - then)
               END
-              LPF bgse_foreign_actions STR_VAR bgse_resp = EVAL ~%resp%~ RET bgse_foreign END
-              SET $bgse_encounter(~%n%~) = ((bgse_foreign > 0) OR (INDEX (CASE_SENSITIVE EXACT_MATCH ~Die()~ ~%trig%~) >= 0)) ? 1 : 0
-              SET $bgse_lastseen(~%n%~) = (INDEX (CASE_SENSITIVE EXACT_MATCH ~LastSeenBy(Myself)~ ~%block%~) >= 0) ? 1 : 0
+              PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~Die()~ ~%trig%~) >= 0) BEGIN
+                SET flags = flags BOR 32
+              END ELSE BEGIN
+                LPF bgse_foreign_actions STR_VAR bgse_resp = EVAL ~%resp%~ RET bgse_foreign END
+                PATCH_IF (bgse_foreign > 0) BEGIN
+                  SET flags = flags BOR 32
+                END
+              END
+              // lastseen decides only for an encounter here, as in bgse_classify_block.
+              PATCH_IF ((flags BAND 32) = 32) AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~LastSeenBy(Myself)~ ~%block%~) >= 0) BEGIN
+                SET flags = flags BOR 16
+              END
             END
           END ELSE BEGIN
-            LPF bgse_classify_block STR_VAR bgse_block = EVAL ~%block%~
-              RET bgse_anchor bgse_book bgse_items bgse_special bgse_pick bgse_lastseen bgse_encounter END
+            LPF bgse_classify_block INT_VAR bgse_seek = (anchor < 0) ? 1 : 0 STR_VAR bgse_block = EVAL ~%block%~
+              RET bgse_anchor bgse_flags END
             PATCH_IF (anchor < 0) AND (bgse_anchor = 1) BEGIN
               SET anchor = n
+              SET at = start
             END
             PATCH_IF (anchor >= 0) BEGIN
-              SET $bgse_book(~%n%~) = bgse_book
-              SET $bgse_items(~%n%~) = bgse_items
-              SET $bgse_special(~%n%~) = bgse_special
-              SET $bgse_pick(~%n%~) = bgse_pick
-              SET $bgse_lastseen(~%n%~) = bgse_lastseen
-              SET $bgse_encounter(~%n%~) = bgse_encounter
+              SET flags = flags BOR bgse_flags
+            END
+          END
+          PATCH_IF (anchor < 0) BEGIN
+            // Above the anchor: SCS's preparation can only be a block with these words.
+            PATCH_IF (INDEX (CASE_SENSITIVE ~ReallyForceSpell\|SetGlobal("instantprep","LOCALS",1)~ ~%block%~) >= 0) BEGIN
+              SET flags = flags BOR 4096
+            END
+            PATCH_IF (flags > 0) BEGIN
+              INNER_PATCH_SAVE edits ~%edits%~ BEGIN
+                INSERT_BYTES BUFFER_LENGTH 12
+                WRITE_LONG (BUFFER_LENGTH - 12) start
+                WRITE_LONG (BUFFER_LENGTH - 8) stop
+                WRITE_LONG (BUFFER_LENGTH - 4) flags
+              END
+            END
+          END ELSE PATCH_IF (flags > 0) BEGIN
+            INNER_PATCH_SAVE plan ~%plan%~ BEGIN
+              INSERT_BYTES BUFFER_LENGTH 16
+              WRITE_LONG (BUFFER_LENGTH - 16) n
+              WRITE_LONG (BUFFER_LENGTH - 12) start
+              WRITE_LONG (BUFFER_LENGTH - 8) stop
+              WRITE_LONG (BUFFER_LENGTH - 4) flags
+            END
+            PATCH_IF ((flags BAND 3840) > 0) BEGIN
+              INNER_PATCH_SAVE tail_edits ~%tail_edits%~ BEGIN
+                INSERT_BYTES BUFFER_LENGTH 12
+                WRITE_LONG (BUFFER_LENGTH - 12) start
+                WRITE_LONG (BUFFER_LENGTH - 8) stop
+                WRITE_LONG (BUFFER_LENGTH - 4) flags
+              END
             END
           END
           SET n += 1
@@ -1434,71 +1503,103 @@ BEGIN
         END
       END
     END
-    SET $bgse_book(~%n%~) = 0
     TEXT_SPRINT bgse_gifts ~|~
     PATCH_IF (anchor < 0) BEGIN
       TEXT_SPRINT bgse_result ~no-anchor~
     END ELSE BEGIN
-      // Bookkeeping runs that carry items or self-applied spells.
-      SET i = anchor
-      WHILE (i < n) BEGIN
-        PATCH_IF ($bgse_book(~%i%~) = 1) BEGIN
-          SET j = i
-          SET carries = 0
-          WHILE ($bgse_book(~%j%~) = 1) BEGIN
-            PATCH_IF ($bgse_items(~%j%~) = 1) BEGIN
-              SET carries = 1
+      // Bookkeeping runs that carry items or self-applied spells; the record after a block's is the
+      // next block's only when its number follows.
+      SET records = (STRING_LENGTH ~%plan%~) / 16
+      INNER_PATCH_SAVE plan ~%plan%~ BEGIN
+        SET i = 0
+        WHILE (i < records) BEGIN
+          READ_LONG (16 * i + 12) flags
+          PATCH_IF ((flags BAND 1) = 1) BEGIN
+            READ_LONG (16 * i) first
+            SET j = i
+            SET carries = 0
+            WHILE ((flags BAND 1) = 1) BEGIN
+              PATCH_IF ((flags BAND 2) = 2) BEGIN
+                SET carries = 1
+              END
+              SET j += 1
+              SET flags = 0
+              PATCH_IF (j < records) BEGIN
+                READ_LONG (16 * j) number
+                PATCH_IF (number = first + j - i) BEGIN
+                  READ_LONG (16 * j + 12) flags
+                END
+              END
             END
-            SET j += 1
+            PATCH_IF (carries = 1) BEGIN
+              FOR (k = i; k < j; k += 1) BEGIN
+                READ_LONG (16 * k + 12) flags
+                PATCH_IF ((flags BAND 768) = 0) BEGIN
+                  WRITE_LONG (16 * k + 12) (flags BOR 64)
+                END
+              END
+            END
+            SET i = j
+          END ELSE BEGIN
+            SET i += 1
           END
-          PATCH_IF (carries = 1) BEGIN
-            FOR (k = i; k < j; k += 1) BEGIN
-              PATCH_IF ($bgse_hunt(~%k%~) = 0) AND ($bgse_jump(~%k%~) = 0) BEGIN
-                SET $bgse_copy(~%k%~) = 1
+        END
+        // Special abilities and blocks that do more than an ordinary combat round, with the
+        // target picks right before them when they aim at LastSeenBy; never SCS's hunt or its
+        // scripted jumps into the fight.
+        FOR (i = 0; i < records; i += 1) BEGIN
+          READ_LONG (16 * i + 12) flags
+          PATCH_IF ((flags BAND 36) > 0) AND ((flags BAND 768) = 0) BEGIN
+            WRITE_LONG (16 * i + 12) (flags BOR 64)
+            PATCH_IF ((flags BAND 16) = 16) BEGIN
+              READ_LONG (16 * i) number
+              SET k = i - 1
+              SET walking = 1
+              WHILE (walking = 1) BEGIN
+                SET picked = 0
+                PATCH_IF (k >= 0) BEGIN
+                  READ_LONG (16 * k) before
+                  PATCH_IF (before = number - (i - k)) BEGIN
+                    READ_LONG (16 * k + 12) picked
+                  END
+                END
+                PATCH_IF ((picked BAND 8) = 8) BEGIN
+                  WRITE_LONG (16 * k + 12) (picked BOR 64)
+                  SET k -= 1
+                END ELSE BEGIN
+                  SET walking = 0
+                END
               END
             END
           END
-          SET i = j
-        END ELSE BEGIN
-          SET i += 1
         END
       END
-      // Special abilities and blocks that do more than an ordinary combat round, with the
-      // target picks right before them when they aim at LastSeenBy; never SCS's hunt or its
-      // scripted jumps into the fight.
-      FOR (i = anchor; i < n; i += 1) BEGIN
-        PATCH_IF (($bgse_special(~%i%~) = 1) OR ($bgse_encounter(~%i%~) = 1)) AND ($bgse_hunt(~%i%~) = 0)
-            AND ($bgse_jump(~%i%~) = 0) BEGIN
-          SET $bgse_copy(~%i%~) = 1
-          PATCH_IF ($bgse_lastseen(~%i%~) = 1) BEGIN
-            SET k = i - 1
-            SET walking = 1
-            WHILE (walking = 1) BEGIN
-              PATCH_IF (k < anchor) BEGIN
-                SET walking = 0
-              END ELSE PATCH_IF ($bgse_pick(~%k%~) = 1) BEGIN
-                SET $bgse_copy(~%k%~) = 1
-                SET k -= 1
-              END ELSE BEGIN
-                SET walking = 0
-              END
-            END
+      // The copies go above the hook in their order.
+      TEXT_SPRINT copied ~~
+      INNER_PATCH ~%plan%~ BEGIN
+        FOR (i = 0; i < records; i += 1) BEGIN
+          READ_LONG (16 * i + 12) flags
+          PATCH_IF ((flags BAND 64) = 64) BEGIN
+            READ_ASCII (16 * i + 4) record (12)
+            TEXT_SPRINT copied ~%copied%%record%~
           END
         END
       END
       TEXT_SPRINT guard ~EEex_LuaTrigger("return BGSE_Claim and BGSE_Claim(EEex_LuaTrigger_Object,'%bgse_family%','%bgse_script%') or false")~
       TEXT_SPRINT insert ~~
-      FOR (i = anchor; i < n; i += 1) BEGIN
-        PATCH_IF ($bgse_copy(~%i%~) = 1) BEGIN
-          SET s = $bgse_start(~%i%~)
-          SET e = $bgse_stop(~%i%~)
-          INNER_PATCH ~%bgse_baf%~ BEGIN
-            READ_ASCII s copy (e - s)
+      SET count = (STRING_LENGTH ~%copied%~) / 12
+      INNER_PATCH ~%bgse_baf%~ BEGIN
+        FOR (k = 0; k < count; k += 1) BEGIN
+          INNER_PATCH ~%copied%~ BEGIN
+            READ_LONG (12 * k) s
+            READ_LONG (12 * k + 4) e
+            READ_LONG (12 * k + 8) flags
           END
-          PATCH_IF ($bgse_hide(~%i%~) > 0) BEGIN
+          READ_ASCII s copy (e - s)
+          PATCH_IF ((flags BAND 3072) > 0) BEGIN
             // A copy that gives free invisibility stands aside as its original does.
             TEXT_SPRINT kind ~plain~
-            PATCH_IF ($bgse_hide(~%i%~) = 2) BEGIN
+            PATCH_IF ((flags BAND 2048) = 2048) BEGIN
               TEXT_SPRINT kind ~improved~
             END
             TEXT_SPRINT hide_line ~  !EEex_LuaTrigger("return BGSE_Hide and BGSE_Hide(EEex_LuaTrigger_Object,'%bgse_family%','%bgse_script%','%kind%') or false")~
@@ -1513,112 +1614,120 @@ BEGIN
           SET bgse_copies += 1
         END
       END
-      SET at = $bgse_start(~%anchor%~)
-      TEXT_SPRINT head ~~
-      INNER_PATCH ~%bgse_baf%~ BEGIN
-        PATCH_IF (at > 0) BEGIN
-          READ_ASCII 0 head (at)
-        END
-        READ_ASCII at tail (BUFFER_LENGTH - at)
-      END
       // SCS's cloud blocks above the hook stand aside while the engine weighs danger zones for
       // the creature (tools/hook_rule.py: stand_aside), its hunting blocks and scripted jumps above
       // and below the hook while the engine drives it, and its free invisibility where the engine
-      // hides the creature its own way; from the last one up so the blocks before keep their offsets.
+      // hides the creature its own way. Each such block changes on its own, and the parts above and
+      // below the hook are put together again in their order, in pieces of some 64 KB: a change in
+      // a whole part would copy all of it each time.
       TEXT_SPRINT zone_line ~  !EEex_LuaTrigger("return BGSE_Zones and BGSE_Zones(EEex_LuaTrigger_Object,'%bgse_family%','%bgse_script%') or false")~
       TEXT_SPRINT search_line ~  !EEex_LuaTrigger("return BGSE_Search and BGSE_Search(EEex_LuaTrigger_Object,'%bgse_family%','%bgse_script%') or false")~
       TEXT_SPRINT plain_line ~  !EEex_LuaTrigger("return BGSE_Hide and BGSE_Hide(EEex_LuaTrigger_Object,'%bgse_family%','%bgse_script%','plain') or false")~
       TEXT_SPRINT improved_line ~  !EEex_LuaTrigger("return BGSE_Hide and BGSE_Hide(EEex_LuaTrigger_Object,'%bgse_family%','%bgse_script%','improved') or false")~
-      INNER_PATCH_SAVE head ~%head%~ BEGIN
-        FOR (i = anchor - 1; i >= 0; i -= 1) BEGIN
-          TEXT_SPRINT lines ~~
-          PATCH_IF ($bgse_cloud(~%i%~) = 1) BEGIN
-            TEXT_SPRINT lines ~%zone_line%~
-            SET bgse_clouds += 1
+      TEXT_SPRINT head ~~
+      TEXT_SPRINT tail ~~
+      INNER_PATCH ~%bgse_baf%~ BEGIN
+        FOR (part = 0; part < 2; part += 1) BEGIN
+          PATCH_IF (part = 0) BEGIN
+            TEXT_SPRINT list ~%edits%~
+            SET from = 0
+            SET to = at
+          END ELSE BEGIN
+            TEXT_SPRINT list ~%tail_edits%~
+            SET from = at
+            SET to = BUFFER_LENGTH
           END
-          PATCH_IF ($bgse_hunt(~%i%~) = 1) OR ($bgse_jump(~%i%~) = 1) BEGIN
-            PATCH_IF (STRING_LENGTH ~%lines%~ > 0) BEGIN
-              TEXT_SPRINT lines ~%lines%%LNL%~
+          TEXT_SPRINT whole ~~
+          TEXT_SPRINT piece ~~
+          SET size = 0
+          SET count = (STRING_LENGTH ~%list%~) / 12
+          FOR (k = 0; k < count; k += 1) BEGIN
+            INNER_PATCH ~%list%~ BEGIN
+              READ_LONG (12 * k) s
+              READ_LONG (12 * k + 4) e
+              READ_LONG (12 * k + 8) flags
             END
-            TEXT_SPRINT lines ~%lines%%search_line%~
-            PATCH_IF ($bgse_hunt(~%i%~) = 1) BEGIN
-              SET bgse_hunts += 1
-            END ELSE BEGIN
-              SET bgse_jumps += 1
+            // Only those above the anchor yield to the zones (the anchor's own cloud flag goes unused).
+            TEXT_SPRINT lines ~~
+            PATCH_IF (part = 0) AND ((flags BAND 128) = 128) BEGIN
+              TEXT_SPRINT lines ~%zone_line%~
+              SET bgse_clouds += 1
             END
-          END
-          PATCH_IF ($bgse_hide(~%i%~) > 0) BEGIN
-            PATCH_IF (STRING_LENGTH ~%lines%~ > 0) BEGIN
-              TEXT_SPRINT lines ~%lines%%LNL%~
+            PATCH_IF ((flags BAND 768) > 0) BEGIN
+              PATCH_IF (STRING_LENGTH ~%lines%~ > 0) BEGIN
+                TEXT_SPRINT lines ~%lines%%LNL%~
+              END
+              TEXT_SPRINT lines ~%lines%%search_line%~
+              PATCH_IF ((flags BAND 256) = 256) BEGIN
+                SET bgse_hunts += 1
+              END ELSE BEGIN
+                SET bgse_jumps += 1
+              END
             END
-            PATCH_IF ($bgse_hide(~%i%~) = 2) BEGIN
-              TEXT_SPRINT lines ~%lines%%improved_line%~
-            END ELSE BEGIN
-              TEXT_SPRINT lines ~%lines%%plain_line%~
+            PATCH_IF ((flags BAND 3072) > 0) BEGIN
+              PATCH_IF (STRING_LENGTH ~%lines%~ > 0) BEGIN
+                TEXT_SPRINT lines ~%lines%%LNL%~
+              END
+              PATCH_IF ((flags BAND 2048) = 2048) BEGIN
+                TEXT_SPRINT lines ~%lines%%improved_line%~
+              END ELSE BEGIN
+                TEXT_SPRINT lines ~%lines%%plain_line%~
+              END
+              SET bgse_hides += 1
             END
-            SET bgse_hides += 1
-          END
-          // SCS's preparation asks the engine (only blocks with these words can be part of it).
-          SET s = $bgse_start(~%i%~)
-          SET e = $bgse_stop(~%i%~)
-          READ_ASCII s block (e - s)
-          TEXT_SPRINT bgse_prep ~~
-          PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~ReallyForceSpell~ ~%block%~) >= 0)
-              OR (INDEX (CASE_SENSITIVE EXACT_MATCH ~SetGlobal("instantprep","LOCALS",1)~ ~%block%~) >= 0) BEGIN
-            LPF bgse_prep_block STR_VAR bgse_block = EVAL ~%block%~ RET bgse_prep bgse_cast bgse_spent END
-          END
-          PATCH_IF (STRING_LENGTH ~%bgse_prep%~ > 0) BEGIN
-            PATCH_IF (STRING_LENGTH ~%lines%~ > 0) BEGIN
-              TEXT_SPRINT lines ~%lines%%LNL%~
+            READ_ASCII s block (e - s)
+            // SCS's preparation asks the engine.
+            TEXT_SPRINT bgse_prep ~~
+            PATCH_IF ((flags BAND 4096) = 4096) BEGIN
+              LPF bgse_prep_block STR_VAR bgse_block = EVAL ~%block%~ RET bgse_prep bgse_cast bgse_spent END
             END
-            TEXT_SPRINT lines ~%lines%  !EEex_LuaTrigger("return BGSE_Prep and BGSE_Prep(EEex_LuaTrigger_Object,'%bgse_family%','%bgse_script%','%bgse_prep%','%bgse_cast%','%bgse_spent%') or false")~
-            SET bgse_preps += 1
-          END
-          PATCH_IF (STRING_LENGTH ~%lines%~ > 0) BEGIN
-            LPF bgse_aside INT_VAR bgse_from = s bgse_to = e STR_VAR bgse_lines = EVAL ~%lines%~ END
-          END
-          // The engine hears of the preparation that ran; it chooses the first round itself, and an
-          // opener it holds still ends SCS's preparation (bgse_opener_twin, right after the opener).
-          PATCH_IF (STRING_LENGTH ~%bgse_prep%~ > 0) AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%bgse_prep%|~ ~|opener|~) < 0) BEGIN
-            LPF bgse_notify INT_VAR bgse_from = s
-              STR_VAR bgse_notice = EVAL ~EEex_LuaAction("if BGSE_Prepped then BGSE_Prepped(EEex_LuaAction_Object,'%bgse_family%','%bgse_script%','%bgse_prep%','%bgse_cast%','%bgse_spent%') end")~ END
-          END ELSE PATCH_IF (STRING_LENGTH ~%bgse_prep%~ > 0) BEGIN
-            SET close = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~%LNL%END%LNL%~ s) + STRING_LENGTH ~%LNL%END%LNL%~
-            READ_ASCII s guarded (close - s)
-            LPF bgse_opener_twin STR_VAR bgse_block = EVAL ~%guarded%~
-              bgse_question = EVAL ~EEex_LuaTrigger("return BGSE_Prep and BGSE_Prep(EEex_LuaTrigger_Object,'%bgse_family%','%bgse_script%','%bgse_prep%','%bgse_cast%','%bgse_spent%') or false")~
-              RET bgse_twin END
-            INSERT_BYTES close (STRING_LENGTH ~%LNL%%bgse_twin%~)
-            WRITE_ASCIIE close ~%LNL%%bgse_twin%~
-          END
-        END
-      END
-      INNER_PATCH_SAVE tail ~%tail%~ BEGIN
-        FOR (i = n - 1; i >= anchor; i -= 1) BEGIN
-          TEXT_SPRINT lines ~~
-          PATCH_IF ($bgse_hunt(~%i%~) = 1) OR ($bgse_jump(~%i%~) = 1) BEGIN
-            TEXT_SPRINT lines ~%search_line%~
-            PATCH_IF ($bgse_hunt(~%i%~) = 1) BEGIN
-              SET bgse_hunts += 1
-            END ELSE BEGIN
-              SET bgse_jumps += 1
+            PATCH_IF (STRING_LENGTH ~%bgse_prep%~ > 0) BEGIN
+              PATCH_IF (STRING_LENGTH ~%lines%~ > 0) BEGIN
+                TEXT_SPRINT lines ~%lines%%LNL%~
+              END
+              TEXT_SPRINT lines ~%lines%  !EEex_LuaTrigger("return BGSE_Prep and BGSE_Prep(EEex_LuaTrigger_Object,'%bgse_family%','%bgse_script%','%bgse_prep%','%bgse_cast%','%bgse_spent%') or false")~
+              SET bgse_preps += 1
             END
-          END
-          PATCH_IF ($bgse_hide(~%i%~) > 0) BEGIN
-            PATCH_IF (STRING_LENGTH ~%lines%~ > 0) BEGIN
-              TEXT_SPRINT lines ~%lines%%LNL%~
+            INNER_PATCH_SAVE block ~%block%~ BEGIN
+              PATCH_IF (STRING_LENGTH ~%lines%~ > 0) BEGIN
+                LPF bgse_aside INT_VAR bgse_from = 0 bgse_to = BUFFER_LENGTH STR_VAR bgse_lines = EVAL ~%lines%~ END
+              END
+              // The engine hears of the preparation that ran; it chooses the first round itself, and an
+              // opener it holds still ends SCS's preparation (bgse_opener_twin, right after the opener).
+              PATCH_IF (STRING_LENGTH ~%bgse_prep%~ > 0) AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%bgse_prep%|~ ~|opener|~) < 0) BEGIN
+                LPF bgse_notify INT_VAR bgse_from = 0
+                  STR_VAR bgse_notice = EVAL ~EEex_LuaAction("if BGSE_Prepped then BGSE_Prepped(EEex_LuaAction_Object,'%bgse_family%','%bgse_script%','%bgse_prep%','%bgse_cast%','%bgse_spent%') end")~ END
+              END ELSE PATCH_IF (STRING_LENGTH ~%bgse_prep%~ > 0) BEGIN
+                SET close = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~%LNL%END%LNL%~) + STRING_LENGTH ~%LNL%END%LNL%~
+                READ_ASCII 0 guarded (close)
+                LPF bgse_opener_twin STR_VAR bgse_block = EVAL ~%guarded%~
+                  bgse_question = EVAL ~EEex_LuaTrigger("return BGSE_Prep and BGSE_Prep(EEex_LuaTrigger_Object,'%bgse_family%','%bgse_script%','%bgse_prep%','%bgse_cast%','%bgse_spent%') or false")~
+                  RET bgse_twin END
+                INSERT_BYTES close (STRING_LENGTH ~%LNL%%bgse_twin%~)
+                WRITE_ASCIIE close ~%LNL%%bgse_twin%~
+              END
             END
-            PATCH_IF ($bgse_hide(~%i%~) = 2) BEGIN
-              TEXT_SPRINT lines ~%lines%%improved_line%~
-            END ELSE BEGIN
-              TEXT_SPRINT lines ~%lines%%plain_line%~
+            TEXT_SPRINT gap ~~
+            PATCH_IF (s > from) BEGIN
+              READ_ASCII from gap (s - from)
             END
-            SET bgse_hides += 1
+            TEXT_SPRINT piece ~%piece%%gap%%block%~
+            SET size += (s - from) + STRING_LENGTH ~%block%~
+            PATCH_IF (size > 65536) BEGIN
+              TEXT_SPRINT whole ~%whole%%piece%~
+              TEXT_SPRINT piece ~~
+              SET size = 0
+            END
+            SET from = e
           END
-          PATCH_IF (STRING_LENGTH ~%lines%~ > 0) BEGIN
-            SET s = $bgse_start(~%i%~) - at
-            SET e = $bgse_stop(~%i%~) - at
-            LPF bgse_aside INT_VAR bgse_from = s bgse_to = e STR_VAR bgse_lines = EVAL ~%lines%~ END
+          TEXT_SPRINT gap ~~
+          PATCH_IF (to > from) BEGIN
+            READ_ASCII from gap (to - from)
+          END
+          PATCH_IF (part = 0) BEGIN
+            TEXT_SPRINT head ~%whole%%piece%%gap%~
+          END ELSE BEGIN
+            TEXT_SPRINT tail ~%whole%%piece%%gap%~
           END
         END
       END
@@ -1669,7 +1778,11 @@ BEGIN
     INNER_PATCH_SAVE baf ~%bcs%~ BEGIN
       DECOMPILE_BCS_TO_BAF
     END
-    LPF bgse_cast_spells STR_VAR bgse_baf = EVAL ~%baf%~ RET bgse_spells END
+    // The spells of its casts and applications, from the script without its comments.
+    INNER_PATCH_SAVE text ~%baf%~ BEGIN
+      REPLACE_TEXTUALLY CASE_SENSITIVE ~ *//.*$~ ~~
+    END
+    LPF bgse_cast_spells STR_VAR bgse_text = EVAL ~%text%~ RET bgse_spells END
     INNER_PATCH ~%bgse_spells%~ BEGIN
       REPLACE_EVALUATE CASE_SENSITIVE ~\([RI]\)=\([^|]+\)~ BEGIN
         TEXT_SPRINT form ~%MATCH1%~
@@ -1683,7 +1796,7 @@ BEGIN
         END
       END ~%MATCH0%~
     END
-    LPF bgse_self_spells STR_VAR bgse_baf = EVAL ~%baf%~ RET bgse_spells END
+    LPF bgse_self_spells STR_VAR bgse_text = EVAL ~%text%~ RET bgse_spells END
     INNER_PATCH ~%bgse_spells%~ BEGIN
       REPLACE_EVALUATE CASE_SENSITIVE ~\([RI]\)=\([^|]+\)~ BEGIN
         LPF bgse_look_spell STR_VAR bgse_form = EVAL ~%MATCH1%~ bgse_spell = EVAL ~%MATCH2%~ bgse_looked = EVAL ~%bgse_looked%~
