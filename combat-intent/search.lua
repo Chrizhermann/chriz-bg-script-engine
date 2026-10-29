@@ -36,8 +36,12 @@
 --   back to SCS meanwhile: its last blocks attack the party even when charmed, and harming a charmed
 --   foe breaks the charm by the rules text. A guard also renews its protections and buffs for when
 --   the foe comes back (combat-intent/choice.lua's readiness), by when that is likely (M.mazeLeft).
+-- - doors (Christopher, 2026-10-29: "muss rein"; combat-intent/doors.lua): a creature with hands for
+--   a door opens a closed one that its way to a spot crosses, and on a searched spot, or with none
+--   left, looks behind a closed door nearby.
 -- Inputs are plain values; nothing here touches the engine.
 local targeting=require('combat-intent.targeting')
+local doors=require('combat-intent.doors')
 local M={}
 M.ticksPerSecond=15
 -- Patience by wit: seconds a creature goes on searching after its newest clue (SCS: 8 to 15).
@@ -529,14 +533,19 @@ end
 -- kept at its post or rooted),
 -- {kind='return', point} (given up, or kept near its post: back there); while foes are out of play
 -- and nothing else is left to search, how it awaits them (M.await: a 'guard' walk, a 'return' or a
--- 'look' with await set).
+-- 'look' with await set);
+-- {kind='door', door, point, toward or behind, clue, target, key, searched} (combat-intent/doors.lua:
+-- point where the creature stands to open door; toward the spot it walks on to afterwards, or behind
+-- the spot behind the door it looks from).
 -- input: tick; frame (self: x, y, hp, maxHp, moraleBreak, seeInvisible, rooted; enemies empty);
 -- mind (wit, tactics, searchPatience); family; clues; post; since (the tick its search began, if
 -- it searches); searched (keys of searched spots); gaveUp (the tick the creature gave up, if it
 -- did); detected (the tick of its last detection); jumped (the tick of its last teleport);
 -- group (other members: {id, family, point}); guard; detects (see M.detection); teleports (see
 -- M.jump); illusion (its Detect Illusion skill); tactical (M.draw's, once a search); away (foes out
--- of play, M.await) and await (its orders' way to await them).
+-- of play, M.await) and await (its orders' way to await them); opener (whether it can open doors,
+-- doors.opener), doors (the area's doors, see doors.usable) and failed (door id to the tick it
+-- failed to open it).
 -- The decision says what the adapter keeps: searched (a key now searched), gaveUp (true when the
 -- creature gives up now).
 function M.decide(input)
@@ -569,8 +578,21 @@ function M.decide(input)
     if (input.tick-newest)/M.ticksPerSecond>patience then return back(true) end
     local tactical=M.tactical(input)
     local searched=type(input.searched)=='table' and input.searched or {}
+    -- A door to look behind from where the creature stands (a guard's only near its post), led by
+    -- the heading of the newest clue that has one.
+    local function behind(lead)
+        if input.opener~=true or self.rooted then return nil end
+        if not lead then
+            for _,c in ipairs(clues) do
+                if number(c.vx) and number(c.vy) and (not lead or c.tick>lead.tick) then lead=c end
+            end
+        end
+        local d=doors.near(input,self,lead,tactical)
+        if not d or (input.guard and post and targeting.distance(post,doors.middle(d))>M.guardRadius) then return nil end
+        return {kind='door',door=d.id,point=doors.access(self,d),behind=doors.beyond(self,d)}
+    end
     local clue=best(input,clues,searched)
-    if not clue then return {kind='look'} end
+    if not clue then return behind() or {kind='look'} end
     local key=M.key(clue)
     -- Detection, when the clue says the enemy is likely invisible here and the creature does not
     -- see the invisible already.
@@ -595,7 +617,21 @@ function M.decide(input)
     if self.rooted then return {kind='look',key=key,rooted=true} end
     local p=M.aim(input,clue,tactical)
     local walk=targeting.distance(self,p)
-    if walk<=M.arrive then return {kind='look',key=key,searched=key} end
+    if walk<=M.arrive then
+        local d=behind(number(clue.vx) and number(clue.vy) and clue or nil)
+        if d then
+            d.clue,d.target,d.key,d.searched=clue.kind,clue.id,key,key
+            return d
+        end
+        return {kind='look',key=key,searched=key}
+    end
+    -- A closed door across the way: opened first, then the creature walks on.
+    if input.opener==true then
+        local d=doors.between(input,p)
+        if d then
+            return {kind='door',door=d.id,point=doors.access(self,d),toward=p,clue=clue.kind,target=clue.id,key=key}
+        end
+    end
     local o,at=M.jump(input,p,walk,tactical)
     if o then
         return {kind='teleport',resref=o.resref,point=at,toward=p,level=o.level,speed=o.speed,innate=o.innate,

@@ -906,8 +906,11 @@ that share spells, quests.
 
 Christopher's answers of 2026-10-29 to what the engine still lacks for a fight of its own:
 - **Doors go into the first release** ("muss rein"): SCS's fighters open a nearby door while they
-  hunt, the engine's search does not yet, so whoever stands behind a closed door is safe from our
-  creatures.
+  hunt, so whoever stands behind a closed door must not be safe from our creatures. Built
+  2026-10-29: the engine's search opens a closed door across its way and looks behind doors near a
+  searched spot, by creatures with hands for doors (FIGHT-01, "Doors"); a door probe in the lab is
+  next. Open with Christopher: picking locks, bashing and Knock (now only with the key), and looking
+  behind doors without any trace.
 - **Hurt creatures heal where they stand.** A potion is "quasi nur ein paar Millisekunden": no
   general retreat to heal, and no big focus on enemies going far away. Rare, chosen cases may come
   (a clever foe that flees more cleverly, priests that keep strong fighters alive), designed case by

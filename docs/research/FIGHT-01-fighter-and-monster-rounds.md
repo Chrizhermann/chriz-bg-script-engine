@@ -245,6 +245,40 @@ The engine searches with what the creature and its group perceived instead
 - **Guarding.** A group's boss (at least two other members, each at least two levels below it)
   guards its post: it searches only clues within 240 of it and otherwise goes back or looks
   around. Orders override it either way (`guard=true` or `guard=false`, `combat-intent/orders.lua`).
+- **Doors** (built 2026-10-29; Christopher: doors go into the first release, "muss rein";
+  `combat-intent/doors.lua`, `adapters/eeex/doors.lua`). SCS's blueprint (`genai/ssl/chase.ssl`,
+  credit DavidW): in a fight, indoors, with no enemy within 30, a creature that is no moron walks to
+  the nearest closed door within 15 and opens it (`OpenDoor(NearestDoor)`); only SCS's general AI
+  does it, not its mage or priest scripts.
+  - *Who* has hands for a door, after SCS's non-moron kinds (`CRE_check_if_moron`,
+    `sfo/filetype/lib_cre.tpa`) by the installed game's IDS names: humanoids, giant humanoids, the
+    undead, demons, dopplegangers and lycanthropes; never zombies, gibberlings, golems or skeletons,
+    nor beholders and dragons (no hands), nor anyone dull. Orders say yes or no whatever the kind
+    (`doors=true` or `doors=false`).
+  - *When*, only while searching: the straight way to the spot it searches crosses a closed door
+    within its sight (448): it opens the door on its way and walks on. On a searched spot, or with no
+    spot left, it looks behind a closed door within 240 of it (SCS's range of 15): a tactical creature
+    takes the door the enemy was heading for, any other the nearest, and walks on 96 past the door's
+    middle. A guard only near its post (240), a rooted creature never.
+  - *Which doors*: closed ones; never a door with an armed trap (or one whose trap cannot be read), a
+    secret door nobody has found, or a door into another area (one linked to a travel trigger, or
+    whose link cannot be read); a locked door only when the creature carries its key, the game's own
+    rule for `OpenDoor`. A door it could not open (it stood again, or its time ran out, with the door
+    shut; also when a block of SCS's cut its try short once it was under way) is left for 30 seconds.
+    A try ended by a hit, an enemy in sight or a danger zone, or cut short right at the start, leaves
+    the door to try again. A door whose spot, or the spot behind it, lies in a danger zone waits; a
+    spot beyond a door in a danger zone counts as searched.
+  - *How*: one response, `MoveToPoint` to the nearer of the two spots the game gives for opening the
+    door (`m_ptDest1`, `m_ptDest2`), `OpenDoor` at `EEex_Target` naming the door, and to look behind
+    it `MoveToPoint` past it; held while the creature walks or opens, at most twice the walk's seconds
+    plus 3 seconds. Then the door is judged by its own open flag (the ARE door flags).
+  - *Log*: `door` rows (door, from, to, behind or toward, clue, target, tactical) and `door-end` rows
+    (open, why: done, time, hurt, enemy, cut, zone); counts `doors`, `doorsOpened`, `doorsShut` and
+    `doorFailures` (doors or kinds that could not be read; the first error as an `error` row).
+  - Not seen in a game yet: which of an area's lists hold its doors, the flags and fields as EEex
+    gives them, `OpenDoor` at `EEex_Target`, and how `MoveToPoint` fares at a closed door (a door
+    probe in the lab comes next). Open with Christopher: picking locks, bashing doors and Knock, and
+    whether to look behind doors without any trace, as SCS does.
 - **Tactics by wit** (`mind.tactics`, drawn once a search: clever always, normal in half its
   searches, dull never): leading a moving enemy along its last heading (up to 2 seconds, 150 at
   most), spreading out from members that search the same spot (80 apart), casters staying 120
@@ -262,10 +296,10 @@ The engine searches with what the creature and its group perceived instead
   every creature on the engine's side (fighters and monsters too since F1e); a neutral or charmed
   creature keeps SCS's own hunt.
 - **Log.** Rows `hunt` (a search begins: clues, tactics, patience, guard, wit), `clue` (a hit),
-  `search` and `return` (walks), `teleport` and `landed`, `detect`, `reveal`, `gave-up` (why:
-  patience, no clue, stuck) and `stuck`; `inspect()` has the search's counts.
+  `search` and `return` (walks), `teleport` and `landed`, `detect`, `reveal`, `door` and `door-end`,
+  `gave-up` (why: patience, no clue, stuck) and `stuck`; `inspect()` has the search's counts.
 
-Not built yet: opening doors, buffing at the post after giving up, barks, and an ordered target's
+Not built yet: buffing at the post after giving up, barks, and an ordered target's
 clues coming first. SCS's scripted teleports (the fiends' and Melissan's `dw#fitel`, cast with
 `ForceSpellRES` or `ReallyForceSpellRES` without a memorized copy) are no ability the engine sees.
 Since 2026-10-26 the installer gives each creature of a hooked script that teleports that way and

@@ -3533,4 +3533,297 @@ assert(c:inspect().counts.fightFailures==0)
 end)()
 groups=groups+1
 
+-- 47. Doors (combat-intent/doors.lua, adapters/eeex/doors.lua; Christopher, 2026-10-29: doors are in
+-- the first release). An area's doors are the CGameDoors among its objects, in any of its lists: the
+-- ARE flags (open, locked, secret, found), the closed box, the two spots the game gives for opening
+-- one, its travel trigger, key and trap. A door that cannot be read is left out and counted; one
+-- whose trap or travel trigger cannot be read counts as trapped or as a way out. A clever mage (a
+-- humanoid, with hands for doors) whose enemy walked out of its sight beyond a closed door walks to
+-- the door's near spot and opens it at EEex_Target, which names the door, held while it walks and
+-- opens; standing again with the door open, it counts the door as opened and walks on through, and
+-- at the spot it looks behind the next door near it. A door it could not open is shut and left for
+-- doors.retrySeconds; a locked one counts only with its key; one that stands open by the time the
+-- gate queues needs nothing. Orders say yes or no to doors; a dull mage or an animal has no hands for
+-- them. The search keeps out of danger zones, and a try cut short leaves the door to try again.
+;(function()
+local doorReader=require('adapters.eeex.doors')
+local seekers=require('adapters.eeex.search')
+local DOOR=8
+-- A closed door across x (its leaf from y=-40 to 40), with the spots on either side the game gives
+-- for opening it.
+local function door(id,x,fields)
+    local d={m_id=id,m_objectType=DOOR,m_dwFlags=0,m_rClosedBounding={left=x-10,top=-40,right=x+10,bottom=40},
+        m_ptDest1={x=x-20,y=0},m_ptDest2={x=x+20,y=0},m_triggerName=str(''),m_keyType=str(''),m_trapActivated=0}
+    for k,v in pairs(fields or {}) do d[k]=v end
+    return d
+end
+-- A world that knows doors (EEex's object types and casts), with an area of its own.
+local function doorWorld()
+    local w=world()
+    w.CGameObjectType={DOOR=DOOR,SPRITE=49}
+    w.EEex_GameObject_CastUserType=function(o) return o end
+    local isSprite=w.EEex_GameObject_IsSprite
+    w.EEex_GameObject_IsSprite=function(o,allowDead) return o~=nil and o.m_objectType~=DOOR and isSprite(o,allowDead) end
+    w.area={m_resref=str('AR0001'),m_lVertSort={},m_lVertSortBack={}}
+    function w.door(d,list) w.objects[d.m_id]=d;table.insert(w.area[list or 'm_lVertSortBack'],d.m_id);return d end
+    return w
+end
+
+-- The reader: doors in the back list and the front list, a creature lying there passed over, and
+-- doors that cannot be read left out and counted, the last error kept.
+local w=doorWorld()
+local s=w.add(sprite(1,0,0,255,{m_pArea=w.area}))
+table.insert(w.area.m_lVertSortBack,1)
+w.door(door(50,150))
+w.door(door(51,600,{m_dwFlags=0x3,m_keyType=str('TestKey'),m_trapActivated=1,m_triggerName=str('Tran0001')}),'m_lVertSort')
+local blind=door(52,700,{m_dwFlags=0x80,m_ptDest1={x=0,y=0}})
+blind.m_trapActivated,blind.m_triggerName=nil,nil
+w.door(blind)
+w.door(door(53,800,{m_dwFlags=0x180}))
+w.door(door(54,900,{m_dwFlags='x'}))
+w.door(door(55,950,{m_rClosedBounding={left=1}}))
+local list,failed,last=doorReader.read(w,w.area)
+assert(#list==4 and failed==2 and last:find('door box')~=nil)
+local d50,d51,d52,d53=list[1],list[2],list[3],list[4]
+assert(d50.id==50 and d50.open==false and d50.locked==false and d50.hidden==false and d50.trapped==false and
+    d50.travel==false and d50.keyType==nil and #d50.points==2 and d50.points[1].x==130 and d50.points[2].x==170)
+assert(d50.box.left==140 and d50.box.top==-40 and d50.box.right==160 and d50.box.bottom==40)
+assert(d51.id==51 and d51.open==true and d51.locked==true and d51.keyType=='TESTKEY' and d51.trapped==true and
+    d51.travel==true)
+assert(d52.id==52 and d52.hidden==true and d52.trapped==true and d52.travel==true and #d52.points==1 and
+    d52.points[1].x==720)
+assert(d53.id==53 and d53.hidden==false and d53.open==false)
+assert(doorReader.open(w,50)==false and doorReader.open(w,51)==true and doorReader.open(w,1)==nil and
+    doorReader.open(w,99)==nil and doorReader.open(w,54)==nil)
+assert(#doorReader.read(w,nil)==0)
+s.items[18]={cResRef=str('TestKey')}
+local keys,n=doorReader.carried(w,s),0
+for _ in pairs(keys) do n=n+1 end
+assert(keys.TESTKEY==true and n==1)
+-- Without EEex's object types nothing is a door.
+w.CGameObjectType=nil
+list,failed=doorReader.read(w,w.area)
+assert(#list==0 and failed==0 and doorReader.open(w,50)==nil)
+-- The response: the walk to the door, OpenDoor at EEex_Target, and the walk behind it when that is a
+-- whole spot.
+assert(choices.doorResponse({x=130,y=0})=='MoveToPoint([130.0])OpenDoor(EEex_Target("BGSE"))')
+assert(choices.doorResponse({x=380.6,y=10},{x=496,y=0})==
+    'MoveToPoint([380.10])OpenDoor(EEex_Target("BGSE"))MoveToPoint([496.0])')
+assert(choices.doorResponse({x=130,y=0},{x=1.5,y=0})=='MoveToPoint([130.0])OpenDoor(EEex_Target("BGSE"))')
+
+-- The mage of group 33 behind doors: its enemy, last seen 300 away, walked out of its sight; a closed
+-- door stands across the way at 150, another beyond the spot at 400.
+local function scene(seed,orders,mage,gate,extra)
+    local g=doorWorld()
+    local rd=extra and extra(g) or reader
+    local d=directors.new(g,{reader=rd})
+    local c=choices.new(g,{reader=rd,director=d,seed=seed,orders=orders})
+    local rows={}
+    c:setSink(function(row) rows[#rows+1]=row end)
+    runtime.install(g,{director=d,choice=c,version='test'})
+    local function lastOf(kind) for i=#rows,1,-1 do if rows[i].kind==kind then return rows[i] end end end
+    local m=g.add(sprite(1,0,0,255,{m_pArea=g.area}))
+    if mage then mage(m) end
+    local e=g.add(sprite(11,300,0,2,{m_pArea=g.area}))
+    local first=g.door(door(50,150))
+    if gate then gate(first) end
+    g.door(door(60,400))
+    local function claimAt(tick) g.ticks=tick;return g.BGSE_Claim(m,'mage','s1') end
+    assert(claimAt(100)==true)
+    e.m_pos={x=900,y=0}
+    assert(claimAt(140)==true)
+    return g,c,m,first,lastOf,claimAt
+end
+local function walks(g,m,lastOf)
+    g.BGSE_Act(m)
+    return g.queued[#g.queued].text=='MoveToPoint([300.0])' and lastOf('door')==nil and lastOf('search').to.x==300
+end
+local g1,c1,m1,gate1,last1,claim1=scene(471)
+g1.BGSE_Act(m1)
+local r1=last1('door')
+assert(g1.queued[#g1.queued].text=='MoveToPoint([130.0])OpenDoor(EEex_Target("BGSE"))' and m1.aux.EEex_Target.BGSE==50)
+assert(r1 and r1.door==50 and r1.to.x==130 and r1.toward.x==300 and r1.clue=='seen' and r1.target==11 and
+    r1.behind==nil and r1.tactical==true)
+assert(c1:inspect().search.counts.doors==1 and last1('search')==nil)
+-- Held while it walks and opens.
+local holds1=c1:inspect().counts.holds
+m1.m_curAction={m_actionID=23}
+assert(claim1(150)==true)
+m1.m_curAction={m_actionID=143}
+assert(claim1(160)==true and c1:inspect().counts.holds==holds1+2 and last1('door-end')==nil)
+-- Standing at the door, open now: opened, and the search walks on through it.
+gate1.m_dwFlags=1;m1.m_curAction={m_actionID=0};m1.m_pos={x=130,y=0}
+assert(claim1(170)==true)
+local e1=last1('door-end')
+assert(e1 and e1.door==50 and e1.open==true and e1.why=='done' and c1:inspect().search.counts.doorsOpened==1)
+g1.BGSE_Act(m1)
+assert(g1.queued[#g1.queued].text=='MoveToPoint([300.0])' and last1('search').to.x==300)
+-- At the spot: it looks behind the door near it, past its middle on the far side, and the spot counts
+-- as searched.
+m1.m_pos={x=300,y=0}
+assert(claim1(200)==true)
+g1.BGSE_Act(m1)
+local b1=last1('door')
+assert(g1.queued[#g1.queued].text=='MoveToPoint([380.0])OpenDoor(EEex_Target("BGSE"))MoveToPoint([496.0])' and
+    m1.aux.EEex_Target.BGSE==60 and b1.door==60 and b1.behind.x==496 and b1.toward==nil)
+assert(c1:inspect().search.counts.doors==2)
+-- A door that stays shut: when the mage stands without having opened it, the door is left and the
+-- mage walks the way all the same (the game finds its way round, where there is one).
+local g2,c2,m2,_,last2,claim2=scene(472)
+g2.BGSE_Act(m2)
+m2.m_curAction={m_actionID=23}
+assert(claim2(150)==true)
+m2.m_curAction={m_actionID=0}
+assert(claim2(170)==true)
+local e2=last2('door-end')
+assert(e2.open==false and e2.why=='done' and c2:inspect().search.counts.doorsShut==1 and
+    c2:inspect().search.counts.doorsOpened==0)
+assert(walks(g2,m2,function(kind) if kind~='door' then return last2(kind) end end))
+assert(c2:inspect().search.counts.doors==1)
+-- A block of SCS's above the hook cuts the try short (the hold's response runs, kernel/hook.lua):
+-- right after the door was queued it is tried again at once; once the mage was under way it counts
+-- as a try that ended, the door shut and left, and the mage walks on in the same response.
+local g10,c10,m10,_,last10,claim10=scene(480)
+g10.BGSE_Act(m10)
+m10.m_curAction={m_actionID=23}
+assert(claim10(145)==true)
+m10.m_curAction=action(472,'',-1)
+g10.BGSE_Act(m10)
+local cut10=last10('cut')
+assert(cut10.ended[1]=='search' and last10('door-end').why=='cut' and last10('door-end').open==false)
+assert(g10.queued[#g10.queued].text=='MoveToPoint([130.0])OpenDoor(EEex_Target("BGSE"))' and
+    c10:inspect().search.counts.doors==2 and c10:inspect().search.counts.doorsShut==0)
+m10.m_curAction={m_actionID=23}
+assert(claim10(160)==true)
+m10.m_curAction=action(472,'',-1)
+g10.BGSE_Act(m10)
+assert(last10('door-end').why=='done' and c10:inspect().search.counts.doorsShut==1)
+assert(g10.queued[#g10.queued].text=='MoveToPoint([300.0])' and last10('search').to.x==300)
+-- A cloud comes up round the mage on its way to the door, its explosion five seconds off (group
+-- 24's): the mage walks out of it first. The door's try ends ('zone'), the door not left.
+local readerZ={problems={},idsName=reader.idsName,get=reader.get,lookup=function(kind,key)
+        if kind=='PRO' and key==4 then
+            return {kind='PRO',resref='CLOUD',type=3,speed=20,flags=0,extFlags=0,areaFlags=0,trigger=150,radius=150,coneWidth=0}
+        end
+        return reader.lookup(kind,key)
+    end}
+local function clouded(g)
+    g.EEex_Projectile_Type={CProjectileArea=8}
+    g.EEex_Projectile_GetType=function(o) return o.projectile or 1 end
+    g.EEex_CastUD=function(o) return o end
+    local isSprite=g.EEex_GameObject_IsSprite
+    g.EEex_GameObject_IsSprite=function(o,allowDead) return o~=nil and o.projectile==nil and isSprite(o,allowDead) end
+    g.area.m_lVertSortFlight={}
+    return readerZ
+end
+local g11,c11,m11,_,last11,claim11=scene(481,nil,nil,nil,clouded)
+g11.BGSE_Act(m11)
+m11.m_curAction={m_actionID=23}
+local hot={m_effectId=12,m_durationType=1,m_duration=0,m_effectAmount=0,m_dWFlags=8*65536,m_flags=1,
+    m_probabilityUpper=100,m_probabilityLower=0,m_res=str(''),m_numDice=4,m_diceSize=9,m_savingThrow=0,m_saveMod=0,
+    m_special=0,m_spellLevel=4,m_casterLevel=10,m_sourceRes=str('TESTCLDS')}
+g11.objects[950]={m_id=950,projectile=8,state=0,m_nRepetitionCount=1,m_bReachedDestination=1,m_pos={x=0,y=0},
+    m_posDest={x=0,y=0},m_explosionRange=150,m_nDelay=75,m_nDelayCount=75,m_sourceId=11,m_projectileType=3,
+    m_resref=str('CLOUD'),m_effectList={hot}}
+table.insert(g11.area.m_lVertSortFlight,950)
+assert(claim11(150)==true)
+local end11=last11('door-end')
+assert(end11 and end11.why=='zone' and end11.open==false and c11:inspect().search.counts.doorsShut==0)
+assert(last11('choice').castKind=='escape')
+-- One that stands open by the time the gate queues needs nothing.
+local g3,c3,m3,gate3,last3=scene(473)
+local queued3=#g3.queued
+gate3.m_dwFlags=1
+g3.BGSE_Act(m3)
+assert(#g3.queued==queued3 and last3('door')==nil and c3:inspect().counts.skipped==1)
+-- Orders say no; a dull mage or an animal has no hands for doors; orders let the dull one open.
+local g4,_,m4,_,last4=scene(474,{TEST1={doors=false}})
+assert(walks(g4,m4,last4))
+local function dull(m) m.stats[38],m.stats[39]=4,8 end
+local g5,_,m5,_,last5=scene(475,nil,dull)
+assert(walks(g5,m5,last5))
+local g6,_,m6,_,last6=scene(476,{TEST1={doors=true}},dull)
+g6.BGSE_Act(m6)
+assert(last6('door').door==50 and m6.aux.EEex_Target.BGSE==50)
+local g7,_,m7,_,last7=scene(477,nil,function(m) m.m_typeAI.m_General=2 end)
+assert(walks(g7,m7,last7))
+-- A locked door: shut to a mage without its key, opened by one that carries it.
+local function locked(d) d.m_dwFlags=2;d.m_keyType=str('TESTKEY') end
+local g8,_,m8,_,last8=scene(478,nil,nil,locked)
+assert(walks(g8,m8,last8))
+local g9,_,m9,_,last9=scene(479,nil,function(m) m.items[18]={cResRef=str('TESTKEY')} end,locked)
+g9.BGSE_Act(m9)
+assert(last9('door').door==50 and m9.aux.EEex_Target.BGSE==50)
+
+-- The seeker on its own (adapters/eeex/search.lua): a spot beyond a door in a danger zone counts as
+-- searched; a door whose spot lies in a zone is left for now and the search walks on; a try cut short
+-- or ended by a hit leaves the door to try again, one whose time ran out leaves it shut. Without a
+-- reader for its kind the creature opens no door; a reader that fails is logged once.
+local wz=doorWorld()
+local sz=wz.add(sprite(1,0,0,255,{m_pArea=wz.area}))
+wz.add(sprite(11,2000,0,2,{m_pArea=wz.area}))
+wz.door(door(50,150))
+local rowsz={}
+local function lastz(kind) for i=#rowsz,1,-1 do if rowsz[i].kind==kind then return rowsz[i] end end end
+local director={clues=function() return {{id=11,x=300,y=0,tick=100}} end,group=function() return {} end}
+local function fresh(options)
+    local o={director=director,reader=reader,record=function(row) rowsz[#rowsz+1]=row end}
+    for k,v in pairs(options or {}) do o[k]=v end
+    return seekers.new(wz,o)
+end
+local frame={area='AR0001',self={id=1,x=0,y=0,hp=40,maxHp=40,ea=255},enemies={}}
+local clever={wit='clever',tactics=1}
+local function decide(seeker,tick,zoneAt,orders) return seeker:decide(sz,frame,tick,'mage',clever,{},{},zoneAt,orders) end
+local sk=fresh()
+local dz=decide(sk,150)
+assert(dz.kind=='door' and dz.door==50 and dz.point.x==130 and dz.toward.x==300)
+assert(decide(sk,150,nil,{doors=false}).kind=='search')
+dz=decide(fresh(),150,function(p) return p.x>=250 end)
+assert(dz.kind=='look' and dz.zone==true and dz.searched==dz.key)
+sk=fresh()
+dz=decide(sk,150,function(p) return p.x>=120 and p.x<=140 end)
+assert(dz.kind=='look' and dz.zone==true and dz.searched==nil)
+dz=decide(sk,151)
+assert(dz.kind=='search' and dz.point.x==300)
+-- A try cut short (by a block of SCS's) is judged 'cut': the door is tried again.
+sk=fresh()
+dz=decide(sk,150)
+sk:door(sz,dz,dz.point,nil,150)
+sz.m_curAction={m_actionID=23}
+assert(sk:holding(sz,1,152)=='door')
+sk:stop(1,153,'cut')
+assert(lastz('door-end').why=='cut' and lastz('door-end').open==false and sk:inspect().counts.doorsShut==0)
+assert(sk:holding(sz,1,154)==false and decide(sk,154).kind=='door')
+-- Hurt on the way: judged, not left.
+sk:door(sz,dz,dz.point,nil,154)
+sz.m_baseStats.m_hitPoints=30
+assert(sk:holding(sz,1,156)==false and lastz('door-end').why=='hurt' and sk:inspect().counts.doorsShut==0)
+sz.m_baseStats.m_hitPoints=40
+-- Out of time (twice the walk's seconds and the margins: 84 ticks for 130): shut and left.
+dz=decide(sk,160)
+assert(dz.kind=='door')
+sk:door(sz,dz,dz.point,nil,160)
+assert(sk:holding(sz,1,243)=='door')
+assert(sk:holding(sz,1,244)==false and lastz('door-end').why=='time' and sk:inspect().counts.doorsShut==1)
+assert(decide(sk,245).kind=='search')
+sz.m_curAction={m_actionID=0}
+-- Without a reader, no door and no error; a reader that fails is logged once.
+local quiet=fresh({reader=false})
+assert(decide(quiet,150).kind=='search' and quiet:inspect().counts.doorFailures==0)
+local broken=fresh({reader={idsName=function() error('no ids') end}})
+local errors=0
+for _,row in ipairs(rowsz) do if row.kind=='error' then errors=errors+1 end end
+assert(decide(broken,150).kind=='search' and decide(broken,151).kind=='search')
+assert(broken:inspect().counts.doorFailures==2 and lastz('error').where=='door-opener')
+local after=0
+for _,row in ipairs(rowsz) do if row.kind=='error' then after=after+1 end end
+assert(after==errors+1)
+-- A door that cannot be read is logged once ('door-read') and left out; the others still count.
+wz.door(door(56,200,{m_dwFlags='x'}))
+local faulty=fresh()
+dz=decide(faulty,150)
+assert(dz.kind=='door' and dz.door==50 and faulty:inspect().counts.doorFailures==1 and lastz('error').where=='door-read')
+end)()
+groups=groups+1
+
 return groups

@@ -122,6 +122,9 @@
 -- up after its patience, walking back to where its fight began; there the creature's own life goes
 -- on. A detection is judged by whether the creature sees an enemy afterwards. BGSE_Search
 -- (api:searches) tells SCS's own hunting blocks to stand aside for every creature the engine drives.
+-- A door the search opens (combat-intent/doors.lua) is MoveToPoint to the open spot nearest where it
+-- is opened, OpenDoor at EEex_Target (the caster's own table names the door) and, to look behind it,
+-- MoveToPoint on there; a door that stands open by then, or is gone, is skipped.
 -- Readiness (combat-intent/choice.lua): a creature that guards a foe out of play also weighs its
 -- protections, buffs, summons and lasting clouds against the foes out of play as the search reads
 -- them (adapters/eeex/search.lua's returning: where each went, with the seconds until it is likely
@@ -186,6 +189,7 @@ local creature=require('adapters.eeex.creature')
 local resources=require('adapters.eeex.resources')
 local directors=require('adapters.eeex.director')
 local searches=require('adapters.eeex.search')
+local doorReader=require('adapters.eeex.doors')
 local stealths=require('adapters.eeex.stealth')
 local spells=require('combat-intent.spells')
 local targeting=require('combat-intent.targeting')
@@ -374,6 +378,16 @@ function M.response(decision)
     if type(t)=='number' and t>=0 and t%1==0 then
         return cast..'RES("'..decision.resref..'",EEex_Target("'..M.targetName..'"))'
     end
+end
+-- The response that opens a door (adapters/eeex/search.lua): the walk to point, where it is opened,
+-- OpenDoor at EEex_Target (the caster's table names the door), and the walk on to behind when given.
+function M.doorResponse(point,behind)
+    local walk='MoveToPoint(['..math.floor(point.x)..'.'..math.floor(point.y)..'])'
+    local on=''
+    if type(behind)=='table' and whole(behind.x) and whole(behind.y) then
+        on='MoveToPoint(['..behind.x..'.'..behind.y..'])'
+    end
+    return walk..'OpenDoor(EEex_Target("'..M.targetName..'"))'..on
 end
 
 -- Whether a friend in frame (the creature itself or an ally it sees) has lost hit points, is held
@@ -1625,6 +1639,10 @@ function M.new(g,options)
                 cover=(type(d.speed)=='number' and d.speed>0 and d.speed or 0)*M.speedTicks+M.coverSlack,
                 clue=d.clue,aim=d.target,innate=d.innate}
         end
+        if d.kind=='door' then
+            return {own=true,response=M.doorResponse(d.point,d.behind),kind='door',door=d.door,point=d.point,behind=d.behind,
+                toward=d.toward,clue=d.clue,target=d.target}
+        end
         return {own=true,response='MoveToPoint(['..d.point.x..'.'..d.point.y..'])',kind=d.kind,point=d.point,
             clue=d.clue,target=d.target,gaveUp=d.gaveUp,guard=d.guard}
     end
@@ -1717,7 +1735,7 @@ function M.new(g,options)
         local act=seeker:holding(sprite,id,tick)
         if act then
             local d=flee(sprite,id,tick,family)
-            if d then seeker:stop(id);return d end
+            if d then seeker:stop(id,tick,'zone');return d end
             return act=='look' and still() or hold()
         end
         -- A thief's try to hide runs while it lasts (adapters/eeex/stealth.lua), the same way; once
@@ -1919,6 +1937,18 @@ function M.new(g,options)
     end
     function api:decide(view,family) return ask(view,family) end
 
+    -- The caster's EEex_Target table names id, the object its response acts on.
+    local function name(object,id)
+        local aux=g.EEex_GetUDAux(object)
+        local make=rawget(g,'EEex_Utility_GetOrCreateTable')
+        local names
+        if type(make)=='function' then names=make(aux,'EEex_Target')
+        else
+            names=aux.EEex_Target
+            if type(names)~='table' then names={};aux.EEex_Target=names end
+        end
+        names[M.targetName]=id
+    end
     -- Right before the gate queues the response: the target is still a living, visible creature
     -- without sanctuary; then the caster's EEex_Target table names it, and SCS's round timer marks
     -- the round (round). Decisions of other deciders (lab experiments) pass unchanged.
@@ -1936,15 +1966,7 @@ function M.new(g,options)
             if not targeting.alive(seen) or ((seen.sanctuary or 0)>0 and not M.FRIENDLY[decision.kind]) then return 'skipped' end
             if targeting.has(seen.state,UNSEEN) and not (g.EEex_Sprite_GetStat(object,sense.stats.seeInvisible)>0 or
                 g.EEex_Sprite_GetStat(object,sense.stats.trueSight)>0) then return 'skipped' end
-            local aux=g.EEex_GetUDAux(object)
-            local make=rawget(g,'EEex_Utility_GetOrCreateTable')
-            local names
-            if type(make)=='function' then names=make(aux,'EEex_Target')
-            else
-                names=aux.EEex_Target
-                if type(names)~='table' then names={};aux.EEex_Target=names end
-            end
-            names[M.targetName]=decision.target
+            name(object,decision.target)
             hp=seen.hp
         end
         local known=idSet(decision.known)
@@ -2000,6 +2022,17 @@ function M.new(g,options)
             if not point then return 'skipped' end
             decision.response='MoveToPoint(['..point.x..'.'..point.y..'])'
             seeker:walk(object,decision,point,tick)
+        elseif decision.kind=='door' then
+            -- A door: to the open spot nearest where it is opened, the door named for OpenDoor, and
+            -- to look behind it on to the open spot nearest there. One that stands open by now, or
+            -- is gone, needs nothing.
+            if doorReader.open(g,decision.door)~=false then return 'skipped' end
+            local point=walkable(object,{point=decision.point})
+            if not point then return 'skipped' end
+            local behind=decision.behind and walkable(object,{point=decision.behind}) or nil
+            name(object,decision.door)
+            decision.response=M.doorResponse(point,behind)
+            seeker:door(object,decision,point,behind,tick)
         elseif decision.kind=='modal' then
             seeker:mode(object,tick)
         elseif decision.kind=='hide' then
@@ -2125,7 +2158,7 @@ function M.new(g,options)
         end
         local m=moves[id]
         if m then moved(m,sprite,tick);ended[#ended+1]='move' end
-        if seeker:holding(sprite,id,tick) then seeker:stop(id);ended[#ended+1]='search' end
+        if seeker:holding(sprite,id,tick) then seeker:stop(id,tick,'cut');ended[#ended+1]='search' end
         if hider:holding(sprite,id,tick) then hider:stop(id);ended[#ended+1]='hide' end
         counts.cut=counts.cut+1
         record({kind='cut',tick=tick,member=id,ended=ended})

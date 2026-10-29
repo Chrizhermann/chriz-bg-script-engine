@@ -13,19 +13,31 @@
 -- a maze) are no clues; the search awaits them (combat-intent/search.lua, M.await) and reads them for
 -- a guard's readiness (seeker:returning). A walk is held
 -- while the creature walks it, a look and the rogue's detection mode briefly; each ends early when an
--- enemy shows or the creature is hurt. Session-local; a load forgets it all.
+-- enemy shows or the creature is hurt.
+--
+-- Doors (combat-intent/doors.lua, adapters/eeex/doors.lua): a creature with hands for a door (its IDS
+-- names and wit, or its orders) gets the area's doors, a locked one counted as openable only when it
+-- carries the key. Opening one walks to the spot the game gives for it, opens it and, to look behind
+-- it, walks on there; held while it walks or opens. Then the door is judged: open, or shut when the
+-- creature stopped or its time ran out without opening it (the game keeps some doors shut, and a
+-- creature can stay stuck on a failed OpenDoor until the next decision replaces it). A shut door is
+-- left for doors.retrySeconds. Session-local; a load forgets it all.
 local sense=require('adapters.eeex.sense')
 local search=require('combat-intent.search')
 local targeting=require('combat-intent.targeting')
+local doorRules=require('combat-intent.doors')
+local doorReader=require('adapters.eeex.doors')
 local M={}
 M.ticksPerSecond=15
--- MoveToPoint (ACTION.IDS). A walk is held while the creature walks it, or walkGrace ticks until it
--- starts, and twice its seconds at walkSpeed (world units a second, combat-intent/zones.lua's) and
--- walkMargin ticks at most.
+-- MoveToPoint and OpenDoor (ACTION.IDS). A walk is held while the creature walks it, or walkGrace
+-- ticks until it starts, and twice its seconds at walkSpeed (world units a second,
+-- combat-intent/zones.lua's) and walkMargin ticks at most; opening a door openTicks more.
 M.MOVE=23
+M.OPEN=143
 M.walkGrace=8
 M.walkMargin=30
 M.walkSpeed=100
+M.openTicks=15
 -- Ticks a look and the rogue's detection mode are held.
 M.lookTicks=15
 M.modalTicks=8
@@ -53,16 +65,61 @@ function M.new(g,options)
     local reader=options.reader
     local states,stateCount={},0
     local counts={hunts=0,walks=0,looks=0,returns=0,gaveUp=0,detects=0,modals=0,teleports=0,hitClues=0,guards=0,
-        stuck=0,guardFailures=0,awaits=0,guardWalks=0,readyFailures=0}
+        stuck=0,guardFailures=0,awaits=0,guardWalks=0,readyFailures=0,doors=0,doorsOpened=0,doorsShut=0,
+        doorFailures=0}
     local seeker={}
+    local doorError
+    -- The area's doors, read once a tick for each area.
+    local doorCache
     local function state(id)
         local s=states[id]
         if not s then
             if stateCount>=M.cacheLimit then states,stateCount={},0 end
-            s={searched={},clues={},hits={},stuck=0}
+            s={searched={},clues={},hits={},stuck=0,doors={}}
             states[id]=s;stateCount=stateCount+1
         end
         return s
+    end
+    local function doorFailed(where,err)
+        counts.doorFailures=counts.doorFailures+1
+        if not doorError then
+            doorError=tostring(err):sub(1,200)
+            record({kind='error',where=where,error=doorError})
+        end
+    end
+    -- Whether the creature can open doors: its orders say so, else its kind and wit (doors.opener);
+    -- without a reader for its kind, no.
+    local function opens(sprite,m,orders)
+        if type(orders)=='table' and type(orders.doors)=='boolean' then return orders.doors end
+        if not reader then return false end
+        local ok,can=pcall(function()
+            local t=sprite.m_typeAI
+            return doorRules.opener({general=reader.idsName('GENERAL',t.m_General),race=reader.idsName('RACE',t.m_Race),
+                class=reader.idsName('CLASS',t.m_Class),wit=m.wit})
+        end)
+        if ok then return can==true end
+        doorFailed('door-opener',can)
+        return false
+    end
+    -- The doors of the creature's area as it may use them: a locked one with key set when the
+    -- creature carries its key.
+    local function doorsOf(sprite,frame,tick)
+        if not (doorCache and doorCache.area==frame.area and doorCache.tick==tick) then
+            local list,failed,last=doorReader.read(g,sprite.m_pArea)
+            if failed>0 then doorFailed('door-read',last) end
+            doorCache={area=frame.area,tick=tick,doors=list}
+        end
+        local out,carried={},nil
+        for _,d in ipairs(doorCache.doors) do
+            local c={}
+            for k,v in pairs(d) do c[k]=v end
+            if d.locked and d.keyType then
+                carried=carried or doorReader.carried(g,sprite)
+                c.key=carried[d.keyType]==true
+            end
+            out[#out+1]=c
+        end
+        return out
     end
     -- Whether the creature guards its post: its orders say so (guard), else whether it is its
     -- group's boss (search.boss, by the levels of the members the director knows).
@@ -252,10 +309,17 @@ function M.new(g,options)
             record({kind='hunt',tick=tick,member=id,family=family,clues=#list,tactical=s.tactical,patience=patience,
                 guard=s.guard or nil,wit=m.wit})
         end
+        local opener=opens(sprite,m,orders)
+        local doorList
+        if opener then
+            local ok,v=pcall(doorsOf,sprite,frame,tick)
+            if ok then doorList=v else doorFailed('door-read',v) end
+        end
         local d,why=search.decide({tick=tick,frame=frame,mind=m,family=family,clues=list,post=s.post,since=s.since,
             searched=s.searched,gaveUp=s.gaveUp,detected=s.detected,jumped=s.jumped,group=group(id,frame.area,tick),
             guard=s.guard,detects=search.options(rows,carried),teleports=search.teleports(rows),illusion=illusion(sprite),
-            tactical=s.tactical,away=away,await=type(orders)=='table' and orders.await or nil})
+            tactical=s.tactical,away=away,await=type(orders)=='table' and orders.await or nil,opener=opener,
+            doors=doorList,failed=s.doors})
         if not d then
             if why=='given-up' then
                 giveUp(s,id,tick,newest and 'patience' or 'no-clue')
@@ -275,6 +339,15 @@ function M.new(g,options)
             elseif d.kind=='teleport' and zoneAt(d.point) then
                 -- A jump that would land in a danger zone short of its spot: the creature walks there.
                 d={kind='search',point=d.toward,clue=d.clue,target=d.target,key=d.key}
+            end
+        elseif d.kind=='door' and type(zoneAt)=='function' then
+            if d.toward and zoneAt(d.toward) then
+                -- A spot in a danger zone counts as searched, door or not.
+                d={kind='look',key=d.key,searched=d.key,zone=true}
+            elseif zoneAt(d.point) or (d.behind and zoneAt(d.behind)) then
+                -- A door it would open or look behind from inside a danger zone: left for now.
+                s.doors[d.door]=tick
+                d={kind='look',key=d.key,searched=d.searched,zone=true}
             end
         end
         if d.searched then s.searched[d.searched]=true end
@@ -342,6 +415,34 @@ function M.new(g,options)
         record({kind=decision.kind,tick=tick,member=id,from=from,to=point,clue=decision.clue,target=decision.target,
             gaveUp=decision.gaveUp,guard=decision.guard})
     end
+    -- A door prepared for a search (decision: its door, clue, target and toward): the walk to point,
+    -- an open spot where the door is opened, the door opened, and to look behind it the walk on to
+    -- behind (an open spot, or nil). Held while the creature walks or opens, at most twice the walks'
+    -- seconds and the margins.
+    function seeker:door(sprite,decision,point,behind,tick)
+        local id=sprite.m_id
+        local s=state(id)
+        local from={x=sprite.m_pos.x,y=sprite.m_pos.y}
+        local walk=targeting.distance(from,point)+(behind and targeting.distance(point,behind) or 0)
+        s.act={kind='door',door=decision.door,tick=tick,
+            limit=math.ceil(walk/M.walkSpeed*M.ticksPerSecond*2)+M.walkMargin+M.openTicks}
+        s.aim,s.aimTick=behind or point,tick
+        counts.doors=counts.doors+1
+        record({kind='door',tick=tick,member=id,door=decision.door,from=from,to=point,behind=behind,
+            toward=decision.toward,clue=decision.clue,target=decision.target,tactical=s.tactical})
+    end
+    -- A door's try, over (why: 'time', 'done' once the creature neither walks nor opens, 'hurt',
+    -- 'enemy', or seeker:stop's): open, or shut and left for doors.retrySeconds when the creature
+    -- stopped or its time ran out; a 'door-end' row either way.
+    local function judged(s,id,a,tick,why)
+        local open=doorReader.open(g,a.door)
+        if open==true then counts.doorsOpened=counts.doorsOpened+1
+        elseif why=='time' or why=='done' then
+            counts.doorsShut=counts.doorsShut+1
+            s.doors[a.door]=tick
+        end
+        record({kind='door-end',tick=tick,member=id,door=a.door,open=open,why=why})
+    end
     -- The teleport prepared for a search (decision: its spell, clue and target), to point, an open
     -- spot: cast like the engine's other casts, which hold it; the members spread out from its spot.
     function seeker:jump(sprite,decision,point,tick)
@@ -365,23 +466,37 @@ function M.new(g,options)
     function seeker:mode(sprite,tick)
         state(sprite.m_id).act={kind='modal',tick=tick,limit=M.modalTicks}
     end
-    -- Whether the creature's walk, look or detection mode goes on ('walk', 'look' or 'modal'; false
-    -- once it is over): not past its time, a walk not once the creature has stopped walking, and none
-    -- once an enemy shows or the creature was hurt.
+    -- Whether the creature's walk, look, detection mode or door goes on ('walk', 'look', 'modal' or
+    -- 'door'; false once it is over): not past its time, a walk not once the creature has stopped
+    -- walking, a door not once it neither walks nor opens, and none once an enemy shows or the
+    -- creature was hurt. A door is judged when its try is over.
     function seeker:holding(sprite,id,tick)
         local s=states[id]
         local a=s and s.act
         if not a then return false end
-        local over=tick<a.tick or tick-a.tick>=a.limit
-        if not over and a.kind=='walk' and sprite.m_curAction.m_actionID~=M.MOVE and tick-a.tick>=M.walkGrace then over=true end
-        if not over and type(s.hp)=='number' and sprite.m_baseStats.m_hitPoints<s.hp then over=true end
-        if not over and sense.seesEnemy(g,sprite) then over=true end
-        if over then s.act=nil;return false end
+        local why
+        if tick<a.tick or tick-a.tick>=a.limit then why='time' end
+        if not why and (a.kind=='walk' or a.kind=='door') and tick-a.tick>=M.walkGrace then
+            local action=sprite.m_curAction.m_actionID
+            if action~=M.MOVE and (a.kind=='walk' or action~=M.OPEN) then why='done' end
+        end
+        if not why and type(s.hp)=='number' and sprite.m_baseStats.m_hitPoints<s.hp then why='hurt' end
+        if not why and sense.seesEnemy(g,sprite) then why='enemy' end
+        if why then
+            s.act=nil
+            if a.kind=='door' then judged(s,id,a,tick,why) end
+            return false
+        end
         return a.kind
     end
-    function seeker:stop(id)
+    -- The creature's walk, look, detection mode or door, ended from outside at tick (why: 'zone' when
+    -- it walks out of a danger zone, 'cut' when a block of SCS's cut it short); a door is judged.
+    function seeker:stop(id,tick,why)
         local s=states[id]
-        if s then s.act=nil end
+        local a=s and s.act
+        if not a then return end
+        s.act=nil
+        if a.kind=='door' and type(tick)=='number' then judged(s,id,a,tick,why or 'stop') end
     end
     function seeker:invalidate() states,stateCount={},0 end
     function seeker:inspect()
