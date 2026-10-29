@@ -157,6 +157,9 @@ i.frame.self.alacrity=true
 assert(choice.decide(i).kind=='wait')
 i.frame.self.alacrity=nil
 assert(choice.decide(i).kind=='touch')
+-- Readiness (combat-intent/choice.lua): no touch at a foe out of play, however close it went.
+local away=input({spells={row('TESTHARM',harm,6)},returning={enemy(11,{x=200,away='maze',back=5})}})
+assert(#choice.options(choice.readied(away))==0)
 -- Standing next to a swordsman costs: the option is worth less after the cost.
 i.frame.enemies={enemy(11,{x=200}),enemy(12,{x=215,attack={apr=2,thac0=5,damage=12,magical=true}})}
 local cheap=choice.decide(input({spells={row('TESTHARM',harm,6)},frame={self=i.frame.self,

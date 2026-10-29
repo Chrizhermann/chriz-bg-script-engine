@@ -862,7 +862,10 @@ foe out of play, a clever one or one so ordered, weighs its protections and buff
 as the group last saw it, from when it is likely back on: the rest of the group's charm, or of a
 maze by the foe's intelligence and the installed game's INTMOD.2DA, never the game's own roll. Until
 then the creature is as safe as in its own Time Stop, so a long buff counts at once and a short one
-only once the foe is due. Normal and dull creatures cast nothing while they wait.
+only once the foe is due. Normal and dull creatures cast nothing while they wait. The same evening
+("Was für eine geile Idee", Christopher): such a guard also calls a summons that waits by the spot,
+or lays a lasting cloud where a mazed foe will be back, counting the explosions from its likely
+return; never an area that would hurt a foe its side charmed.
 
 Next, in the order agreed with Christopher on 2026-10-27 for the first release: the rest of the big
 lab round (batch J again on this build, and a party of the same strength for the mixed fights, which also show the replacement in whole fights, thieves in whole fights, the veil in game,

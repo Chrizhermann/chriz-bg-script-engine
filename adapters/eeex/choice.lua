@@ -123,10 +123,11 @@
 -- on. A detection is judged by whether the creature sees an enemy afterwards. BGSE_Search
 -- (api:searches) tells SCS's own hunting blocks to stand aside for every creature the engine drives.
 -- Readiness (combat-intent/choice.lua): a creature that guards a foe out of play also weighs its
--- protections and buffs against the foes out of play as the search reads them (adapters/eeex/
--- search.lua's returning: where each went, with the seconds until it is likely back). Such a
--- defence is cast like any other ('choice' row with ready and calm); anything else goes to the
--- search's guard.
+-- protections, buffs, summons and lasting clouds against the foes out of play as the search reads
+-- them (adapters/eeex/search.lua's returning: where each went, with the seconds until it is likely
+-- back, and the SPLPROT marks of its ready spells). Such a defence, a summons where they went or a
+-- cloud where a mazed foe will be back is cast like any other ('choice' row with ready and calm); a
+-- cloud cast at a point is judged by no target. Anything else goes to the search's guard.
 --
 -- Debuffs (F2b, combat-intent/choice.lua): when a ready spell weakens enemies, the choice also
 -- gets each enemy's active effects (sense.wards, as for removal), so that an enemy that carries a
@@ -1438,9 +1439,12 @@ function M.new(g,options)
     -- marks, what protects each friend and the weapons around (sense.defend), what a removal could
     -- take from each enemy, the enemies' casts that damage can break (casts), its own Improved
     -- Alacrity, THAC0, touch charge, magic weapon slot, casting aura and weapon, and the marks of
-    -- what its hits bring (markHits).
-    local function situate(sprite,frame,rows,tick)
+    -- what its hits bring (markHits). The foes out of play it readies itself for (returning) get
+    -- the SPLPROT marks as the enemies in sight do: a cloud laid where a mazed foe will be back is
+    -- weighed on it.
+    local function situate(sprite,frame,rows,tick,returning)
         mark(sprite,frame,rows)
+        if returning then mark(sprite,{enemies=returning},rows) end
         local bad,last=sense.defend(g,frame,tick,reader,effectsOf)
         if bad>0 then
             counts.guardFailures=counts.guardFailures+bad
@@ -1678,7 +1682,7 @@ function M.new(g,options)
         end
         local rows,carried=book(sprite)
         if not rows then failed('book',carried);return nil end
-        situate(sprite,frame,rows,tick)
+        situate(sprite,frame,rows,tick,returning)
         counts.decisions=counts.decisions+1
         local holder,left=timeStop()
         local input={tick=tick,family=family,frame=frame,spells=rows,items=carried,lastDefence=lastDefence[id],

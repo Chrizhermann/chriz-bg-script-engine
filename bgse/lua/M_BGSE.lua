@@ -5223,8 +5223,10 @@ factories["combat-intent.summons"]=function(require)
 -- of the enemies' blows, up to its own hit points. It fights over the rest of the fight after the
 -- cast, as both sides' strength makes it (combat-intent/threat.lua, M.rest; at most the profile's
 -- fightCap), no longer than the summons lasts and only while it lives; so an early summons counts
--- much and a late one little (Christopher, 2026-10-22, agreed). Only fighters on the caster's
--- side count:
+-- much and a late one little (Christopher, 2026-10-22, agreed). While the caster's side awaits foes
+-- out of play (input.calm, combat-intent/choice.lua's readiness; Christopher, 2026-10-29: "Was für
+-- eine geile Idee") a summons waits where they went, as the readied frame places them, and fights
+-- from when the first is likely back on. Only fighters on the caster's side count:
 -- - a creature no one can see or select (its own effects remove its avatar or its selection
 --   circle: SCS's markers for its storms and clouds, a kit's helper) or without a weapon is no
 --   fighter;
@@ -5391,6 +5393,8 @@ local function aim(input,spell)
     local caster=frame.self
     if spell.target=='self' then return {self=true} end
     if spell.target~='point' and spell.target~='creature' then return nil end
+    -- No foe out of play can be aimed at (input.calm, see the top).
+    if spell.target=='creature' and number(input.calm) then return nil,'away' end
     local range=(number(spell.range) and spell.range or 0)*targeting.rangeUnit
     local plan=type(input.plan)=='table' and input.plan or {}
     local focus,nearest,far
@@ -5429,6 +5433,7 @@ function M.options(input,rejected)
     if type(frame)~='table' or type(frame.self)~='table' or type(mind)~='table' then return out end
     local creatures=type(input.creatures)=='table' and input.creatures or {}
     local rest=threat.rest(frame,number(mind.fightCap) and mind.fightCap or 60)
+    local calm=number(input.calm) and math.max(0,input.calm) or 0
     local side=M.side(frame.self.ea)
     local summoned=0
     for _,a in ipairs(list(frame.allies)) do
@@ -5446,10 +5451,11 @@ function M.options(input,rejected)
             else
                 local cast=(number(spell.speed) and spell.speed or 0)*M.speedSeconds
                 -- A summons of limited duration goes when it ends (IESDP: opcode 67 unsummons its
-                -- creature after the effect's duration unless the effect is permanent).
-                local span=rest-cast
-                if number(role.duration) then span=math.min(span,role.duration) end
-                local r=math.max(0,span)/M.ROUND
+                -- creature after the effect's duration unless the effect is permanent). It fights
+                -- once it is there and the calm is over, until the fight or the summons ends.
+                local from,till=math.max(cast,calm),calm+rest
+                if number(role.duration) then till=math.min(till,cast+role.duration) end
+                local r=math.max(0,till-from)/M.ROUND
                 local level=number(row.level) and row.level or number(spell.level) and spell.level or 1
                 local fromFile=list(role.fromFile)
                 local worth,count,named,listed=0,0,{},0
@@ -5476,13 +5482,13 @@ function M.options(input,rejected)
                     add(M.generic(level),role.count-listed,false)
                 end
                 table.sort(named)
-                local where=aim(input,spell)
+                local where,off=aim(input,spell)
                 if worth<=0 then
                     if capped then reject('cap')
                     elseif unknown then reject('unknown-creature')
                     elseif otherSide then reject('other-side')
                     elseif count>0 then reject('no-worth') end
-                elseif not where then reject('out-of-reach')
+                elseif not where then reject(off or 'out-of-reach')
                 else
                     pictures=pictures or threat.picture(frame)
                     local through=defence.through(input,pictures[frame.self.id],cast)
@@ -6881,9 +6887,13 @@ factories["combat-intent.choice"]=function(require)
 -- (input.returning, M.readied); its protections and buffs count against them from when the first is
 -- likely back on, as in its own Time Stop (combat-intent/defence.lua's calm). A buff that runs out
 -- before then is worth nothing yet and is cast later, when it still lasts into the fight; one that
--- protects for hours is renewed at once. Only what reaches the minimum worth is cast; the rest of
--- the waiting rounds go to the guard. Normal creatures wait at their post and only heal; dull ones
--- forget the foe.
+-- protects for hours is renewed at once. A summons waits where the foes went and fights from the
+-- first one's return on (combat-intent/summons.lua); and a cloud or storm laid on the spot where a
+-- mazed foe will be back counts the explosions from its likely return on (lastingOn; Christopher,
+-- 2026-10-29: "Was für eine geile Idee"). Nothing else of the attacks counts before the foes are
+-- back, and no area that would harm a foe the caster's side charmed. Only what reaches the minimum
+-- worth is cast; the rest of the waiting rounds go to the guard. Normal creatures wait at their
+-- post and only heal; dull ones forget the foe.
 local targeting=require('combat-intent.targeting')
 local harm=require('combat-intent.harm')
 local defence=require('combat-intent.defence')
@@ -7329,13 +7339,17 @@ local function lastingOn(input,row,spell,kind,roles,e,center,ctx,walk)
     ctx.rest=ctx.rest or threat.rest(input.frame,number(input.mind.fightCap) and input.mind.fightCap or 60)
     local cast=(number(spell.speed) and spell.speed or 0)*zones.speedSeconds+(number(caster.aura) and caster.aura>0 and caster.aura or 0)+
         (number(walk) and walk>0 and walk or 0)
-    local upto=math.max(first,ctx.rest-cast)
-    local stay=hitsIn(first,step,last,0,upto)
+    -- A foe out of play (readiness, see the top) is in the area from when it is likely back on,
+    -- for the rest of the fight from then.
+    local back=number(input.calm) and number(e.back) and math.max(0,e.back) or 0
+    local from=math.max(0,back-cast)
+    local upto=back>0 and back+ctx.rest-cast or math.max(first,ctx.rest-cast)
+    local stay=hitsIn(first,step,last,from,upto)
     local leave,walk=stay,0
     if not stuck(e,reaches(roles.damage)) then
         local speed=number(e.speed) and e.speed>0 and e.speed or zones.walkSpeed
         walk=math.max(0,a.radius-targeting.distance(a.cone and caster or center,e)+zones.margin)/speed
-        leave=hitsIn(first,step,last,0,math.min(upto,M.react+walk))
+        leave=hitsIn(first,step,last,from,math.min(upto,from+M.react+walk))
     end
     local stopped=targeting.stopped(e,spell)
     local function over(n)
@@ -7563,6 +7577,12 @@ local function evaluate(input,row,spell,kind,mode,aim,ctx)
     local frame=input.frame
     local caster=frame.self
     local a=spell.area
+    -- Readiness (see the top): before the foes out of play are back only an area laid on a spot
+    -- that lasts until then gives anything; no creature out of play can be aimed at.
+    local away=number(input.calm)
+    if away and ((mode~='point-area' and mode~='self-area') or not lastingArea(input,spell) or a.line or a.rectangle) then
+        return nil,'away'
+    end
     local worth,hits,slack,expected=0,{},0,{}
     local sat
     local walk=number(aim.walk) and aim.walk>0 and aim.walk or nil
@@ -7601,6 +7621,15 @@ local function evaluate(input,row,spell,kind,mode,aim,ctx)
                 for _,ally in ipairs(type(frame.allies)=='table' and frame.allies or {}) do
                     if targeting.alive(ally) and near(ally) and not spared(input,spell,ally) then return nil,'ally-in-area' end
                 end
+                -- Nor on a foe the caster's side charmed, wherever the caster last saw it: harming it
+                -- breaks the charm by the rules text (Christopher, 2026-10-29).
+                if away then
+                    for _,e in ipairs(frame.enemies) do
+                        if e.away=='charm' and targeting.alive(e) and near(e) and not spared(input,spell,e) then
+                            return nil,'charmed-in-area'
+                        end
+                    end
+                end
                 -- A cone starts at the caster; any other area must keep it out where it casts
                 -- from, unless it does nothing to the caster.
                 if not a.cone then
@@ -7617,6 +7646,9 @@ local function evaluate(input,row,spell,kind,mode,aim,ctx)
             slack=math.huge
             for _,e in ipairs(frame.enemies) do
                 local roles=targeting.alive(e) and inside(e) and affects(spell,e,kind,lasting)
+                -- Before they are back, only a mazed foe whose return can be told is in the area:
+                -- it comes back where it went; a charmed one walks about meanwhile.
+                if roles and away and (e.away~='maze' or not number(e.back)) then roles=nil end
                 if roles then
                     local w,hp,seen
                     if lasting then w,hp,seen=lastingOn(input,row,spell,kind,roles,e,center,ctx,walk)
@@ -7957,15 +7989,17 @@ end
 function M.options(input,rejected)
     local out,ctx={},{}
     local function reject(why) if rejected then rejected[why]=(rejected[why] or 0)+1 end end
+    -- Readiness (see the top): no touch or conjured weapon before the foes out of play are back.
+    local away=number(input.calm)
     for _,row in ipairs(type(input.spells)=='table' and input.spells or {}) do
         if type(row)=='table' and number(row.ready) and row.ready>0 and row.usable then
             local spell=row.spell
             local kind,mode=M.attack(spell)
-            local w=not kind and input.mind.touch and touch.charge(spell)
+            local w=not kind and not away and input.mind.touch and touch.charge(spell)
             if w and not weaponsOut(input) and type(input.frame.self.charge)~='table' then
                 touchOptions(input,row,spell,w,out,reject)
             end
-            local arms=not kind and not w and input.mind.weapons and weapons.conjured(spell,input.frame.self)
+            local arms=not kind and not w and not away and input.mind.weapons and weapons.conjured(spell,input.frame.self)
             if arms and not weaponsOut(input) and not input.frame.self.magicItem then
                 armOptions(input,row,spell,arms,out,reject)
             end
@@ -8450,14 +8484,19 @@ local function pick(input)
         view.hideOpening=M.hideOpening(input) or false
         input=view
     end
-    local options=M.options(input,rejected)
+    -- What the creature readies itself with (see the top) is weighed on the foes out of play.
     local ready=M.readied(input)
-    for _,o in ipairs(defence.options(ready or input,rejected)) do
-        if ready then o.ready,o.calm=true,ready.calm end
-        options[#options+1]=o
+    local options={}
+    local function readying(list)
+        for _,o in ipairs(list) do
+            if ready then o.ready,o.calm=true,ready.calm end
+            options[#options+1]=o
+        end
     end
+    readying(M.options(ready or input,rejected))
+    readying(defence.options(ready or input,rejected))
     for _,o in ipairs(care.options(input,rejected)) do options[#options+1]=o end
-    for _,o in ipairs(summons.options(input,rejected)) do options[#options+1]=o end
+    readying(summons.options(ready or input,rejected))
     for _,o in ipairs(removal.options(input,rejected,function(s) return M.attack(s)~=nil end)) do options[#options+1]=o end
     if mind.weapons then
         for _,o in ipairs(M.jumpOptions(input,rejected)) do options[#options+1]=o end
@@ -12134,10 +12173,11 @@ factories["adapters.eeex.choice"]=function(require)
 -- on. A detection is judged by whether the creature sees an enemy afterwards. BGSE_Search
 -- (api:searches) tells SCS's own hunting blocks to stand aside for every creature the engine drives.
 -- Readiness (combat-intent/choice.lua): a creature that guards a foe out of play also weighs its
--- protections and buffs against the foes out of play as the search reads them (adapters/eeex/
--- search.lua's returning: where each went, with the seconds until it is likely back). Such a
--- defence is cast like any other ('choice' row with ready and calm); anything else goes to the
--- search's guard.
+-- protections, buffs, summons and lasting clouds against the foes out of play as the search reads
+-- them (adapters/eeex/search.lua's returning: where each went, with the seconds until it is likely
+-- back, and the SPLPROT marks of its ready spells). Such a defence, a summons where they went or a
+-- cloud where a mazed foe will be back is cast like any other ('choice' row with ready and calm); a
+-- cloud cast at a point is judged by no target. Anything else goes to the search's guard.
 --
 -- Debuffs (F2b, combat-intent/choice.lua): when a ready spell weakens enemies, the choice also
 -- gets each enemy's active effects (sense.wards, as for removal), so that an enemy that carries a
@@ -13449,9 +13489,12 @@ function M.new(g,options)
     -- marks, what protects each friend and the weapons around (sense.defend), what a removal could
     -- take from each enemy, the enemies' casts that damage can break (casts), its own Improved
     -- Alacrity, THAC0, touch charge, magic weapon slot, casting aura and weapon, and the marks of
-    -- what its hits bring (markHits).
-    local function situate(sprite,frame,rows,tick)
+    -- what its hits bring (markHits). The foes out of play it readies itself for (returning) get
+    -- the SPLPROT marks as the enemies in sight do: a cloud laid where a mazed foe will be back is
+    -- weighed on it.
+    local function situate(sprite,frame,rows,tick,returning)
         mark(sprite,frame,rows)
+        if returning then mark(sprite,{enemies=returning},rows) end
         local bad,last=sense.defend(g,frame,tick,reader,effectsOf)
         if bad>0 then
             counts.guardFailures=counts.guardFailures+bad
@@ -13689,7 +13732,7 @@ function M.new(g,options)
         end
         local rows,carried=book(sprite)
         if not rows then failed('book',carried);return nil end
-        situate(sprite,frame,rows,tick)
+        situate(sprite,frame,rows,tick,returning)
         counts.decisions=counts.decisions+1
         local holder,left=timeStop()
         local input={tick=tick,family=family,frame=frame,spells=rows,items=carried,lastDefence=lastDefence[id],

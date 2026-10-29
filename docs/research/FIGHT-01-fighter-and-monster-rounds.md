@@ -1427,14 +1427,55 @@ which still holds when the fighter is back; a short protection that would be ove
 nothing yet, and only once the fighter is due. With its skins up it just guards. A normal mage goes
 back to its post and waits; a dull ogre stands where it is.
 
-Not built: readying anything but protections and buffs (summons, a cloud on the spot where the foe
-will appear, a trap). Whether such tactics fit is Christopher's call.
-
 Tests: the search tests' group 12 (the nearest foe away, how it is awaited, the maze's time left),
 the defence tests' groups 16 (the calm) and 17 (readiness, a weak heal, a foe never back), the
 choice adapter's group 44 (a mazed and a charmed foe, skins up, a normal and a dull mage, a maze of a
 set duration, the search's reading by time and intelligence); 35 mutations checked.
 Still to see in game: batch J again.
+
+#### Summons and clouds on the spot (Christopher, 2026-10-29)
+
+On the idea that clever creatures could also lay a summons or a cloud where the mazed foe reappears,
+Christopher, 2026-10-29: "Was für eine geile Idee". The guard now also weighs (`combat-intent/
+choice.lua`, `summons.lua`; `adapters/eeex/choice.lua`):
+
+- **A summons** waits where the foes went (the summons' usual spot, now where the group last saw
+  the foe) and counts only from when the first foe is likely back until the fight or the summons
+  ends. One that is gone by then is worth nothing. A summons cast at a creature has no foe in play
+  to be cast at.
+- **A lasting cloud or storm on a mazed foe's spot.** The foe comes back where it went, so the
+  explosions count from its likely return: staying, those after it; walking out, those before it is
+  out, and the seconds the walk costs it. A cloud that is over before the foe is back is worth
+  nothing. As the group has learned how often a foe stays in a cloud, so it counts here.
+- **Not on a charmed foe.** It walks about meanwhile and is in no cloud, and an area that would hit
+  it where it stands is refused, as harming it breaks the charm by the rules text, unless the area
+  does nothing to it. A cloud on enemies only passes it, as it stands with the caster's side.
+- **Nothing else counts before the foes are back:** no bolt, no single explosion, no cloud for a
+  profile that counts one explosion (dull creatures), nothing aimed at a creature out of play, no
+  line (it counts only the creature it is aimed at), no touch spell and no conjured weapon.
+- The engine answers the cloud's SPLPROT checks for the foe out of play as for an enemy in sight. A
+  cloud cast at a point is judged by no target, so the foe's absence teaches the caster nothing.
+- **Log:** the `choice` row with `ready` and `calm` as for a defence; a cloud's row also lists the
+  explosions it counts on the foe (`lasting`: staying and walking out).
+
+Example: the group's mind flayer mazes the party's fighter, likely back in 9 seconds. The clever
+mage lays a fire storm of ten explosions on the spot where the fighter vanished; it counts the seven
+that come after the fighter is back if the fighter stays, and the one it takes walking out if not.
+A summoner calls its creatures, which wait by the spot. Against a charmed party member the mage
+lays nothing: the storm would hurt it where it stands.
+
+Limitation: the return is what the maze likely has left on average; the dice may bring the foe back
+a round earlier or later than counted. Timing the cast so that the cloud lands just before the
+return is a later refinement.
+
+Not built: a trap on the spot. Whether it fits is Christopher's call.
+
+Tests: the choice tests' group 25 (the storm by the foe's return, the fight's rest, a charmed foe in
+or beside the area, globes, an enemies-only storm, what does not count, the choice and its minimum
+worth), the summons tests' group 9 (the calm, durations, a summons at a creature, the choice), the
+touch and weapons tests' readiness checks, the choice adapter's group 45 (the storm at the spot, its
+SPLPROT check on the foe out of play, a charmed foe); 29 mutations checked.
+Still to see in game: a lab with a mazed party member and a clever caster.
 
 ## Agreed (Christopher, 2026-10-25)
 

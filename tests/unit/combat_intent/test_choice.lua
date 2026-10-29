@@ -411,22 +411,24 @@ groups=groups+1
 -- sits through all; one asleep wakes at the first hit. The rest of the fight caps the explosions;
 -- a first explosion that reaches no one is walked away from; a deflection stops the first three;
 -- a globe keeps the storm out. An ally or the caster may stand in it when it does nothing to them.
+-- The storm: an Ice Storm whose explosions each cast a sub-spell (subEffects, 10 cold damage).
+local function storm(proFields,subEffects,abilityFields)
+    local sub={kind='SPL',resref='TESTSTMD',name=0,flags=1024,spellType=1,exclusion=0,school=0,secondary=0,level=4,
+        casting={},abilities={{form=1,flags=0,location=2,target=1,targetCount=0,range=30,minLevel=1,speed=4,projectile=1,
+        effects=subEffects or {fx(12,{p1=10,p2=2*65536,power=4})}}}}
+    local pro=area(256)
+    pro.repeats,pro.delay=4,100
+    for k,v in pairs(proFields or {}) do pro[k]=v end
+    local record={kind='SPL',resref='TESTSTRM',name=0,flags=1024,spellType=1,exclusion=0,school=0,secondary=0,level=4,
+        casting={},abilities={{form=1,flags=0,location=2,target=4,targetCount=0,range=30,minLevel=1,speed=3,projectile=98,
+        effects={fx(146,{p2=1,res='TESTSTMD',power=4})}}}}
+    for k,v in pairs(abilityFields or {}) do record.abilities[1][k]=v end
+    return spells.classify(record,1,function(kind,key)
+        if kind=='PRO' and key==98 then return pro end
+        if kind=='SPL' and key=='TESTSTMD' then return sub end
+    end,{level=12})
+end
 do
-    local function storm(proFields,subEffects)
-        local sub={kind='SPL',resref='TESTSTMD',name=0,flags=1024,spellType=1,exclusion=0,school=0,secondary=0,level=4,
-            casting={},abilities={{form=1,flags=0,location=2,target=1,targetCount=0,range=30,minLevel=1,speed=4,projectile=1,
-            effects=subEffects or {fx(12,{p1=10,p2=2*65536,power=4})}}}}
-        local pro=area(256)
-        pro.repeats,pro.delay=4,100
-        for k,v in pairs(proFields or {}) do pro[k]=v end
-        local record={kind='SPL',resref='TESTSTRM',name=0,flags=1024,spellType=1,exclusion=0,school=0,secondary=0,level=4,
-            casting={},abilities={{form=1,flags=0,location=2,target=4,targetCount=0,range=30,minLevel=1,speed=3,projectile=98,
-            effects={fx(146,{p2=1,res='TESTSTMD',power=4})}}}}
-        return spells.classify(record,1,function(kind,key)
-            if kind=='PRO' and key==98 then return pro end
-            if kind=='SPL' and key=='TESTSTMD' then return sub end
-        end,{level=12})
-    end
     local ice=storm()
     assert(ice.area.explosions==4 and near(ice.area.every,101/15) and not ice.area.skipFirst)
     local function cast(s,clouds,e,fields)
@@ -877,6 +879,95 @@ do
     h.frame.self.aura=4
     d=choice.decide(h)
     assert(d.kind=='position' and d.toward==2 and d.cast=='TESTHEAL' and d.point.x==320 and near(d.walk,2.2))
+end
+groups=groups+1
+
+-- 25. Readiness (Christopher, 2026-10-29: a clever creature guards the spot of a foe its side
+-- mazed; laying a cloud there: "Was für eine geile Idee"). The storm of group 18, laid where the foe
+-- will be back in 10 seconds, lands 2 seconds after the cast: staying, the foe sits through the last
+-- two explosions (the third comes 15.5 seconds from now); walking out, it is gone before the third
+-- and only loses the walk. As the group has learned it (a quarter stay): 0.4 a quarter of the time,
+-- the walk otherwise. Back in 3 seconds: three explosions staying. Back once the storm is over:
+-- nothing. A foe whose return cannot be told, or a charmed one, is in no storm, and a charmed one in
+-- the area forbids it unless the storm does nothing to it. A bolt, a ball (one explosion), the storm
+-- for a profile that counts one explosion, or one cast at a creature give nothing yet. In the choice
+-- the storm is cast ready, with the calm, when it reaches the minimum worth; below it the creature
+-- guards rather than lay it.
+do
+    local ice=storm()
+    local walk=2.8/18
+    local function readied(list,rows,fields)
+        local at=input({spells=rows or {row('TESTSTRM',ice,4)},returning=list})
+        for k,v in pairs(fields or {}) do at[k]=v end
+        return choice.readied(at)
+    end
+    local function mazed(back,fields)
+        local e=enemy(11,{x=400,y=100,away='maze',back=back})
+        for k,v in pairs(fields or {}) do e[k]=v end
+        return e
+    end
+    local function find(view,resref,rejected)
+        for _,o in ipairs(choice.options(view,rejected)) do if o.resref==resref then return o end end
+    end
+    local view=readied({mazed(10)})
+    assert(view.calm==10 and #view.frame.enemies==1)
+    local o=find(view,'TESTSTRM')
+    local l=o.lasting[1]
+    assert(l.id==11 and l.stay==2 and l.leave==0 and near(l.q,0.25))
+    assert(near(o.worth,0.25*0.4+0.75*walk) and o.point.x==400 and o.point.y==100 and #o.hits==1 and o.hits[1]==11)
+    o=find(readied({mazed(3)}),'TESTSTRM')
+    assert(o.lasting[1].stay==3 and o.lasting[1].leave==0 and near(o.worth,0.25*0.6+0.75*walk))
+    -- Back in 7 seconds: the second explosion, 8.7 seconds from now, finds it back, and walking out
+    -- it takes that one.
+    o=find(readied({mazed(7)}),'TESTSTRM')
+    assert(o.lasting[1].stay==3 and o.lasting[1].leave==1 and near(o.worth,0.25*0.6+0.75*(0.2+walk)))
+    -- Ten seconds of the fight once it is back: the third explosion only.
+    o=find(readied({mazed(10)},nil,{mind=mind.new({fightCap=10})}),'TESTSTRM')
+    assert(o.lasting[1].stay==1 and o.lasting[1].leave==0 and near(o.worth,0.25*0.2+0.75*walk))
+    local rejected={}
+    assert(find(readied({mazed(30)}),'TESTSTRM',rejected)==nil and rejected['no-worth']==1)
+    rejected={}
+    assert(find(readied({mazed(nil)}),'TESTSTRM',rejected)==nil and rejected['no-worth']==1)
+    -- Charmed: in no storm, and none where it would be hit.
+    rejected={}
+    assert(find(readied({mazed(10,{away='charm'})}),'TESTSTRM',rejected)==nil and rejected['charmed-in-area']==1)
+    local beside=enemy(12,{x=420,y=100,away='charm',back=10})
+    rejected={}
+    assert(find(readied({mazed(10),beside}),'TESTSTRM',rejected)==nil and rejected['charmed-in-area']==4)
+    beside.protections={{opcode=102,p1=4}}
+    o=find(readied({mazed(10),beside}),'TESTSTRM')
+    assert(o and #o.hits==1 and o.hits[1]==11 and o.lasting[1].stay==2)
+    beside.protections,beside.x={},1000
+    o=find(readied({mazed(10),beside}),'TESTSTRM')
+    assert(o and o.point.x==400 and #o.hits==1)
+    -- A storm on enemies only passes the caster's side, the charmed foe with it, and counts the
+    -- mazed one alone.
+    beside.x=420
+    local own=storm({areaFlags=64})
+    assert(own.area.filter=='enemies')
+    o=find(readied({mazed(10),beside},{row('TESTSTRM',own,4)}),'TESTSTRM')
+    assert(o and #o.hits==1 and o.hits[1]==11)
+    -- Nothing that does not last until the foe is back, nor at a creature out of play.
+    rejected={}
+    assert(#choice.options(readied({mazed(10)},{row('TESTBOLT',bolt,3),row('TESTBALL',ball,3)}),rejected)==0 and rejected.away==2)
+    rejected={}
+    assert(find(readied({mazed(10)},nil,{mind=mind.new({clouds='once'})}),'TESTSTRM',rejected)==nil and rejected.away==1)
+    rejected={}
+    local aimed=storm(nil,nil,{target=1})
+    assert(select(2,choice.attack(aimed))=='creature-area')
+    assert(find(readied({mazed(10)},{row('TESTSTRM',aimed,4)}),'TESTSTRM',rejected)==nil and rejected.away==1)
+    -- An enemies-only line counts only the creature it is aimed at, as it is now.
+    rejected={}
+    local line=storm({extFlags=16384,areaFlags=64})
+    assert(line.area.line and select(2,choice.attack(line))=='point-area')
+    assert(find(readied({mazed(10)},{row('TESTSTRM',line,4)}),'TESTSTRM',rejected)==nil and rejected.away==1)
+    -- In the choice.
+    local at=input({spells={row('TESTSTRM',ice,4)},returning={mazed(3)},mind=mind.new({minValue=0.1})})
+    local d,how=choice.decide(at)
+    assert(how=='best' and d.resref=='TESTSTRM' and d.ready==true and d.calm==3 and d.point.x==400)
+    at.mind=mind.new()
+    d,how=choice.decide(at)
+    assert(d.kind=='wait' and how=='nothing-good')
 end
 groups=groups+1
 

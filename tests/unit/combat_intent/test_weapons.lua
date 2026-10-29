@@ -219,6 +219,9 @@ local j=input({spells={row('TESTBLAD',blade,2)}})
 j.frame.enemies={enemy(11,{x=200})}
 local b=choice.options(j)[1]
 assert(b.kind=='arm' and b.target==11 and b.cost>0.06)
+-- Readiness (combat-intent/choice.lua): no weapon conjured for a foe out of play.
+local away=input({spells={row('TESTMMM',mmm,3)},returning={enemy(11,{x=400,away='maze',back=5})}})
+assert(#choice.options(choice.readied(away))==0)
 i.frame.self.magicItem=true
 assert(#choice.options(i)==0)
 i.frame.self.magicItem=nil

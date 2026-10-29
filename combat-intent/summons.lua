@@ -16,8 +16,10 @@
 -- of the enemies' blows, up to its own hit points. It fights over the rest of the fight after the
 -- cast, as both sides' strength makes it (combat-intent/threat.lua, M.rest; at most the profile's
 -- fightCap), no longer than the summons lasts and only while it lives; so an early summons counts
--- much and a late one little (Christopher, 2026-10-22, agreed). Only fighters on the caster's
--- side count:
+-- much and a late one little (Christopher, 2026-10-22, agreed). While the caster's side awaits foes
+-- out of play (input.calm, combat-intent/choice.lua's readiness; Christopher, 2026-10-29: "Was für
+-- eine geile Idee") a summons waits where they went, as the readied frame places them, and fights
+-- from when the first is likely back on. Only fighters on the caster's side count:
 -- - a creature no one can see or select (its own effects remove its avatar or its selection
 --   circle: SCS's markers for its storms and clouds, a kit's helper) or without a weapon is no
 --   fighter;
@@ -184,6 +186,8 @@ local function aim(input,spell)
     local caster=frame.self
     if spell.target=='self' then return {self=true} end
     if spell.target~='point' and spell.target~='creature' then return nil end
+    -- No foe out of play can be aimed at (input.calm, see the top).
+    if spell.target=='creature' and number(input.calm) then return nil,'away' end
     local range=(number(spell.range) and spell.range or 0)*targeting.rangeUnit
     local plan=type(input.plan)=='table' and input.plan or {}
     local focus,nearest,far
@@ -222,6 +226,7 @@ function M.options(input,rejected)
     if type(frame)~='table' or type(frame.self)~='table' or type(mind)~='table' then return out end
     local creatures=type(input.creatures)=='table' and input.creatures or {}
     local rest=threat.rest(frame,number(mind.fightCap) and mind.fightCap or 60)
+    local calm=number(input.calm) and math.max(0,input.calm) or 0
     local side=M.side(frame.self.ea)
     local summoned=0
     for _,a in ipairs(list(frame.allies)) do
@@ -239,10 +244,11 @@ function M.options(input,rejected)
             else
                 local cast=(number(spell.speed) and spell.speed or 0)*M.speedSeconds
                 -- A summons of limited duration goes when it ends (IESDP: opcode 67 unsummons its
-                -- creature after the effect's duration unless the effect is permanent).
-                local span=rest-cast
-                if number(role.duration) then span=math.min(span,role.duration) end
-                local r=math.max(0,span)/M.ROUND
+                -- creature after the effect's duration unless the effect is permanent). It fights
+                -- once it is there and the calm is over, until the fight or the summons ends.
+                local from,till=math.max(cast,calm),calm+rest
+                if number(role.duration) then till=math.min(till,cast+role.duration) end
+                local r=math.max(0,till-from)/M.ROUND
                 local level=number(row.level) and row.level or number(spell.level) and spell.level or 1
                 local fromFile=list(role.fromFile)
                 local worth,count,named,listed=0,0,{},0
@@ -269,13 +275,13 @@ function M.options(input,rejected)
                     add(M.generic(level),role.count-listed,false)
                 end
                 table.sort(named)
-                local where=aim(input,spell)
+                local where,off=aim(input,spell)
                 if worth<=0 then
                     if capped then reject('cap')
                     elseif unknown then reject('unknown-creature')
                     elseif otherSide then reject('other-side')
                     elseif count>0 then reject('no-worth') end
-                elseif not where then reject('out-of-reach')
+                elseif not where then reject(off or 'out-of-reach')
                 else
                     pictures=pictures or threat.picture(frame)
                     local through=defence.through(input,pictures[frame.self.id],cast)

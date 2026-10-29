@@ -3408,4 +3408,74 @@ assert(sense.outOfPlay(w5,e5,140).charm==math.huge)
 end)()
 groups=groups+1
 
+-- 45. Readiness with a storm (Christopher, 2026-10-29: "Was für eine geile Idee"). The clever mage of
+-- group 44 knows a fire storm instead of Stoneskin (ten explosions 46 ticks apart, 10 fire each, on
+-- everyone in its area, none on a creature its SPLPROT check names), and its foe of intelligence 10
+-- goes into a maze of 1d2 rounds (this lab's INTMOD): likely back in 9 seconds. The engine answers
+-- the storm's check for the foe out of play too, and the mage lays the storm where the foe vanished:
+-- SpellPointRES at its spot, a 'choice' row with ready, calm and the explosions it counts on the foe
+-- (seven staying, one walking out). On a foe the check names, or one the group charmed, it lays
+-- nothing.
+;(function()
+local INTMOD={columns={MAZE_DURATION_DICE_NUM=0,MAZE_DURATION_DICE_SIZE=1},labels={[0]='10'},
+    cells={[0]={[0]='1','2'}},width=3,height=1}
+records.TESTRAIN=spl('TESTRAIN',4,{fx(324,{res='TESTRAIN',p2=110,p1=41,duration=1}),fx(12,{p1=10,p2=8*65536})},4,4)
+local reader45={problems={},idsName=reader.idsName,get=reader.get,lookup=function(kind,key)
+        if kind=='PRO' and key==4 then
+            return {kind='PRO',resref='STORM',type=3,speed=20,flags=0,extFlags=0,areaFlags=0,trigger=150,radius=150,
+                coneWidth=0,repeats=10,delay=45}
+        end
+        return reader.lookup(kind,key)
+    end}
+local function scene(seed)
+    local w=world()
+    tablesOf(w)
+    local load=w.EEex_Resource_Load2DA
+    w.EEex_Resource_Load2DA=function(name) if name=='INTMOD' then return INTMOD end return load(name) end
+    w.EngineGlobals.g_pBaldurChitin.m_pObjectGame.m_ruleTables={IsProtectedFromSpell=function(_,row,stats,mine,value)
+        return (row==110 and value==41 and stats.state41) and 1 or 0
+    end}
+    local d=directors.new(w,{reader=reader45})
+    local c=choices.new(w,{reader=reader45,director=d,seed=seed})
+    local list={}
+    c:setSink(function(row) list[#list+1]=row end)
+    runtime.install(w,{director=d,choice=c,version='test'})
+    local m=w.add(sprite(1,0,0,255))
+    m.stats[2]=8
+    local e=w.add(sturdy(armed(sprite(11,300,0,2),35,'TESTSWRD')))
+    e.stats[38]=10
+    local function lastOf(kind) for n=#list,1,-1 do if list[n].kind==kind then return list[n] end end end
+    w.ticks=100
+    assert(w.BGSE_Claim(m,'mage','s1')==true)
+    learn(m,3,'TESTRAIN')
+    return w,c,m,e,lastOf
+end
+local w,c,m,e,lastOf=scene(451)
+e.m_timedEffectList={{m_effectId=213,m_dWFlags=0,m_durationType=1}}
+table.remove(w.order)
+w.ticks=140
+assert(w.BGSE_Claim(m,'mage','s1')==true)
+local chosen=lastOf('choice')
+assert(chosen and chosen.spell=='TESTRAIN' and chosen.castKind=='damage' and chosen.ready==true and math.abs(chosen.calm-9)<1e-9)
+assert(chosen.point.x==300 and chosen.point.y==0 and #chosen.lasting==1 and chosen.lasting[1].id==11)
+assert(chosen.lasting[1].stay==7 and chosen.lasting[1].leave==1 and c:inspect().counts.readies==1)
+assert(c:inspect().counts.marks==1 and c:inspect().counts.markFailures==0)
+w.BGSE_Act(m)
+assert(w.queued[#w.queued].text=='SpellPointRES("TESTRAIN",[300.0])')
+-- The check names the foe: the storm would do nothing to it.
+local w3,c3,m3,e3,lastOf3=scene(453)
+e3.state41=true
+e3.m_timedEffectList={{m_effectId=213,m_dWFlags=0,m_durationType=1}}
+table.remove(w3.order)
+w3.ticks=140
+assert(w3.BGSE_Claim(m3,'mage','s1')==true and lastOf3('choice')==nil and c3:inspect().counts.marks==1)
+-- Charmed by the group for 30 seconds more: the storm would hurt it where it stands.
+local w2,c2,m2,e2,lastOf2=scene(452)
+e2.m_typeAI.m_EnemyAlly=255;e2.state=0x2000
+e2.m_timedEffectList={{m_effectId=5,m_dWFlags=2,m_durationType=4096,m_duration=140+30*15}}
+w2.ticks=140
+assert(w2.BGSE_Claim(m2,'mage','s1')==true and lastOf2('choice')==nil and c2:inspect().counts.readies==0)
+end)()
+groups=groups+1
+
 return groups

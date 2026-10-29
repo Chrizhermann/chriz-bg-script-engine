@@ -313,4 +313,32 @@ assert(near(summons.options(i)[1].worth,both*12/25))
 assert(mind.new().fightCap==60 and select(2,mind.new({fightCap=-1}))=='fightCap')
 groups=groups+1
 
+-- 9. Readiness (combat-intent/choice.lua; Christopher, 2026-10-29: "Was für eine geile Idee"): while
+-- the caster's side awaits a foe out of play, a summons waits and fights from when the foe is likely
+-- back on (input.calm). Two that last three minutes wait 10 seconds and then fight the 25 seconds of
+-- the fight as they would now; one of 6 seconds is gone by then; one of 30 fights 20 of them. A
+-- summons at a creature has no foe in play to be cast at. In the choice, with the foe in a maze, the
+-- summons is cast ready where the foe went.
+i=input()
+i.calm=10
+assert(near(summons.options(i)[1].worth,both))
+i.spells={row('TESTSHRT',spell('TESTSHRT',3,{fx(67,{res='TESTMON',target=1,duration=6})}),3)}
+rejected={}
+assert(#summons.options(i,rejected)==0 and rejected['summon-no-worth']==1)
+i.spells={row('TESTHALF',spell('TESTHALF',3,{fx(67,{res='TESTMON',target=1,duration=30})}),3)}
+assert(near(summons.options(i)[1].worth,20/6*(0.16+4/50)))
+i.spells={row('TESTGATE',spell('TESTGATE',7,{fx(67,{res='TESTMON',target=1,duration=180})},{target=1,range=10}),7)}
+i.frame.enemies={enemy(11,{x=200})}
+rejected={}
+assert(#summons.options(i,rejected)==0 and rejected['summon-away']==1)
+i.calm=nil
+assert(summons.options(i)[1].target==11)
+i=input()
+i.frame.enemies={}
+i.returning={enemy(11,{away='maze',back=10})}
+local d,how=choice.decide(i)
+assert(how=='best' and d.kind=='summon' and d.ready==true and d.calm==10 and d.point.x==300 and d.point.y==100)
+assert(near(d.worth,both))
+groups=groups+1
+
 return groups
