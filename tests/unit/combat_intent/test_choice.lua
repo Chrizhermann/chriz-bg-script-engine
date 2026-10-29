@@ -277,6 +277,20 @@ i=enemies(input({spells={row('TESTDIRE',dire,3)}}),
 opts=choice.options(i)
 assert(#opts==2 and opts[1].target==11 and opts[2].target==12)
 assert(math.abs(opts[2].worth/opts[1].worth-(1-90/101))<1e-9)
+-- No charm on the last foe in play (harm.UNTOUCHED; lab batch J run 3): our side never harms a foe
+-- it charmed, so a charm there only puts the fight off. Another foe in the group's picture, though
+-- out of sight (plan.inPlay), keeps its worth; one out of play is not in the picture.
+local full=opts[1].worth
+i=enemies(input({spells={row('TESTDIRE',dire,3)}}),{enemy(11)})
+assert(#choice.options(i)==0)
+i.plan={inPlay={[11]=true,[12]=true}}
+opts=choice.options(i)
+assert(#opts==1 and opts[1].target==11 and math.abs(opts[1].worth-full)<1e-9)
+i.plan={inPlay={[11]=true}}
+assert(#choice.options(i)==0)
+-- A dead foe beside it does not count.
+i=enemies(input({spells={row('TESTDIRE',dire,3)}}),{enemy(11),enemy(13,{hp=0,state=0x800})})
+assert(#choice.options(i)==0)
 local rejected={}
 i=enemies(input({spells={row('TESTHOLD',hold,2)}}),{enemy(11,{ids={ea=2,general=2,class=2}})})
 assert(#choice.options(i,rejected)==0 and rejected.filter==1)
@@ -716,6 +730,16 @@ do
     t.mind=mind.withWit(mind.new(),{step='dull',danger=1})
     by=worths(t)
     assert(by.TESTMALI==nil and near(by.TESTHOLD.worth,0.45))
+    -- On the last foe in play a charm counts for nothing, so Malison opens nothing for it there:
+    -- weakened or not, the foe is the same creature (lab batch J run 3). With another foe in play
+    -- both count.
+    local charm=spell('TESTCHRM',2,{fx(5,{duration=60,save=1})})
+    t=enemies(input({spells={row('TESTMALI',malison,2),row('TESTCHRM',charm,2)}}),{enemy(11,{x=150,saves=tens})})
+    by=worths(t)
+    assert(by.TESTMALI==nil and by.TESTCHRM==nil)
+    t.plan={inPlay={[11]=true,[12]=true}}
+    by=worths(t)
+    assert(by.TESTMALI and by.TESTMALI.worth>0 and by.TESTCHRM and by.TESTCHRM.worth>0)
     -- Faerie Fire's two worse armour class: the ally next to the enemy hits 0.9 instead of 0.8 with
     -- each of two swings for 8, over the three rounds within the horizon. One far away gains
     -- nothing; one with a bow only when the enemy is the group's focus.

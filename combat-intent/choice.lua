@@ -383,14 +383,30 @@ local function damageOn(input,row,role,e,floor,n)
     return worth*still,expected*still
 end
 
+-- Whether e is the last foe in play: no other living enemy in the group's picture (the director's
+-- plan.inPlay, which leaves out the foes out of play, charmed or in a maze) or in the caster's frame.
+-- A copy of e (an opening's weakened e) is still e.
+local function lastInPlay(input,e)
+    local plan=input.plan
+    if type(plan)=='table' and type(plan.inPlay)=='table' then
+        for key in pairs(plan.inPlay) do if key~=e.id then return false end end
+    end
+    for _,o in ipairs(input.frame.enemies) do
+        local same=o==e or (e.id~=nil and type(o)=='table' and o.id==e.id)
+        if not same and targeting.alive(o) then return false end
+    end
+    return true
+end
 -- The worth of a disable role on e (combat-intent/harm.lua), more on an enemy the creature's orders
--- name: none on an enemy another member has claimed for its disable. floor as for damageOn.
+-- name: none on an enemy another member has claimed for its disable, no charm or maze on the last
+-- foe in play (harm.UNTOUCHED). floor as for damageOn.
 local function disableOn(input,row,role,e,floor)
     if targeting.disabled(e) then return 0 end
     local plan=input.plan
     local reserved=type(plan)=='table' and type(plan.reserved)=='table' and plan.reserved[e.id]
     if reserved and reserved~=input.frame.self.id and input.mind.coordination>=0.5 then return 0 end
-    return harm.disable(role,e,input.mind.killBonus,floor)*remembered(input,row.resref,e,role)*orders.favour(input,e)
+    return harm.disable(role,e,input.mind.killBonus,floor,lastInPlay(input,e))*remembered(input,row.resref,e,role)*
+        orders.favour(input,e)
 end
 
 local function offset(a,b) return b.x-a.x,(b.y-a.y)*4/3 end

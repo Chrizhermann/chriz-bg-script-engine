@@ -286,10 +286,11 @@ function M.new(config)
     end
 
     -- The group's plan as its members use it at tick: the focus target, who holds which disable
-    -- reservation, and who casts which debuff at which enemy (cursed[target][spell]).
+    -- reservation, who casts which debuff at which enemy (cursed[target][spell]), and the foes in
+    -- play (inPlay[id]: every living enemy of the picture; those out of play are not in it).
     function api:plan(tick)
         clock(tick)
-        local reserved,cursed={},{}
+        local reserved,cursed,inPlay={},{},{}
         for target,r in pairs(reservations) do
             if r.untilTick>tick and members[r.owner] then reserved[target]=r.owner end
         end
@@ -299,7 +300,8 @@ function M.new(config)
                 if owner then cursed[target]=cursed[target] or {};cursed[target][spell]=owner end
             end
         end
-        return {focus=api:focus(tick),reserved=reserved,cursed=cursed}
+        for key,e in pairs(enemies) do if targeting.alive(e) then inPlay[key]=true end end
+        return {focus=api:focus(tick),reserved=reserved,cursed=cursed,inPlay=inPlay}
     end
 
     -- A member's cast has started at target (after any redirect). Any cast counts for the

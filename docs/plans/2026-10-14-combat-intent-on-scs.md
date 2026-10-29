@@ -819,6 +819,15 @@ the search awaits them instead of handing the round to SCS: clever creatures gua
 from a distance, normal ones wait at their post, dull ones stand; an imprisoned foe is forgotten.
 Re-buffing while waiting is not built yet.
 
+The same fights again (FIGHT-01, "Lab batch J, run 3", 2026-10-29): the engine's group now wins the
+mirror fights 3 of 4 (SCS too, faster), the fiend fights 1 of 3, the other two ahead when the time
+ran out. The fixes of the day before work: a cut hold decides anew, the strength potion comes at the
+start, nobody attacks or hunts a charmed foe. Three new causes: the casters charmed or mazed the
+party's last member again and again, which only postpones the fight, so such a disable on the last
+foe in play is now worth nothing; the priest chose heals at its own invisible allies, which the game
+does not let happen, so heals and buffs now aim only at allies the caster sees; and the fighters
+waited in front of a mage behind Stoneskin, counting all their hits as lost to the skins.
+
 Next, in the order agreed with Christopher on 2026-10-27 for the first release: the rest of the big
 lab round (light and shadow in a second hide probe, and a party of the same strength for the mixed
 fights, which also show the replacement in whole fights, thieves in whole fights, the veil in game,

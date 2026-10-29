@@ -17,6 +17,12 @@ M.DISABLE={hold=1,stun=1,sleep=0.8,charm=1.2,confusion=0.8,panic=0.7,berserk=0.4
     silence=0.7,nocast=0.7,entangle=0.5,web=0.6,root=0.3,polymorph=1,pause=0.8,maze=1.2,
     turnUndead=1,petrify=1,imprison=1,death=1}
 M.FOR_GOOD={petrify=true,imprison=true,death=true}
+-- Disables that put their creature out of the caster's side's reach while they hold: our side
+-- never harms a foe it charmed (Christopher, 2026-10-29: harming it breaks the charm by the rules
+-- text), and nobody reaches one in a maze. On the last foe in play they only put the fight off
+-- (lab batch J run 3: the erinyes charmed the party's last member again each time its charm
+-- ended, until the time ran out), so they count for nothing there.
+M.UNTOUCHED={charm=true,maze=true}
 -- Disables that matter only against casters.
 M.CASTERS_ONLY={feeblemind=true,silence=true,nocast=true}
 -- Damage types to the resistance a creature's details carry (adapters/eeex/sense.lua reads
@@ -286,8 +292,9 @@ end
 -- for good is worth what killing it is), times the chance it lands: magic resistance, the saving
 -- throw and the effect's own chance. Nothing on a creature already disabled, outside the role's
 -- levels or at or above its hit point limit. While a minimum holds on e (floor above 0, as for
--- M.damage), only a death that slays (role.slays, combat-intent/spells.lua) kills it.
-function M.disable(role,e,killBonus,floor)
+-- M.damage), only a death that slays (role.slays, combat-intent/spells.lua) kills it. alone: e is
+-- the last foe in play, where the disables of M.UNTOUCHED count for nothing.
+function M.disable(role,e,killBonus,floor,alone)
     if targeting.disabled(e) or not M.within(role,e) then return 0 end
     -- A power word works by the hit points e has now: in a Time Stop, not counting what lands
     -- when time resumes (hpNow).
@@ -300,6 +307,7 @@ function M.disable(role,e,killBonus,floor)
         if label=='turnUndead' and not (type(e.ids)=='table' and e.ids.general==4) then f=0 end
         if label=='sleep' and role.wakesOnDamage then f=f*0.6 end
         if label=='death' and number(floor) and floor>0 and not role.slays then f=0 end
+        if alone and M.UNTOUCHED[label] then f=0 end
         if f>factor then factor,forGood=f,M.FOR_GOOD[label]==true end
     end
     if factor<=0 then return 0 end

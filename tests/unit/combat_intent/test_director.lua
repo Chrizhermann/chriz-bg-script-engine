@@ -355,6 +355,18 @@ local lost=logged(od,'focus')
 assert(lost[#lost].previous==11 and lost[#lost].why=='away' and od:focus(20)==12)
 local aw=logged(od,'away')
 assert(#aw==2 and aw[1].target==11 and aw[1].away=='charm')
+-- The plan's foes in play leave them out too (combat-intent/choice.lua: no charm or maze on the
+-- last foe in play), and the dead.
+local function inPlay(dd,tick)
+    local out={}
+    for key in pairs(dd:plan(tick).inPlay) do out[#out+1]=key end
+    table.sort(out)
+    return table.concat(out,',')
+end
+assert(inPlay(od,20)=='12,13')
+local dead=director.new({})
+dead:checkIn(mage,frame(10,nil,{enemy(21,{hp=0,state=0x800}),enemy(22)}))
+assert(inPlay(dead,10)=='22')
 -- The charm ends: an enemy again.
 od:checkIn(mage,frame(30,nil,{enemy(11),enemy(12),enemy(13)}))
 out=od:away(30)
@@ -372,7 +384,7 @@ od:removed(12,'maze',{x=210,y=5},45)
 assert(#od:removalChecks(46)==0)
 out=od:away(46)
 assert(#out==2 and out[1].id==12 and out[1].kind=='maze' and out[1].x==210 and out[1].y==5 and out[2].id==15)
-assert(clueIds(od,46)=='11,13')
+assert(clueIds(od,46)=='11,13' and inPlay(od,46)=='11,13')
 od:checkIn(mage,frame(60,nil,{enemy(11),enemy(13)}))
 checks=od:removalChecks(60)
 assert(#checks==1 and checks[1]==12)

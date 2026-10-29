@@ -340,6 +340,17 @@ rejected={}
 assert(#defence.options(i,rejected)==0 and rejected['no-worth']==1)
 globed.protections={}
 assert(find(defence.options(i,{}),'TESTHST3').hits[1]==2)
+-- An area at a point is not aimed at the spot of an ally the caster cannot see (targeting.seen).
+local smallHaste=spell('TESTHSTS',3,{fx(1,{p1=6,target=2,duration=144,power=3}),fx(176,{p1=6,target=2,duration=144,power=3})},
+    {target=4,projectile=97,speed=3},{[97]=area(40,192)})
+local far={id=2,x=400,y=100,hp=80,maxHp=80,state=0,ac=2,attack={apr=2,thac0=8,damage=12},guard={},protections={}}
+i=input({fighter(12,440,{actee=2,held=1})},{row('TESTHSTS',smallHaste,3)})
+i.frame.allies={far}
+o=find(defence.options(i,{}),'TESTHSTS')
+assert(o and o.point.x==400 and o.hits[1]==2)
+far.state=0x10
+o=find(defence.options(i,{}),'TESTHSTS')
+assert(o==nil or o.point.x~=400)
 groups=groups+1
 
 -- 7. Single-target spells go on the caster only, unless the profile names them as exceptions
@@ -352,6 +363,13 @@ assert(#defence.options(i,rejected)==0 and rejected['no-worth']==1)
 i.mind=mind.new({allySpells={TESTFREE=true}})
 o=find(defence.options(i,{}),'TESTFREE')
 assert(o and o.mode=='ally' and o.target==2 and near(o.worth,0.15*0.3*3/3))
+-- Only at an ally the caster sees (targeting.seen): not at an invisible one (here one the enemy
+-- mage still sees), unless the caster sees invisible creatures too.
+i.frame.allies[1].state=0x10;m.seeInvisible=true
+assert(find(defence.options(i,{}),'TESTFREE')==nil)
+i.frame.self.seeInvisible=true
+assert(find(defence.options(i,{}),'TESTFREE').target==2)
+i.frame.allies[1].state=0;i.frame.self.seeInvisible=nil;m.seeInvisible=nil
 assert(mind.new({allySpells={['bad name!']=true}})==nil and mind.new({caution=-1})==nil)
 groups=groups+1
 

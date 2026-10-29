@@ -514,7 +514,8 @@ local function receivers(input,row,spell,aim)
     return out
 end
 -- Where a defence can be cast: on the caster itself (also an area around it); at the caster's
--- spot or an ally's for a spell aimed at a point; at an ally for an agreed exception.
+-- spot or an ally's for a spell aimed at a point; at an ally for an agreed exception. Only at
+-- allies the caster sees (targeting.seen).
 local function aims(input,row,spell)
     local frame=input.frame
     local caster=frame.self
@@ -525,14 +526,18 @@ local function aims(input,row,spell)
     elseif spell.target=='point' and spell.area then
         out[1]={point={x=caster.x,y=caster.y}}
         for _,f in ipairs(threat.friends(frame)) do
-            if f~=caster and targeting.distance(caster,f)<=range then out[#out+1]={point={x=f.x,y=f.y}} end
+            if f~=caster and targeting.seen(caster,f) and targeting.distance(caster,f)<=range then
+                out[#out+1]={point={x=f.x,y=f.y}}
+            end
         end
     elseif spell.target=='creature' then
         out[1]={self=true,friend=caster}
         local allowed=type(input.mind.allySpells)=='table' and input.mind.allySpells[row.resref]
         if allowed then
             for _,f in ipairs(threat.friends(frame)) do
-                if f~=caster and targeting.distance(caster,f)<=range then out[#out+1]={friend=f} end
+                if f~=caster and targeting.seen(caster,f) and targeting.distance(caster,f)<=range then
+                    out[#out+1]={friend=f}
+                end
             end
         end
     end

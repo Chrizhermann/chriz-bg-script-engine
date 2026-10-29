@@ -231,4 +231,19 @@ do
     groups=groups+1
 end
 
+-- 8. Disables on the last foe in play (alone): a charm or a maze puts it out of the side's reach,
+-- so there it counts for nothing (lab batch J run 3); a hold, which lets the side strike, counts as
+-- before, and a role that holds as well as charms counts as the hold.
+do
+    local f=creature()
+    local charm,maze,hold=role({'charm'}),role({'maze'}),role({'hold'})
+    assert(near(harm.disable(charm,f,0.5),1.2) and near(harm.disable(maze,f,0.5),1.2))
+    assert(harm.disable(charm,f,0.5,0,true)==0 and harm.disable(maze,f,0.5,0,true)==0)
+    assert(near(harm.disable(hold,f,0.5,0,true),1) and near(harm.disable(hold,f,0.5,0,true),harm.disable(hold,f,0.5)))
+    assert(near(harm.disable(role({'charm','hold'}),f,0.5,0,true),1))
+    -- Petrification takes a creature out for good, as a kill does: alone or not.
+    assert(near(harm.disable(role({'petrify'}),f,0.5,0,true),1*(1+0.5)))
+    groups=groups+1
+end
+
 return groups

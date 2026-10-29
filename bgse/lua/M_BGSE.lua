@@ -1880,6 +1880,14 @@ end
 -- the game puts it on the charmer's side (lab batch J: the party's thief the erinyes charmed stood
 -- with the group as EA ENEMY).
 function M.charmed(actor) return type(actor)=='table' and M.has(actor.state,M.STATE.charmed) end
+-- Whether caster sees target: itself always, others unless invisible, an invisible one only with
+-- See Invisibility or True Seeing. A cast at a creature it cannot see does not go off, at an ally
+-- too (the choice adapter skips it; lab batch J run 3: a priest chose a heal at its invisible
+-- assassin every second for two minutes).
+function M.seen(caster,target)
+    if type(caster)~='table' or type(target)~='table' then return false end
+    return target==caster or not M.has(target.state,UNSEEN) or caster.seeInvisible==true
+end
 function M.casting(actor) return type(actor)=='table' and M.CASTS[actor.action]==true end
 function M.health(actor)
     if type(actor)~='table' or not number(actor.hp) or not number(actor.maxHp) or actor.maxHp<=0 then return 1 end
@@ -2228,6 +2236,12 @@ M.DISABLE={hold=1,stun=1,sleep=0.8,charm=1.2,confusion=0.8,panic=0.7,berserk=0.4
     silence=0.7,nocast=0.7,entangle=0.5,web=0.6,root=0.3,polymorph=1,pause=0.8,maze=1.2,
     turnUndead=1,petrify=1,imprison=1,death=1}
 M.FOR_GOOD={petrify=true,imprison=true,death=true}
+-- Disables that put their creature out of the caster's side's reach while they hold: our side
+-- never harms a foe it charmed (Christopher, 2026-10-29: harming it breaks the charm by the rules
+-- text), and nobody reaches one in a maze. On the last foe in play they only put the fight off
+-- (lab batch J run 3: the erinyes charmed the party's last member again each time its charm
+-- ended, until the time ran out), so they count for nothing there.
+M.UNTOUCHED={charm=true,maze=true}
 -- Disables that matter only against casters.
 M.CASTERS_ONLY={feeblemind=true,silence=true,nocast=true}
 -- Damage types to the resistance a creature's details carry (adapters/eeex/sense.lua reads
@@ -2497,8 +2511,9 @@ end
 -- for good is worth what killing it is), times the chance it lands: magic resistance, the saving
 -- throw and the effect's own chance. Nothing on a creature already disabled, outside the role's
 -- levels or at or above its hit point limit. While a minimum holds on e (floor above 0, as for
--- M.damage), only a death that slays (role.slays, combat-intent/spells.lua) kills it.
-function M.disable(role,e,killBonus,floor)
+-- M.damage), only a death that slays (role.slays, combat-intent/spells.lua) kills it. alone: e is
+-- the last foe in play, where the disables of M.UNTOUCHED count for nothing.
+function M.disable(role,e,killBonus,floor,alone)
     if targeting.disabled(e) or not M.within(role,e) then return 0 end
     -- A power word works by the hit points e has now: in a Time Stop, not counting what lands
     -- when time resumes (hpNow).
@@ -2511,6 +2526,7 @@ function M.disable(role,e,killBonus,floor)
         if label=='turnUndead' and not (type(e.ids)=='table' and e.ids.general==4) then f=0 end
         if label=='sleep' and role.wakesOnDamage then f=f*0.6 end
         if label=='death' and number(floor) and floor>0 and not role.slays then f=0 end
+        if alone and M.UNTOUCHED[label] then f=0 end
         if f>factor then factor,forGood=f,M.FOR_GOOD[label]==true end
     end
     if factor<=0 then return 0 end
@@ -4548,7 +4564,8 @@ local function receivers(input,row,spell,aim)
     return out
 end
 -- Where a defence can be cast: on the caster itself (also an area around it); at the caster's
--- spot or an ally's for a spell aimed at a point; at an ally for an agreed exception.
+-- spot or an ally's for a spell aimed at a point; at an ally for an agreed exception. Only at
+-- allies the caster sees (targeting.seen).
 local function aims(input,row,spell)
     local frame=input.frame
     local caster=frame.self
@@ -4559,14 +4576,18 @@ local function aims(input,row,spell)
     elseif spell.target=='point' and spell.area then
         out[1]={point={x=caster.x,y=caster.y}}
         for _,f in ipairs(threat.friends(frame)) do
-            if f~=caster and targeting.distance(caster,f)<=range then out[#out+1]={point={x=f.x,y=f.y}} end
+            if f~=caster and targeting.seen(caster,f) and targeting.distance(caster,f)<=range then
+                out[#out+1]={point={x=f.x,y=f.y}}
+            end
         end
     elseif spell.target=='creature' then
         out[1]={self=true,friend=caster}
         local allowed=type(input.mind.allySpells)=='table' and input.mind.allySpells[row.resref]
         if allowed then
             for _,f in ipairs(threat.friends(frame)) do
-                if f~=caster and targeting.distance(caster,f)<=range then out[#out+1]={friend=f} end
+                if f~=caster and targeting.seen(caster,f) and targeting.distance(caster,f)<=range then
+                    out[#out+1]={friend=f}
+                end
             end
         end
     end
@@ -4919,10 +4940,10 @@ function M.care(spell)
     return {heal=reaches(h) and h or nil,cure=reaches(c) and c or nil}
 end
 
--- Where a care spell can be cast: on the caster, and at each ally within its range and a round's
--- walk beyond it for a spell cast at a creature; at the caster's spot or an ally's for an area at
--- a point; around the caster for its own area. walk: the seconds the caster walks into range
--- first (weapons.approach); none beyond range for a caster that cannot walk.
+-- Where a care spell can be cast: on the caster, and at each ally it sees (targeting.seen) within
+-- its range and a round's walk beyond it for a spell cast at a creature; at the caster's spot or
+-- such an ally's for an area at a point; around the caster for its own area. walk: the seconds the
+-- caster walks into range first (weapons.approach); none beyond range for a caster that cannot walk.
 local function aims(input,spell)
     local frame=input.frame
     local caster=frame.self
@@ -4937,13 +4958,13 @@ local function aims(input,spell)
     elseif spell.target=='point' and spell.area then
         out[1]={point={x=caster.x,y=caster.y},walk=0}
         for _,f in ipairs(threat.friends(frame)) do
-            local w=f~=caster and walk(f)
+            local w=f~=caster and targeting.seen(caster,f) and walk(f)
             if w then out[#out+1]={point={x=f.x,y=f.y},walk=w} end
         end
     elseif spell.target=='creature' then
         out[1]={self=true,friend=caster,walk=0}
         for _,f in ipairs(threat.friends(frame)) do
-            local w=f~=caster and walk(f)
+            local w=f~=caster and targeting.seen(caster,f) and walk(f)
             if w then out[#out+1]={friend=f,walk=w} end
         end
     end
@@ -6925,14 +6946,30 @@ local function damageOn(input,row,role,e,floor,n)
     return worth*still,expected*still
 end
 
+-- Whether e is the last foe in play: no other living enemy in the group's picture (the director's
+-- plan.inPlay, which leaves out the foes out of play, charmed or in a maze) or in the caster's frame.
+-- A copy of e (an opening's weakened e) is still e.
+local function lastInPlay(input,e)
+    local plan=input.plan
+    if type(plan)=='table' and type(plan.inPlay)=='table' then
+        for key in pairs(plan.inPlay) do if key~=e.id then return false end end
+    end
+    for _,o in ipairs(input.frame.enemies) do
+        local same=o==e or (e.id~=nil and type(o)=='table' and o.id==e.id)
+        if not same and targeting.alive(o) then return false end
+    end
+    return true
+end
 -- The worth of a disable role on e (combat-intent/harm.lua), more on an enemy the creature's orders
--- name: none on an enemy another member has claimed for its disable. floor as for damageOn.
+-- name: none on an enemy another member has claimed for its disable, no charm or maze on the last
+-- foe in play (harm.UNTOUCHED). floor as for damageOn.
 local function disableOn(input,row,role,e,floor)
     if targeting.disabled(e) then return 0 end
     local plan=input.plan
     local reserved=type(plan)=='table' and type(plan.reserved)=='table' and plan.reserved[e.id]
     if reserved and reserved~=input.frame.self.id and input.mind.coordination>=0.5 then return 0 end
-    return harm.disable(role,e,input.mind.killBonus,floor)*remembered(input,row.resref,e,role)*orders.favour(input,e)
+    return harm.disable(role,e,input.mind.killBonus,floor,lastInPlay(input,e))*remembered(input,row.resref,e,role)*
+        orders.favour(input,e)
 end
 
 local function offset(a,b) return b.x-a.x,(b.y-a.y)*4/3 end
@@ -8620,10 +8657,11 @@ function M.new(config)
     end
 
     -- The group's plan as its members use it at tick: the focus target, who holds which disable
-    -- reservation, and who casts which debuff at which enemy (cursed[target][spell]).
+    -- reservation, who casts which debuff at which enemy (cursed[target][spell]), and the foes in
+    -- play (inPlay[id]: every living enemy of the picture; those out of play are not in it).
     function api:plan(tick)
         clock(tick)
-        local reserved,cursed={},{}
+        local reserved,cursed,inPlay={},{},{}
         for target,r in pairs(reservations) do
             if r.untilTick>tick and members[r.owner] then reserved[target]=r.owner end
         end
@@ -8633,7 +8671,8 @@ function M.new(config)
                 if owner then cursed[target]=cursed[target] or {};cursed[target][spell]=owner end
             end
         end
-        return {focus=api:focus(tick),reserved=reserved,cursed=cursed}
+        for key,e in pairs(enemies) do if targeting.alive(e) then inPlay[key]=true end end
+        return {focus=api:focus(tick),reserved=reserved,cursed=cursed,inPlay=inPlay}
     end
 
     -- A member's cast has started at target (after any redirect). Any cast counts for the

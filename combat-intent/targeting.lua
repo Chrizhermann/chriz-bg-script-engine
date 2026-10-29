@@ -53,6 +53,14 @@ end
 -- the game puts it on the charmer's side (lab batch J: the party's thief the erinyes charmed stood
 -- with the group as EA ENEMY).
 function M.charmed(actor) return type(actor)=='table' and M.has(actor.state,M.STATE.charmed) end
+-- Whether caster sees target: itself always, others unless invisible, an invisible one only with
+-- See Invisibility or True Seeing. A cast at a creature it cannot see does not go off, at an ally
+-- too (the choice adapter skips it; lab batch J run 3: a priest chose a heal at its invisible
+-- assassin every second for two minutes).
+function M.seen(caster,target)
+    if type(caster)~='table' or type(target)~='table' then return false end
+    return target==caster or not M.has(target.state,UNSEEN) or caster.seeInvisible==true
+end
 function M.casting(actor) return type(actor)=='table' and M.CASTS[actor.action]==true end
 function M.health(actor)
     if type(actor)~='table' or not number(actor.hp) or not number(actor.maxHp) or actor.maxHp<=0 then return 1 end

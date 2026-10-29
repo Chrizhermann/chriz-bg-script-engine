@@ -45,6 +45,12 @@ assert(not targeting.alive({state=0x800}) and not targeting.alive({state=0,hp=0}
 assert(targeting.casting({action=31}) and targeting.casting({action=191}) and not targeting.casting({action=3}))
 assert(targeting.health({hp=5,maxHp=20})==0.25 and targeting.health({hp=5})==1)
 assert(targeting.distance({x=0,y=0},{x=30,y=30})==50 and targeting.distance({x=0},{x=1,y=1})==math.huge)
+-- Who a caster sees: itself always, others unless invisible (or improved invisible), an invisible
+-- one with See Invisibility or True Seeing.
+local looker,ghost={state=0x10},{state=0x400000}
+assert(targeting.seen(looker,looker) and targeting.seen(looker,{state=0}) and not targeting.seen(looker,ghost))
+looker.seeInvisible=true
+assert(targeting.seen(looker,ghost) and not targeting.seen(nil,ghost) and not targeting.seen(looker,nil))
 groups=groups+1
 
 -- 2. Redirectable casts: creature-targeted damage or disable, no friendly fire, a known or

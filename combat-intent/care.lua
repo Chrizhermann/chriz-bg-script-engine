@@ -170,10 +170,10 @@ function M.care(spell)
     return {heal=reaches(h) and h or nil,cure=reaches(c) and c or nil}
 end
 
--- Where a care spell can be cast: on the caster, and at each ally within its range and a round's
--- walk beyond it for a spell cast at a creature; at the caster's spot or an ally's for an area at
--- a point; around the caster for its own area. walk: the seconds the caster walks into range
--- first (weapons.approach); none beyond range for a caster that cannot walk.
+-- Where a care spell can be cast: on the caster, and at each ally it sees (targeting.seen) within
+-- its range and a round's walk beyond it for a spell cast at a creature; at the caster's spot or
+-- such an ally's for an area at a point; around the caster for its own area. walk: the seconds the
+-- caster walks into range first (weapons.approach); none beyond range for a caster that cannot walk.
 local function aims(input,spell)
     local frame=input.frame
     local caster=frame.self
@@ -188,13 +188,13 @@ local function aims(input,spell)
     elseif spell.target=='point' and spell.area then
         out[1]={point={x=caster.x,y=caster.y},walk=0}
         for _,f in ipairs(threat.friends(frame)) do
-            local w=f~=caster and walk(f)
+            local w=f~=caster and targeting.seen(caster,f) and walk(f)
             if w then out[#out+1]={point={x=f.x,y=f.y},walk=w} end
         end
     elseif spell.target=='creature' then
         out[1]={self=true,friend=caster,walk=0}
         for _,f in ipairs(threat.friends(frame)) do
-            local w=f~=caster and walk(f)
+            local w=f~=caster and targeting.seen(caster,f) and walk(f)
             if w then out[#out+1]={friend=f,walk=w} end
         end
     end

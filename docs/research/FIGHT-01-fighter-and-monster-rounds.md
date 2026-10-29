@@ -1072,7 +1072,7 @@ hold and answers that are no decision change nothing; a renewed decision that no
 skipped), the choice adapter's group 42 (an attack cut by a block above the hook, one ended early, a
 queued cast cut before it started, a wait's response), the search's look and the thief's stealth mode
 as idle holds (groups 33 and 38); 9 mutations checked.
-Still to see in game: batch J again with this and the potions fix (below).
+Seen in game: batch J, run 3 (below), 122 new decisions after 127 cuts.
 
 ### Buffs over the rest of the fight (lab batch J's potions, 2026-10-28)
 
@@ -1116,7 +1116,8 @@ Tests: the defence tests' group 14, the classifier's strength and haste group, t
 the choice adapter's group 43 (a fighter's strength and its sword's flags from the game's stats to
 the choice, `UseItem` before the first swing, the installed table against another); 24 mutations
 checked.
-Still to see in game: batch J again.
+Seen in game: batch J, run 3 (below): the giant strength potion at the start of every fight; Oil of
+Speed still late.
 
 ### Foes out of play: charmed and mazed (Christopher's answer, 2026-10-29)
 
@@ -1165,7 +1166,59 @@ Tests: the search's group 11, the director's group 12, the director adapter's gr
 adapter's group 32 (guard walks, `await` rows, a place in a danger zone, the dull, an order to the
 post, a stuck way back, two guards apart; whole claims with a mazed and a charmed foe), the orders
 check and the defence tests' group 1 (a charmed ally is no friend); 33 mutations checked.
-Still to see in game: batch J again (the j2 fights should end now).
+Seen in game: batch J, run 3 (below).
+
+### Lab batch J, run 3 (2026-10-29)
+
+The same 14 fights with the build of bdae67e (a cut hold decides anew, buffs over the rest of the
+fight, foes out of play), in the Spell Revisions lab, cleaned up after.
+
+- **Result.** j1: the engine's group won 3 of 4 (186, 131 and 193 seconds; in run 2 none); the
+  fourth ran out of time with only the party's mage left (4 per cent of the party's hit points) and
+  the group at 77 per cent. SCS won 3 of 4 too, faster (55, 60 and 138 seconds) and with more left
+  (86, 78 and 93 per cent of its hit points against the engine's 59, 21 and 34); its fourth ran out
+  of time as well, the party's thief alive. j2: SCS won all 3 (86 to 126 seconds); the engine won 1
+  (57 seconds) and ran out of time twice, again ahead (58 and 67 per cent left, the party at 4 and
+  8).
+- **What works.** A hold whose response ran decided anew 122 times (127 cuts). The group's fighter
+  drank its Potion of Fire Giant Strength at the start of every fight (0.4 seconds). No one attacked
+  or hunted a foe the group had charmed, and the group awaited the charmed and mazed ones (56 `await`
+  rows) instead of letting SCS's last blocks run.
+- **Why j2 ran out of time again.** The group's casters charmed or mazed the party's last members
+  anew each time it ended. In j2-own-1 the mind flayer mazed the assassin at 1, 56 and 86 seconds,
+  and the erinyes charmed the archer at 57 seconds and, once he was the last of the party, again at
+  178, so he stood charmed until the time ran out; in j2-own-3 the erinyes charmed the mage, the last
+  one, at 79 and 201 seconds. Our side never harms a foe it charmed and no one reaches a mazed one, so
+  a charm or a maze on the last foe in play only postpones the fight.
+- **Why the priest stood.** The group's priest chose a heal at its own invisible thief or assassin
+  over and over (Heal 22 times in j1-own-1, Cure Moderate Wounds 115 times over two minutes in
+  j1-own-4). The choice adapter skips a cast at a creature its caster cannot see, as the game would
+  not let it happen, so nothing happened and the priest stood.
+- **Why j1-own-4 ran out of time.** From 121 seconds the party's last member, its mage, stood with
+  five Stoneskin skins. The group's fighters counted all of a round's hits (two or three) as taken by
+  the skins, found no attack worth anything and waited two minutes (`nothing-good`) while the mage
+  cast area spells at them. Fixed next (below).
+- **Oil of Speed** still came late: the group's fighter drank it in j2 after 9 to 11 seconds, in j1
+  not at all; a round of swings counted more (in j1-own-2 0.53 against 0.37).
+
+What the engine does now:
+
+- **No charm or maze on the last foe in play** (`combat-intent/harm.lua`, `choice.lua`,
+  `director.lua`). The director's plan names the enemies in play (`inPlay`: living, in its picture,
+  not out of play). When no other enemy is in play or in the caster's sight, a charm or a maze on a
+  foe is worth nothing (`harm.UNTOUCHED`); a hold, a petrification or a kill keeps its worth.
+  Example: the erinyes with Charm and the party's archer left alone: no charm; with the party's mage
+  still fighting, the charm on the archer counts as before.
+- **Heals and buffs only at allies the caster sees** (`targeting.seen`, `care.lua`,
+  `defence.lua`): at itself, at allies in sight, at invisible ones only with See Invisibility or
+  True Seeing; also for spells aimed at a spot by an ally.
+
+Tests: the harm tests' group 8, the choice tests' groups 15 and 23 (a charm and a debuff's opening
+on the last foe), the director's group 12, the targeting tests' group 1, the care tests' groups 3
+and 4 and the defence tests' groups 6 and 7; 17 mutations checked.
+Still open: a member of the group that the party charmed and the group charmed back is awaited as a
+charmed foe (part of the reverse case, for Christopher); Oil of Speed's worth against a round of
+swings.
 
 ## Agreed (Christopher, 2026-10-25)
 

@@ -145,6 +145,17 @@ i.spells={row('TESTCURE',cure,4)}
 assert(only(i)[1].target==2)
 i.frame.allies[1].x=100+16+500;i.frame.enemies[1].x=100+16+540
 assert(#only(i)==0 and i.rejected['care-falls']==1)
+-- Only allies the caster sees (targeting.seen; lab batch J run 3: a priest chose a heal at its
+-- invisible assassin every second, and the cast never went off): not an invisible one, unless the
+-- caster sees invisible creatures.
+i=input()
+i.frame.allies={friend(2,{x=110,hp=20,maxHp=100,state=0x10})}
+i.spells={row('TESTCURE',cure,4)}
+assert(#only(i)==0)
+i.frame.allies[1].state=0x400000
+assert(#only(i)==0)
+i.frame.self.seeInvisible=true
+assert(only(i)[1].target==2)
 groups=groups+1
 
 -- 4. Area heals reach the friends in their area: an allies-only one at the spot where it helps
@@ -159,6 +170,15 @@ i.spells={row('TESTWIDE',wide,5)}
 i.frame.enemies={enemy(11,{x=420,hp=20,maxHp=50,held=1})}
 o=only(i)[1]
 assert(near(o.worth,0.8-0.4))
+-- An area is not aimed at the spot of a friend the caster cannot see, though it heals one there.
+i.frame.enemies={}
+i.spells={row('TESTMASS',mass,5)}
+i.frame.allies[1].state=0x10;i.frame.allies[2].state=0x10
+o=only(i)[1]
+assert(o.point.x==100 and o.point.y==400 and #o.hits==1 and o.hits[1]==4)
+i.frame.allies[2].state=0
+o=only(i)[1]
+assert(o.point.x==450 and #o.hits==2)
 groups=groups+1
 
 -- 5. Cures (D3b): a held ally is worth freeing for the time its hold has left, as a hold on an
