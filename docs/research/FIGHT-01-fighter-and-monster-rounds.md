@@ -1380,10 +1380,10 @@ level 15 against the party's charm of level 10 (74%), dispels it at once when th
 than its other spells: the kensai is back for the rest of the fight. A dull ogre beside it attacks
 the kensai as any enemy.
 
-For the lab: the bot still gave orders to party members the group held charmed (in run 3 the
-assassin, the archer and the mage), which the game's own scripts would not do for a party member
-(IESDP: a party member turned hostile has its scripts off; in run 2 the game overrode such orders).
-Batch J's bot is to leave charmed members alone (run 4).
+For the lab: run 3's bot left charmed members alone, as fixed after run 2. Its 13 orders that seemed
+to reach a charmed member (the assassin, the thief, the archer and the mage) came in the second each
+charm ended: the sample a second before showed the charm, the next one without it (EA 2 or 30), and
+in two of them the group charmed the member again a second later. Nothing to change for run 4.
 
 Tests: the removal tests' group 8, the harm tests' group 9, the targeting tests' group 1, the
 director adapter's group 5; 15 mutations checked.

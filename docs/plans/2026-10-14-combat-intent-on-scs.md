@@ -865,7 +865,7 @@ then the creature is as safe as in its own Time Stop, so a long buff counts at o
 only once the foe is due. Normal and dull creatures cast nothing while they wait.
 
 Next, in the order agreed with Christopher on 2026-10-27 for the first release: the rest of the big
-lab round (batch J again with a bot that leaves charmed party members alone, and a party of the same strength for the mixed fights, which also show the replacement in whole fights, thieves in whole fights, the veil in game,
+lab round (batch J again on this build, and a party of the same strength for the mixed fights, which also show the replacement in whole fights, thieves in whole fights, the veil in game,
 the prebuffs in game); then the boss fights, designed with Christopher one by one (Melissan's own
 among them). The Erinyes' withdrawal comes with a later "disengage" step (SCS's blueprint for it and
 Christopher's answers of 2026-10-28: FIGHT-01, "Disengage"): nobody flees for good, a short retreat
