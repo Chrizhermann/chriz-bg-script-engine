@@ -263,6 +263,16 @@ assert(start(outsider,action(31,'SPWI112',11)).m_acteeID.m_Instance==11)
 local byNumber=action(31,'',11);byNumber.m_specificID=2112
 assert(adapter.resref(byNumber)=='SPWI112' and adapter.resref(action(31,'spwi112',11))=='SPWI112')
 local bad=action(31,'',11);bad.m_specificID=7;assert(adapter.resref(bad)==nil)
+-- A member the party charmed (EA CONTROLLED) stands on the party's side: its cast at the group is
+-- left alone, what it sees stays out of the group's picture, and it is no member until it comes back.
+m3.m_typeAI.m_EnemyAlly=5
+state=root.inspect().director
+local foes,advised=state.areas.AR0001.foes,state.counts.advised
+assert(start(m3,action(31,'SPWI112',1)).m_acteeID.m_Instance==1)
+state=root.inspect().director
+assert(state.areas.AR0001.foes==foes and state.counts.advised==advised)
+assert(start(m3,action(31,'SPWI112',2)).m_acteeID.m_Instance==2 and root.inspect().director.counts.advised==advised)
+m3.m_typeAI.m_EnemyAlly=255
 groups=groups+1
 
 -- 6. The kill switch and the family switches stop redirects; errors stay inside; a load

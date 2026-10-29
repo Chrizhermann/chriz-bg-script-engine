@@ -136,6 +136,9 @@ function M.new(g,options)
         local allowed=root and root.gate and member.family and root.gate:allows(member.family)
         if allowed and spell and targeting.kind(spell) and original~=id then
             local frame=sense.frame(g,sprite,tick,true)
+            -- A member the party charmed stands on the party's side now: what it sees is not the
+            -- group's picture, and it is no member until it comes back.
+            if frame and sense.side(frame.self.ea)~='evil' then memberArea[id]=nil;frame=nil end
             if frame then
                 local read,bad,last=sense.splprot(g,sprite,frame,spells.rows(spell))
                 counts.marks=counts.marks+read

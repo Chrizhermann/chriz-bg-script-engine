@@ -177,6 +177,12 @@
 -- hiding to backstab next round (an invisibility potion, scroll or spell counts what the backstab
 -- after it gains, M.hideOpening) are tactics (M.tactical): a clever creature always, a normal one
 -- when it notices, a dull one never.
+--
+-- Freeing (Christopher, 2026-10-29: clever creatures free a member of their group whom the party
+-- charmed, with Dispel Magic when they have it): a removal that takes the charm off an enemy the
+-- other side charmed frees it (combat-intent/removal.lua). A tactic (M.tactical): a clever creature
+-- always, a normal one when it notices, a dull one never; one that does not see it weighs the
+-- removal as on any enemy.
 local targeting=require('combat-intent.targeting')
 local harm=require('combat-intent.harm')
 local defence=require('combat-intent.defence')
@@ -758,6 +764,21 @@ local function opener(input)
     end
     return false
 end
+-- Whether freeing is there to notice (combat-intent/removal.lua): an enemy in the charmed state, one
+-- the other side charmed, and a ready removal spell.
+local function freeing(input)
+    local charmed=false
+    for _,e in ipairs(input.frame.enemies) do
+        if type(e)=='table' and targeting.alive(e) and targeting.charmed(e) then charmed=true;break end
+    end
+    if not charmed then return false end
+    for _,row in ipairs(type(input.spells)=='table' and input.spells or {}) do
+        if type(row)=='table' and number(row.ready) and row.ready>0 and row.usable and removal.removal(row.spell) then
+            return true
+        end
+    end
+    return false
+end
 -- Whether positioning is there to notice (M.position): the casting aura runs, the caster can walk,
 -- and an enemy or ally it sees stands beyond the range of one of its ready spells cast at a creature
 -- or a point.
@@ -781,9 +802,9 @@ local function positioning(input)
 end
 -- Draws once a decision whether the creature sees a tactic's chance (mind.tactics), and only when
 -- there is one to see (an enemy casts, a jump into the fight is there, a debuff opens an enemy's
--- defences, a melee enemy close by can be stepped away from, a backstab is there, or a walk into
--- position in the casting pause), so that other decisions draw nothing. Without input.rng: when its
--- chance is a half or more.
+-- defences, a melee enemy close by can be stepped away from, a backstab is there, a walk into
+-- position in the casting pause, or an enemy the other side charmed to free), so that other
+-- decisions draw nothing. Without input.rng: when its chance is a half or more.
 function M.notices(input)
     local p=number(input.mind.tactics) and input.mind.tactics or 1
     if p>=1 then return true end
@@ -793,7 +814,7 @@ function M.notices(input)
         if type(e)=='table' and type(e.cast)=='table' then any=true;break end
     end
     if not any and not leaping(input) and not opener(input) and not kiting(input) and not stabbing(input) and
-        not positioning(input) then return false end
+        not positioning(input) and not freeing(input) then return false end
     local rng=input.rng
     if not rng then return p>=0.5 end
     return rng:nextInt(1,1000)<=math.floor(p*1000+0.5)

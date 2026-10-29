@@ -26,6 +26,19 @@
 -- saving throw, the effect's own chance. A spell protection by level stops a removal only by the
 -- power of what it delivers (power 0 passes; combat-intent/targeting.lua).
 --
+-- Freeing (Christopher, 2026-10-29: clever creatures free a member of their group whom the party
+-- charmed, with Dispel Magic when they have it; "klingt gut"): a creature among the enemies in the
+-- charmed state is one the other side charmed, since a charm puts its creature on its charmer's
+-- side (lab batch J, run 3: the party's charms put the group's assassin, kensai and archer on its
+-- side). A removal that takes every charm on it frees it: it goes back to its own side, the
+-- caster's group when it came from there (a charm leaves its creature's allegiance as it was or
+-- sets it against the charmer; IESDP, opcode 5). That is worth what the same charm on an enemy is
+-- (harm.DISABLE) for as long as the charm would still hold it, as likely as the removal takes every
+-- charm; its other effects count neither way then (they go with a creature that comes back), and as
+-- on any enemy as far as it stays charmed. Seeing it is a tactic: a clever creature always, a normal
+-- one when it notices, a dull one never (combat-intent/choice.lua, M.tactical); one that does not
+-- weighs the removal on it as on any enemy.
+--
 -- What a removal takes follows the engine (IESDP):
 -- - a dispel (opcode 58) takes each effect that can be dispelled (resistance field bit 0), with a
 --   chance of 49% plus 5% a level the dispel is above the effect's caster level, less 10% a level
@@ -48,6 +61,7 @@ local ids=require('combat-intent.ids')
 local spells=require('combat-intent.spells')
 local weapons=require('combat-intent.weapons')
 local orders=require('combat-intent.orders')
+local harm=require('combat-intent.harm')
 local M={}
 M.ROUND=6
 -- A speed point of casting time is 10 game ticks (as for defences).
@@ -77,6 +91,13 @@ local function list(t) return type(t)=='table' and t or {} end
 local function clamp(v,a,b) if v<a then return a elseif v>b then return b end return v end
 local function range(spell) return number(spell.range) and spell.range*targeting.rangeUnit or 0 end
 local function summoned(e) return type(e.ids)=='table' and M.SUMMONED[e.ids.gender]==true end
+-- Whether the caster sees a tactic's chance in this decision, as combat-intent/choice.lua's
+-- M.tactical has it: input.tactical once the decision has drawn it, else a chance of a half or more.
+local function tactical(input)
+    if input.tactical~=nil then return input.tactical==true end
+    local p=type(input.mind)=='table' and number(input.mind.tactics) and input.mind.tactics or 1
+    return p>=0.5
+end
 
 -- The removal role of a spell the engine weighs, or nil and why not: none, an unread spell, only
 -- kinds weighed elsewhere, one that reaches no enemy, harms the caster's side or has a shape the
@@ -265,6 +286,25 @@ function M.lost(e,wards,chance,friends,r)
     return worth
 end
 
+-- Freeing enemy e, one the other side charmed (see the top), given the chance each of its wards
+-- goes: the chance that every charm on it goes, and what freeing it is worth over r rounds: the
+-- same charm on an enemy (harm.DISABLE) for as long as the longest of them would still hold, as
+-- harm counts a disable. Nothing without a charm the removal can take.
+function M.freed(e,wards,chance,r)
+    local p,left,any=1,0,false
+    for i,w in ipairs(wards) do
+        local d=type(w)=='table' and type(w.roles)=='table' and w.roles.disable
+        if type(d)=='table' and type(d.kinds)=='table' and d.kinds.charm then
+            any=true
+            p=p*(chance[i] or 0)
+            left=math.max(left,number(w.left) and w.left or math.huge)
+        end
+    end
+    if not any or p<=0 or r<=0 then return 0,0 end
+    local span=clamp(math.min(left,r*M.ROUND)/harm.fullSeconds,0,1)
+    return p,harm.DISABLE.charm*span*(0.5+0.5*targeting.health(e))
+end
+
 -- The worth of a removal spell on enemy e once it lands, r rounds before the horizon ends, and the
 -- reason when it is none. It can be below zero: then the removal frees e of more than it opens.
 function M.on(input,spell,e,r)
@@ -318,7 +358,13 @@ function M.on(input,spell,e,r)
     local friends=threat.friends(frame)
     if buff then opened=opened+defence.offense(buff,e,{enemies=friends},r) end
     -- What opens is weighed by the mean chance of what goes; what it frees e of, ward by ward.
-    local worth=(opened*(n>0 and sum/n or 1)-M.lost(e,wards,chance,friends,r))*land
+    local worth=opened*(n>0 and sum/n or 1)-M.lost(e,wards,chance,friends,r)
+    -- One the other side charmed, freed: back on its side, as far as the caster sees it.
+    if targeting.charmed(e) and tactical(input) then
+        local p,gain=M.freed(e,wards,chance,r)
+        worth=p*gain+(1-p)*worth
+    end
+    worth=worth*land
     if worth==0 then return 0,'no-worth' end
     return worth,worth<0 and 'frees' or nil
 end

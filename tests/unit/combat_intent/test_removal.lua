@@ -240,4 +240,61 @@ local stripping=choice.options(i)[1]
 assert(plain.kind=='damage' and stripping.kind=='damage' and stripping.worth>plain.worth)
 groups=groups+1
 
+-- 8. Freeing (Christopher, 2026-10-29): an enemy in the charmed state is one the other side
+-- charmed. A dispel that takes its charm frees it, worth what the same charm on an enemy is
+-- (harm.DISABLE, 1.2 for the full 18 seconds) as likely as the charm goes (74% at level 15 against
+-- 10); its other effects count neither way then, and as on any enemy as far as it stays charmed.
+-- Seeing it is a tactic: one that does not weighs the dispel as on any enemy. A charm a dispel
+-- cannot take, one about to end, two charms, and the options and the choice.
+local charm=ward(5,{source='TESTCHRM',power=1,level=10},{p2=1})
+assert(charm.roles.disable and charm.roles.disable.kinds.charm)
+local thrall=enemy(11,{state=0x2000,wards={charm}})
+i=input()
+i.frame.allies={fighter(2)}
+i.frame.enemies={thrall}
+chance=removal.taken(dispel.roles.removal,{charm},15)
+assert(near(chance[1],0.74))
+local p,gain=removal.freed(thrall,{charm},chance,3)
+assert(near(p,0.74) and near(gain,1.2))
+i.tactical=true
+assert(near(removal.on(i,dispel,thrall,3),0.74*1.2))
+i.tactical=false
+assert(select(2,removal.on(i,dispel,thrall,3))=='no-worth')
+i.tactical=true
+-- Half its hit points: as harm counts a disable, (0.5+0.5*0.5) of it.
+assert(near(removal.on(i,dispel,enemy(11,{state=0x2000,hp=30,wards={charm}}),3),0.74*1.2*0.75))
+-- A charm no dispel takes (an innate one) frees nothing; nor does a creature no longer charmed.
+local fixed=ward(5,{source='TESTCHRM',power=1,level=10,dispellable=false},{p2=1})
+assert(select(2,removal.on(i,dispel,enemy(11,{state=0x2000,wards={fixed}}),3))=='nothing')
+assert(select(2,removal.on(i,dispel,enemy(11,{wards={charm}}),3))=='no-worth')
+-- With Protection from Magical Weapons on it too: freed, the protection counts neither way; kept
+-- charmed, its fall opens the thrall to the fighter as on any enemy.
+local guarded=enemy(11,{state=0x2000,wards={charm,ward(120,{source='TESTPFMW',secondary=7,power=8,level=15},{p2=1})}})
+i.tactical=false
+local asAny=removal.on(i,dispel,guarded,3)
+i.tactical=true
+assert(asAny>0 and near(removal.on(i,dispel,guarded,3),0.74*1.2+0.26*asAny))
+-- A charm with 9 seconds left counts half; two charms must both go.
+assert(near(select(2,removal.freed(thrall,{ward(5,{left=9},{p2=1})},{0.74},3)),0.6))
+p=removal.freed(thrall,{charm,ward(5,{level=15},{p2=1})},{0.74,0.49},3)
+assert(near(p,0.74*0.49))
+-- The options: Dispel Magic at the thrall, worth more than the caster's staff, is the choice.
+i.spells={row('TESTDISP',dispel,3)}
+i.frame.self.weapon={item='TESTSTAF',damage=3.5,damageType=2,apr=1,thac0=13,ranged=false,flags=0,enchantment=0}
+i.tactical=nil
+list=removal.options(i)
+assert(#list==1 and list[1].mode=='point-area' and list[1].hits[1]==11)
+d,how=choice.decide(i)
+assert(how=='best' and d.kind=='removal' and d.resref=='TESTDISP')
+-- A dull one never sees it: then the dispel opens nothing on the thrall.
+i.mind=mind.new({tactics=0})
+assert(#removal.options(i)==0)
+-- A normal one draws once a decision whether it notices, and only with a thrall to free.
+local noticed={mind={tactics=0.5},frame={self=i.frame.self,enemies={thrall},allies={}},spells={row('TESTDISP',dispel,3)},
+    rng={nextInt=function() return 1 end}}
+assert(choice.notices(noticed)==true)
+noticed.frame.enemies={enemy(11,{wards={charm}})}
+assert(choice.notices(noticed)==false)
+groups=groups+1
+
 return groups

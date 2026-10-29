@@ -206,6 +206,9 @@ other side of combat-intent/defence.lua:
   nothing: SCS's `AvoidDispel` falls out of the sum, enemy by enemy.
 - **Summoned enemies:** unsummoned or destroyed, a kill (Banishment's own condition, summoned
   creatures, holds by the spell's view of each enemy).
+- **One the other side charmed** (since 2026-10-29; FIGHT-01, "Freeing a member the party
+  charmed"): an enemy in the charmed state, freed when every charm on it goes, worth the same charm
+  on an enemy for the time it still has; its other effects count neither way then. A tactic by wit.
 - **Chance:** a dispel takes each effect as likely as the engine's rule makes it (49% at the
   effect's caster level, 5% more a level above, 10% less a level below, none from five levels
   below, 99% at most); the removal lands as likely as magic resistance lets it (only when its

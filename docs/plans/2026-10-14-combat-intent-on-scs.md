@@ -833,7 +833,7 @@ Christopher's answers of 2026-10-29: a buff potion is drunk right at the start o
 potion takes no round (whether potions should take one to three seconds or longer, so that healing
 spells matter more, is a balance question for later); an imprisoned foe is forgotten at once
 (something cleverer later); clever creatures free a member of their group whom the party charmed,
-with Dispel Magic when they have it (not built yet); the boss fights, phase 2 of the prebuffs and
+with Dispel Magic when they have it (built the same day, below); the boss fights, phase 2 of the prebuffs and
 whether free prebuffs should cost a spell slot wait until phase 1 is settled and works. The
 August design on `codex/aoe-prebuff-design` had already decided how area prebuffs are delivered
 (one real cast of SCS's prebuff copy, whose own area picks who gets it, and one memorized spell
@@ -850,9 +850,16 @@ a failure, so the engine keeps its one try a round, as a player's button allows;
 hides even in sight. The engine's thieves hide only out of sight, which fits. A shadowdancer hiding
 in sight and a clever thief stepping into shadow first are ideas for Christopher.
 
+Freeing (FIGHT-01, "Freeing a member the party charmed"): a creature among the enemies in the
+charmed state is one the other side charmed. A dispel that takes the charm off it frees it, worth
+what the same charm on an enemy is for the time the charm still has, a tactic by wit (a clever
+creature always, a normal one when it notices, a dull one never). Such a creature now counts as
+fighting for the side it stands with, not as disabled, and a charm over a charm counts nothing: the
+logs showed that a charm of the evil side leaves its creature on the good side once it ends.
+
 Next, in the order agreed with Christopher on 2026-10-27 for the first release: the rest of the big
-lab round (freeing a member the party charmed and re-buffing while a foe is out of play, then batch
-J again, and a party of the same strength for the mixed fights, which also show the replacement in whole fights, thieves in whole fights, the veil in game,
+lab round (re-buffing while a foe is out of play, then batch J again with a bot that leaves charmed
+party members alone, and a party of the same strength for the mixed fights, which also show the replacement in whole fights, thieves in whole fights, the veil in game,
 the prebuffs in game); then the boss fights, designed with Christopher one by one (Melissan's own
 among them). The Erinyes' withdrawal comes with a later "disengage" step (SCS's blueprint for it and
 Christopher's answers of 2026-10-28: FIGHT-01, "Disengage"): nobody flees for good, a short retreat

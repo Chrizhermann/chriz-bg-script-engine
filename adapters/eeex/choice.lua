@@ -994,7 +994,10 @@ function M.new(g,options)
         local target=get(a.target)
         if not target then return end
         local hit=a.hp~=nil and target.m_baseStats.m_hitPoints<a.hp
-        if not hit and a.kind=='disable' then hit=targeting.disabled(sense.actor(g,target)) end
+        if not hit and a.kind=='disable' then
+            local t=sense.actor(g,target)
+            hit=targeting.disabled(t) or targeting.charmed(t)
+        end
         if not hit then hit=carries(target,a) end
         local key=a.resref..':'..a.target
         local mine=memory[a.caster] or {}
@@ -1011,7 +1014,10 @@ function M.new(g,options)
         local hit=false
         if target then
             hit=s.hp~=nil and target.m_baseStats.m_hitPoints<s.hp
-            if not hit and s.disable then hit=targeting.disabled(sense.actor(g,target)) end
+            if not hit and s.disable then
+                local t=sense.actor(g,target)
+                hit=targeting.disabled(t) or targeting.charmed(t)
+            end
             if not hit then hit=carries(target,{resref=s.item,sources=s.sources}) end
         end
         if hit then counts.strikeHits=counts.strikeHits+1 else counts.strikeMisses=counts.strikeMisses+1 end

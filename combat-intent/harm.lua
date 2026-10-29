@@ -23,6 +23,12 @@ M.FOR_GOOD={petrify=true,imprison=true,death=true}
 -- (lab batch J run 3: the erinyes charmed the party's last member again each time its charm
 -- ended, until the time ran out), so they count for nothing there.
 M.UNTOUCHED={charm=true,maze=true}
+-- One charmed already, which the other side charmed (combat-intent/targeting.lua, M.charmed), is
+-- freed, not charmed over (combat-intent/removal.lua): the charm of a caster of the evil side sets
+-- its creature's allegiance to the good side for after the charm (IESDP, opcode 5, the hostile
+-- types; lab batch J, run 3: the group's fighter-thief and kensai, under a Dire Charm the party's
+-- mage began before the group charmed it, stood with the party once it ended), so a member charmed
+-- back would turn on its group for good.
 -- Disables that matter only against casters.
 M.CASTERS_ONLY={feeblemind=true,silence=true,nocast=true}
 -- Damage types to the resistance a creature's details carry (adapters/eeex/sense.lua reads
@@ -308,6 +314,7 @@ function M.disable(role,e,killBonus,floor,alone)
         if label=='sleep' and role.wakesOnDamage then f=f*0.6 end
         if label=='death' and number(floor) and floor>0 and not role.slays then f=0 end
         if alone and M.UNTOUCHED[label] then f=0 end
+        if label=='charm' and targeting.charmed(e) then f=0 end
         if f>factor then factor,forGood=f,M.FOR_GOOD[label]==true end
     end
     if factor<=0 then return 0 end

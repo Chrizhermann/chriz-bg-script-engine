@@ -246,4 +246,19 @@ do
     groups=groups+1
 end
 
+-- 9. One the other side charmed (charmed, among the enemies) fights for it: no disabled creature,
+-- so a hold counts on it as on any enemy, and its weapon counts against the side it fights; a
+-- charm counts for nothing on it, as it is freed, not charmed over (a charm of the evil side would
+-- set it against its own group once it ends).
+do
+    local thrall=creature({state=0x2000})
+    assert(harm.disable(role({'charm'}),thrall,0.5)==0 and near(harm.disable(role({'hold'}),thrall,0.5),1))
+    assert(near(harm.disable(role({'charm','hold'}),thrall,0.5),1))
+    local frame={self={id=1,x=0,y=0,hp=40,maxHp=40,state=0,ac=5},allies={},enemies={creature({x=20,state=0x2000})}}
+    assert(threat.picture(frame)[1].weapon.hp>0)
+    frame.enemies[1].held=1
+    assert(threat.picture(frame)[1].weapon.hp==0)
+    groups=groups+1
+end
+
 return groups

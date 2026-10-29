@@ -1838,9 +1838,12 @@ local M={}
 M.STATE={sleeping=0x1,panic=0x4,stunned=0x8,invisible=0x10,helpless=0x20,reallyDead=0xFC0,
     charmed=0x2000,slowed=0x10000,blind=0x40000,feebleminded=0x100000,improvedInvisible=0x400000,
     confused=0x80000000}
--- STATE_DISABLED as the installed STATE.IDS defines it: sleeping, panic, stunned, helpless,
--- charmed, feebleminded, confused. Holds set the HELD stat instead (see sense.lua).
-M.DISABLED=0x8010202D
+-- Out of the fight: STATE_DISABLED as the installed STATE.IDS defines it (sleeping, panic, stunned,
+-- helpless, charmed, feebleminded, confused) but charmed, since a charm puts its creature on its
+-- charmer's side, where it fights (M.charmed; lab batch J, run 3: the party's charms put the
+-- group's assassin, kensai and archer on its side). Holds set the HELD stat instead (see
+-- sense.lua).
+M.DISABLED=0x8010002D
 local UNSEEN=M.STATE.invisible+M.STATE.improvedInvisible
 -- Actions that cast: Spell, SpellPoint, ForceSpell, ForceSpellPoint, ReallyForceSpell,
 -- SpellNoDec, SpellPointNoDec, ReallyForceSpellPoint.
@@ -1876,9 +1879,10 @@ end
 function M.disabled(actor)
     return type(actor)=='table' and (M.has(actor.state,M.DISABLED) or (number(actor.held) and actor.held>0))
 end
--- Under a charm (STATE_CHARMED). Among a creature's allies such a one is a foe its side charmed:
--- the game puts it on the charmer's side (lab batch J: the party's thief the erinyes charmed stood
--- with the group as EA ENEMY).
+-- Under a charm (STATE_CHARMED). The game puts a charmed creature on its charmer's side (lab batch
+-- J: the party's thief the erinyes charmed stood with the group as EA ENEMY): among a creature's
+-- allies such a one is a foe its side charmed, among its enemies one the other side charmed
+-- (combat-intent/removal.lua frees it).
 function M.charmed(actor) return type(actor)=='table' and M.has(actor.state,M.STATE.charmed) end
 -- Whether caster sees target: itself always, others unless invisible, an invisible one only with
 -- See Invisibility or True Seeing. A cast at a creature it cannot see does not go off, at an ally
@@ -2242,6 +2246,12 @@ M.FOR_GOOD={petrify=true,imprison=true,death=true}
 -- (lab batch J run 3: the erinyes charmed the party's last member again each time its charm
 -- ended, until the time ran out), so they count for nothing there.
 M.UNTOUCHED={charm=true,maze=true}
+-- One charmed already, which the other side charmed (combat-intent/targeting.lua, M.charmed), is
+-- freed, not charmed over (combat-intent/removal.lua): the charm of a caster of the evil side sets
+-- its creature's allegiance to the good side for after the charm (IESDP, opcode 5, the hostile
+-- types; lab batch J, run 3: the group's fighter-thief and kensai, under a Dire Charm the party's
+-- mage began before the group charmed it, stood with the party once it ended), so a member charmed
+-- back would turn on its group for good.
 -- Disables that matter only against casters.
 M.CASTERS_ONLY={feeblemind=true,silence=true,nocast=true}
 -- Damage types to the resistance a creature's details carry (adapters/eeex/sense.lua reads
@@ -2527,6 +2537,7 @@ function M.disable(role,e,killBonus,floor,alone)
         if label=='sleep' and role.wakesOnDamage then f=f*0.6 end
         if label=='death' and number(floor) and floor>0 and not role.slays then f=0 end
         if alone and M.UNTOUCHED[label] then f=0 end
+        if label=='charm' and targeting.charmed(e) then f=0 end
         if f>factor then factor,forGood=f,M.FOR_GOOD[label]==true end
     end
     if factor<=0 then return 0 end
@@ -5660,6 +5671,19 @@ factories["combat-intent.removal"]=function(require)
 -- saving throw, the effect's own chance. A spell protection by level stops a removal only by the
 -- power of what it delivers (power 0 passes; combat-intent/targeting.lua).
 --
+-- Freeing (Christopher, 2026-10-29: clever creatures free a member of their group whom the party
+-- charmed, with Dispel Magic when they have it; "klingt gut"): a creature among the enemies in the
+-- charmed state is one the other side charmed, since a charm puts its creature on its charmer's
+-- side (lab batch J, run 3: the party's charms put the group's assassin, kensai and archer on its
+-- side). A removal that takes every charm on it frees it: it goes back to its own side, the
+-- caster's group when it came from there (a charm leaves its creature's allegiance as it was or
+-- sets it against the charmer; IESDP, opcode 5). That is worth what the same charm on an enemy is
+-- (harm.DISABLE) for as long as the charm would still hold it, as likely as the removal takes every
+-- charm; its other effects count neither way then (they go with a creature that comes back), and as
+-- on any enemy as far as it stays charmed. Seeing it is a tactic: a clever creature always, a normal
+-- one when it notices, a dull one never (combat-intent/choice.lua, M.tactical); one that does not
+-- weighs the removal on it as on any enemy.
+--
 -- What a removal takes follows the engine (IESDP):
 -- - a dispel (opcode 58) takes each effect that can be dispelled (resistance field bit 0), with a
 --   chance of 49% plus 5% a level the dispel is above the effect's caster level, less 10% a level
@@ -5682,6 +5706,7 @@ local ids=require('combat-intent.ids')
 local spells=require('combat-intent.spells')
 local weapons=require('combat-intent.weapons')
 local orders=require('combat-intent.orders')
+local harm=require('combat-intent.harm')
 local M={}
 M.ROUND=6
 -- A speed point of casting time is 10 game ticks (as for defences).
@@ -5711,6 +5736,13 @@ local function list(t) return type(t)=='table' and t or {} end
 local function clamp(v,a,b) if v<a then return a elseif v>b then return b end return v end
 local function range(spell) return number(spell.range) and spell.range*targeting.rangeUnit or 0 end
 local function summoned(e) return type(e.ids)=='table' and M.SUMMONED[e.ids.gender]==true end
+-- Whether the caster sees a tactic's chance in this decision, as combat-intent/choice.lua's
+-- M.tactical has it: input.tactical once the decision has drawn it, else a chance of a half or more.
+local function tactical(input)
+    if input.tactical~=nil then return input.tactical==true end
+    local p=type(input.mind)=='table' and number(input.mind.tactics) and input.mind.tactics or 1
+    return p>=0.5
+end
 
 -- The removal role of a spell the engine weighs, or nil and why not: none, an unread spell, only
 -- kinds weighed elsewhere, one that reaches no enemy, harms the caster's side or has a shape the
@@ -5899,6 +5931,25 @@ function M.lost(e,wards,chance,friends,r)
     return worth
 end
 
+-- Freeing enemy e, one the other side charmed (see the top), given the chance each of its wards
+-- goes: the chance that every charm on it goes, and what freeing it is worth over r rounds: the
+-- same charm on an enemy (harm.DISABLE) for as long as the longest of them would still hold, as
+-- harm counts a disable. Nothing without a charm the removal can take.
+function M.freed(e,wards,chance,r)
+    local p,left,any=1,0,false
+    for i,w in ipairs(wards) do
+        local d=type(w)=='table' and type(w.roles)=='table' and w.roles.disable
+        if type(d)=='table' and type(d.kinds)=='table' and d.kinds.charm then
+            any=true
+            p=p*(chance[i] or 0)
+            left=math.max(left,number(w.left) and w.left or math.huge)
+        end
+    end
+    if not any or p<=0 or r<=0 then return 0,0 end
+    local span=clamp(math.min(left,r*M.ROUND)/harm.fullSeconds,0,1)
+    return p,harm.DISABLE.charm*span*(0.5+0.5*targeting.health(e))
+end
+
 -- The worth of a removal spell on enemy e once it lands, r rounds before the horizon ends, and the
 -- reason when it is none. It can be below zero: then the removal frees e of more than it opens.
 function M.on(input,spell,e,r)
@@ -5952,7 +6003,13 @@ function M.on(input,spell,e,r)
     local friends=threat.friends(frame)
     if buff then opened=opened+defence.offense(buff,e,{enemies=friends},r) end
     -- What opens is weighed by the mean chance of what goes; what it frees e of, ward by ward.
-    local worth=(opened*(n>0 and sum/n or 1)-M.lost(e,wards,chance,friends,r))*land
+    local worth=opened*(n>0 and sum/n or 1)-M.lost(e,wards,chance,friends,r)
+    -- One the other side charmed, freed: back on its side, as far as the caster sees it.
+    if targeting.charmed(e) and tactical(input) then
+        local p,gain=M.freed(e,wards,chance,r)
+        worth=p*gain+(1-p)*worth
+    end
+    worth=worth*land
     if worth==0 then return 0,'no-worth' end
     return worth,worth<0 and 'frees' or nil
 end
@@ -6797,6 +6854,12 @@ factories["combat-intent.choice"]=function(require)
 -- hiding to backstab next round (an invisibility potion, scroll or spell counts what the backstab
 -- after it gains, M.hideOpening) are tactics (M.tactical): a clever creature always, a normal one
 -- when it notices, a dull one never.
+--
+-- Freeing (Christopher, 2026-10-29: clever creatures free a member of their group whom the party
+-- charmed, with Dispel Magic when they have it): a removal that takes the charm off an enemy the
+-- other side charmed frees it (combat-intent/removal.lua). A tactic (M.tactical): a clever creature
+-- always, a normal one when it notices, a dull one never; one that does not see it weighs the
+-- removal as on any enemy.
 local targeting=require('combat-intent.targeting')
 local harm=require('combat-intent.harm')
 local defence=require('combat-intent.defence')
@@ -7378,6 +7441,21 @@ local function opener(input)
     end
     return false
 end
+-- Whether freeing is there to notice (combat-intent/removal.lua): an enemy in the charmed state, one
+-- the other side charmed, and a ready removal spell.
+local function freeing(input)
+    local charmed=false
+    for _,e in ipairs(input.frame.enemies) do
+        if type(e)=='table' and targeting.alive(e) and targeting.charmed(e) then charmed=true;break end
+    end
+    if not charmed then return false end
+    for _,row in ipairs(type(input.spells)=='table' and input.spells or {}) do
+        if type(row)=='table' and number(row.ready) and row.ready>0 and row.usable and removal.removal(row.spell) then
+            return true
+        end
+    end
+    return false
+end
 -- Whether positioning is there to notice (M.position): the casting aura runs, the caster can walk,
 -- and an enemy or ally it sees stands beyond the range of one of its ready spells cast at a creature
 -- or a point.
@@ -7401,9 +7479,9 @@ local function positioning(input)
 end
 -- Draws once a decision whether the creature sees a tactic's chance (mind.tactics), and only when
 -- there is one to see (an enemy casts, a jump into the fight is there, a debuff opens an enemy's
--- defences, a melee enemy close by can be stepped away from, a backstab is there, or a walk into
--- position in the casting pause), so that other decisions draw nothing. Without input.rng: when its
--- chance is a half or more.
+-- defences, a melee enemy close by can be stepped away from, a backstab is there, a walk into
+-- position in the casting pause, or an enemy the other side charmed to free), so that other
+-- decisions draw nothing. Without input.rng: when its chance is a half or more.
 function M.notices(input)
     local p=number(input.mind.tactics) and input.mind.tactics or 1
     if p>=1 then return true end
@@ -7413,7 +7491,7 @@ function M.notices(input)
         if type(e)=='table' and type(e.cast)=='table' then any=true;break end
     end
     if not any and not leaping(input) and not opener(input) and not kiting(input) and not stabbing(input) and
-        not positioning(input) then return false end
+        not positioning(input) and not freeing(input) then return false end
     local rng=input.rng
     if not rng then return p>=0.5 end
     return rng:nextInt(1,1000)<=math.floor(p*1000+0.5)
@@ -11053,6 +11131,9 @@ function M.new(g,options)
         local allowed=root and root.gate and member.family and root.gate:allows(member.family)
         if allowed and spell and targeting.kind(spell) and original~=id then
             local frame=sense.frame(g,sprite,tick,true)
+            -- A member the party charmed stands on the party's side now: what it sees is not the
+            -- group's picture, and it is no member until it comes back.
+            if frame and sense.side(frame.self.ea)~='evil' then memberArea[id]=nil;frame=nil end
             if frame then
                 local read,bad,last=sense.splprot(g,sprite,frame,spells.rows(spell))
                 counts.marks=counts.marks+read
@@ -12725,7 +12806,10 @@ function M.new(g,options)
         local target=get(a.target)
         if not target then return end
         local hit=a.hp~=nil and target.m_baseStats.m_hitPoints<a.hp
-        if not hit and a.kind=='disable' then hit=targeting.disabled(sense.actor(g,target)) end
+        if not hit and a.kind=='disable' then
+            local t=sense.actor(g,target)
+            hit=targeting.disabled(t) or targeting.charmed(t)
+        end
         if not hit then hit=carries(target,a) end
         local key=a.resref..':'..a.target
         local mine=memory[a.caster] or {}
@@ -12742,7 +12826,10 @@ function M.new(g,options)
         local hit=false
         if target then
             hit=s.hp~=nil and target.m_baseStats.m_hitPoints<s.hp
-            if not hit and s.disable then hit=targeting.disabled(sense.actor(g,target)) end
+            if not hit and s.disable then
+                local t=sense.actor(g,target)
+                hit=targeting.disabled(t) or targeting.charmed(t)
+            end
             if not hit then hit=carries(target,{resref=s.item,sources=s.sources}) end
         end
         if hit then counts.strikeHits=counts.strikeHits+1 else counts.strikeMisses=counts.strikeMisses+1 end

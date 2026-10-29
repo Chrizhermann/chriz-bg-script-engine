@@ -41,6 +41,8 @@ local trollBolt=spell('TESTTRBL',{fx(12,{p2=8*65536,dice=6,sides=6}),fx(177,{p1=
 assert(targeting.has(0x8010202D,0x80000000) and targeting.has(-2147483648,targeting.STATE.confused))
 assert(not targeting.has(0x10,0x20) and not targeting.has(nil,1))
 assert(targeting.disabled({state=0x20}) and targeting.disabled({state=0,held=1}) and not targeting.disabled({state=0x10}))
+-- A charmed creature fights on its charmer's side: charmed, not disabled.
+assert(targeting.charmed({state=0x2000}) and not targeting.disabled({state=0x2000}) and targeting.disabled({state=0x2001}))
 assert(not targeting.alive({state=0x800}) and not targeting.alive({state=0,hp=0}) and targeting.alive({state=0,hp=3}))
 assert(targeting.casting({action=31}) and targeting.casting({action=191}) and not targeting.casting({action=3}))
 assert(targeting.health({hp=5,maxHp=20})==0.25 and targeting.health({hp=5})==1)

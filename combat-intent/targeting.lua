@@ -11,9 +11,12 @@ local M={}
 M.STATE={sleeping=0x1,panic=0x4,stunned=0x8,invisible=0x10,helpless=0x20,reallyDead=0xFC0,
     charmed=0x2000,slowed=0x10000,blind=0x40000,feebleminded=0x100000,improvedInvisible=0x400000,
     confused=0x80000000}
--- STATE_DISABLED as the installed STATE.IDS defines it: sleeping, panic, stunned, helpless,
--- charmed, feebleminded, confused. Holds set the HELD stat instead (see sense.lua).
-M.DISABLED=0x8010202D
+-- Out of the fight: STATE_DISABLED as the installed STATE.IDS defines it (sleeping, panic, stunned,
+-- helpless, charmed, feebleminded, confused) but charmed, since a charm puts its creature on its
+-- charmer's side, where it fights (M.charmed; lab batch J, run 3: the party's charms put the
+-- group's assassin, kensai and archer on its side). Holds set the HELD stat instead (see
+-- sense.lua).
+M.DISABLED=0x8010002D
 local UNSEEN=M.STATE.invisible+M.STATE.improvedInvisible
 -- Actions that cast: Spell, SpellPoint, ForceSpell, ForceSpellPoint, ReallyForceSpell,
 -- SpellNoDec, SpellPointNoDec, ReallyForceSpellPoint.
@@ -49,9 +52,10 @@ end
 function M.disabled(actor)
     return type(actor)=='table' and (M.has(actor.state,M.DISABLED) or (number(actor.held) and actor.held>0))
 end
--- Under a charm (STATE_CHARMED). Among a creature's allies such a one is a foe its side charmed:
--- the game puts it on the charmer's side (lab batch J: the party's thief the erinyes charmed stood
--- with the group as EA ENEMY).
+-- Under a charm (STATE_CHARMED). The game puts a charmed creature on its charmer's side (lab batch
+-- J: the party's thief the erinyes charmed stood with the group as EA ENEMY): among a creature's
+-- allies such a one is a foe its side charmed, among its enemies one the other side charmed
+-- (combat-intent/removal.lua frees it).
 function M.charmed(actor) return type(actor)=='table' and M.has(actor.state,M.STATE.charmed) end
 -- Whether caster sees target: itself always, others unless invisible, an invisible one only with
 -- See Invisibility or True Seeing. A cast at a creature it cannot see does not go off, at an ally

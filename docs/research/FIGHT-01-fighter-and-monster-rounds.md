@@ -1178,10 +1178,8 @@ goes back to where its fight began, a dull one stands. When the thief comes out 
 the clever fighter strikes at once.
 
 Not built yet: re-buffing while awaiting (a buff counts only with an enemy within a round's walk, so
-with the foe away nothing is worth casting); a creature of the group that the party charmed is
-attacked as any enemy, as before. For that reverse case Christopher agreed on 2026-10-29 ("klingt
-gut") that clever creatures free such a member with Dispel Magic when they have it, and otherwise
-it stays as it is.
+with the foe away nothing is worth casting). The reverse case, a member of the group the party
+charmed, is built since (below, "Freeing a member the party charmed").
 
 Tests: the search's group 11, the director's group 12, the director adapter's group 10, the choice
 adapter's group 32 (guard walks, `await` rows, a place in a danger zone, the dull, an order to the
@@ -1237,9 +1235,9 @@ What the engine does now:
 Tests: the harm tests' group 8, the choice tests' groups 15 and 23 (a charm and a debuff's opening
 on the last foe), the director's group 12, the targeting tests' group 1, the care tests' groups 3
 and 4 and the defence tests' groups 6 and 7; 17 mutations checked.
-Still open: a member of the group that the party charmed and the group charmed back is awaited as a
-charmed foe (part of the reverse case, agreed since: above, "Foes out of play"). Oil of Speed: fixed
-since (below, "Buff potions before the attack").
+Still open then: a member of the group that the party charmed and the group charmed back was awaited
+as a charmed foe; it had turned to the party's side (below, "Freeing a member the party charmed").
+Oil of Speed: fixed since (below, "Buff potions before the attack").
 
 ### Hits that skins take (lab batch J, run 3, 2026-10-29)
 
@@ -1330,6 +1328,66 @@ is worth 0.22. It drinks, then swings. With giant strength and Oil of Speed at t
 the giant strength (the larger), swings while the pause after it runs, and drinks the Oil then.
 
 Tests: the defence tests' groups 14 and 15; 10 mutations checked.
+Still to see in game: batch J again.
+
+### Freeing a member the party charmed (Christopher, 2026-10-29)
+
+Christopher, 2026-10-29 ("klingt gut"): clever creatures free a member of their group whom the party
+charmed, with Dispel Magic when they have it; otherwise the group fights it as any enemy.
+
+What the game does with a charm (opcode 5; IESDP, and batch J, run 3, read from each creature's EA
+in the logs):
+
+- **While it holds** the creature fights for its charmer's side: the party's charms set the group's
+  assassin, kensai and archer to EA CONTROLLED (5); the group's charms set the party's members to
+  ENEMY (255) or CHARMED_PC (254).
+- **After it** a charm of the hostile types sets the creature against its charmer: the party's
+  members the group had charmed came back as GOODCUTOFF (30), not as PC (2). By IESDP one the party
+  charms with a hostile type goes to the evil side after (EVILCUTOFF), and one of the neutral types
+  keeps its allegiance as it was; either way a dispel that takes the charm off a member of the group
+  brings it back to the group. Not seen in the lab yet: the three the party charmed died charmed (EA
+  NEUTRAL, 128, at their death).
+- **A charm by a caster of the evil side** turns its creature to the good side for after the charm.
+  In j1-own-4 and j2-own-3 the party's mage began a Dire Charm at the group's kensai, and at its
+  fighter-thief, 17 and 30 ticks before the group charmed the mage; the charm landed after, with its
+  caster on the group's side. Both stood with the group while charmed and with the party once it
+  ended (EA 30). The erinyes then charmed the fighter-thief back, and the group awaited it as a
+  charmed foe; that was right then, since it had become one of the party's. A real party can get
+  there too: a cast goes on when its caster is charmed in the middle of it.
+
+What the engine does now (`combat-intent/removal.lua`, `harm.lua`, `targeting.lua`, `choice.lua`;
+`adapters/eeex/director.lua`):
+
+- **Freeing.** A creature among the enemies in the charmed state is one the other side charmed. A
+  removal that takes every charm on it (Dispel Magic, as likely as its level against the charm's)
+  frees it, worth what the same charm on an enemy is (1.2 for the full 18 seconds, less for less
+  time left or fewer hit points), as likely as every charm goes and as the dispel lands (magic
+  resistance). Its other effects count neither way then (they go with a creature that comes back),
+  and as on any enemy as far as it stays charmed. A charm no dispel can take (an innate one) frees
+  nothing. Seeing it is a tactic: a clever creature always, a normal one when it notices, a dull one
+  never; one that does not see it weighs the dispel on it as on any enemy.
+- **It fights.** A charmed creature is no disabled one any more (`targeting.disabled`): the one the
+  party charmed counts with its weapon and spells against the group it now fights (threat, the rest
+  of the fight, danger zones), and holds and debuffs count on it as on any enemy. Before, the group
+  counted it out of the fight. A foe the group charmed stays out of play as before
+  (`threat.friends`).
+- **No charm over a charm.** A charm on a creature charmed already counts nothing: the group's charm
+  on its own member would turn that member to the party's side for good once it ends.
+- **A member the party charmed** stands on the party's side: what it sees no longer enters the
+  group's picture, and its casts at the group are not advised.
+
+Example: the party's mage charms the group's kensai. The group's clever mage, with Dispel Magic at
+level 15 against the party's charm of level 10 (74%), dispels it at once when that is worth more
+than its other spells: the kensai is back for the rest of the fight. A dull ogre beside it attacks
+the kensai as any enemy.
+
+For the lab: the bot still gave orders to party members the group held charmed (in run 3 the
+assassin, the archer and the mage), which the game's own scripts would not do for a party member
+(IESDP: a party member turned hostile has its scripts off; in run 2 the game overrode such orders).
+Batch J's bot is to leave charmed members alone (run 4).
+
+Tests: the removal tests' group 8, the harm tests' group 9, the targeting tests' group 1, the
+director adapter's group 5; 15 mutations checked.
 Still to see in game: batch J again.
 
 ## Agreed (Christopher, 2026-10-25)
