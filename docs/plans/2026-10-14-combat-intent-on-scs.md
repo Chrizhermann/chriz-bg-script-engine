@@ -826,7 +826,8 @@ start, nobody attacks or hunts a charmed foe. Three new causes: the casters char
 party's last member again and again, which only postpones the fight, so such a disable on the last
 foe in play is now worth nothing; the priest chose heals at its own invisible allies, which the game
 does not let happen, so heals and buffs now aim only at allies the caster sees; and the fighters
-waited in front of a mage behind Stoneskin, counting all their hits as lost to the skins.
+waited in front of a mage behind Stoneskin, counting all their hits as lost to the skins, so now
+the hits that skins and Mirror Images take count as progress toward the kill.
 
 Next, in the order agreed with Christopher on 2026-10-27 for the first release: the rest of the big
 lab round (light and shadow in a second hide probe, and a party of the same strength for the mixed

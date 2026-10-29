@@ -1197,7 +1197,7 @@ fight, foes out of play), in the Spell Revisions lab, cleaned up after.
 - **Why j1-own-4 ran out of time.** From 121 seconds the party's last member, its mage, stood with
   five Stoneskin skins. The group's fighters counted all of a round's hits (two or three) as taken by
   the skins, found no attack worth anything and waited two minutes (`nothing-good`) while the mage
-  cast area spells at them. Fixed next (below).
+  cast area spells at them. Fixed since (below, "Hits that skins take").
 - **Oil of Speed** still came late: the group's fighter drank it in j2 after 9 to 11 seconds, in j1
   not at all; a round of swings counted more (in j1-own-2 0.53 against 0.37).
 
@@ -1219,6 +1219,30 @@ and 4 and the defence tests' groups 6 and 7; 17 mutations checked.
 Still open: a member of the group that the party charmed and the group charmed back is awaited as a
 charmed foe (part of the reverse case, for Christopher); Oil of Speed's worth against a round of
 swings.
+
+### Hits that skins take (lab batch J, run 3, 2026-10-29)
+
+Why the group waited in j1-own-4: the worth of a round of weapon hits took off every hit that
+Mirror Images and Stoneskin skins take first (`weapons.hits`), so two or three hits a round against
+five skins counted nothing, and so did every round after it. But each hit an image or a skin takes
+removes it: it brings the kill a hit closer.
+
+What the engine does now (`combat-intent/choice.lua`, `hitsOn`): the hits past the images and
+skins deal damage, bring an on-hit disable or debuff, break a spell and kill this round, as before.
+The round counts at least the progress it makes toward the kill: what its hits would deal with
+nothing in the way, times the share of real hits among all the hits the kill takes (to the enemy's
+minimum, if it has one). A conjured weapon's rounds and a jump into the fight count the same way;
+over a conjured weapon's rounds the images and skins take their hits once, no longer once a round.
+
+Example (the weapons tests' group 15): a fighter hits 2.4 times a round with a sword of 9; the
+party's mage has 12 of 40 hit points left and five skins. The kill takes two hits and the five, so
+the round counts 2/7 of the 12 hit points it could take: 0.09, enough to attack (before: nothing,
+and the fighter waited). Beside another enemy as hurt with nothing in the way, the fighter strikes
+that one first, as its round kills. With one image and 9 hit points left, 1.4 hits get through
+and kill: the round counts the kill.
+
+Tests: the weapons tests' groups 3, 5, 10 and 15; 12 mutations checked.
+Still to see in game: batch J again.
 
 ## Agreed (Christopher, 2026-10-25)
 

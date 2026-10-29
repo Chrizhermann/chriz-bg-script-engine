@@ -7532,7 +7532,8 @@ local function touchOptions(input,row,spell,w,out,reject)
     end
 end
 
--- The worth of hits of weapon arms on e (hits: those expected, over one round or more), and the
+-- The worth of hits of weapon arms on e (raw: those expected to land, over one round or more;
+-- absorbed, optional: how many of them e's Mirror Images and Stoneskin skins take first), and the
 -- hit points e is expected to take. A hit deals the weapon's own damage, which neither magic
 -- resistance nor a save lessens, and what it casts or applies, which both do; so do the on-hit
 -- effects the caster carries (its guard's hits, F2a: Smite Evil, a poisoned blade) that fit the
@@ -7548,7 +7549,12 @@ end
 -- (defence.critOpen): what it deals counts as expected, but not toward a kill, which no one plans on
 -- a critical hit. bs (combat-intent/backstab.lua, optional): the chance the first hit is a
 -- backstab, which multiplies the weapon's own damage of that hit (not what it casts); a kill counts
--- as likely as it is with the backstab and without.
+-- as likely as it is with the backstab and without. Only the hits past the images and skins deal
+-- anything, bring a disable or a debuff and kill now; but each one they take brings the kill a hit
+-- closer, as the skins and images are gone once taken. So the hits count at least as the progress
+-- they make toward the kill: what they would deal with nothing in the way, times the share of real
+-- hits among all the hits the kill takes (lab batch J run 3: five skins on the party's last mage
+-- took all of a round's two or three hits, and the group waited two minutes in front of her).
 local function critPoints(guard)
     local roles=type(guard)=='table' and type(guard.roles)=='table' and guard.roles or {}
     local function points(role)
@@ -7557,17 +7563,20 @@ local function critPoints(guard)
     end
     return points(roles.buff)-points(roles.debuff)
 end
-local function hitsOn(input,arms,hits,e,bs)
+local function hitsOn(input,arms,raw,e,bs,absorbed)
     local hp,maxHp=e.hp,e.maxHp
-    if not number(hits) or hits<=0 or not number(hp) or not number(maxHp) or maxHp<=0 or hp<=0 then return 0,0 end
+    if not number(raw) or raw<=0 or not number(hp) or not number(maxHp) or maxHp<=0 or hp<=0 then return 0,0 end
+    absorbed=number(absorbed) and absorbed>0 and absorbed or 0
+    local hits=math.max(0,raw-absorbed)
     local per=number(arms.damage) and arms.damage>0 and arms.damage*resisted(e,weapons.DAMAGE[arms.damageType] or '') or 0
     local stab,p=0,0
     if type(bs)=='table' and number(bs.chance) and bs.chance>0 and number(bs.multiplier) and bs.multiplier>1 then
         stab,p=(bs.multiplier-1)*per,clamp(bs.chance,0,1)
     end
     local guard=input.frame.self.guard
-    local crits=hits*weapons.critical(threat.hitChance(arms.thac0,e.ac),critPoints(guard))*defence.critOpen
-    local first,critical,floor,conditions=0,0,targeting.floor(e,nil),{}
+    local critRate=weapons.critical(threat.hitChance(arms.thac0,e.ac),critPoints(guard))*defence.critOpen
+    local crits=hits*critRate
+    local first,critical,critOnce,floor,conditions=0,0,0,targeting.floor(e,nil),{}
     local function strike(c,h)
         local roles=type(c)=='table' and spells.view(c,targeting.holds(e)) or nil
         if type(roles)~='table' or targeting.protected(e,c) then return end
@@ -7582,7 +7591,8 @@ local function hitsOn(input,arms,hits,e,bs)
             end
             local save=M.saveChance(role,e)
             each=each*landing(role,e)*(role.saveForHalf and 1-save/2 or 1-save)
-            if h and h.critical then critical=critical+each*times
+            if h and h.critical then
+                if h.once then critOnce=critOnce+each else critical=critical+each end
             elseif h and h.once then first=first+each else per=per+each end
         end
         if reaches(roles.disable) then conditions[#conditions+1]={role=roles.disable,times=times} end
@@ -7592,16 +7602,26 @@ local function hitsOn(input,arms,hits,e,bs)
     end
     strike(arms.strike)
     for _,h in ipairs(weapons.payloads(type(guard)=='table' and guard.hits,arms)) do strike(h.strike,h) end
+    -- What n hits deal: each one per, the first one first too, a backstab as likely as it comes, and
+    -- the critical hits among them what their effects deal.
+    local function dealt(n)
+        local c=n*critRate
+        return n*per+first*math.min(1,n)+p*stab+critical*c+critOnce*math.min(1,c)
+    end
+    -- The hits it takes to bring e to its minimum, or to death without one (extra: dealt besides).
+    local function need(extra)
+        if per>0 then return math.max(1,math.ceil(math.max(0,hp-floor-first-extra)/per)) end
+        return first+extra>=hp and 1 or math.huge
+    end
     local worth,expected=0,0
-    if (per>0 or first>0 or critical>0) and hp>floor then
-        local dealt=hits*per+first*math.min(1,hits)+p*stab+critical
-        expected=math.min(dealt,hp-floor)
+    if (per>0 or first>0 or critical>0 or critOnce>0) and hp>floor then
+        expected=math.min(dealt(hits),hp-floor)
         worth=expected/maxHp
+        if absorbed>0 and per>0 then
+            local n=need(0)
+            worth=math.max(worth,math.min(dealt(raw),hp-floor)/maxHp*n/(n+absorbed))
+        end
         if floor<=0 then
-            local function need(extra)
-                if per>0 then return math.max(1,math.ceil(math.max(0,hp-first-extra)/per)) end
-                return first+extra>=hp and 1 or math.huge
-            end
             local kill=clamp(hits-need(0)+1,0,1)
             if p>0 then
                 local n=need(stab)
@@ -7624,7 +7644,8 @@ end
 
 -- Options of one ready spell that conjures a weapon (arms, combat-intent/weapons.lua): cast on
 -- the caster, worth the hits the weapon deals in the rounds after, as many as it lasts within
--- the horizon, at the enemy in its reach where they are worth most. Cost: the spell's level, and
+-- the horizon (the enemy's images and skins taking their hits once), at the enemy in its reach
+-- where they are worth most. Cost: the spell's level, and
 -- for a melee weapon the hit points lost standing next to that enemy those rounds, times caution.
 local function armOptions(input,row,spell,arms,out,reject)
     local frame=input.frame
@@ -7638,7 +7659,8 @@ local function armOptions(input,row,spell,arms,out,reject)
         local ok,why=weapons.reachable(caster,e,mind,arms)
         if ok and weapons.immuneTo(e,arms) then ok,why=false,'weapon-immunity' end
         if ok then
-            local worth,hp=hitsOn(input,arms,weapons.hits(arms.apr,arms.thac0,e)*rounds,e)
+            local _,raw,absorbed=weapons.hits(arms.apr,arms.thac0,e)
+            local worth,hp=hitsOn(input,arms,raw*rounds,e,nil,absorbed)
             if worth>best or (worth==best and worth>0 and e.id<target) then best,target,expected=worth,e.id,hp end
         else reject(why) end
     end
@@ -7805,7 +7827,8 @@ end
 
 -- Attacks with the caster's weapons (M.arsenal: the one in hand, frame.self.weapon, and those it
 -- could take up): with each at each enemy it reaches and can hurt, best first. Worth: a round of
--- its hits, as much of it as counts for a round after what comes first (weapons.paced): the walk
+-- its hits (behind Mirror Images and skins as hitsOn counts them), as much of it as counts for a
+-- round after what comes first (weapons.paced): the walk
 -- to a melee enemy (a creature that chases walks to any enemy it sees, weapons.reach), the walk
 -- into a missile's range, and taking up a weapon not in hand (weapons.switchSeconds); on a casting
 -- enemy what breaking its spell is worth with the hits that come after those. Cost: for melee, the
@@ -7834,9 +7857,9 @@ function M.weaponOptions(input,rejected)
             if ok and weapons.immuneTo(e,arms) then ok,why=false,'weapon-immunity' end
             if ok and weapons.missileBlocked(e,arms) then ok,why=false,'missile-blocked' end
             if ok then
-                local hits,raw,absorbed=weapons.hits(arms.apr,arms.thac0,e)
+                local _,raw,absorbed=weapons.hits(arms.apr,arms.thac0,e)
                 local bs=not arms.ranged and backstab.chance(caster,arms,e) or nil
-                local worth,expected=hitsOn(input,arms,hits,e,bs)
+                local worth,expected=hitsOn(input,arms,raw,e,bs,absorbed)
                 if worth>0 then
                     local cost=0
                     if not arms.ranged then
@@ -7852,7 +7875,7 @@ function M.weaponOptions(input,rejected)
                         melee=not arms.ranged or nil,walk=walk>0 and walk or nil,interrupt=stop>0 and stop or nil,
                         slot=switch and arms.slot or nil,abilityNum=switch and arms.abilityNum or nil,
                         ammo=switch and arms.ammo or nil,backstab=bs and bs.chance or nil}
-                else reject(hits<=0 and 'absorbed' or 'no-worth') end
+                else reject('no-worth') end
             else reject(why) end
         end
     end
@@ -7893,9 +7916,9 @@ function M.flankOptions(input,rejected)
             local walk=ok and weapons.approach(caster,spot,0) or nil
             if ok and not walk then ok,why=false,'no-walk' end
             if ok then
-                local hits,raw,absorbed=weapons.hits(arms.apr,arms.thac0,e)
+                local _,raw,absorbed=weapons.hits(arms.apr,arms.thac0,e)
                 local bs=backstab.chance(caster,arms,e,true)
-                local worth,expected=hitsOn(input,arms,hits,e,bs)
+                local worth,expected=hitsOn(input,arms,raw,e,bs,absorbed)
                 if worth>0 then
                     local delay=walk+(switch and weapons.switchSeconds or 0)
                     worth=worth*weapons.paced(delay)
@@ -7940,9 +7963,10 @@ function M.hideOpening(input)
                         walk=spot and weapons.approach(caster,spot,0) or nil
                     end
                     if walk then
-                        local hits=weapons.hits(arms.apr,arms.thac0,e)
+                        local _,raw,absorbed=weapons.hits(arms.apr,arms.thac0,e)
                         local bs=backstab.chance(caster,arms,e,behind==false or nil,true)
-                        local gain=(hitsOn(input,arms,hits,e,bs)-hitsOn(input,arms,hits,e))*weapons.paced(walk+switch)
+                        local gain=(hitsOn(input,arms,raw,e,bs,absorbed)-hitsOn(input,arms,raw,e,nil,absorbed))*
+                            weapons.paced(walk+switch)
                         if gain>best or (gain==best and gain>0 and e.id<at) then best,at=gain,e.id end
                     end
                 end
@@ -8104,8 +8128,8 @@ function M.jumpOptions(input,rejected)
             local walk=d-M.landShort
             local spot={x=caster.x+(e.x-caster.x)*walk/d,y=caster.y+(e.y-caster.y)*walk/d}
             local o,at=search.jump(input,spot,walk,true)
-            local hits,raw,absorbed=weapons.hits(arms.apr,arms.thac0,e)
-            local worth,expected=hitsOn(input,arms,hits,e)
+            local _,raw,absorbed=weapons.hits(arms.apr,arms.thac0,e)
+            local worth,expected=hitsOn(input,arms,raw,e,nil,absorbed)
             if o and worth>0 then
                 local landed={}
                 for k,v in pairs(caster) do landed[k]=v end
@@ -8122,7 +8146,7 @@ function M.jumpOptions(input,rejected)
                     score=worth-cost,hits={e.id},slack=0,speed=number(o.speed) and o.speed or 0,level=level,
                     innate=o.innate,melee=true,interrupt=stop>0 and stop or nil}
             elseif not o then reject('no-teleport')
-            else reject(hits<=0 and 'absorbed' or 'no-worth') end
+            else reject('no-worth') end
         else reject(why) end
     end
     table.sort(out,better)

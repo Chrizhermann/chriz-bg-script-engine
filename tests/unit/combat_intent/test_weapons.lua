@@ -133,11 +133,14 @@ i.frame.enemies={enemy(11,{x=200,hp=1,minHp=1})}
 assert(#choice.weaponOptions(i)==0)
 i.frame.enemies={enemy(11,{x=200,resist={crushing=50}})}
 assert(near(choice.weaponOptions(i)[1].worth,0.8*2.25/60*pace))
--- Out of reach, immune, behind a Mirror Image: no attack, and why.
+-- Out of reach and immune: no attack, and why. Behind a Mirror Image the round's 0.8 hits all go to
+-- the image and deal nothing, yet they bring the kill closer: it takes 14 hits of 4.5 and one for
+-- the image, so the round counts 14/15 of its 3.6 (after a walk of 0.46 seconds).
 local rejected={}
 i.frame.enemies={enemy(11,{x=300}),enemy(12,{x=200,protections={{opcode=120,p1=0,p2=2}}}),enemy(13,{x=210,mirror=1})}
-assert(#choice.weaponOptions(i,rejected)==0)
-assert(rejected['out-of-reach']==1 and rejected['weapon-immunity']==1 and rejected.absorbed==1)
+list=choice.weaponOptions(i,rejected)
+assert(#list==1 and list[1].target==13 and near(list[1].worth,3.6/60*14/15*6/6.46) and list[1].expected[13]==0)
+assert(rejected['out-of-reach']==1 and rejected['weapon-immunity']==1 and rejected.absorbed==nil)
 -- A sling reaches its range and costs nothing to use from afar.
 i.frame.self.weapon={item='TESTSLNG',damage=3.5,damageType=2,apr=1,thac0=10,ranged=true,range=400,flags=0,enchantment=0}
 i.frame.enemies={enemy(11,{x=450,attack={apr=2,thac0=5,damage=10}})}
@@ -201,6 +204,12 @@ i.frame.enemies={enemy(11,{x=400})}
 o=choice.options(i)[1]
 assert(o.kind=='arm' and o.self and o.mode=='self' and o.target==11 and o.resref=='TESTMMM' and o.item=='TESTMET')
 assert(near(o.worth,40/60) and near(o.cost,0.09) and near(o.expected[11],40))
+-- Three skins take three of the eight hits, once: five land (25 hit points), and the eight are 8 of
+-- the 15 hits the kill takes (12 of 5 and the three skins).
+i.frame.enemies={enemy(11,{x=400,skins=3})}
+o=choice.options(i)[1]
+assert(o.kind=='arm' and near(o.worth,40/60*12/15) and near(o.expected[11],25))
+i.frame.enemies={enemy(11,{x=400})}
 -- A spell slot costs input.slots of its price (combat-intent/choice.lua).
 i.slots=0.5;assert(near(choice.options(i)[1].cost,0.045));i.slots=nil
 d,why=choice.decide(i)
@@ -356,6 +365,11 @@ swing=choice.weaponOptions(i)[1]
 assert(near(swing.worth,32/60*6/11.36) and swing.score<o.score)
 d,why=choice.decide(i)
 assert(why=='best' and d.kind=='teleport' and d.target==11 and d.point.x==652)
+-- Behind two skins the round's 1.6 hits only take them, the kill's progress: three hits of 20 and
+-- the two skins.
+i.frame.enemies={enemy(11,{x=700,skins=2})}
+o=choice.jumpOptions(i)[1]
+assert(o and near(o.worth,32/60*3/5))
 -- Within a jump's walk of the landing (200) it walks.
 i.frame.enemies={enemy(11,{x=290})}
 rejected={}
@@ -710,6 +724,35 @@ i.frame.self.guard=siege('TESTSIEG')
 assert(i.frame.self.guard.hits[1].once and near(choice.weaponOptions(i)[1].worth,(10.8+10)/60*pace))
 i.frame.self.guard=siege('TESTOTHR')
 assert(near(choice.weaponOptions(i)[1].worth,(10.8+12)/60*pace))
+groups=groups+1
+
+-- 15. Behind Stoneskin and Mirror Images (lab batch J run 3: five skins on the party's last mage
+-- took all of a round's hits, and the group waited two minutes in front of her). The hits the
+-- skins and images take deal nothing now, but each one brings the kill a hit closer: the round
+-- counts what it would deal with nothing in the way, times the share of real hits among all the
+-- hits the kill takes. A fighter swings three times a round with a sword of 9 that hits four times
+-- in five: 2.4 hits. The mage has 12 of 40 hit points and five skins: the kill takes two hits and
+-- the five, so the round's 21.6 (12 of them count) counts 2/7.
+i=input()
+i.family='fighter'
+i.frame.self.weapon={item='TESTSWRD',damage=9,damageType=1,apr=3,thac0=10,ranged=false,flags=0,enchantment=0}
+i.frame.enemies={enemy(11,{x=150,hp=12,maxHp=40,skins=5})}
+o=choice.weaponOptions(i)[1]
+assert(o and o.target==11 and near(o.worth,12/40*2/7) and o.expected[11]==0 and o.interrupt==nil)
+d,why=choice.decide(i)
+assert(why=='weapon' and d.kind=='weapon' and d.target==11)
+-- Beside an enemy as hurt with nothing in the way, that one comes first: its round kills.
+i.frame.enemies={enemy(11,{x=150,hp=12,maxHp=40,skins=5}),enemy(12,{x=150,hp=12,maxHp=40})}
+o=choice.weaponOptions(i)[1]
+assert(o.target==12 and near(o.worth,12/40+i.mind.killBonus))
+-- Hits past the images that kill this round count as the kill: one image takes one of the 2.4
+-- hits, the other 1.4 take its last 9 hit points (more than the progress, half of it).
+i.frame.enemies={enemy(11,{x=150,hp=9,maxHp=40,mirror=1})}
+o=choice.weaponOptions(i)[1]
+assert(near(o.worth,9/40+i.mind.killBonus) and near(o.expected[11],9))
+-- A minimum of 3 leaves 9 to take: one hit and the five skins, and no kill.
+i.frame.enemies={enemy(11,{x=150,hp=12,maxHp=40,skins=5,minHp=3})}
+assert(near(choice.weaponOptions(i)[1].worth,9/40*1/6))
 groups=groups+1
 
 return groups
