@@ -639,7 +639,8 @@ local function lastingOn(input,row,spell,kind,roles,e,center,ctx,walk)
     local step=every*math.max(1,math.ceil(zones.period({every=every,spell=spell})/every-1e-9))
     local first=a.skipFirst and every or 0
     local last=first+(a.explosions-1)*every
-    ctx.rest=ctx.rest or threat.rest(input.frame,number(input.mind.fightCap) and input.mind.fightCap or 60)
+    ctx.rest=ctx.rest or threat.rest(type(input.fight)=='table' and input.fight or input.frame,
+        number(input.mind.fightCap) and input.mind.fightCap or 60)
     local cast=(number(spell.speed) and spell.speed or 0)*zones.speedSeconds+(number(caster.aura) and caster.aura>0 and caster.aura or 0)+
         (number(walk) and walk>0 and walk or 0)
     -- A foe out of play (readiness, see the top) is in the area from when it is likely back on,
@@ -1738,7 +1739,9 @@ function M.readied(input)
     for k,v in pairs(input.frame) do frame[k]=v end
     frame.enemies=enemies
     for k,v in pairs(input) do view[k]=v end
-    view.frame,view.calm=frame,calm
+    -- The fight from the foes' return is theirs against the caster's side, not the one the group
+    -- knows now (input.fight), whose foes are away.
+    view.frame,view.calm,view.fight=frame,calm,nil
     return view
 end
 

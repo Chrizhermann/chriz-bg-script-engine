@@ -610,6 +610,16 @@ assert(near(threat.rest(i.frame,60),12))
 opts=defence.options(i,{})
 assert(near(find(opts,'TESTOIL').worth,(3*0.75*10-2*0.75*10)*2/300) and find(opts,'TESTOIL').rest==12)
 assert(near(find(opts,'TESTGIAN').worth,(2*0.9*17-2*0.75*10)*2/300))
+-- The fight as the group knows it (input.fight: its members and the enemies they saw) counts instead
+-- of the caster's frame (lab batch J, run 4: at the start the group's fighter saw 2 of the party's 7
+-- and counted 13 seconds of a fight that lasted 120). With a second enemy of 300 that only another
+-- member sees, the Oil counts over the whole of that fight.
+i.fight={self=i.frame.self,allies={},enemies={i.frame.enemies[1],fighter(12,130,{hp=300,maxHp=300})}}
+local known=threat.rest(i.fight,60)
+assert(known>12 and near(threat.rest(i.frame,60),12))
+opts=defence.options(i,{})
+assert(near(find(opts,'TESTOIL').rest,known) and near(find(opts,'TESTOIL').worth,(3*0.75*10-2*0.75*10)*(known/6)/300))
+i.fight=nil
 -- A shorter fight cap shortens it too; a buff never counts beyond its own duration.
 i.frame.enemies[1].hp=300
 i.mind=mind.new({ownWeapon=true,fightCap=30})

@@ -27,7 +27,9 @@
 --   casts does not swing. A buff adds to its receivers' fight over the rest of the fight
 --   (threat.rest, at most the profile's fightCap) as long as it lasts, as a summons does
 --   (combat-intent/summons.lua): drunk or cast early it counts much, late little (lab batch J: SCS's
---   fighters drink their Oil of Speed and giant strength at the start). A protection counts over the
+--   fighters drink their Oil of Speed and giant strength at the start). The fight is the one the
+--   group knows (input.fight: its members and the enemies its members saw) when the adapter gives
+--   it, else the caster's frame. A protection counts over the
 --   horizon, against the harm the caster sees now.
 -- Harm comes from combat-intent/threat.lua: weapons, spells aimed at one creature, areas and
 -- disables, as the caster perceives them.
@@ -626,7 +628,7 @@ function M.options(input,rejected)
     local waiting=number(input.lastDefence) and number(input.tick) and input.tick-input.lastDefence<pause*15
         and not M.acute(input,pictures)
     local horizon=number(mind.horizon) and mind.horizon or 18
-    local rest=threat.rest(frame,number(mind.fightCap) and mind.fightCap or 60)
+    local rest=threat.rest(type(input.fight)=='table' and input.fight or frame,number(mind.fightCap) and mind.fightCap or 60)
     local tables=type(input.tables)=='table' and input.tables or nil
     local killBonus=number(mind.killBonus) and mind.killBonus or 0
     local stop=quiet(input) or 0

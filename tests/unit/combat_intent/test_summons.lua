@@ -311,6 +311,14 @@ assert(#summons.options(i,rejected)==0 and rejected['summon-no-worth']==1)
 i=input({mind=mind.new({fightCap=12})})
 assert(near(summons.options(i)[1].worth,both*12/25))
 assert(mind.new().fightCap==60 and select(2,mind.new({fightCap=-1}))=='fightCap')
+-- The fight as the group knows it (input.fight, adapters/eeex/choice.lua: its members and the enemies
+-- they saw) counts instead of the caster's frame (lab batch J, run 4: at the start the group's
+-- fighter saw 2 of the party's 7 and counted 13 seconds of a fight that lasted 120). A second enemy
+-- that only another member sees, held, makes the fight last longer, and the summons counts over it.
+i=input()
+i.fight={self=i.frame.self,allies={},enemies={i.frame.enemies[1],enemy(12,{held=1})}}
+local long=threat.rest(i.fight,60)
+assert(long>25 and near(threat.rest(i.frame,60),25) and near(summons.options(i)[1].worth,early*long/25))
 groups=groups+1
 
 -- 9. Readiness (combat-intent/choice.lua; Christopher, 2026-10-29: "Was für eine geile Idee"): while

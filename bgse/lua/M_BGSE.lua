@@ -4142,7 +4142,9 @@ factories["combat-intent.defence"]=function(require)
 --   casts does not swing. A buff adds to its receivers' fight over the rest of the fight
 --   (threat.rest, at most the profile's fightCap) as long as it lasts, as a summons does
 --   (combat-intent/summons.lua): drunk or cast early it counts much, late little (lab batch J: SCS's
---   fighters drink their Oil of Speed and giant strength at the start). A protection counts over the
+--   fighters drink their Oil of Speed and giant strength at the start). The fight is the one the
+--   group knows (input.fight: its members and the enemies its members saw) when the adapter gives
+--   it, else the caster's frame. A protection counts over the
 --   horizon, against the harm the caster sees now.
 -- Harm comes from combat-intent/threat.lua: weapons, spells aimed at one creature, areas and
 -- disables, as the caster perceives them.
@@ -4741,7 +4743,7 @@ function M.options(input,rejected)
     local waiting=number(input.lastDefence) and number(input.tick) and input.tick-input.lastDefence<pause*15
         and not M.acute(input,pictures)
     local horizon=number(mind.horizon) and mind.horizon or 18
-    local rest=threat.rest(frame,number(mind.fightCap) and mind.fightCap or 60)
+    local rest=threat.rest(type(input.fight)=='table' and input.fight or frame,number(mind.fightCap) and mind.fightCap or 60)
     local tables=type(input.tables)=='table' and input.tables or nil
     local killBonus=number(mind.killBonus) and mind.killBonus or 0
     local stop=quiet(input) or 0
@@ -5432,7 +5434,7 @@ function M.options(input,rejected)
     local frame=input.frame
     if type(frame)~='table' or type(frame.self)~='table' or type(mind)~='table' then return out end
     local creatures=type(input.creatures)=='table' and input.creatures or {}
-    local rest=threat.rest(frame,number(mind.fightCap) and mind.fightCap or 60)
+    local rest=threat.rest(type(input.fight)=='table' and input.fight or frame,number(mind.fightCap) and mind.fightCap or 60)
     local calm=number(input.calm) and math.max(0,input.calm) or 0
     local side=M.side(frame.self.ea)
     local summoned=0
@@ -7336,7 +7338,8 @@ local function lastingOn(input,row,spell,kind,roles,e,center,ctx,walk)
     local step=every*math.max(1,math.ceil(zones.period({every=every,spell=spell})/every-1e-9))
     local first=a.skipFirst and every or 0
     local last=first+(a.explosions-1)*every
-    ctx.rest=ctx.rest or threat.rest(input.frame,number(input.mind.fightCap) and input.mind.fightCap or 60)
+    ctx.rest=ctx.rest or threat.rest(type(input.fight)=='table' and input.fight or input.frame,
+        number(input.mind.fightCap) and input.mind.fightCap or 60)
     local cast=(number(spell.speed) and spell.speed or 0)*zones.speedSeconds+(number(caster.aura) and caster.aura>0 and caster.aura or 0)+
         (number(walk) and walk>0 and walk or 0)
     -- A foe out of play (readiness, see the top) is in the area from when it is likely back on,
@@ -8435,7 +8438,9 @@ function M.readied(input)
     for k,v in pairs(input.frame) do frame[k]=v end
     frame.enemies=enemies
     for k,v in pairs(input) do view[k]=v end
-    view.frame,view.calm=frame,calm
+    -- The fight from the foes' return is theirs against the caster's side, not the one the group
+    -- knows now (input.fight), whose foes are away.
+    view.frame,view.calm,view.fight=frame,calm,nil
     return view
 end
 
@@ -12282,6 +12287,9 @@ M.roundTicks=90
 M.waitTicks=15
 M.coverSlack=15
 M.cacheLimit=1024
+-- A member of the group or an enemy of its picture outside the creature's frame is read for the
+-- fight's length (fightFor) at most once in this many ticks.
+M.knownTicks=15
 M.logCapacity=128
 M.judgeLimit=64
 -- Item slots a creature drinks from: the quick items and the backpack (SLOTS.IDS).
@@ -12518,10 +12526,11 @@ function M.new(g,options)
         guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0,arms=0,attacks=0,attackHits=0,
         weaponFailures=0,releases=0,heals=0,cures=0,potions=0,cared=0,uncared=0,summons=0,conjured=0,
         unconjured=0,removals=0,stripped=0,unstripped=0,wardFailures=0,revealed=0,unrevealed=0,landed=0,unlanded=0,
-        jumps=0,debuffs=0,switches=0,kites=0,kited=0,flanks=0,flanked=0,replaced=0,positions=0,positioned=0,readies=0}
+        jumps=0,debuffs=0,switches=0,kites=0,kited=0,flanks=0,flanked=0,replaced=0,positions=0,positioned=0,readies=0,
+        fightFailures=0}
     local reasons={}
     local log,nextRow,size={},1,0
-    local root,sink,lastError,markError,guardError,weaponError,wardError,zoneError,witError,tableError
+    local root,sink,lastError,markError,guardError,weaponError,wardError,zoneError,witError,tableError,fightError
     -- trace: labs see every decline as a 'declined' row in the sink (never in the log).
     local trace,lastReason,lastDetail,lastCharge=false,nil,nil,nil
     local api={}
@@ -13485,14 +13494,79 @@ function M.new(g,options)
         judging=keep
     end
 
+    -- The fight as the group knows it, for how long it will likely last (combat-intent/threat.lua's
+    -- rest; choice input.fight): the creature's frame with the members of its group and the living
+    -- enemies of the group's picture (plan.inPlay) that the frame lacks. Lab batch J, run 4: at the
+    -- start the group's fighter saw 2 of the party's 7 (the rest stood farther off or invisible) and
+    -- counted the fight at 13 seconds; it lasted 120. Each such creature is read as an enemy in sight
+    -- is (sense.actor, its IDS values and level, its weapon), at most once in knownTicks, and counts on
+    -- the side it stands on now; one that cannot be read counts not at all. Nil outside a group or
+    -- with nothing to add.
+    local outside,outsideCount={},0
+    local function fightFor(sprite,frame,plan,tick)
+        if not director or type(plan)~='table' then return nil end
+        local present={[frame.self.id]=true}
+        for _,a in ipairs(frame.allies) do present[a.id]=true end
+        for _,e in ipairs(frame.enemies) do present[e.id]=true end
+        local ids={}
+        for _,m in ipairs(director:group(frame.self.id,tick)) do
+            if not present[m.id] then present[m.id]=true;ids[#ids+1]=m.id end
+        end
+        for key in pairs(type(plan.inPlay)=='table' and plan.inPlay or {}) do
+            if not present[key] then present[key]=true;ids[#ids+1]=key end
+        end
+        if #ids==0 then return nil end
+        table.sort(ids)
+        local fight={self=frame.self,allies={},enemies={}}
+        for _,a in ipairs(frame.allies) do fight.allies[#fight.allies+1]=a end
+        for _,e in ipairs(frame.enemies) do fight.enemies[#fight.enemies+1]=e end
+        local side=sense.side(frame.self.ea)
+        for _,key in ipairs(ids) do
+            local k=outside[key]
+            if not k or tick<k.tick or tick-k.tick>=M.knownTicks then
+                local object=get(key)
+                local entry=false
+                if object then
+                    local ok,value=pcall(function()
+                        local e=sense.actor(g,object)
+                        sense.identity(g,object,e)
+                        e.attack=sense.attack(g,object,reader)
+                        return e
+                    end)
+                    if ok then entry=value
+                    else
+                        counts.fightFailures=counts.fightFailures+1
+                        if not fightError then
+                            fightError=tostring(value):sub(1,200)
+                            record({kind='error',where='fight',error=fightError})
+                        end
+                    end
+                end
+                if not k then
+                    if outsideCount>=M.cacheLimit then outside,outsideCount={},0 end
+                    outsideCount=outsideCount+1
+                end
+                k={tick=tick,entry=entry}
+                outside[key]=k
+            end
+            local e=k.entry
+            if e then
+                local other=sense.side(e.ea)
+                if other==side then fight.allies[#fight.allies+1]=e
+                elseif other~=nil then fight.enemies[#fight.enemies+1]=e end
+            end
+        end
+        return fight
+    end
+
     -- What the creature knows of the fight beyond its frame, added to it: its ready spells' SPLPROT
     -- marks, what protects each friend and the weapons around (sense.defend), what a removal could
     -- take from each enemy, the enemies' casts that damage can break (casts), its own Improved
     -- Alacrity, THAC0, touch charge, magic weapon slot, casting aura and weapon, and the marks of
     -- what its hits bring (markHits). The foes out of play it readies itself for (returning) get
     -- the SPLPROT marks as the enemies in sight do: a cloud laid where a mazed foe will be back is
-    -- weighed on it.
-    local function situate(sprite,frame,rows,tick,returning)
+    -- weighed on it. Returns the fight as the group knows it (fightFor, with the group's plan).
+    local function situate(sprite,frame,rows,tick,returning,plan)
         mark(sprite,frame,rows)
         if returning then mark(sprite,{enemies=returning},rows) end
         local bad,last=sense.defend(g,frame,tick,reader,effectsOf)
@@ -13554,6 +13628,7 @@ function M.new(g,options)
             end
         end
         markHits(sprite,frame)
+        return fightFor(sprite,frame,plan,tick)
     end
 
     -- With no enemy in sight: a thief's hide or a monster's veil (adapters/eeex/stealth.lua), else the
@@ -13732,14 +13807,15 @@ function M.new(g,options)
         end
         local rows,carried=book(sprite)
         if not rows then failed('book',carried);return nil end
-        situate(sprite,frame,rows,tick,returning)
+        local plan=director and director:plan(id,tick) or {}
+        local fight=situate(sprite,frame,rows,tick,returning,plan)
         counts.decisions=counts.decisions+1
         local holder,left=timeStop()
         local input={tick=tick,family=family,frame=frame,spells=rows,items=carried,lastDefence=lastDefence[id],
-            plan=director and director:plan(id,tick) or {},memory=memory[id] or {},mind=mindFor(sprite,family),rng=rng,
+            plan=plan,memory=memory[id] or {},mind=mindFor(sprite,family),rng=rng,
             creatures=summoned(rows),stays=stays,orders=orderBook[text(sprite.m_resref:get())],
             teleports=search.teleports(rows),jumped=seeker:jumped(id),kited=kited[id],tables=(sense.tables(g)),
-            returning=returning}
+            returning=returning,fight=fight}
         -- The zones in the area, with what they weigh about the caster itself.
         local raw=zoneList(sprite,tick)
         local seen={}
@@ -13828,7 +13904,7 @@ function M.new(g,options)
             rest=d.rest,slots=input.slots,finish=d.finish,aura=frame.self.aura~=0 and frame.self.aura or nil,
             inZones=zoneView(input,d),lasting=d.lasting,wit=input.mind.wit,walk=d.walk,interrupt=d.interrupt,
             ordered=d.ordered,slot=d.slot,backstab=d.backstab,opening=d.opening,ready=d.ready,
-            calm=d.ready and d.calm or nil})
+            calm=d.ready and d.calm or nil,fight=fight and {#fight.allies+1,#fight.enemies} or nil})
         -- A disable claims its targets in the group at once, so that another member deciding
         -- before this cast starts leaves them alone, and a debuff the enemies it weakens for its
         -- spell; any other decision gives earlier claims back.
@@ -14273,6 +14349,7 @@ function M.new(g,options)
         minds,mindCount,hurts,hurtCount,pained={},0,{},0,{}
         waits={}
         prepHeld,prepHeldCount={},0
+        outside,outsideCount={},0
         seeker:invalidate()
         hider:invalidate()
     end

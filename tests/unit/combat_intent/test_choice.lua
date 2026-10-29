@@ -915,6 +915,10 @@ do
     local l=o.lasting[1]
     assert(l.id==11 and l.stay==2 and l.leave==0 and near(l.q,0.25))
     assert(near(o.worth,0.25*0.4+0.75*walk) and o.point.x==400 and o.point.y==100 and #o.hits==1 and o.hits[1]==11)
+    -- The fight as the group knows it now (input.fight) has these foes away: the view reckons from
+    -- their return with its own frame, as without it.
+    local known=readied({mazed(10)},nil,{fight={self=view.frame.self,allies={},enemies={}}})
+    assert(known.fight==nil and near(find(known,'TESTSTRM').worth,o.worth))
     o=find(readied({mazed(3)}),'TESTSTRM')
     assert(o.lasting[1].stay==3 and o.lasting[1].leave==0 and near(o.worth,0.25*0.6+0.75*walk))
     -- Back in 7 seconds: the second explosion, 8.7 seconds from now, finds it back, and walking out

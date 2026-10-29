@@ -3478,4 +3478,58 @@ assert(w2.BGSE_Claim(m2,'mage','s1')==true and lastOf2('choice')==nil and c2:ins
 end)()
 groups=groups+1
 
+-- 46. The fight as the group knows it, for how long it lasts (lab batch J, run 4: at the start the
+-- group's fighter saw 2 of the party's 7 and counted the fight at 13 seconds; it lasted 120). A mage
+-- of the group with group 21's summons stands beside a swordsman of the party; 1000 off another mage
+-- of the group stands beside two more. The summoner's frame holds neither that mage nor its
+-- swordsmen; the group's picture holds them all, so its summons reckons with two against three (the
+-- 'choice' row's fight: allies with itself, enemies), a shorter fight than its own one against one.
+-- A creature read for it counts as it was for a second: the far mage, charmed over to the party,
+-- still counts with the group for a third mage deciding at once, and against it for a fourth a
+-- second on.
+;(function()
+local function scene(far)
+    local w=world()
+    tablesOf(w)
+    local d=directors.new(w,{reader=reader12})
+    local c=choices.new(w,{reader=reader12,director=d,seed=461})
+    local list={}
+    c:setSink(function(row) list[#list+1]=row end)
+    runtime.install(w,{director=d,choice=c,version='test'})
+    local function mage(id,x,resref)
+        local m=w.add(sprite(id,x,0,255))
+        m.stats[2]=8
+        learn(m,2,resref or 'TESTBOLT',resref and 1 or 2)
+        return m
+    end
+    local function chosen(member)
+        for n=#list,1,-1 do if list[n].kind=='choice' and list[n].member==member then return list[n] end end
+    end
+    w.add(sturdy(armed(sprite(12,1100,0,2),35,'TESTSWRD')))
+    local first
+    w.ticks=100
+    if far then
+        first=mage(1,0)
+        w.add(sturdy(armed(sprite(11,100,0,2),35,'TESTSWRD')))
+        w.add(sturdy(armed(sprite(13,100,40,2),35,'TESTSWRD')))
+        assert(w.BGSE_Claim(first,'mage','s1')==true and chosen(1).fight==nil)
+    end
+    w.ticks=101
+    assert(w.BGSE_Claim(mage(2,1000,'TESTHORD'),'mage','s1')==true)
+    assert(chosen(2) and chosen(2).castKind=='summon' and type(chosen(2).rest)=='number')
+    return w,c,mage,chosen,first
+end
+local _,_,_,lone=scene(false)
+assert(lone(2).fight==nil)
+local w,c,mage,chosen,first=scene(true)
+assert(chosen(2).fight[1]==2 and chosen(2).fight[2]==3 and chosen(2).rest<lone(2).rest)
+first.m_typeAI.m_EnemyAlly=2
+w.ticks=105
+assert(w.BGSE_Claim(mage(3,1020),'mage','s1')==true and chosen(3).fight[1]==3 and chosen(3).fight[2]==3)
+w.ticks=120
+assert(w.BGSE_Claim(mage(4,1040),'mage','s1')==true and chosen(4).fight[1]==3 and chosen(4).fight[2]==4)
+assert(c:inspect().counts.fightFailures==0)
+end)()
+groups=groups+1
+
 return groups

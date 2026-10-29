@@ -225,7 +225,7 @@ function M.options(input,rejected)
     local frame=input.frame
     if type(frame)~='table' or type(frame.self)~='table' or type(mind)~='table' then return out end
     local creatures=type(input.creatures)=='table' and input.creatures or {}
-    local rest=threat.rest(frame,number(mind.fightCap) and mind.fightCap or 60)
+    local rest=threat.rest(type(input.fight)=='table' and input.fight or frame,number(mind.fightCap) and mind.fightCap or 60)
     local calm=number(input.calm) and math.max(0,input.calm) or 0
     local side=M.side(frame.self.ea)
     local summoned=0
