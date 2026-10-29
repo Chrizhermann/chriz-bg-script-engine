@@ -867,6 +867,20 @@ only once the foe is due. Normal and dull creatures cast nothing while they wait
 or lays a lasting cloud where a mazed foe will be back, counting the explosions from its likely
 return; never an area that would hurt a foe its side charmed.
 
+Run 4 of the same fights (FIGHT-01, "Lab batch J, run 4", 2026-10-29): the engine's group won the
+mirror fights 3 of 4 with about four fifths of its hit points left (run 3: a fifth to three fifths)
+and all 3 fiend fights (run 3: one, two out of time); SCS won all 7, faster in the mirror fights,
+mostly with less left. The fourth mirror fight went to the party, whose kensai used Kai and
+was healed, as can happen in a mirror fight (SCS's group nearly lost one too). Run 3's fixes held:
+no heals at unseen allies, no waiting at skins, the strength potion at the start, re-buffs while a
+foe was away. Two faults remained and are fixed: the estimate of the fight's rest still counted
+only what the deciding creature saw (2 of the party's 7 at the start), and now counts the fight as
+the group knows it; and a dead enemy stayed in the group's picture as last seen, alive, so the
+mage still charmed the party's last member twice, and now the dead leave the picture at once
+(FIGHT-01, "The fight the group knows" and "Gone at once"). Oil of Speed at 8 seconds is the pause
+after the first potion, as designed. The mind flayer's escape seen in runs 3 and 4 goes with SCS's
+other vanishing exits.
+
 Next, in the order agreed with Christopher on 2026-10-27 for the first release: the rest of the big
 lab round (batch J again on this build, and a party of the same strength for the mixed fights, which also show the replacement in whole fights, thieves in whole fights, the veil in game,
 the prebuffs in game); then the boss fights, designed with Christopher one by one (Melissan's own
@@ -875,6 +889,21 @@ Christopher's answers of 2026-10-28: FIGHT-01, "Disengage"): nobody flees for go
 is fine; escapes from melee with own spells only for chosen foes; no new uses of Mislead (too
 buggy; it stays in the mages' preparation); morale flight thin and rare. After the release: traps, scripted encounter phases, a harder Insane, groups
 that share spells, quests.
+
+Christopher's answers of 2026-10-29 to what the engine still lacks for a fight of its own:
+- **Doors go into the first release** ("muss rein"): SCS's fighters open a nearby door while they
+  hunt, the engine's search does not yet, so whoever stands behind a closed door is safe from our
+  creatures.
+- **Hurt creatures heal where they stand.** A potion is "quasi nur ein paar Millisekunden": no
+  general retreat to heal, and no big focus on enemies going far away. Rare, chosen cases may come
+  (a clever foe that flees more cleverly, priests that keep strong fighters alive), designed case by
+  case; too many fleeing enemies are no fun, and the AI need not always be as clever as the player.
+  SCS's vanishing exits (the Erinyes, Melissan's allies, and the mind flayer's escape seen in lab
+  batch J) end under "nobody leaves for good".
+- **Later:** menu spells and shapeshifts (Polymorph Self, Shapechange, Nahal's Reckless Dweomer),
+  and attack wands and scrolls ("Wands sowieso ziemlich broken für Spieler sowie auch Gegner").
+- **Group tactics** (fighters guarding their casters, falling back and regrouping) stay a design
+  session of their own.
 
 ## To design with Christopher
 

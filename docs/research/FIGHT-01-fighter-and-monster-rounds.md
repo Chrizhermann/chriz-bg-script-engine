@@ -1017,6 +1017,19 @@ Christopher's answers (2026-10-28):
 
 Settled by his rules: real, visible abilities only (no free teleports), and every tactic by wit.
 
+Christopher, 2026-10-29, on whether a badly hurt clever creature should step out of melee, heal
+and come back: mostly not. A potion is "quasi nur ein paar Millisekunden", so a creature with a
+healing potion drinks it in the fight and need not run; no big focus on enemies going far away.
+Rare cases he would like, case by case: a clever foe that flees a bit more cleverly, priests that
+keep their fighters alive (strong fighters, or priests of a helpful kind). Too many fleeing
+enemies are no fun, and the AI need not always be as clever as the player or cleverer.
+
+So: no general retreat to heal; a hurt creature heals where it stands (its potion, its own spell,
+a priest's heal, as the engine does already). SCS's vanishing exits end under "nobody leaves for
+good": the Erinyes, Melissan's allies, and the mind flayer's escape (`DW#MFESC`, cast by SCS's
+script above the hook; lab batch J, runs 3 and 4, below). Retreats and escapes only for creatures
+or encounters chosen with Christopher.
+
 ### Lab batch J: whole fights with a mirror party (2026-10-28)
 
 The big lab round of step 3 (Spell Revisions lab, cleaned up after). Two groups fought the lab's
@@ -1476,6 +1489,99 @@ worth), the summons tests' group 9 (the calm, durations, a summons at a creature
 touch and weapons tests' readiness checks, the choice adapter's group 45 (the storm at the spot, its
 SPLPROT check on the foe out of play, a charmed foe); 29 mutations checked.
 Still to see in game: a lab with a mazed party member and a clever caster.
+
+### Lab batch J, run 4 (2026-10-29)
+
+The same 14 fights with the build of 1f29652 (run 3's fixes: no charm or maze on the last foe in
+play, heals only at allies in sight, hits that skins take, the fight's rest, buff potions first,
+freeing members the party charmed, readiness), in the Spell Revisions lab, cleaned up after.
+
+- **Result.** j1: the engine's group won 3 of 4 (120, 59 and 123 seconds) with 83, 85 and 79 per
+  cent of its hit points left (run 3: 59, 21 and 34); the fourth it lost (below). SCS won all 4
+  (38, 234, 65 and 53 seconds; 74, 5, 74 and 78 per cent left: in the long one six of its seven
+  fell). j2: the engine won all 3 (109, 82 and 75 seconds; 52, 75 and 74 per cent) and no time ran
+  out (run 3: twice); SCS won all 3 as well (44, 124 and 136 seconds; 67, 41 and 45 per cent). The
+  bot made no errors.
+- **What run 3's fixes did.** No priest healed an ally it could not see; no fighter waited at a
+  foe behind skins (`nothing-good`); the group's fighter drank its Potion of Fire Giant Strength at
+  0.3 to 0.5 seconds in every fight and its Oil of Speed at 8 to 9, after the pause that follows a
+  first defence (`mind.redefend`, 7 seconds), as designed. While awaiting a charmed foe the
+  group's kensai renewed its kit ability (C0KN#04, from the lab's kit mods) twice. The group
+  awaited foes out of play (6, 7, 6 and 1 `await` rows in j1); in j2-own-1 and 2 mazes ended and
+  the foes came back.
+- **Why j1-own-4 was lost.** The party's kensai used Kai at 4 seconds and the party's priest healed
+  him; the group's kensai fell at 15 seconds, and five of the group were dead by 36. Its mage,
+  alone from 73 seconds, killed the party's archer, fighter and mage and fell to the party's kensai
+  at 187. A mirror fight can go either way: in j1-scs-2 SCS's group lost six of seven.
+- **Where the fighters struck.** In the first 36 seconds of each j1 fight a quarter to a third of
+  the fighters' blows went at the group's focus, in the won fights as in the lost one; the others
+  mostly took the foe at hand. Whether a group should strike one foe together is a point for the
+  design round on group tactics.
+- **The charm on the last foe still came, twice.** j1-own-2: at 54 seconds the group's mage cast
+  Dire Charm at the party's priest, its last living member; the priest stood charmed from 57 and
+  died at 59. j1-own-3: at 55 seconds the same at the party's fighter, who stood charmed from 59 to
+  119; the fight ended at 123. The party's mage (dead at 51 seconds) and archer (dead within the
+  second before the cast) still counted as in play. Fixed (below, "Gone at once").
+- **The fight's rest at the start** came out at 13 seconds in j1 again: the group's fighter saw
+  its whole group but 2 of the party's 7. Fixed (below, "The fight the group knows").
+- **The mind flayer's escape.** In j2-own-3, at 36 per cent of its hit points (47 seconds), SCS's
+  script cast the flayer's escape (`DW#MFESC`, a SpellNoDec cast above the hook); it vanished about
+  2 seconds later. Run 3 shows the same at 51 seconds. It goes with the other vanishing exits
+  (above, "Disengage"): nobody leaves for good.
+
+### The fight the group knows (lab batch J, run 4, 2026-10-29)
+
+The estimate of the fight's rest (`threat.rest`) counted only what the deciding creature saw. At
+the start of j1 the group's fighter saw all of its group and 2 of the party's 7, reckoned the fight
+over in 13 seconds, and the fights lasted 59 to 187. So buffs, potions, summons and lasting clouds
+counted for a fraction of the fight at its start, where they count most. A minute in, with the
+fight in sight, the estimate fitted what the creature saw.
+
+What the engine does now (`adapters/eeex/choice.lua`; `combat-intent/choice.lua`, `defence.lua`,
+`summons.lua`): the fight is the one the group knows: the creature's frame, the other members of
+its group and the enemies of the group's picture that the creature does not see itself, each read
+at most a second ago (`M.knownTicks`). One that cannot be read is left out (count `fightFailures`,
+an `error` row where `fight`). Without a group the frame counts, as before. Readiness keeps its own
+count: the fight from the foes' return is theirs against the caster's side. The choice record's
+`fight` gives the count (the creature's side, the enemies).
+
+Example: at the start of j1 the group's fighter sees 2 of the party's 7 and the other members see
+the rest; its potions now count over the fight against all 7, not over the 13 seconds two foes
+would last. It works the other way too: a summoner that sees one armed foe while the group sees
+three counts a shorter fight (the choice adapter's group 46).
+
+Correction: in run 4's first look the Oil of Speed at 8 seconds was put down to this estimate. It
+came from the pause after the first potion, as designed.
+
+Tests: the defence tests' group 14, the summons tests' group 8, the choice tests' group 25, the
+choice adapter's group 46; 15 mutations checked.
+Still to see in game: batch J again (buffs and summons at the start).
+
+### Gone at once (lab batch J, run 4, 2026-10-29)
+
+Members see only the living, so a dead enemy stayed in the group's picture as last seen, alive: in
+play for up to 30 seconds (`forgetTicks`) and the focus while the sighting was fresh. The adapter's
+check of enemies no one had seen for a second found it dead, but the director acted only on a maze
+or a prison. In j1-own-2 the party's mage, dead for three seconds, was still the group's focus and
+in play, so the mage's Dire Charm on the party's last member kept its worth.
+
+What the engine does now (`combat-intent/director.lua`, `adapters/eeex/director.lua`):
+
+- **Gone at once.** A creature the check finds dead, or no creature any more, leaves the picture at
+  once: no foe in play, no clue for the search, no focus; a charm or maze kept for it ends. Log: a
+  `gone` row (count `gone`) and a `focus` row with `why = gone`.
+- **Checked right before use.** The plan and the search's clues check their enemies just before a
+  member uses them, so one that died a moment ago does not count either (in j1-own-3 the party's
+  archer died within the second before the charm).
+- **Charmed foes too.** A foe the group charmed that no member has seen for a second is checked as
+  well: dead, its charm ends; before, clever guards could await it for 30 seconds.
+
+Example: the party's archer falls. A moment later the group's mage weighs Dire Charm on the party's
+fighter, the last one standing: no other foe is in play, so the charm is worth nothing, and the mage
+casts what harms him.
+
+Tests: the director's groups 12 and 13, the director adapter's group 11; 17 mutations checked.
+Still to see in game: batch J again.
 
 ## Agreed (Christopher, 2026-10-25)
 
