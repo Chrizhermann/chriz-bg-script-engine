@@ -32,7 +32,10 @@
 -- Harm comes from combat-intent/threat.lua: weapons, spells aimed at one creature, areas and
 -- disables, as the caster perceives them.
 -- In the caster's own Time Stop (D2a) nothing threatens it until time resumes: a cast that ends
--- within the stop cannot be broken, and a protection counts only for what is left of it then.
+-- within the stop cannot be broken, and a protection counts only for what is left of it then. The
+-- same holds while its side awaits foes out of play (input.calm: the seconds until the first is
+-- likely back, combat-intent/choice.lua's readiness), against those foes as they will stand when
+-- back; an area weakens none of them meanwhile.
 local targeting=require('combat-intent.targeting')
 local threat=require('combat-intent.threat')
 local openers=require('combat-intent.openers')
@@ -77,6 +80,14 @@ M.critOpen=0.5
 M.PERCENT_TYPES={slashing=7,piercing=8,crushing=9,missile=10}
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
+-- The seconds nothing threatens the caster's side (see the top): the rest of its own Time Stop, or
+-- the calm before foes out of play are back, whichever is longer; nil when neither holds.
+local function quiet(input)
+    local stop=openers.ownStop(input)
+    local calm=number(input.calm) and input.calm>0 and input.calm or nil
+    if stop and calm then return math.max(stop,calm) end
+    return stop or calm
+end
 -- The share of a spell slot's cost that counts now (combat-intent/choice.lua, M.slotShare).
 local function slots(input) return number(input.slots) and input.slots or 1 end
 local function clamp(v,a,b) if v<a then return a elseif v>b then return b end return v end
@@ -549,7 +560,7 @@ end
 function M.acute(input,pictures)
     local caster=input.frame.self
     local t=pictures[caster.id]
-    if not t or not number(input.mind.acute) or openers.ownStop(input) then return false end
+    if not t or not number(input.mind.acute) or quiet(input) then return false end
     local left=number(caster.hp) and caster.hp>0 and caster.hp or 1
     return (M.course(M.held(caster),caster,t,1))>=input.mind.acute*left
 end
@@ -557,7 +568,7 @@ end
 -- through what protects it now can break the cast; absorbed hits do not.
 function M.through(input,t,cast)
     if not t or cast<=0 then return 1 end
-    local stop=openers.ownStop(input)
+    local stop=quiet(input)
     if stop and cast<=stop then return 1 end
     local b=M.blocks(M.held(input.frame.self),t,1)
     local part=cast/M.ROUND
@@ -600,7 +611,8 @@ end
 -- the backstab after it gains (input.hideOpening, combat-intent/choice.lua), less the part of a
 -- round its casting takes (weapons.paced); such an option carries hides and that opening. A buff
 -- counts over the rest of the fight as long as it lasts (rest, the seconds it reckoned with), a
--- protection over the horizon; input.tables holds the game's strength tables (might). boosts: what
+-- protection over the horizon, each from the end of the caster's own Time Stop or of the calm on
+-- (see the top); input.tables holds the game's strength tables (might). boosts: what
 -- the option gives adds to attacks (a buff potion, which a creature drinks before its attack:
 -- combat-intent/choice.lua).
 function M.options(input,rejected)
@@ -617,7 +629,9 @@ function M.options(input,rejected)
     local rest=threat.rest(frame,number(mind.fightCap) and mind.fightCap or 60)
     local tables=type(input.tables)=='table' and input.tables or nil
     local killBonus=number(mind.killBonus) and mind.killBonus or 0
-    local stop=openers.ownStop(input) or 0
+    local stop=quiet(input) or 0
+    -- Foes out of play are not where an area could weaken them.
+    local away=number(input.calm)
     local held={}
     local function heldOf(f) held[f.id]=held[f.id] or M.held(f);return held[f.id] end
     local caster=frame.self
@@ -673,7 +687,7 @@ function M.options(input,rejected)
                 if not listed then table.insert(hits,1,caster.id) end
             end
             -- Caution weighs what it gives the side; a profile without any (labs) still sees it.
-            local weak=row.item and 0 or weakens(input,row,spell,aim,ac)
+            local weak=(row.item or away) and 0 or weakens(input,row,spell,aim,ac)
             local total=worth*caution+weak+open
             if worth+weak+open>0 and (not best or total>best.total or (total==best.total and worth>best.worth)) then
                 best={aim=aim,total=total,worth=worth,hits=hits,open=open,boost=boost}

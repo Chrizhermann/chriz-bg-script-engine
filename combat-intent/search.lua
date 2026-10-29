@@ -34,7 +34,8 @@
 --   from a distance and strikes when it is back, a normal one waits at its post, a dull one forgets
 --   it and stands where it is; a designer's orders can say which (await). Neither hands the round
 --   back to SCS meanwhile: its last blocks attack the party even when charmed, and harming a charmed
---   foe breaks the charm by the rules text.
+--   foe breaks the charm by the rules text. A guard also renews its protections and buffs for when
+--   the foe comes back (combat-intent/choice.lua's readiness), by when that is likely (M.mazeLeft).
 -- Inputs are plain values; nothing here touches the engine.
 local targeting=require('combat-intent.targeting')
 local M={}
@@ -106,6 +107,10 @@ M.guardNear=96
 M.guardFar=240
 M.guardTurn=math.pi/4
 M.guardTurns=8
+-- A maze lasts rounds of roundSeconds (IESDP opcode 213); its dice are summed exactly while they
+-- reach at most mazeOutcomes (the IESDP's table goes to 20d4), beyond that by their mean.
+M.roundSeconds=6
+M.mazeOutcomes=100
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
 local function list(t) return type(t)=='table' and t or {} end
@@ -439,14 +444,9 @@ function M.guardPoint(input,a)
 end
 
 local HOWS={guard=true,post=true,stand=true}
--- How the creature awaits the foes out of play (input.away: {id, kind 'charm' or 'maze', x, y}), or
--- nil when there are none: the nearest of them, by its wit (M.AWAIT) or its orders (input.await:
--- 'guard', 'post' or 'stand'). A guard walks to its place by the foe (M.guardPoint) and looks out
--- there; one that guards its post (input.guard) guards only a foe within guardRadius of the post and
--- otherwise waits there. One that waits at its post walks back there and looks out; one that stands,
--- and any rooted one, looks out where it is. The decision: {kind 'guard' or 'return' (with point) or
--- 'look', await and target (the foe's id), away (its kind), how, point (a guard's place), gaveUp}.
-function M.await(input,gaveUp)
+-- The nearest of the foes out of play (input.away: {id, kind 'charm' or 'maze', x, y}) to the
+-- creature (input.frame.self), or nil when there are none.
+function M.nearestAway(input)
     local self=input.frame.self
     local foe,best
     for _,a in ipairs(list(input.away)) do
@@ -455,10 +455,28 @@ function M.await(input,gaveUp)
             if foe==nil or d<best or (d==best and a.id<foe.id) then foe,best=a,d end
         end
     end
-    if not foe then return nil end
-    local how=HOWS[input.await] and input.await or M.AWAIT[input.mind.wit] or M.AWAIT.normal
+    return foe
+end
+-- How the creature awaits foe, one out of play: by its orders (input.await: 'guard', 'post' or
+-- 'stand'), else its wit (M.AWAIT); one that guards its post (input.guard) guards only a foe within
+-- guardRadius of the post (input.post) and otherwise waits there.
+function M.how(input,foe)
+    local how=HOWS[input.await] and input.await or M.AWAIT[type(input.mind)=='table' and input.mind.wit] or M.AWAIT.normal
     local post=point(input.post) and input.post or nil
     if how=='guard' and input.guard and not (post and targeting.distance(post,foe)<=M.guardRadius) then how='post' end
+    return how
+end
+-- How the creature awaits the foes out of play, or nil when there are none: the nearest of them
+-- (M.nearestAway), as M.how says. A guard walks to its place by the foe (M.guardPoint) and looks out
+-- there. One that waits at its post walks back there and looks out; one that stands, and any rooted
+-- one, looks out where it is. The decision: {kind 'guard' or 'return' (with point) or 'look', await
+-- and target (the foe's id), away (its kind), how, point (a guard's place), gaveUp}.
+function M.await(input,gaveUp)
+    local self=input.frame.self
+    local foe=M.nearestAway(input)
+    if not foe then return nil end
+    local how=M.how(input,foe)
+    local post=point(input.post) and input.post or nil
     local d={await=foe.id,target=foe.id,away=foe.kind,how=how,gaveUp=gaveUp or nil}
     if self.rooted then d.kind='look';return d end
     if how=='guard' then
@@ -472,6 +490,35 @@ function M.await(input,gaveUp)
     end
     d.kind='look'
     return d
+end
+
+-- The seconds a maze is still likely to last, elapsed seconds after it began, while its foe is not
+-- back: the mean of what is left of the durations still possible, as num dice of size rounds give
+-- them (a maze by intelligence, IESDP opcode 213: the dice INTMOD.2DA gives the foe's
+-- intelligence). The caster's side knows how the spell works, not what its dice rolled (fair play).
+-- 0 once no duration is left; nil for dice that make none.
+function M.mazeLeft(num,size,elapsed)
+    if not number(num) or not number(size) or num<1 or size<1 or num%1~=0 or size%1~=0 then return nil end
+    elapsed=number(elapsed) and math.max(0,elapsed) or 0
+    local r=M.roundSeconds
+    if num*size>M.mazeOutcomes then return math.max(0,num*(size+1)/2*r-elapsed) end
+    -- The chance of each sum, die by die.
+    local p,lo,hi={[0]=1},0,0
+    for _=1,num do
+        local q={}
+        for s=lo+1,hi+size do q[s]=0 end
+        for s=lo,hi do
+            for face=1,size do q[s+face]=q[s+face]+p[s]/size end
+        end
+        p,lo,hi=q,lo+1,hi+size
+    end
+    local mass,sum=0,0
+    for s=lo,hi do
+        local left=s*r-elapsed
+        if left>0 then mass=mass+p[s];sum=sum+p[s]*left end
+    end
+    if mass<=0 then return 0 end
+    return sum/mass
 end
 
 -- What the creature does while it sees no enemy, or nil and why not:

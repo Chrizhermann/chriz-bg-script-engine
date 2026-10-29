@@ -122,6 +122,11 @@
 -- up after its patience, walking back to where its fight began; there the creature's own life goes
 -- on. A detection is judged by whether the creature sees an enemy afterwards. BGSE_Search
 -- (api:searches) tells SCS's own hunting blocks to stand aside for every creature the engine drives.
+-- Readiness (combat-intent/choice.lua): a creature that guards a foe out of play also weighs its
+-- protections and buffs against the foes out of play as the search reads them (adapters/eeex/
+-- search.lua's returning: where each went, with the seconds until it is likely back). Such a
+-- defence is cast like any other ('choice' row with ready and calm); anything else goes to the
+-- search's guard.
 --
 -- Debuffs (F2b, combat-intent/choice.lua): when a ready spell weakens enemies, the choice also
 -- gets each enemy's active effects (sense.wards, as for removal), so that an enemy that carries a
@@ -462,7 +467,7 @@ function M.new(g,options)
         guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0,arms=0,attacks=0,attackHits=0,
         weaponFailures=0,releases=0,heals=0,cures=0,potions=0,cared=0,uncared=0,summons=0,conjured=0,
         unconjured=0,removals=0,stripped=0,unstripped=0,wardFailures=0,revealed=0,unrevealed=0,landed=0,unlanded=0,
-        jumps=0,debuffs=0,switches=0,kites=0,kited=0,flanks=0,flanked=0,replaced=0,positions=0,positioned=0}
+        jumps=0,debuffs=0,switches=0,kites=0,kited=0,flanks=0,flanked=0,replaced=0,positions=0,positioned=0,readies=0}
     local reasons={}
     local log,nextRow,size={},1,0
     local root,sink,lastError,markError,guardError,weaponError,wardError,zoneError,witError,tableError
@@ -481,7 +486,7 @@ function M.new(g,options)
         record({kind='error',where=where,error=tostring(err):sub(1,200)})
     end
     -- The engine's own search for enemies a creature cannot see (adapters/eeex/search.lua).
-    local seeker=searches.new(g,{director=director,record=record,rng=rng})
+    local seeker=searches.new(g,{director=director,record=record,rng=rng,reader=reader})
     -- Wit (combat-intent/mind.lua): the game's difficulty (1 to 5), nil when it cannot be read.
     local function difficulty()
         local ok,value=pcall(function() return g.EngineGlobals.g_pBaldurChitin.m_pObjectGame.m_options.m_nDifficultyLevel end)
@@ -1653,13 +1658,16 @@ function M.new(g,options)
         local frame=sense.frame(g,sprite,tick,true)
         if not frame then return decline('no-frame') end
         if sense.side(frame.self.ea)~='evil' then return decline('side') end
-        -- With no enemy in sight: out of a zone that hurts, a heal or cure for a friend in need, else
-        -- a thief's hide or the search.
+        -- With no enemy in sight: out of a zone that hurts, a heal or cure for a friend in need, a
+        -- protection or buff for when the foes out of play it guards are back (the search's
+        -- returning), else a thief's hide or the search.
         local unseen=#frame.enemies==0
+        local returning
         if unseen then
             local d=flee(sprite,id,tick,family)
             if d then return d end
-            if not M.ailing(frame) then
+            returning=seeker:returning(frame,tick,mindFor(sprite,family),orderBook[text(sprite.m_resref:get())])
+            if not returning and not M.ailing(frame) then
                 local rows,carried=book(sprite)
                 if not rows then failed('book',carried);return nil end
                 return seek(sprite,frame,id,tick,family,rows,carried,mindFor(sprite,family))
@@ -1676,7 +1684,8 @@ function M.new(g,options)
         local input={tick=tick,family=family,frame=frame,spells=rows,items=carried,lastDefence=lastDefence[id],
             plan=director and director:plan(id,tick) or {},memory=memory[id] or {},mind=mindFor(sprite,family),rng=rng,
             creatures=summoned(rows),stays=stays,orders=orderBook[text(sprite.m_resref:get())],
-            teleports=search.teleports(rows),jumped=seeker:jumped(id),kited=kited[id],tables=(sense.tables(g))}
+            teleports=search.teleports(rows),jumped=seeker:jumped(id),kited=kited[id],tables=(sense.tables(g)),
+            returning=returning}
         -- The zones in the area, with what they weigh about the caster itself.
         local raw=zoneList(sprite,tick)
         local seen={}
@@ -1694,7 +1703,7 @@ function M.new(g,options)
         -- The share of a spell slot's cost that counts now, kept for the log.
         input.slots=choice.slotShare(input)
         local d,why,options,rejected=choice.decide(input)
-        if unseen and not (d and M.CARE[d.kind]) then return seek(sprite,frame,id,tick,family,rows,carried,input.mind) end
+        if unseen and not (d and (M.CARE[d.kind] or d.ready)) then return seek(sprite,frame,id,tick,family,rows,carried,input.mind) end
         lastDetail=rejected
         local top={}
         for i=1,math.min(3,#options) do
@@ -1746,6 +1755,7 @@ function M.new(g,options)
         if not response then return decline('bad-response') end
         counts.claims=counts.claims+1
         if d.kind=='defence' then counts.defences=counts.defences+1 end
+        if d.ready then counts.readies=counts.readies+1 end
         if d.kind=='opener' then counts.openers=counts.openers+1 end
         if d.kind=='touch' then counts.touches=counts.touches+1 end
         if d.kind=='arm' then counts.arms=counts.arms+1 end
@@ -1763,7 +1773,8 @@ function M.new(g,options)
             alacrity=frame.self.alacrity or nil,release=d.release,use=d.use,creatures=d.creatures,count=d.count,
             rest=d.rest,slots=input.slots,finish=d.finish,aura=frame.self.aura~=0 and frame.self.aura or nil,
             inZones=zoneView(input,d),lasting=d.lasting,wit=input.mind.wit,walk=d.walk,interrupt=d.interrupt,
-            ordered=d.ordered,slot=d.slot,backstab=d.backstab,opening=d.opening})
+            ordered=d.ordered,slot=d.slot,backstab=d.backstab,opening=d.opening,ready=d.ready,
+            calm=d.ready and d.calm or nil})
         -- A disable claims its targets in the group at once, so that another member deciding
         -- before this cast starts leaves them alone, and a debuff the enemies it weakens for its
         -- spell; any other decision gives earlier claims back.

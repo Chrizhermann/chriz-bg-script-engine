@@ -183,6 +183,16 @@
 -- other side charmed frees it (combat-intent/removal.lua). A tactic (M.tactical): a clever creature
 -- always, a normal one when it notices, a dull one never; one that does not see it weighs the
 -- removal as on any enemy.
+--
+-- Readiness (Christopher, 2026-10-29: clever creatures guard a mazed foe's spot, "heal and re-buff"
+-- and strike when it comes back): while the creature sees no enemy and guards a foe out of play
+-- (combat-intent/search.lua's how), the adapter names those foes as they will stand when back
+-- (input.returning, M.readied); its protections and buffs count against them from when the first is
+-- likely back on, as in its own Time Stop (combat-intent/defence.lua's calm). A buff that runs out
+-- before then is worth nothing yet and is cast later, when it still lasts into the fight; one that
+-- protects for hours is renewed at once. Only what reaches the minimum worth is cast; the rest of
+-- the waiting rounds go to the guard. Normal creatures wait at their post and only heal; dull ones
+-- forget the foe.
 local targeting=require('combat-intent.targeting')
 local harm=require('combat-intent.harm')
 local defence=require('combat-intent.defence')
@@ -1681,6 +1691,29 @@ function M.frozen(input)
     return view
 end
 
+-- The input its defences are weighed on while the creature readies itself (see the top), or nil:
+-- with no enemy in sight, the foes out of play it guards (input.returning: each as an enemy in sight
+-- is read, where it will be back, with back, the seconds until it likely is; unknown counts as now,
+-- and one that is never back, under a charm without an end, is left out) stand in its frame as
+-- enemies, and calm holds the seconds until the first of them is back.
+function M.readied(input)
+    if #input.frame.enemies>0 or type(input.returning)~='table' then return nil end
+    local enemies,calm={},math.huge
+    for _,e in ipairs(input.returning) do
+        if type(e)=='table' and targeting.alive(e) and e.back~=math.huge then
+            enemies[#enemies+1]=e
+            calm=math.min(calm,number(e.back) and math.max(0,e.back) or 0)
+        end
+    end
+    if #enemies==0 then return nil end
+    local frame,view={},{}
+    for k,v in pairs(input.frame) do frame[k]=v end
+    frame.enemies=enemies
+    for k,v in pairs(input) do view[k]=v end
+    view.frame,view.calm=frame,calm
+    return view
+end
+
 -- The enemies of the input's frame by id.
 local function placed(input)
     local at={}
@@ -1727,7 +1760,11 @@ local function pick(input)
         input=view
     end
     local options=M.options(input,rejected)
-    for _,o in ipairs(defence.options(input,rejected)) do options[#options+1]=o end
+    local ready=M.readied(input)
+    for _,o in ipairs(defence.options(ready or input,rejected)) do
+        if ready then o.ready,o.calm=true,ready.calm end
+        options[#options+1]=o
+    end
     for _,o in ipairs(care.options(input,rejected)) do options[#options+1]=o end
     for _,o in ipairs(summons.options(input,rejected)) do options[#options+1]=o end
     for _,o in ipairs(removal.options(input,rejected,function(s) return M.attack(s)~=nil end)) do options[#options+1]=o end
@@ -1824,8 +1861,12 @@ local function pick(input)
             end
             return attack()
         end
-        -- No attack is worth anything: the best that is worth something, rather than nothing.
-        if best.score>0 then return best,'weak',options end
+        -- No attack is worth anything: the best that is worth something, rather than nothing. What
+        -- a creature would only ready itself with is none of that: it guards instead.
+        for _,o in ipairs(options) do
+            if o.score<=0 then break end
+            if not o.ready then return o,'weak',options end
+        end
         return M.wait(M.idle),'nothing-good',options,rejected
     end
     if swing and swing.score>best.score then return attack() end

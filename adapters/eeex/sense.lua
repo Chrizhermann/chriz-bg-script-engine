@@ -11,8 +11,9 @@
 -- test (SCS's triggers read the same); M.splprot adds the engine's own answers to the SPLPROT
 -- checks of the spells in question. M.defend adds what the defence slice weighs: what protects
 -- each friend now and the weapons of the creatures around. M.zones reads the danger zones in an
--- area (D3e): its area projectiles that explode again and again. Only plain values leave this
--- module; no engine object is kept.
+-- area (D3e): its area projectiles that explode again and again. M.foe and M.outOfPlay read a foe
+-- out of play for its side's readiness. Only plain values leave this module; no engine object is
+-- kept.
 local targeting=require('combat-intent.targeting')
 local spells=require('combat-intent.spells')
 local arsenal=require('combat-intent.arsenal')
@@ -70,8 +71,10 @@ M.timedEffect=4096
 -- as a high master of the long bow with a Composite Long Bow and Arrows +1; docs/learned.md).
 M.combat={ac=2,thac0=7,apr=8,damageBonus=50,thac0Right=84,damageRight=86,stoneskins=88,hitBonus=151,
     meleeHit=166,missileHit=72,meleeDamage=167,missileDamage=168}
--- STATS.IDS: STR, STREXTRA, DEX.
-M.scores={str=36,strExtra=37,dex=40}
+-- STATS.IDS: STR, STREXTRA, INT, DEX.
+M.scores={str=36,strExtra=37,int=38,dex=40}
+-- Opcodes that keep a foe out of play while its side awaits it (M.outOfPlay): Charm and Maze.
+M.charm,M.maze=5,213
 -- The quiver slots, whose ammunition a launcher shoots, the fist slot, the magic weapon slot and
 -- the weapon slots (SLOTS.IDS).
 M.quiver={11,12,13}
@@ -385,6 +388,16 @@ local function readTables(g)
     end
     t=g.EEex_Resource_Load2DA('DEXMOD')
     for n=0,M.maxScore do out.dexmod[n]=at(t,'MISSILE',n) end
+    -- INTMOD's maze dice by intelligence (IESDP opcode 213; the SR lab's table differs from the
+    -- IESDP's), apart, so that a table without them takes none of the others along.
+    out.maze={}
+    pcall(function()
+        local intmod=g.EEex_Resource_Load2DA('INTMOD')
+        for n=0,M.maxScore do
+            local num,size=at(intmod,'MAZE_DURATION_DICE_NUM',n),at(intmod,'MAZE_DURATION_DICE_SIZE',n)
+            if num and size then out.maze[n]={num=num,size=size} end
+        end
+    end)
     t=g.EEex_Resource_Load2DA('CLSWPBON')
     local _,rows=g.EEex_Resource_Get2DADimensions(t)
     for n=0,(tonumber(rows) or 0)-1 do
@@ -707,6 +720,41 @@ function M.defend(g,frame,tick,reader,classify)
         end)
     end
     return failed,last
+end
+
+-- A foe out of play as its side will meet it again (combat-intent/choice.lua's readiness): what an
+-- enemy in sight carries (M.actor, M.details), its weapon and whether it sees invisible creatures
+-- (as M.defend reads them), and its intelligence (int), by which a maze lasts.
+function M.foe(g,sprite,reader)
+    local entry=M.actor(g,sprite)
+    M.details(g,sprite,entry)
+    entry.seeInvisible=stat(g,sprite,M.stats.seeInvisible)>0 or stat(g,sprite,M.stats.trueSight)>0
+    entry.attack=M.attack(g,sprite,reader)
+    entry.int=stat(g,sprite,M.scores.int)
+    return entry
+end
+-- What keeps a foe out of play, as plain values: charm, the seconds left of the longest charm on it
+-- (M.charm; math.huge for one without an end), and maze, how its maze lasts (M.maze's parameter 2:
+-- 0 by intelligence, 1 by the effect's duration); nil for what it does not carry.
+function M.outOfPlay(g,sprite,tick)
+    local out={}
+    for _,list in ipairs({sprite.m_timedEffectList,sprite.m_equipedEffectList}) do
+        local seen=0
+        g.EEex_Utility_IterateCPtrList(list,function(e)
+            seen=seen+1
+            if seen>M.maxEffects then return true end
+            local op=e.m_effectId
+            if op==M.charm then
+                local kind,left=e.m_durationType,nil
+                if kind==M.timedEffect then left=(number(e.m_duration)-tick)/15
+                elseif kind==1 or kind==9 or kind==2 then left=math.huge end
+                if left and left>0 then out.charm=math.max(out.charm or 0,left) end
+            elseif op==M.maze and out.maze==nil then
+                out.maze=number(e.m_dWFlags)
+            end
+        end)
+    end
+    return out
 end
 
 function M.side(ea)

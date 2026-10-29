@@ -4147,7 +4147,10 @@ factories["combat-intent.defence"]=function(require)
 -- Harm comes from combat-intent/threat.lua: weapons, spells aimed at one creature, areas and
 -- disables, as the caster perceives them.
 -- In the caster's own Time Stop (D2a) nothing threatens it until time resumes: a cast that ends
--- within the stop cannot be broken, and a protection counts only for what is left of it then.
+-- within the stop cannot be broken, and a protection counts only for what is left of it then. The
+-- same holds while its side awaits foes out of play (input.calm: the seconds until the first is
+-- likely back, combat-intent/choice.lua's readiness), against those foes as they will stand when
+-- back; an area weakens none of them meanwhile.
 local targeting=require('combat-intent.targeting')
 local threat=require('combat-intent.threat')
 local openers=require('combat-intent.openers')
@@ -4192,6 +4195,14 @@ M.critOpen=0.5
 M.PERCENT_TYPES={slashing=7,piercing=8,crushing=9,missile=10}
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
+-- The seconds nothing threatens the caster's side (see the top): the rest of its own Time Stop, or
+-- the calm before foes out of play are back, whichever is longer; nil when neither holds.
+local function quiet(input)
+    local stop=openers.ownStop(input)
+    local calm=number(input.calm) and input.calm>0 and input.calm or nil
+    if stop and calm then return math.max(stop,calm) end
+    return stop or calm
+end
 -- The share of a spell slot's cost that counts now (combat-intent/choice.lua, M.slotShare).
 local function slots(input) return number(input.slots) and input.slots or 1 end
 local function clamp(v,a,b) if v<a then return a elseif v>b then return b end return v end
@@ -4664,7 +4675,7 @@ end
 function M.acute(input,pictures)
     local caster=input.frame.self
     local t=pictures[caster.id]
-    if not t or not number(input.mind.acute) or openers.ownStop(input) then return false end
+    if not t or not number(input.mind.acute) or quiet(input) then return false end
     local left=number(caster.hp) and caster.hp>0 and caster.hp or 1
     return (M.course(M.held(caster),caster,t,1))>=input.mind.acute*left
 end
@@ -4672,7 +4683,7 @@ end
 -- through what protects it now can break the cast; absorbed hits do not.
 function M.through(input,t,cast)
     if not t or cast<=0 then return 1 end
-    local stop=openers.ownStop(input)
+    local stop=quiet(input)
     if stop and cast<=stop then return 1 end
     local b=M.blocks(M.held(input.frame.self),t,1)
     local part=cast/M.ROUND
@@ -4715,7 +4726,8 @@ end
 -- the backstab after it gains (input.hideOpening, combat-intent/choice.lua), less the part of a
 -- round its casting takes (weapons.paced); such an option carries hides and that opening. A buff
 -- counts over the rest of the fight as long as it lasts (rest, the seconds it reckoned with), a
--- protection over the horizon; input.tables holds the game's strength tables (might). boosts: what
+-- protection over the horizon, each from the end of the caster's own Time Stop or of the calm on
+-- (see the top); input.tables holds the game's strength tables (might). boosts: what
 -- the option gives adds to attacks (a buff potion, which a creature drinks before its attack:
 -- combat-intent/choice.lua).
 function M.options(input,rejected)
@@ -4732,7 +4744,9 @@ function M.options(input,rejected)
     local rest=threat.rest(frame,number(mind.fightCap) and mind.fightCap or 60)
     local tables=type(input.tables)=='table' and input.tables or nil
     local killBonus=number(mind.killBonus) and mind.killBonus or 0
-    local stop=openers.ownStop(input) or 0
+    local stop=quiet(input) or 0
+    -- Foes out of play are not where an area could weaken them.
+    local away=number(input.calm)
     local held={}
     local function heldOf(f) held[f.id]=held[f.id] or M.held(f);return held[f.id] end
     local caster=frame.self
@@ -4788,7 +4802,7 @@ function M.options(input,rejected)
                 if not listed then table.insert(hits,1,caster.id) end
             end
             -- Caution weighs what it gives the side; a profile without any (labs) still sees it.
-            local weak=row.item and 0 or weakens(input,row,spell,aim,ac)
+            local weak=(row.item or away) and 0 or weakens(input,row,spell,aim,ac)
             local total=worth*caution+weak+open
             if worth+weak+open>0 and (not best or total>best.total or (total==best.total and worth>best.worth)) then
                 best={aim=aim,total=total,worth=worth,hits=hits,open=open,boost=boost}
@@ -6860,6 +6874,16 @@ factories["combat-intent.choice"]=function(require)
 -- other side charmed frees it (combat-intent/removal.lua). A tactic (M.tactical): a clever creature
 -- always, a normal one when it notices, a dull one never; one that does not see it weighs the
 -- removal as on any enemy.
+--
+-- Readiness (Christopher, 2026-10-29: clever creatures guard a mazed foe's spot, "heal and re-buff"
+-- and strike when it comes back): while the creature sees no enemy and guards a foe out of play
+-- (combat-intent/search.lua's how), the adapter names those foes as they will stand when back
+-- (input.returning, M.readied); its protections and buffs count against them from when the first is
+-- likely back on, as in its own Time Stop (combat-intent/defence.lua's calm). A buff that runs out
+-- before then is worth nothing yet and is cast later, when it still lasts into the fight; one that
+-- protects for hours is renewed at once. Only what reaches the minimum worth is cast; the rest of
+-- the waiting rounds go to the guard. Normal creatures wait at their post and only heal; dull ones
+-- forget the foe.
 local targeting=require('combat-intent.targeting')
 local harm=require('combat-intent.harm')
 local defence=require('combat-intent.defence')
@@ -8358,6 +8382,29 @@ function M.frozen(input)
     return view
 end
 
+-- The input its defences are weighed on while the creature readies itself (see the top), or nil:
+-- with no enemy in sight, the foes out of play it guards (input.returning: each as an enemy in sight
+-- is read, where it will be back, with back, the seconds until it likely is; unknown counts as now,
+-- and one that is never back, under a charm without an end, is left out) stand in its frame as
+-- enemies, and calm holds the seconds until the first of them is back.
+function M.readied(input)
+    if #input.frame.enemies>0 or type(input.returning)~='table' then return nil end
+    local enemies,calm={},math.huge
+    for _,e in ipairs(input.returning) do
+        if type(e)=='table' and targeting.alive(e) and e.back~=math.huge then
+            enemies[#enemies+1]=e
+            calm=math.min(calm,number(e.back) and math.max(0,e.back) or 0)
+        end
+    end
+    if #enemies==0 then return nil end
+    local frame,view={},{}
+    for k,v in pairs(input.frame) do frame[k]=v end
+    frame.enemies=enemies
+    for k,v in pairs(input) do view[k]=v end
+    view.frame,view.calm=frame,calm
+    return view
+end
+
 -- The enemies of the input's frame by id.
 local function placed(input)
     local at={}
@@ -8404,7 +8451,11 @@ local function pick(input)
         input=view
     end
     local options=M.options(input,rejected)
-    for _,o in ipairs(defence.options(input,rejected)) do options[#options+1]=o end
+    local ready=M.readied(input)
+    for _,o in ipairs(defence.options(ready or input,rejected)) do
+        if ready then o.ready,o.calm=true,ready.calm end
+        options[#options+1]=o
+    end
     for _,o in ipairs(care.options(input,rejected)) do options[#options+1]=o end
     for _,o in ipairs(summons.options(input,rejected)) do options[#options+1]=o end
     for _,o in ipairs(removal.options(input,rejected,function(s) return M.attack(s)~=nil end)) do options[#options+1]=o end
@@ -8501,8 +8552,12 @@ local function pick(input)
             end
             return attack()
         end
-        -- No attack is worth anything: the best that is worth something, rather than nothing.
-        if best.score>0 then return best,'weak',options end
+        -- No attack is worth anything: the best that is worth something, rather than nothing. What
+        -- a creature would only ready itself with is none of that: it guards instead.
+        for _,o in ipairs(options) do
+            if o.score<=0 then break end
+            if not o.ready then return o,'weak',options end
+        end
         return M.wait(M.idle),'nothing-good',options,rejected
     end
     if swing and swing.score>best.score then return attack() end
@@ -9110,7 +9165,8 @@ factories["combat-intent.search"]=function(require)
 --   from a distance and strikes when it is back, a normal one waits at its post, a dull one forgets
 --   it and stands where it is; a designer's orders can say which (await). Neither hands the round
 --   back to SCS meanwhile: its last blocks attack the party even when charmed, and harming a charmed
---   foe breaks the charm by the rules text.
+--   foe breaks the charm by the rules text. A guard also renews its protections and buffs for when
+--   the foe comes back (combat-intent/choice.lua's readiness), by when that is likely (M.mazeLeft).
 -- Inputs are plain values; nothing here touches the engine.
 local targeting=require('combat-intent.targeting')
 local M={}
@@ -9182,6 +9238,10 @@ M.guardNear=96
 M.guardFar=240
 M.guardTurn=math.pi/4
 M.guardTurns=8
+-- A maze lasts rounds of roundSeconds (IESDP opcode 213); its dice are summed exactly while they
+-- reach at most mazeOutcomes (the IESDP's table goes to 20d4), beyond that by their mean.
+M.roundSeconds=6
+M.mazeOutcomes=100
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
 local function list(t) return type(t)=='table' and t or {} end
@@ -9515,14 +9575,9 @@ function M.guardPoint(input,a)
 end
 
 local HOWS={guard=true,post=true,stand=true}
--- How the creature awaits the foes out of play (input.away: {id, kind 'charm' or 'maze', x, y}), or
--- nil when there are none: the nearest of them, by its wit (M.AWAIT) or its orders (input.await:
--- 'guard', 'post' or 'stand'). A guard walks to its place by the foe (M.guardPoint) and looks out
--- there; one that guards its post (input.guard) guards only a foe within guardRadius of the post and
--- otherwise waits there. One that waits at its post walks back there and looks out; one that stands,
--- and any rooted one, looks out where it is. The decision: {kind 'guard' or 'return' (with point) or
--- 'look', await and target (the foe's id), away (its kind), how, point (a guard's place), gaveUp}.
-function M.await(input,gaveUp)
+-- The nearest of the foes out of play (input.away: {id, kind 'charm' or 'maze', x, y}) to the
+-- creature (input.frame.self), or nil when there are none.
+function M.nearestAway(input)
     local self=input.frame.self
     local foe,best
     for _,a in ipairs(list(input.away)) do
@@ -9531,10 +9586,28 @@ function M.await(input,gaveUp)
             if foe==nil or d<best or (d==best and a.id<foe.id) then foe,best=a,d end
         end
     end
-    if not foe then return nil end
-    local how=HOWS[input.await] and input.await or M.AWAIT[input.mind.wit] or M.AWAIT.normal
+    return foe
+end
+-- How the creature awaits foe, one out of play: by its orders (input.await: 'guard', 'post' or
+-- 'stand'), else its wit (M.AWAIT); one that guards its post (input.guard) guards only a foe within
+-- guardRadius of the post (input.post) and otherwise waits there.
+function M.how(input,foe)
+    local how=HOWS[input.await] and input.await or M.AWAIT[type(input.mind)=='table' and input.mind.wit] or M.AWAIT.normal
     local post=point(input.post) and input.post or nil
     if how=='guard' and input.guard and not (post and targeting.distance(post,foe)<=M.guardRadius) then how='post' end
+    return how
+end
+-- How the creature awaits the foes out of play, or nil when there are none: the nearest of them
+-- (M.nearestAway), as M.how says. A guard walks to its place by the foe (M.guardPoint) and looks out
+-- there. One that waits at its post walks back there and looks out; one that stands, and any rooted
+-- one, looks out where it is. The decision: {kind 'guard' or 'return' (with point) or 'look', await
+-- and target (the foe's id), away (its kind), how, point (a guard's place), gaveUp}.
+function M.await(input,gaveUp)
+    local self=input.frame.self
+    local foe=M.nearestAway(input)
+    if not foe then return nil end
+    local how=M.how(input,foe)
+    local post=point(input.post) and input.post or nil
     local d={await=foe.id,target=foe.id,away=foe.kind,how=how,gaveUp=gaveUp or nil}
     if self.rooted then d.kind='look';return d end
     if how=='guard' then
@@ -9548,6 +9621,35 @@ function M.await(input,gaveUp)
     end
     d.kind='look'
     return d
+end
+
+-- The seconds a maze is still likely to last, elapsed seconds after it began, while its foe is not
+-- back: the mean of what is left of the durations still possible, as num dice of size rounds give
+-- them (a maze by intelligence, IESDP opcode 213: the dice INTMOD.2DA gives the foe's
+-- intelligence). The caster's side knows how the spell works, not what its dice rolled (fair play).
+-- 0 once no duration is left; nil for dice that make none.
+function M.mazeLeft(num,size,elapsed)
+    if not number(num) or not number(size) or num<1 or size<1 or num%1~=0 or size%1~=0 then return nil end
+    elapsed=number(elapsed) and math.max(0,elapsed) or 0
+    local r=M.roundSeconds
+    if num*size>M.mazeOutcomes then return math.max(0,num*(size+1)/2*r-elapsed) end
+    -- The chance of each sum, die by die.
+    local p,lo,hi={[0]=1},0,0
+    for _=1,num do
+        local q={}
+        for s=lo+1,hi+size do q[s]=0 end
+        for s=lo,hi do
+            for face=1,size do q[s+face]=q[s+face]+p[s]/size end
+        end
+        p,lo,hi=q,lo+1,hi+size
+    end
+    local mass,sum=0,0
+    for s=lo,hi do
+        local left=s*r-elapsed
+        if left>0 then mass=mass+p[s];sum=sum+p[s]*left end
+    end
+    if mass<=0 then return 0 end
+    return sum/mass
 end
 
 -- What the creature does while it sees no enemy, or nil and why not:
@@ -10075,8 +10177,9 @@ factories["adapters.eeex.sense"]=function(require)
 -- test (SCS's triggers read the same); M.splprot adds the engine's own answers to the SPLPROT
 -- checks of the spells in question. M.defend adds what the defence slice weighs: what protects
 -- each friend now and the weapons of the creatures around. M.zones reads the danger zones in an
--- area (D3e): its area projectiles that explode again and again. Only plain values leave this
--- module; no engine object is kept.
+-- area (D3e): its area projectiles that explode again and again. M.foe and M.outOfPlay read a foe
+-- out of play for its side's readiness. Only plain values leave this module; no engine object is
+-- kept.
 local targeting=require('combat-intent.targeting')
 local spells=require('combat-intent.spells')
 local arsenal=require('combat-intent.arsenal')
@@ -10134,8 +10237,10 @@ M.timedEffect=4096
 -- as a high master of the long bow with a Composite Long Bow and Arrows +1; docs/learned.md).
 M.combat={ac=2,thac0=7,apr=8,damageBonus=50,thac0Right=84,damageRight=86,stoneskins=88,hitBonus=151,
     meleeHit=166,missileHit=72,meleeDamage=167,missileDamage=168}
--- STATS.IDS: STR, STREXTRA, DEX.
-M.scores={str=36,strExtra=37,dex=40}
+-- STATS.IDS: STR, STREXTRA, INT, DEX.
+M.scores={str=36,strExtra=37,int=38,dex=40}
+-- Opcodes that keep a foe out of play while its side awaits it (M.outOfPlay): Charm and Maze.
+M.charm,M.maze=5,213
 -- The quiver slots, whose ammunition a launcher shoots, the fist slot, the magic weapon slot and
 -- the weapon slots (SLOTS.IDS).
 M.quiver={11,12,13}
@@ -10449,6 +10554,16 @@ local function readTables(g)
     end
     t=g.EEex_Resource_Load2DA('DEXMOD')
     for n=0,M.maxScore do out.dexmod[n]=at(t,'MISSILE',n) end
+    -- INTMOD's maze dice by intelligence (IESDP opcode 213; the SR lab's table differs from the
+    -- IESDP's), apart, so that a table without them takes none of the others along.
+    out.maze={}
+    pcall(function()
+        local intmod=g.EEex_Resource_Load2DA('INTMOD')
+        for n=0,M.maxScore do
+            local num,size=at(intmod,'MAZE_DURATION_DICE_NUM',n),at(intmod,'MAZE_DURATION_DICE_SIZE',n)
+            if num and size then out.maze[n]={num=num,size=size} end
+        end
+    end)
     t=g.EEex_Resource_Load2DA('CLSWPBON')
     local _,rows=g.EEex_Resource_Get2DADimensions(t)
     for n=0,(tonumber(rows) or 0)-1 do
@@ -10771,6 +10886,41 @@ function M.defend(g,frame,tick,reader,classify)
         end)
     end
     return failed,last
+end
+
+-- A foe out of play as its side will meet it again (combat-intent/choice.lua's readiness): what an
+-- enemy in sight carries (M.actor, M.details), its weapon and whether it sees invisible creatures
+-- (as M.defend reads them), and its intelligence (int), by which a maze lasts.
+function M.foe(g,sprite,reader)
+    local entry=M.actor(g,sprite)
+    M.details(g,sprite,entry)
+    entry.seeInvisible=stat(g,sprite,M.stats.seeInvisible)>0 or stat(g,sprite,M.stats.trueSight)>0
+    entry.attack=M.attack(g,sprite,reader)
+    entry.int=stat(g,sprite,M.scores.int)
+    return entry
+end
+-- What keeps a foe out of play, as plain values: charm, the seconds left of the longest charm on it
+-- (M.charm; math.huge for one without an end), and maze, how its maze lasts (M.maze's parameter 2:
+-- 0 by intelligence, 1 by the effect's duration); nil for what it does not carry.
+function M.outOfPlay(g,sprite,tick)
+    local out={}
+    for _,list in ipairs({sprite.m_timedEffectList,sprite.m_equipedEffectList}) do
+        local seen=0
+        g.EEex_Utility_IterateCPtrList(list,function(e)
+            seen=seen+1
+            if seen>M.maxEffects then return true end
+            local op=e.m_effectId
+            if op==M.charm then
+                local kind,left=e.m_durationType,nil
+                if kind==M.timedEffect then left=(number(e.m_duration)-tick)/15
+                elseif kind==1 or kind==9 or kind==2 then left=math.huge end
+                if left and left>0 then out.charm=math.max(out.charm or 0,left) end
+            elseif op==M.maze and out.maze==nil then
+                out.maze=number(e.m_dWFlags)
+            end
+        end)
+    end
+    return out
 end
 
 function M.side(ea)
@@ -11280,7 +11430,8 @@ factories["adapters.eeex.search"]=function(require)
 -- it gives up), whether its search draws its tactics, the spots it has searched, when it gave up,
 -- when it last detected and when it last teleported; its group's boss, or one whose orders say so,
 -- guards its post. The foes its group holds out of play (the director's away: one it charmed, one in
--- a maze) are no clues; the search awaits them (combat-intent/search.lua, M.await). A walk is held
+-- a maze) are no clues; the search awaits them (combat-intent/search.lua, M.await) and reads them for
+-- a guard's readiness (seeker:returning). A walk is held
 -- while the creature walks it, a look and the rogue's detection mode briefly; each ends early when an
 -- enemy shows or the creature is hurt. Session-local; a load forgets it all.
 local sense=require('adapters.eeex.sense')
@@ -11319,9 +11470,10 @@ function M.new(g,options)
     local director=options.director
     local record=type(options.record)=='function' and options.record or function() end
     local rng=options.rng
+    local reader=options.reader
     local states,stateCount={},0
     local counts={hunts=0,walks=0,looks=0,returns=0,gaveUp=0,detects=0,modals=0,teleports=0,hitClues=0,guards=0,
-        stuck=0,guardFailures=0,awaits=0,guardWalks=0}
+        stuck=0,guardFailures=0,awaits=0,guardWalks=0,readyFailures=0}
     local seeker={}
     local function state(id)
         local s=states[id]
@@ -11368,6 +11520,53 @@ function M.new(g,options)
         end
         s.since,s.gaveUp,s.tactical,s.act,s.aim,s.back,s.stuck,s.awaiting=nil,nil,nil,nil,nil,nil,0,nil
         s.searched,s.clues,s.hits={},{},{}
+    end
+
+    -- The foes out of play a creature that sees no enemy readies itself for (combat-intent/choice.lua's
+    -- readiness), or nil: it guards the nearest of them (search.how: by its profile m, its orders and
+    -- its post). Each is read as an enemy in sight is (sense.foe), where it went out of play, doing
+    -- nothing yet, a charmed one without its charm, with back, the seconds until it is likely back:
+    -- what is left of the charm its side cast, or of a maze by intelligence (INTMOD.2DA's dice,
+    -- search.mazeLeft, from when the group saw it go); nil for a maze of a set duration. One that
+    -- cannot be read is left out (counts.readyFailures).
+    function seeker:returning(frame,tick,m,orders)
+        local id=frame.self.id
+        local away=director and director.away and director:away(id,tick) or {}
+        if #away==0 then return nil end
+        local s=states[id] or {}
+        local foe=search.nearestAway({frame=frame,away=away})
+        if not foe or search.how({mind=m,await=type(orders)=='table' and orders.await or nil,post=s.post,guard=s.guard},foe)~='guard' then
+            return nil
+        end
+        local tables=sense.tables(g)
+        local out={}
+        for _,a in ipairs(away) do
+            local object=g.EEex_GameObject_Get(a.id)
+            if object and g.EEex_GameObject_IsSprite(object,false) then
+                local ok,e=pcall(function()
+                    local e=sense.foe(g,object,reader)
+                    local held=sense.outOfPlay(g,object,tick)
+                    e.x,e.y,e.away,e.action,e.actee=a.x,a.y,a.kind,0,-1
+                    if a.kind=='charm' then
+                        if targeting.charmed(e) then e.state=e.state-targeting.STATE.charmed end
+                        e.back=held.charm
+                    elseif held.maze==0 then
+                        local dice=type(tables)=='table' and type(tables.maze)=='table' and tables.maze[e.int]
+                        if dice and type(a.since)=='number' then
+                            e.back=search.mazeLeft(dice.num,dice.size,(tick-a.since)/M.ticksPerSecond)
+                        end
+                    end
+                    return e
+                end)
+                if ok then out[#out+1]=e
+                else
+                    counts.readyFailures=counts.readyFailures+1
+                    record({kind='error',where='ready',member=id,target=a.id,error=tostring(e):sub(1,200)})
+                end
+            end
+        end
+        if #out==0 then return nil end
+        return out
     end
 
     -- A hit from an enemy the creature does not see (it sees none): its hit points dropped since it
@@ -11934,6 +12133,11 @@ factories["adapters.eeex.choice"]=function(require)
 -- up after its patience, walking back to where its fight began; there the creature's own life goes
 -- on. A detection is judged by whether the creature sees an enemy afterwards. BGSE_Search
 -- (api:searches) tells SCS's own hunting blocks to stand aside for every creature the engine drives.
+-- Readiness (combat-intent/choice.lua): a creature that guards a foe out of play also weighs its
+-- protections and buffs against the foes out of play as the search reads them (adapters/eeex/
+-- search.lua's returning: where each went, with the seconds until it is likely back). Such a
+-- defence is cast like any other ('choice' row with ready and calm); anything else goes to the
+-- search's guard.
 --
 -- Debuffs (F2b, combat-intent/choice.lua): when a ready spell weakens enemies, the choice also
 -- gets each enemy's active effects (sense.wards, as for removal), so that an enemy that carries a
@@ -12274,7 +12478,7 @@ function M.new(g,options)
         guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0,arms=0,attacks=0,attackHits=0,
         weaponFailures=0,releases=0,heals=0,cures=0,potions=0,cared=0,uncared=0,summons=0,conjured=0,
         unconjured=0,removals=0,stripped=0,unstripped=0,wardFailures=0,revealed=0,unrevealed=0,landed=0,unlanded=0,
-        jumps=0,debuffs=0,switches=0,kites=0,kited=0,flanks=0,flanked=0,replaced=0,positions=0,positioned=0}
+        jumps=0,debuffs=0,switches=0,kites=0,kited=0,flanks=0,flanked=0,replaced=0,positions=0,positioned=0,readies=0}
     local reasons={}
     local log,nextRow,size={},1,0
     local root,sink,lastError,markError,guardError,weaponError,wardError,zoneError,witError,tableError
@@ -12293,7 +12497,7 @@ function M.new(g,options)
         record({kind='error',where=where,error=tostring(err):sub(1,200)})
     end
     -- The engine's own search for enemies a creature cannot see (adapters/eeex/search.lua).
-    local seeker=searches.new(g,{director=director,record=record,rng=rng})
+    local seeker=searches.new(g,{director=director,record=record,rng=rng,reader=reader})
     -- Wit (combat-intent/mind.lua): the game's difficulty (1 to 5), nil when it cannot be read.
     local function difficulty()
         local ok,value=pcall(function() return g.EngineGlobals.g_pBaldurChitin.m_pObjectGame.m_options.m_nDifficultyLevel end)
@@ -13465,13 +13669,16 @@ function M.new(g,options)
         local frame=sense.frame(g,sprite,tick,true)
         if not frame then return decline('no-frame') end
         if sense.side(frame.self.ea)~='evil' then return decline('side') end
-        -- With no enemy in sight: out of a zone that hurts, a heal or cure for a friend in need, else
-        -- a thief's hide or the search.
+        -- With no enemy in sight: out of a zone that hurts, a heal or cure for a friend in need, a
+        -- protection or buff for when the foes out of play it guards are back (the search's
+        -- returning), else a thief's hide or the search.
         local unseen=#frame.enemies==0
+        local returning
         if unseen then
             local d=flee(sprite,id,tick,family)
             if d then return d end
-            if not M.ailing(frame) then
+            returning=seeker:returning(frame,tick,mindFor(sprite,family),orderBook[text(sprite.m_resref:get())])
+            if not returning and not M.ailing(frame) then
                 local rows,carried=book(sprite)
                 if not rows then failed('book',carried);return nil end
                 return seek(sprite,frame,id,tick,family,rows,carried,mindFor(sprite,family))
@@ -13488,7 +13695,8 @@ function M.new(g,options)
         local input={tick=tick,family=family,frame=frame,spells=rows,items=carried,lastDefence=lastDefence[id],
             plan=director and director:plan(id,tick) or {},memory=memory[id] or {},mind=mindFor(sprite,family),rng=rng,
             creatures=summoned(rows),stays=stays,orders=orderBook[text(sprite.m_resref:get())],
-            teleports=search.teleports(rows),jumped=seeker:jumped(id),kited=kited[id],tables=(sense.tables(g))}
+            teleports=search.teleports(rows),jumped=seeker:jumped(id),kited=kited[id],tables=(sense.tables(g)),
+            returning=returning}
         -- The zones in the area, with what they weigh about the caster itself.
         local raw=zoneList(sprite,tick)
         local seen={}
@@ -13506,7 +13714,7 @@ function M.new(g,options)
         -- The share of a spell slot's cost that counts now, kept for the log.
         input.slots=choice.slotShare(input)
         local d,why,options,rejected=choice.decide(input)
-        if unseen and not (d and M.CARE[d.kind]) then return seek(sprite,frame,id,tick,family,rows,carried,input.mind) end
+        if unseen and not (d and (M.CARE[d.kind] or d.ready)) then return seek(sprite,frame,id,tick,family,rows,carried,input.mind) end
         lastDetail=rejected
         local top={}
         for i=1,math.min(3,#options) do
@@ -13558,6 +13766,7 @@ function M.new(g,options)
         if not response then return decline('bad-response') end
         counts.claims=counts.claims+1
         if d.kind=='defence' then counts.defences=counts.defences+1 end
+        if d.ready then counts.readies=counts.readies+1 end
         if d.kind=='opener' then counts.openers=counts.openers+1 end
         if d.kind=='touch' then counts.touches=counts.touches+1 end
         if d.kind=='arm' then counts.arms=counts.arms+1 end
@@ -13575,7 +13784,8 @@ function M.new(g,options)
             alacrity=frame.self.alacrity or nil,release=d.release,use=d.use,creatures=d.creatures,count=d.count,
             rest=d.rest,slots=input.slots,finish=d.finish,aura=frame.self.aura~=0 and frame.self.aura or nil,
             inZones=zoneView(input,d),lasting=d.lasting,wit=input.mind.wit,walk=d.walk,interrupt=d.interrupt,
-            ordered=d.ordered,slot=d.slot,backstab=d.backstab,opening=d.opening})
+            ordered=d.ordered,slot=d.slot,backstab=d.backstab,opening=d.opening,ready=d.ready,
+            calm=d.ready and d.calm or nil})
         -- A disable claims its targets in the group at once, so that another member deciding
         -- before this cast starts leaves them alone, and a debuff the enemies it weakens for its
         -- spell; any other decision gives earlier claims back.

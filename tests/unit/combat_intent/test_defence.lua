@@ -735,4 +735,137 @@ i.tick=i.lastDefence+7*15
 assert(choice.decide(i).resref=='TESTOIL')
 groups=groups+1
 
+-- 16. The calm before foes out of play are back (input.calm, combat-intent/choice.lua's readiness)
+-- works as the caster's own Time Stop does: a buff counts for what is left of it once the calm is
+-- over, a protection likewise; a cast that ends within the calm cannot be broken and no danger is
+-- acute meanwhile; an area weakens no foe that is away.
+do
+    -- A minute's calm: the Oil (five minutes) still counts the fight's ten rounds, the short haste
+    -- (two rounds) runs out before; six seconds of calm leave it one round.
+    i=fighterInput(potions(oil,short))
+    i.calm=60
+    rejected={}
+    opts=defence.options(i,rejected)
+    assert(near(find(opts,'TESTOIL').worth,(3*0.75*10-2*0.75*10)*10/300) and find(opts,'TESTSHRT')==nil)
+    assert(rejected['no-worth']==1)
+    i.calm=6
+    assert(near(find(defence.options(i,{}),'TESTSHRT').worth,(3*0.75*10-2*0.75*10)*1/300))
+    -- Protection from Magical Weapons (24 seconds) under two fighters: after a calm of twelve its
+    -- twelve seconds left count two rounds of the loss it saves (group 3), cast unbroken, as in the
+    -- caster's own Time Stop of twelve; after thirty none are left.
+    i=input({fighter(11,130),fighter(12,135)},{row('TESTPFMW',pfmw,6)})
+    i.calm=12
+    local calmed=find(defence.options(i,{}),'TESTPFMW').worth
+    assert(near(calmed,1.5+(2-40/38)/3))
+    i.calm=nil
+    i.timeStop={caster=1,left=12}
+    assert(near(find(defence.options(i,{}),'TESTPFMW').worth,calmed))
+    i.timeStop=nil
+    i.calm=30
+    rejected={}
+    assert(#defence.options(i,rejected)==0 and rejected['no-worth']==1)
+    -- Both at once, the longer counts: its own Time Stop of twelve within a calm of thirty leaves none.
+    i.timeStop={caster=1,left=12}
+    rejected={}
+    assert(#defence.options(i,rejected)==0 and rejected['no-worth']==1)
+    i.timeStop=nil
+    -- Casting within the calm is never broken; a longer cast is, as in the fight (group 4).
+    ct=threat.picture(i.frame)[1]
+    i.calm=10
+    assert(defence.through(i,ct,5.4)==1)
+    i.calm=3
+    assert(near(defence.through(i,ct,5.4),math.exp(-3.42)))
+    -- Two fighters at the bare caster are acute danger, but not before they are back.
+    i.calm=nil
+    i.mind.acute=0.5
+    assert(defence.acute(i,threat.picture(i.frame)))
+    i.calm=10
+    assert(not defence.acute(i,threat.picture(i.frame)))
+    -- Recitation's curse weakens no foe that is away: its blessing alone counts (group 6).
+    i=input({fighter(11,200,{actee=2})},{row('TESTRECI',recitation,4)})
+    i.frame.allies={ally}
+    rest=threat.rest(i.frame,60)
+    i.calm=0
+    o=find(defence.options(i,{}),'TESTRECI')
+    assert(o and near(o.worth,2*(0.95-0.85)*12*(rest/6)/60))
+end
+groups=groups+1
+
+-- 17. Readiness (Christopher, 2026-10-29: clever creatures guard a mazed foe's spot, "heal and
+-- re-buff" and strike when it is back; combat-intent/choice.lua). With no enemy in sight, the foes
+-- out of play the adapter names (input.returning, each with back: the seconds until it is likely
+-- back) stand in the frame of the defences, which count from the first one's return on.
+do
+    -- A fighter awaits a mazed fighter of 300 hit points that is likely back in a minute: it drinks
+    -- its giant strength (ten minutes), which still lasts the fight's ten rounds then.
+    local foe=fighter(11,130,{hp=300,maxHp=300,back=60,action=0,actee=-1})
+    i=fighterInput(potions(giant,short))
+    i.frame.enemies={}
+    i.returning={foe}
+    local view=choice.readied(i)
+    assert(view.calm==60 and view.frame.enemies[1]==foe and #i.frame.enemies==0)
+    local pick,why=choice.decide(i)
+    assert(pick.resref=='TESTGIAN' and pick.kind=='defence' and pick.use and pick.ready and pick.calm==60 and why=='best')
+    assert(near(pick.worth,(2*0.9*17-2*0.75*10)*10/300))
+    -- The short haste would run out before the foe is back: nothing to do, the guard goes on.
+    i.items=potions(short)
+    pick,why=choice.decide(i)
+    assert(pick.kind=='wait' and why=='no-option')
+    -- Back any moment (or unknown): the haste is worth something after its price, but less than the
+    -- minimum worth; in the fight it would be taken rather than nothing, a guard does nothing then.
+    foe.back=0
+    o=find(defence.options(choice.readied(i),{}),'TESTSHRT')
+    assert(o and o.score>0 and o.score<i.mind.minValue)
+    pick,why=choice.decide(i)
+    assert(pick.kind=='wait' and why=='nothing-good')
+    foe.back=nil
+    assert(choice.readied(i).calm==0)
+    -- The first of two foes back sets the calm; a dead foe stands in for none. Nothing is readied
+    -- without foes named or with an enemy in sight.
+    i.returning={fighter(11,130,{back=60}),fighter(12,135,{back=30}),fighter(13,140,{hp=0,back=1})}
+    view=choice.readied(i)
+    assert(view.calm==30 and #view.frame.enemies==2)
+    i.returning={fighter(13,140,{hp=0,back=1})}
+    assert(choice.readied(i)==nil)
+    i.returning=nil
+    assert(choice.readied(i)==nil)
+    i.returning={foe}
+    i.frame.enemies={fighter(12,500)}
+    assert(choice.readied(i)==nil)
+    -- A foe that will be back far beyond a round's walk makes no buff worth drinking yet.
+    i=fighterInput(potions(giant))
+    i.frame.enemies={}
+    i.returning={fighter(11,2000,{hp=300,maxHp=300,back=60})}
+    assert(choice.decide(i).kind=='wait')
+    -- A mage awaiting two fighters casts Stoneskin (ten minutes) and not Protection from Magical
+    -- Weapons (24 seconds), which would be over before they are back; in the fight itself the
+    -- protection comes first (group 4).
+    i=input({},{row('TESTPFMW',pfmw,6),row('TESTSTON',stoneskin,4)})
+    i.returning={fighter(11,130,{back=60}),fighter(12,135,{back=60})}
+    pick=choice.decide(i)
+    assert(pick.resref=='TESTSTON' and pick.ready and pick.calm==60)
+    i.returning=nil
+    i.frame.enemies={fighter(11,130),fighter(12,135)}
+    pick=choice.decide(i)
+    assert(pick.resref=='TESTPFMW' and not pick.ready)
+    -- A weak heal still beats nothing while the guard waits, as in the fight: the potion of 27 at
+    -- 192 of 200 hit points, though the short haste is worth more, which it would only ready itself
+    -- with.
+    i=fighterInput(potions(heal,short))
+    i.frame.enemies={}
+    i.returning={fighter(11,130,{hp=300,maxHp=300,back=0,action=0,actee=-1})}
+    i.frame.self.hp=192
+    local h,s=find(care.options(i,{}),'TESTHEAL'),find(defence.options(choice.readied(i),{}),'TESTSHRT')
+    assert(h.score>0 and h.score<s.score and s.score<i.mind.minValue)
+    pick,why=choice.decide(i)
+    assert(pick.resref=='TESTHEAL' and why=='weak')
+    -- A foe under a charm without an end is never back: nothing is readied for it.
+    i.returning={fighter(11,130,{back=math.huge})}
+    assert(choice.readied(i)==nil)
+    i.returning={fighter(11,130,{back=math.huge}),fighter(12,135,{back=60})}
+    view=choice.readied(i)
+    assert(view.calm==60 and #view.frame.enemies==1 and view.frame.enemies[1].id==12)
+end
+groups=groups+1
+
 return groups

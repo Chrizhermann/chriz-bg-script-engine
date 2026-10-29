@@ -3289,4 +3289,123 @@ assert(shipped.spell=='TESTGIAN' and shipped.use==true)
 end)()
 groups=groups+1
 
+-- 44. Readiness (Christopher, 2026-10-29: clever creatures guard a mazed foe's spot, re-buff and
+-- strike when it is back; combat-intent/choice.lua). A clever mage's last enemy, a fighter with a
+-- magical long sword, goes into a maze (opcode 213 by intelligence): while it awaits the fighter the
+-- mage casts Stoneskin, as the search reads the foe where it vanished, with its sword and its
+-- intelligence (10: 4d4 rounds in the game's INTMOD), likely back in a minute ('choice' row with ready
+-- and calm). With skins up nothing is worth casting: it walks to its guard place. A normal mage waits
+-- at its post and a dull one forgets the foe: neither casts anything. A party member the group charmed
+-- counts without its charm, back when the charm ends.
+;(function()
+local profiles=require('combat-intent.mind')
+local INTMOD={columns={MAZE_DURATION_DICE_NUM=0,MAZE_DURATION_DICE_SIZE=1},labels={[0]='3','10'},
+    cells={[0]={[0]='10','4'},{[0]='4','4'}},width=3,height=2}
+local function scene(seed,wit)
+    local w=world()
+    tablesOf(w)
+    local load=w.EEex_Resource_Load2DA
+    w.EEex_Resource_Load2DA=function(name) if name=='INTMOD' then return INTMOD end return load(name) end
+    local d=directors.new(w,{reader=reader})
+    local c=choices.new(w,{reader=reader,director=d,seed=seed,
+        mindFor=wit and function() return profiles.forFamily(profiles.new({wit=wit,tactics=0}),'mage') end or nil})
+    local list={}
+    c:setSink(function(row) list[#list+1]=row end)
+    runtime.install(w,{director=d,choice=c,version='test'})
+    local m=w.add(sprite(1,0,0,255))
+    m.stats[2]=8
+    local e=w.add(sturdy(armed(sprite(11,300,0,2),35,'TESTSWRD')))
+    e.stats[38]=10
+    local function lastOf(kind) for n=#list,1,-1 do if list[n].kind==kind then return list[n] end end end
+    w.ticks=100
+    assert(w.BGSE_Claim(m,'mage','s1')==true)
+    learn(m,3,'TESTSTON')
+    return w,c,m,e,lastOf
+end
+-- What the search reads of the foe out of play: an enemy's facts, its sword and intelligence; its
+-- maze by intelligence; a charm's seconds left, one without an end lasting.
+local w,c,m,e,lastOf=scene(441)
+local foe=sense.foe(w,e,reader)
+assert(foe.int==10 and foe.attack.damage==4.5 and foe.attack.magical==true and foe.ids.class==2 and foe.hp==80)
+e.m_timedEffectList={{m_effectId=213,m_dWFlags=0,m_durationType=1}}
+assert(sense.outOfPlay(w,e,100).maze==0 and sense.outOfPlay(w,e,100).charm==nil)
+assert(sense.tables(w).maze[10].num==4 and sense.tables(w).maze[10].size==4)
+assert(sense.tables(w).maze[3].num==10 and sense.tables(w).maze[3].size==4 and sense.tables(w).maze[9]==nil)
+-- The maze: out of every area search, held out of play by the director; the mage casts Stoneskin.
+table.remove(w.order)
+w.ticks=140
+assert(w.BGSE_Claim(m,'mage','s1')==true)
+local chosen=lastOf('choice')
+assert(chosen and chosen.spell=='TESTSTON' and chosen.castKind=='defence' and chosen.ready==true and math.abs(chosen.calm-60)<1e-9)
+assert(lastOf('await')==nil and c:inspect().counts.readies==1 and c:inspect().search.counts.readyFailures==0)
+w.BGSE_Act(m)
+assert(w.queued[#w.queued].text=='SpellRES("TESTSTON",Myself)')
+-- The search's reading on its own (a director that lists the maze since tick 140): twenty seconds
+-- on, what is left of 4d4 rounds after twenty seconds; for a foe of intelligence 3 (10d4 rounds)
+-- longer. Only a guard readies itself: not a normal creature, a dull one or one ordered to its post.
+local seekers=require('adapters.eeex.search')
+local search=require('combat-intent.search')
+local function reading(g,kind)
+    return seekers.new(g,{director={away=function() return {{id=11,kind=kind,x=300,y=0,since=140}} end},reader=reader})
+end
+local frame,clever={self={id=1,x=0,y=0}},{wit='clever'}
+local back=reading(w,'maze'):returning(frame,440,clever,nil)
+assert(#back==1 and back[1].id==11 and back[1].away=='maze' and back[1].x==300 and back[1].action==0)
+assert(math.abs(back[1].back-search.mazeLeft(4,4,20))<1e-9 and back[1].back<60)
+e.stats[38]=3
+assert(math.abs(reading(w,'maze'):returning(frame,440,clever,nil)[1].back-search.mazeLeft(10,4,20))<1e-9)
+e.stats[38]=10
+assert(reading(w,'maze'):returning(frame,440,{wit='normal'},nil)==nil and reading(w,'maze'):returning(frame,440,{wit='dull'},nil)==nil)
+assert(reading(w,'maze'):returning(frame,440,clever,{await='post'})==nil)
+-- Later, its skins up (cast and over): nothing more is worth it, the mage walks to its guard place
+-- 240 short of the spot.
+local w2,c2,m2,e2,lastOf2=scene(442)
+e2.m_timedEffectList={{m_effectId=213,m_dWFlags=0,m_durationType=1}}
+table.remove(w2.order)
+m2.m_timedEffectList={{m_effectId=218,m_durationType=4096,m_duration=140+9000,m_effectAmount=8,m_dWFlags=0,
+    m_res=str(''),m_sourceRes=str('TESTSTON')}}
+m2.stats[88]=8
+w2.ticks=140
+assert(w2.BGSE_Claim(m2,'mage','s1')==true and lastOf2('choice')==nil and lastOf2('await').how=='guard')
+w2.BGSE_Act(m2)
+assert(w2.queued[#w2.queued].text=='MoveToPoint([60.0])' and c2:inspect().counts.readies==0)
+-- A dull mage forgets the foe and stands: no Stoneskin.
+local w3,c3,m3,e3,lastOf3=scene(443,'dull')
+e3.m_timedEffectList={{m_effectId=213,m_dWFlags=0,m_durationType=1}}
+table.remove(w3.order)
+w3.ticks=140
+assert(w3.BGSE_Claim(m3,'mage','s1')==true and lastOf3('choice')==nil and lastOf3('await').how=='stand')
+assert(c3:inspect().counts.readies==0)
+-- A normal mage goes back to its post and waits there: no Stoneskin either.
+local w6,c6,m6,e6,lastOf6=scene(446,'normal')
+e6.m_timedEffectList={{m_effectId=213,m_dWFlags=0,m_durationType=1}}
+table.remove(w6.order)
+w6.ticks=140
+assert(w6.BGSE_Claim(m6,'mage','s1')==true and lastOf6('choice')==nil and lastOf6('await').how=='post')
+assert(c6:inspect().counts.readies==0)
+-- A maze of a set duration (parameter 2 = 1): when it ends is unknown, it may be any moment; the
+-- mage still renews its Stoneskin, at once.
+local w4,c4,m4,e4,lastOf4=scene(444)
+e4.m_timedEffectList={{m_effectId=213,m_dWFlags=1,m_durationType=1}}
+table.remove(w4.order)
+w4.ticks=140
+assert(w4.BGSE_Claim(m4,'mage','s1')==true)
+assert(lastOf4('choice').spell=='TESTSTON' and lastOf4('choice').calm==0)
+-- The fighter charmed by the group (EA 255, in the charmed state) for 30 seconds more: back when the
+-- charm ends, its charm left out of what the mage weighs.
+local w5,c5,m5,e5,lastOf5=scene(445)
+e5.m_typeAI.m_EnemyAlly=255;e5.state=0x2000
+e5.m_timedEffectList={{m_effectId=5,m_dWFlags=2,m_durationType=4096,m_duration=140+30*15}}
+assert(sense.outOfPlay(w5,e5,140).charm==30)
+w5.ticks=140
+assert(w5.BGSE_Claim(m5,'mage','s1')==true)
+local charmed=lastOf5('choice')
+assert(charmed and charmed.spell=='TESTSTON' and charmed.ready==true and math.abs(charmed.calm-30)<1e-9)
+local held=reading(w5,'charm'):returning(frame,140,clever,nil)
+assert(held[1].away=='charm' and held[1].state==0 and math.abs(held[1].back-30)<1e-9)
+e5.m_timedEffectList={{m_effectId=5,m_durationType=1}}
+assert(sense.outOfPlay(w5,e5,140).charm==math.huge)
+end)()
+groups=groups+1
+
 return groups

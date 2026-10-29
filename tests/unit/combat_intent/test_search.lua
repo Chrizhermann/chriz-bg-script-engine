@@ -362,4 +362,28 @@ d,why=search.decide(input({away={{id=23,kind='prison',x=1,y=1},{id=24,kind='maze
 assert(d==nil and why=='no-clue')
 groups=groups+1
 
+-- 12. What readiness takes from here (combat-intent/choice.lua): the nearest foe out of play and how
+-- the creature awaits it, and how long a maze is still likely to last (IESDP opcode 213: dice of
+-- rounds by the foe's intelligence; the group knows the spell, not what its dice rolled).
+local charmed={id=32,kind='charm',x=900,y=1000}
+assert(search.nearestAway(input({away={mazed,charmed}})).id==32 and search.nearestAway(input({away={}}))==nil)
+assert(search.how(input(),mazed)=='guard' and search.how(input({mind={wit='dull',tactics=0}}),mazed)=='stand')
+assert(search.how(input({await='post'}),mazed)=='post' and search.how(input({mind={}}),mazed)=='post')
+assert(search.how(input({guard=true,post={x=1000,y=1000}}),mazed)=='post')
+assert(search.how(input({guard=true,post={x=1200,y=1000}}),mazed)=='guard')
+-- 4d4 rounds (intelligence 9 to 11): ten on average, a minute; after 96 seconds none are left. One
+-- die: 2.5 rounds; six seconds in, 12 seconds more on average (12, 18 or 24 in all).
+assert(near(search.mazeLeft(4,4,0),60) and search.mazeLeft(4,4,96)==0 and search.mazeLeft(4,4,200)==0)
+assert(near(search.mazeLeft(1,4,0),15) and near(search.mazeLeft(1,4,6),12))
+-- A maze that has lasted a while is likely nearer its end, never over before its last possible
+-- round: 90 seconds into 4d4 only the longest is left, six seconds more.
+assert(search.mazeLeft(4,4,30)<search.mazeLeft(4,4,0) and near(search.mazeLeft(4,4,90),6))
+-- A die of one side is certain (the SR lab's INTMOD gives intelligence 0 to 2 7200d1 rounds, twelve
+-- hours); beyond mazeOutcomes, the mean. Dice that make no duration give none.
+assert(search.mazeLeft(7200,1,100)==43100 and near(search.mazeLeft(30,4,0),30*2.5*6))
+assert(search.mazeLeft(3,1,0)==18 and search.mazeLeft(3,1,12)==6 and search.mazeLeft(3,1,20)==0)
+assert(search.mazeLeft(0,4,0)==nil and search.mazeLeft(4,0,0)==nil and search.mazeLeft('a',4,0)==nil)
+assert(search.mazeLeft(2.5,4,0)==nil and near(search.mazeLeft(4,4,nil),60))
+groups=groups+1
+
 return groups

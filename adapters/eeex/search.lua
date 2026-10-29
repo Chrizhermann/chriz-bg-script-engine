@@ -10,7 +10,8 @@
 -- it gives up), whether its search draws its tactics, the spots it has searched, when it gave up,
 -- when it last detected and when it last teleported; its group's boss, or one whose orders say so,
 -- guards its post. The foes its group holds out of play (the director's away: one it charmed, one in
--- a maze) are no clues; the search awaits them (combat-intent/search.lua, M.await). A walk is held
+-- a maze) are no clues; the search awaits them (combat-intent/search.lua, M.await) and reads them for
+-- a guard's readiness (seeker:returning). A walk is held
 -- while the creature walks it, a look and the rogue's detection mode briefly; each ends early when an
 -- enemy shows or the creature is hurt. Session-local; a load forgets it all.
 local sense=require('adapters.eeex.sense')
@@ -49,9 +50,10 @@ function M.new(g,options)
     local director=options.director
     local record=type(options.record)=='function' and options.record or function() end
     local rng=options.rng
+    local reader=options.reader
     local states,stateCount={},0
     local counts={hunts=0,walks=0,looks=0,returns=0,gaveUp=0,detects=0,modals=0,teleports=0,hitClues=0,guards=0,
-        stuck=0,guardFailures=0,awaits=0,guardWalks=0}
+        stuck=0,guardFailures=0,awaits=0,guardWalks=0,readyFailures=0}
     local seeker={}
     local function state(id)
         local s=states[id]
@@ -98,6 +100,53 @@ function M.new(g,options)
         end
         s.since,s.gaveUp,s.tactical,s.act,s.aim,s.back,s.stuck,s.awaiting=nil,nil,nil,nil,nil,nil,0,nil
         s.searched,s.clues,s.hits={},{},{}
+    end
+
+    -- The foes out of play a creature that sees no enemy readies itself for (combat-intent/choice.lua's
+    -- readiness), or nil: it guards the nearest of them (search.how: by its profile m, its orders and
+    -- its post). Each is read as an enemy in sight is (sense.foe), where it went out of play, doing
+    -- nothing yet, a charmed one without its charm, with back, the seconds until it is likely back:
+    -- what is left of the charm its side cast, or of a maze by intelligence (INTMOD.2DA's dice,
+    -- search.mazeLeft, from when the group saw it go); nil for a maze of a set duration. One that
+    -- cannot be read is left out (counts.readyFailures).
+    function seeker:returning(frame,tick,m,orders)
+        local id=frame.self.id
+        local away=director and director.away and director:away(id,tick) or {}
+        if #away==0 then return nil end
+        local s=states[id] or {}
+        local foe=search.nearestAway({frame=frame,away=away})
+        if not foe or search.how({mind=m,await=type(orders)=='table' and orders.await or nil,post=s.post,guard=s.guard},foe)~='guard' then
+            return nil
+        end
+        local tables=sense.tables(g)
+        local out={}
+        for _,a in ipairs(away) do
+            local object=g.EEex_GameObject_Get(a.id)
+            if object and g.EEex_GameObject_IsSprite(object,false) then
+                local ok,e=pcall(function()
+                    local e=sense.foe(g,object,reader)
+                    local held=sense.outOfPlay(g,object,tick)
+                    e.x,e.y,e.away,e.action,e.actee=a.x,a.y,a.kind,0,-1
+                    if a.kind=='charm' then
+                        if targeting.charmed(e) then e.state=e.state-targeting.STATE.charmed end
+                        e.back=held.charm
+                    elseif held.maze==0 then
+                        local dice=type(tables)=='table' and type(tables.maze)=='table' and tables.maze[e.int]
+                        if dice and type(a.since)=='number' then
+                            e.back=search.mazeLeft(dice.num,dice.size,(tick-a.since)/M.ticksPerSecond)
+                        end
+                    end
+                    return e
+                end)
+                if ok then out[#out+1]=e
+                else
+                    counts.readyFailures=counts.readyFailures+1
+                    record({kind='error',where='ready',member=id,target=a.id,error=tostring(e):sub(1,200)})
+                end
+            end
+        end
+        if #out==0 then return nil end
+        return out
     end
 
     -- A hit from an enemy the creature does not see (it sees none): its hit points dropped since it

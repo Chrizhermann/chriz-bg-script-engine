@@ -817,7 +817,7 @@ break the charm), a mazed foe is awaited by wit, and the engine owns those waiti
 same day (FIGHT-01, "Foes out of play"): the director keeps such foes apart from its picture, and
 the search awaits them instead of handing the round to SCS: clever creatures guard the foe's spot
 from a distance, normal ones wait at their post, dull ones stand; an imprisoned foe is forgotten.
-Re-buffing while waiting is not built yet.
+Re-buffing while waiting followed the same day (below, "Readiness").
 
 The same fights again (FIGHT-01, "Lab batch J, run 3", 2026-10-29): the engine's group now wins the
 mirror fights 3 of 4 (SCS too, faster), the fiend fights 1 of 3, the other two ahead when the time
@@ -857,9 +857,15 @@ creature always, a normal one when it notices, a dull one never). Such a creatur
 fighting for the side it stands with, not as disabled, and a charm over a charm counts nothing: the
 logs showed that a charm of the evil side leaves its creature on the good side once it ends.
 
+Readiness (FIGHT-01, "Readiness: re-buffing while a foe is out of play"): a creature that guards a
+foe out of play, a clever one or one so ordered, weighs its protections and buffs against that foe
+as the group last saw it, from when it is likely back on: the rest of the group's charm, or of a
+maze by the foe's intelligence and the installed game's INTMOD.2DA, never the game's own roll. Until
+then the creature is as safe as in its own Time Stop, so a long buff counts at once and a short one
+only once the foe is due. Normal and dull creatures cast nothing while they wait.
+
 Next, in the order agreed with Christopher on 2026-10-27 for the first release: the rest of the big
-lab round (re-buffing while a foe is out of play, then batch J again with a bot that leaves charmed
-party members alone, and a party of the same strength for the mixed fights, which also show the replacement in whole fights, thieves in whole fights, the veil in game,
+lab round (batch J again with a bot that leaves charmed party members alone, and a party of the same strength for the mixed fights, which also show the replacement in whole fights, thieves in whole fights, the veil in game,
 the prebuffs in game); then the boss fights, designed with Christopher one by one (Melissan's own
 among them). The Erinyes' withdrawal comes with a later "disengage" step (SCS's blueprint for it and
 Christopher's answers of 2026-10-28: FIGHT-01, "Disengage"): nobody flees for good, a short retreat

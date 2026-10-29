@@ -1177,9 +1177,8 @@ from the spot where the thief vanished and waits there, the mind flayer itself 2
 goes back to where its fight began, a dull one stands. When the thief comes out about a minute later,
 the clever fighter strikes at once.
 
-Not built yet: re-buffing while awaiting (a buff counts only with an enemy within a round's walk, so
-with the foe away nothing is worth casting). The reverse case, a member of the group the party
-charmed, is built since (below, "Freeing a member the party charmed").
+Built since: re-buffing while awaiting (below, "Readiness") and the reverse case, a member of the
+group the party charmed (below, "Freeing a member the party charmed").
 
 Tests: the search's group 11, the director's group 12, the director adapter's group 10, the choice
 adapter's group 32 (guard walks, `await` rows, a place in a danger zone, the dull, an order to the
@@ -1388,6 +1387,53 @@ Batch J's bot is to leave charmed members alone (run 4).
 
 Tests: the removal tests' group 8, the harm tests' group 9, the targeting tests' group 1, the
 director adapter's group 5; 15 mutations checked.
+Still to see in game: batch J again.
+
+### Readiness: re-buffing while a foe is out of play (Christopher, 2026-10-29)
+
+Christopher, 2026-10-29: clever creatures guard a mazed foe's spot from a distance, heal and re-buff,
+and strike when it returns (above, "Foes out of play"). Until now a buff counted only with an enemy
+in sight, so with the foe away nothing was worth casting.
+
+What the engine does now (`combat-intent/choice.lua`, `defence.lua`, `search.lua`;
+`adapters/eeex/search.lua`, `sense.lua`, `choice.lua`):
+
+- **Who.** Only a creature that guards: a clever one, or one whose orders say `await = guard` (a
+  boss that guards its post only for a foe near it). A normal creature at its post and a dull one
+  cast nothing while they wait. Healing goes on for all, as before.
+- **Against whom.** The foes out of play stand in for enemies in sight, as the group last saw them:
+  where they went, with their weapons, protections and spells. A foe the group charmed counts without
+  its charm, as it comes back an enemy.
+- **When they are back.** A charm: what is left of the charm the group cast. A maze by intelligence
+  (opcode 213 type 0, every Maze in the SR lab): how much of the maze is likely left, by the foe's
+  intelligence and the installed game's INTMOD.2DA (4d4 rounds at intelligence 10 in the SR lab, a
+  minute on average), counted from when the group saw the foe go; a maze that has lasted a while is
+  likely nearer its end. The engine never reads what the game's dice rolled: the group cannot know
+  that. When the return cannot be told (a maze of a set duration, type 1), the foe may be back any
+  moment. A foe under a charm without an end is never back: nothing is readied for it.
+- **Like its own Time Stop.** Until the first foe is likely back (the calm) nothing can hit the
+  creature: a buff counts only for what is left of it after the calm, a protection likewise, a cast
+  that ends within the calm cannot be broken, and nothing is acute danger. An area spell weakens
+  none of the foes meanwhile, as they are not there.
+- **Only what is worth it.** Such a defence must reach the minimum worth (`mind.minValue`); a weak
+  one does not beat waiting here, while a weak heal still does, as before. Anything else goes to the
+  guard walk as before.
+- **Log:** the `choice` row's `ready` and `calm` (seconds), count `readies`; the search's count
+  `readyFailures` and an `error` row (where `ready`) for a foe out of play that could not be read.
+
+Example: the group's mind flayer mazes the party's fighter (intelligence 10). The group's clever
+mage, guarding the spot 240 off, expects the fighter back in about a minute. It casts Stoneskin,
+which still holds when the fighter is back; a short protection that would be over by then counts
+nothing yet, and only once the fighter is due. With its skins up it just guards. A normal mage goes
+back to its post and waits; a dull ogre stands where it is.
+
+Not built: readying anything but protections and buffs (summons, a cloud on the spot where the foe
+will appear, a trap). Whether such tactics fit is Christopher's call.
+
+Tests: the search tests' group 12 (the nearest foe away, how it is awaited, the maze's time left),
+the defence tests' groups 16 (the calm) and 17 (readiness, a weak heal, a foe never back), the
+choice adapter's group 44 (a mazed and a charmed foe, skins up, a normal and a dull mage, a maze of a
+set duration, the search's reading by time and intelligence); 35 mutations checked.
 Still to see in game: batch J again.
 
 ## Agreed (Christopher, 2026-10-25)
