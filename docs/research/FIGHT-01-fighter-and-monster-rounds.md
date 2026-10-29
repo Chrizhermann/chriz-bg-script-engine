@@ -1524,6 +1524,18 @@ freeing members the party charmed, readiness), in the Spell Revisions lab, clean
   second before the cast) still counted as in play. Fixed (below, "Gone at once").
 - **The fight's rest at the start** came out at 13 seconds in j1 again: the group's fighter saw
   its whole group but 2 of the party's 7. Fixed (below, "The fight the group knows").
+- **Why SCS's mirror wins came faster** (38 to 65 seconds, one of 234; the engine's 59 to 123; in
+  the fiend fights the engine was faster in 2 of 3). In all three won mirror fights the group's mage
+  charmed the party's last member just as the one before fell (j1-own-1 at 53 seconds, the same
+  second), and in j1-own-1 and j1-own-3 the group then awaited the charm for a minute; without that
+  those wins would have taken 55 to 60 seconds. Beyond that SCS's mage cast what ours left: Dispel
+  Magic (`SPWI302`) in every mirror fight (ours once; at 5 seconds in j1-own-2 it rated it 0.06,
+  why is still open), Teleport Field (`SPWI421`) in every one (the engine weighs it
+  as no attack: SUPPORT-01), and water elementals (`SPWI526`, Spell Revisions) in three (ours in one;
+  in j1-own-2 they were its best option at 12.5, 13.5 and 30.6 seconds, lost to a near-best draw
+  once and to the casting pause twice, and they counted over the 13-second fight). The default mind
+  takes a near-best option 4 times in 10 (`best` 0.6, `band` 0.2): 3 of the mage's 5 casts in
+  j1-own-2.
 - **The mind flayer's escape.** In j2-own-3, at 36 per cent of its hit points (47 seconds), SCS's
   script cast the flayer's escape (`DW#MFESC`, a SpellNoDec cast above the hook); it vanished about
   2 seconds later. Run 3 shows the same at 51 seconds. It goes with the other vanishing exits
