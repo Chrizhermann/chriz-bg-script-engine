@@ -1577,7 +1577,12 @@ freeing members the party charmed, readiness), in the Spell Revisions lab, clean
   second), and in j1-own-1 and j1-own-3 the group then awaited the charm for a minute; without that
   those wins would have taken 55 to 60 seconds. Beyond that SCS's mage cast what ours left: Dispel
   Magic (`SPWI302`) in every mirror fight (ours once; at 5 seconds in j1-own-2 it rated it 0.06,
-  why is still open), Teleport Field (`SPWI421`) in every one (the engine weighs it
+  and the logs explain why (2026-11-02): Spell Revisions' Dispel Magic takes effects from enemies
+  only (its projectile's area keeps to enemies), and its best spot then was the party's kensai
+  alone, with a strength potion and at most Bless; the party's mage with its Stoneskin stood 750
+  pixels from the group's mage, beyond the spell's reach of 480, and none of the group pressed it, so its protections
+  opened little; whether a group should break an enemy caster's protections and press it together
+  is a point for the design round on group tactics), Teleport Field (`SPWI421`) in every one (the engine weighs it
   as no attack: SUPPORT-01), and water elementals (`SPWI526`, Spell Revisions) in three (ours in one;
   in j1-own-2 they were its best option at 12.5, 13.5 and 30.6 seconds, lost to a near-best draw
   once and to the casting pause twice, and they counted over the 13-second fight). The default mind
