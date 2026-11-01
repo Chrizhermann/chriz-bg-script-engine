@@ -320,6 +320,18 @@ Python, and `tests/integration/test_hook_installer.py` checks they agree.
     Dryad Teleport below 20 hit points; the creature's own script, above its hooked SCS mage script)
     carries none of SCS's difficulty markers, so no rule hooks it and it still vanishes.
 
+    The same kind of exit sits in BG2's own scripts above a hooked one. A census of the SR lab
+    (2026-11-02, read-only: each creature's script slots from its creature file and from the area
+    actor entries that place it, the scripts above its first hooked script, decompiled, judged as
+    above) found 1,520 such scripts and exits in 5 of them, all in EET's list of BG2's own scripts:
+    the Pirate Mage (`PPMAG01`, rewritten by SCS), a Hobgoblin Wizard in `AR1201` (`GPFLEE01`, below
+    15 hit points with an enemy in sight), a Nymph (`HGNYMPH`, below a quarter), Terminsel
+    (`JATERMIN`, "Elminster's Evasion" below 6 hit points while its local `Death` variable is 0) and
+    Lady Yuth (`STEALYU`, below 70 % once she has stolen from the party), all with Dryad Teleport. They
+    still vanish. Two more hurt blocks end in `DestroySelf()` and do more, so they would stay theirs
+    anyway: the duel mercenaries (`AMDUEL2`, a story global) and a troll that splits into two small
+    trolls (`TROLUO01`).
+
 `BGSE_Zones`, `BGSE_Search`, `BGSE_Hide`, `BGSE_Prep` and `BGSE_Stay` go by the script that decides for the creature: the
 first hooked script in its stack, since a lower script runs only after every higher one let the
 pass through and a higher hooked script asks on the way. So in a creature with two hooked scripts (SCS's general

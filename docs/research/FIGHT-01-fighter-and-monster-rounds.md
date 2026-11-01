@@ -1072,8 +1072,10 @@ while the engine drives the creature. Badly hurt, the Erinyes, Melissan's alu-fi
 succubus and the mind flayers fight on; they heal where they stand as far as they can, as everyone
 else does. A fight's designer lets a chosen creature leave as SCS has it with `leave = true` in its
 orders. Story exits stay theirs: Demogorgon's death scene, the silver dragon's exit in its lair,
-Abazigal's. The Pirate Mage (`PPMAG01`) still vanishes: SCS's script for it is no hooked script. Not
-seen in game yet; the next lab batch with Erinyes or mind flayers shows it.
+Abazigal's. The Pirate Mage (`PPMAG01`) still vanishes: SCS's script for it is no hooked script. So
+do four more creatures whose exit sits in BG2's own script above SCS's (a census of the SR lab,
+HOOK-01, rule 12): a Hobgoblin Wizard, a Nymph, Terminsel and Lady Yuth. Whether they stay too is
+open with Christopher. Not seen in game yet; the next lab batch with Erinyes or mind flayers shows it.
 
 ### Lab batch J: whole fights with a mirror party (2026-10-28)
 
