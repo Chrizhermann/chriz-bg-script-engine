@@ -616,6 +616,7 @@ assert(orders.check({guard=true}) and orders.check({guard=false,target='player1'
 assert(orders.check({hide=true}) and orders.check({hide=false,guard=true}) and select(2,orders.check({hide=1}))=='hide')
 assert(orders.check({await='guard'}) and orders.check({await='post'}) and orders.check({await='stand',guard=true}))
 assert(select(2,orders.check({await='wait'}))=='await' and select(2,orders.check({await=true}))=='await')
+assert(orders.check({leave=true}) and orders.check({leave=false,guard=true}) and select(2,orders.check({leave=1}))=='leave')
 groups=groups+1
 
 -- 22. Interrupting (Christopher, 2026-10-25: worth decides, "with a bonus for interrupting an

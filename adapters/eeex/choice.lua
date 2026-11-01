@@ -184,6 +184,11 @@
 -- after it (a 'veil' and a 'veiled' row). BGSE_Hide (api:hides) tells SCS's own free invisibility of
 -- that kind (a thief or a fiend that sees no enemy turns invisible for nothing, bgse/lib/hook.tpa) to
 -- stand aside for every creature the engine hides its own way.
+--
+-- Staying (Christopher, 2026-10-28: nobody leaves for good): BGSE_Stay (api:stays) tells SCS's
+-- vanishing exits (a badly hurt Erinyes or one of Melissan's allies that leaves the game for good, a
+-- mind flayer's escape; bgse/lib/hook.tpa) to stand aside for every creature the engine drives, unless
+-- its orders let it leave (combat-intent/orders.lua, leave=true). A 'stay' row says so once a creature.
 local sense=require('adapters.eeex.sense')
 local creature=require('adapters.eeex.creature')
 local resources=require('adapters.eeex.resources')
@@ -480,7 +485,9 @@ function M.new(g,options)
     local stays,stayCount,insideOf,insideCount,lookedAt={},0,{},0,{}
     -- SCS's preparation blocks the engine held back, by creature, kind and spell, for one 'prep' row each.
     local prepHeld,prepHeldCount={},0
-    local counts={preps=0,prepHolds=0,cut=0,waits=0,marked=0,escapes=0,escaped=0,unescaped=0,zoneFailures=0,stayed=0,left=0,pains=0,witFailures=0,decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
+    -- The creatures SCS's vanishing exits asked to leave and the engine kept, for one 'stay' row each.
+    local kept,keptCount={},0
+    local counts={preps=0,prepHolds=0,kept=0,cut=0,waits=0,marked=0,escapes=0,escaped=0,unescaped=0,zoneFailures=0,stayed=0,left=0,pains=0,witFailures=0,decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
         hits=0,misses=0,errors=0,holds=0,frozen=0,marks=0,markFailures=0,defences=0,guarded=0,unguarded=0,
         guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0,arms=0,attacks=0,attackHits=0,
         weaponFailures=0,releases=0,heals=0,cures=0,potions=0,cared=0,uncared=0,summons=0,conjured=0,
@@ -2260,6 +2267,28 @@ function M.new(g,options)
         end)
         if not ok then failed('prepped',err) end
     end
+    -- Whether the engine keeps creature id of family in the fight (BGSE_Stay: SCS's vanishing exits stand
+    -- aside for it): a creature the engine drives, as for its search, unless its orders let it leave
+    -- (leave=true). SCS asks only when its exit would fire, so a 'stay' row says once a creature that the
+    -- engine kept it. Any other creature keeps SCS's own.
+    function api:stays(family,id)
+        if not api:searches(family,id) then return false end
+        local ok,result=pcall(function()
+            local resref=text(get(id).m_resref:get())
+            local own=orderBook[resref]
+            if type(own)=='table' and own.leave==true then return false end
+            if not kept[id] then
+                if keptCount>=M.cacheLimit then kept,keptCount={},0 end
+                kept[id]=true;keptCount=keptCount+1
+                counts.kept=counts.kept+1
+                record({kind='stay',tick=now(),member=id,resref=resref,family=family})
+            end
+            return true
+        end)
+        if ok then return result==true end
+        failed('stay',result)
+        return false
+    end
     -- Whether the engine weighs danger zones for creature id of family now (BGSE_Zones: SCS's own
     -- cloud blocks stand aside meanwhile): not for a creature off the engine's
     -- side, and with no enemy in sight only when the engine has a way out of a zone that hurts it.
@@ -2327,6 +2356,7 @@ function M.new(g,options)
         minds,mindCount,hurts,hurtCount,pained={},0,{},0,{}
         waits={}
         prepHeld,prepHeldCount={},0
+        kept,keptCount={},0
         outside,outsideCount={},0
         seeker:invalidate()
         hider:invalidate()

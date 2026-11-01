@@ -18,7 +18,8 @@ from tools.ie_resources import parse_spl
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / 'tests/fixtures/hook'
 HOOKED = {'B-HKMAG': ('mage', 7), 'B-HKPRI': ('priest', 2), 'B-HKRNG': ('fighter', 0),
-          'B-HKMON': ('monster', 9), 'B-HKTHF': ('fighter', 3), 'B-HKFEN': ('monster', 0), 'B-HKPRP': ('mage', 0)}
+          'B-HKMON': ('monster', 9), 'B-HKTHF': ('fighter', 3), 'B-HKFEN': ('monster', 0), 'B-HKPRP': ('mage', 0),
+          'B-HKEXT': ('monster', 6)}
 UNTOUCHED = ('B-HKNOA', 'B-HKOLD', 'B-HKCST', 'B-HKNON', 'B-HKVAN')
 # The fake game's spells that move their caster: the monster's chase and jump spells, and a
 # creature's own innate teleport.
@@ -33,6 +34,9 @@ HIDES = {'B-HKSIL': 'plain', '2206': 'plain', 'WIZARD_IMPROVED_INVISIBILITY': 'i
 INNATES = frozenset({'B-HKSIL', 'B-HKSHD', 'B-HKETH'})
 RESREFS = {'2206': 'SPWI206', 'WIZARD_IMPROVED_INVISIBILITY': 'SPWI405', 'WIZARD_BLUR': 'SPWI201'}
 GTIMES = {'ONE_ROUND': 6, 'TWO_ROUNDS': 12}
+# The fake game's spell that takes its target out of the game (opcode 68 at its caster), as the exit
+# script casts it at itself: b-hkgon, as SCS's Dryad Teleport and dw#mfesc. Its b-hkheal only heals.
+VANISH = frozenset({'B-HKGON'})
 # Creatures: one whose script teleports by script and that has no teleport of its own (the innate
 # goes to it), one that has its own, and one whose scripts do not teleport.
 CREATURES = {'B-HKFND': (['', 'B-HKMON', '', '', ''], ['B-HKPOW']),
@@ -96,6 +100,7 @@ TRIGGER = """IDS V1.0
 0x4013 Allegiance(O:Object*,I:Allegiance*EA)
 0x4014 GlobalLT(S:Name*,S:Area*,I:Value*)
 0x4015 CheckSpellState(O:Object*,I:State*SplState)
+0x4016 HPLT(O:Object*,I:Hit Points*)
 0x4089 OR(I:OrCount*)
 """
 ACTION = """IDS V1.0
@@ -131,6 +136,11 @@ ACTION = """IDS V1.0
 29 RemoveSpellRES(S:Spell*)
 30 DisplayStringHead(O:Object*,I:StrRef*)
 31 SetGlobalTimerRandom(S:Name*,S:Area*,I:Min*,I:Max*)
+32 DropInventory()
+33 CreateVisualEffectObject(S:DialogFile*,O:Target*)
+34 SmallWait(I:Time*)
+35 StartCutSceneMode()
+36 EndCutSceneMode()
 """
 IDS = {
     'OBJECT': ('IDS V1.0\n0 Nothing\n1 Myself\n12 NearestEnemyOf\n18 LastSeenBy\n20 LastHeardBy\n21 Player1\n22 Player2\n'
@@ -289,6 +299,9 @@ def _fake_game(root: Path, eeex: bool = True, lua_trigger: bool = True, fiend_te
     (root / 'override/B-HKSHD.SPL').write_bytes(_spl(4, opcode=20, target=1, parameter2=1, extra=[
         (172, 1, 0, 1, 0, 'B-HKSHD'), (171, 1, 0, 4, 30, 'B-HKSHD')]))
     (root / 'override/B-HKETH.SPL').write_bytes(_spl(4, opcode=20, target=1))
+    # The exit script's vanishing spell (Unsummon at the caster) and its heal on itself.
+    (root / 'override/B-HKGON.SPL').write_bytes(_spl(1, opcode=68, target=2))
+    (root / 'override/B-HKHEAL.SPL').write_bytes(_spl(1, opcode=17, target=1))
     for name, (scripts, memorized) in CREATURES.items():
         (root / f'override/{name}.CRE').write_bytes(_cre(scripts, memorized))
     for name, (scripts, cls, levels, kit, hide, silent, script_name) in THIEVES.items():
@@ -403,7 +416,7 @@ def test_installer_matches_reference_and_is_reversible(tmp_path: Path) -> None:
 
     output = _install(tmp_path, '--force-install-list', '0')
     assert 'SUCCESSFULLY INSTALLED' in output, output
-    assert ('BGSE hook: 7 SCS scripts hooked, 21 SCS blocks guarded, 5 SCS cloud blocks yield to the engine, '
+    assert ('BGSE hook: 8 SCS scripts hooked, 27 SCS blocks guarded, 5 SCS cloud blocks yield to the engine, '
             "14 SCS hunting blocks yield to the engine's search, 3 left as they are.") in output, output
     assert ("BGSE teleport: 1 SCS jumps into the fight yield to the creatures' own teleports, 1 creatures that "
             'teleport only by script got the innate teleport BGSETELE.') in output, output
@@ -413,6 +426,7 @@ def test_installer_matches_reference_and_is_reversible(tmp_path: Path) -> None:
             'of spells made.') in output, output
     assert ('BGSE prep: 7 SCS preparation blocks (prebuffs, contingencies, chains, first-round casts) ask the engine '
             'and tell it what ran.') in output, output
+    assert 'BGSE stay: 5 SCS vanishing exits yield while the engine keeps the creature in the fight.' in output, output
     for name, reason in (('B-HKNOA', 'no-anchor'), ('B-HKOLD', 'already-hooked'), ('B-HKCST', 'no-castspell')):
         assert f'left {name} as it is ({reason})'.casefold() in output.casefold(), output
     installed = _snapshot(tmp_path)
@@ -482,7 +496,7 @@ def test_installer_matches_reference_and_is_reversible(tmp_path: Path) -> None:
 
     hooked = _decompile(tmp_path, HOOKED)
     for name, (family, copies) in HOOKED.items():
-        expected, reason, got_family, got_copies = hook_rule.patch(originals[name], name, TELEPORTS, HIDES)
+        expected, reason, got_family, got_copies = hook_rule.patch(originals[name], name, TELEPORTS, HIDES, VANISH)
         assert (reason, got_family, got_copies) == ('hooked', family, copies)
         assert hooked[name] == expected, name
     # SCS's free invisibility stands aside where the engine hides the creature its own way: the
@@ -507,6 +521,14 @@ def test_installer_matches_reference_and_is_reversible(tmp_path: Path) -> None:
     # the fight; not an ally's walk after the party.
     for name, count in (('B-HKMAG', 6), ('B-HKRNG', 3), ('B-HKPRI', 1), ('B-HKMON', 5)):
         assert hooked[name].count(hook_rule.search_guard(HOOKED[name][0], name.lower())) == count, name
+    # SCS's vanishing exits wait while the engine keeps the creature in the fight, in place and in their
+    # copies: the exit script's escapes above the hook (a flayer's and one whose triggers end in an OR
+    # group that lacks a member) and below it (an Erinyes' and a Balor's gate away), and the monster's
+    # gate away; not a story death in a cutscene, an escape that sets a global variable, a death in an OR
+    # group nor a heal on itself.
+    for name in HOOKED:
+        stays = hooked[name].count(hook_rule.stay_guard(HOOKED[name][0], name.lower()))
+        assert stays == {'B-HKEXT': 6, 'B-HKMON': 2}.get(name, 0), name
     # SCS's preparation above the hook asks the engine first and tells it what ran, once in each response
     # that casts: the mage's prebuff and first-round cast, and the preparation script's two prebuffs (one
     # spends a spell by its file, one casts a name SCS left unfilled), contingency, chain at the party and
@@ -559,7 +581,7 @@ def test_without_the_fiend_teleport_the_jump_stays_and_the_innate_gets_an_englis
     before = _snapshot(tmp_path)
     originals = _decompile(tmp_path, ['B-HKMON'])
     output = _install(tmp_path, '--force-install-list', '0')
-    assert ('BGSE hook: 7 SCS scripts hooked, 22 SCS blocks guarded, 5 SCS cloud blocks yield to the engine, '
+    assert ('BGSE hook: 8 SCS scripts hooked, 28 SCS blocks guarded, 5 SCS cloud blocks yield to the engine, '
             "14 SCS hunting blocks yield to the engine's search, 3 left as they are.") in output, output
     assert ("BGSE teleport: 0 SCS jumps into the fight yield to the creatures' own teleports, 1 creatures that "
             'teleport only by script got the innate teleport BGSETELE.') in output, output

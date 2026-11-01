@@ -916,7 +916,8 @@ Christopher's answers of 2026-10-29 to what the engine still lacks for a fight o
   (a clever foe that flees more cleverly, priests that keep strong fighters alive), designed case by
   case; too many fleeing enemies are no fun, and the AI need not always be as clever as the player.
   SCS's vanishing exits (the Erinyes, Melissan's allies, and the mind flayer's escape seen in lab
-  batch J) end under "nobody leaves for good".
+  batch J) end under "nobody leaves for good". Built 2026-10-30: they wait while the engine drives
+  the creature, unless its orders say `leave = true` (HOOK-01, rule 12; FIGHT-01, "Disengage").
 - **Later:** menu spells and shapeshifts (Polymorph Self, Shapechange, Nahal's Reckless Dweomer),
   and attack wands and scrolls ("Wands sowieso ziemlich broken für Spieler sowie auch Gegner").
 - **Group tactics** (fighters guarding their casters, falling back and regrouping) stay a design

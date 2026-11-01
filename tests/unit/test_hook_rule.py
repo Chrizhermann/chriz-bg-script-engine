@@ -866,3 +866,79 @@ def test_preparation_below_the_anchor_stays_scs_own():
     assert 'BGSE_Prep' not in patched
     spans, anchor, _ = hook_rule.plan(source)
     assert anchor == 1 and hook_rule.preparations(source, spans, anchor) == {}
+
+
+# The fixtures' spell that takes its caster out of the game (opcode 68 at itself; the integration test's
+# fake game has it): the exit script's b-hkgon.
+VANISH = frozenset({'B-HKGON'})
+
+
+def test_vanishing_exits_wait_while_the_engine_keeps_the_creature_in_the_fight():
+    # SCS's exits when badly hurt: a mind flayer's (it drops its loot and vanishes, or continues) and one
+    # whose triggers end in an OR group that lacks a member above the hook; an Erinyes' vanishing cast and
+    # a Balor's gate away with its bookkeeping, effect, wait and message below it, copied above it as
+    # specials. Each takes BGSE_Stay's condition, last or first where an OR group lacks a member, in place
+    # and in its copy. A story death in a cutscene, an exit that sets a global variable, a death in an OR
+    # group and a heal on itself stay as they are.
+    source = text('B-HKEXT')
+    spans, anchor, copies = hook_rule.plan(source, TELEPORTS)
+    assert (anchor, copies) == (3, [4, 5, 6, 7, 8, 9])
+    assert hook_rule.exits(source, spans, VANISH) == [1, 2, 4, 5]
+    patched, reason, family, count = hook_rule.patch(source, 'B-HKEXT', TELEPORTS, {}, VANISH)
+    assert (reason, family, count) == ('hooked', 'monster', 6)
+    stay = '  !' + hook_rule.stay_guard('monster', 'b-hkext')
+    claim = 'IF\n  ' + hook_rule.guard('monster', 'b-hkext') + '\n'
+    assert patched.count(stay) == 6
+    for i in (1, 2, 4, 5):
+        block = hook_rule.aside(source[spans[i][0]:spans[i][1]], [stay])
+        assert patched.count(block) == 1, i
+        if i in copies:
+            assert block.replace('IF\n', claim, 1) in patched, i
+    assert hook_rule.aside(source[spans[2][0]:spans[2][1]], [stay]).startswith('IF\n' + stay + '\n')
+    for i in (6, 7, 8, 9):
+        block = source[spans[i][0]:spans[i][1]]
+        assert patched.count(block) == 1 and block.replace('IF\n', claim, 1) in patched, i
+    # Without the game's spell facts only the exit that destroys the creature is one; the monster
+    # script's gate away below the hook takes the condition in place and in its copy.
+    assert hook_rule.exits(source, spans, frozenset()) == [5]
+    monster = text('B-HKMON')
+    spans, _, copies = hook_rule.plan(monster, TELEPORTS)
+    assert hook_rule.exits(monster, spans, frozenset()) == [7] and 7 in copies
+    assert hook_rule.patch(monster, 'B-HKMON', TELEPORTS)[0].count('!' + hook_rule.stay_guard('monster', 'b-hkmon')) == 2
+
+
+@pytest.mark.parametrize('triggers,responses,leaves', [
+    # SCS's exits when badly hurt: gone by DestroySelf or by a vanishing spell cast or applied at itself
+    # without the spellbook (by file or by SPELL.IDS name, with WeiDU's comment), with its own
+    # bookkeeping, effects, waits, messages and dropped loot, also beside a response that only continues.
+    (['HPPercentLT(Myself,15)'], [['DestroySelf()']], True),
+    (['HPLT(Myself,20)', '!Global("gone","LOCALS",1)'],
+     [['SetGlobal("gone","LOCALS",1)', 'DropInventory()', 'ForceSpellRES("b-hkgon",Myself)  // Teleport']], True),
+    (['See(NearestEnemyOf(Myself))', 'HPPercentLT(Myself,30)'], [['ReallyForceSpell(Myself,DRYAD_TELEPORT)']], True),
+    (['HPLT(Myself,25)'], [['SetGlobalTimer("run","LOCALS",2)', 'CreateVisualEffectObject("SPSUMGTE",Myself)',
+                            'SmallWait(8)', 'DisplayStringHead(Myself,2)', 'PlaySound("GATE")', 'DestroySelf()']], True),
+    (['HPPercentLT(Myself,30)'], [['SpellNoDecRES("B-HKGON",Myself)'], ['Continue()']], True),
+    (['HPPercentLT(Myself,30)', 'OR(2)', '  See([PC])', '  Heard([ANYONE],99)'],
+     [['ApplySpell(Myself,DRYAD_TELEPORT)']], True),
+    # Not an exit: someone else's hit points, negated, a limit never reached, or one of an OR group (with
+    # Die(): a death handler); nothing that leaves; a cast at someone else or of a spell that does not
+    # vanish; anything beyond the creature's own leaving (an attack, a cutscene, a global or area
+    # variable: the encounter's story), also in another response.
+    (['HPPercentLT(LastSeenBy(Myself),30)'], [['DestroySelf()']], False),
+    (['!HPPercentLT(Myself,30)'], [['DestroySelf()']], False),
+    (['HPPercentLT(Myself,0)'], [['DestroySelf()']], False),
+    (['OR(2)', '  HPLT(Myself,5)', '  Die()'], [['DestroySelf()']], False),
+    (['HPPercentLT(Myself,50)'], [['SetGlobal("hurt","LOCALS",1)']], False),
+    (['HPPercentLT(Myself,30)'], [['ForceSpellRES("b-hkgon",NearestEnemyOf(Myself))']], False),
+    (['HPPercentLT(Myself,50)'], [['ForceSpellRES("b-hkheal",Myself)']], False),
+    (['HPPercentLT(Myself,30)'], [['AttackReevaluate(NearestEnemyOf(Myself),15)', 'DestroySelf()']], False),
+    (['HPLT(Myself,30)'], [['StartCutSceneMode()', 'DestroySelf()']], False),
+    (['HPPercentLT(Myself,20)'], [['SetGlobal("fled","GLOBAL",1)', 'ForceSpellRES("b-hkgon",Myself)']], False),
+    (['HPPercentLT(Myself,20)'], [['IncrementGlobal("gone","MYAREA",1)', 'DestroySelf()']], False),
+    (['HPPercentLT(Myself,30)'], [['DestroySelf()'], ['AttackReevaluate(NearestEnemyOf(Myself),15)']], False),
+])
+def test_vanishing_exits_are_a_hurt_creature_leaving_and_nothing_else(triggers, responses, leaves):
+    lines = ''.join(f'  {t}\n' for t in triggers)
+    body = ''.join('  RESPONSE #100\n' + ''.join(f'    {a}\n' for a in r) for r in responses)
+    block = f'IF\n{lines}THEN\n{body}END\n'
+    assert hook_rule.is_exit(block, frozenset({'B-HKGON', 'DRYAD_TELEPORT'})) is leaves

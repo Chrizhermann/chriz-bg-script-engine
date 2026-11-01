@@ -81,8 +81,20 @@ the spell taken from the spellbook, as written. An opener the engine holds still
 what the opener sets of SCS's state, without its cast, and lets the engine take that round. SCS's own
 blocks that end its preparation when no opener fires do not cover every one of its settings.
 
+SCS's vanishing exits (is_exit; Christopher, 2026-10-28: nobody leaves for good): a block whose triggers
+check the creature's own hit points below a limit and whose responses do nothing but leave: they destroy
+the creature (DestroySelf) or cast a spell at it that removes its target from the game, with only its own
+bookkeeping, effects, messages, waits and its dropped inventory besides (SCS's Erinyes and Melissan's
+allies vanish so below a quarter or 15 %, its mind flayers below 30 %). Such a block gets a last condition
+that holds when BGSE_Stay says no: the engine keeps a creature it drives in the fight unless its orders
+let it leave, and for every other creature SCS's block runs as before. A copy above the hook takes the
+condition too. Which spells remove their target comes from the game's spell files (vanishing: upper-case
+resrefs, SPELL.IDS names and numbers). A block that does more (a cutscene, a story variable: Demogorgon's
+death scene) belongs to its encounter and stays as it is.
+
 Run it on a folder of decompiled scripts to see what an install would do:
-    python tools/hook_rule.py <folder-with-baf> [report.json] [teleports.txt] [hides.txt]
+    python tools/hook_rule.py <folder-with-baf> [report.json] [teleports.txt] [hides.txt] [innates.txt]
+        [gtimes.ids] [vanishing.txt]
 """
 import json
 import re
@@ -213,6 +225,17 @@ MAX_RECHARGE = 1295
 INVISIBILITY = {'plain': 'SPWI206', 'improved': 'SPWI405'}
 BASE36 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
 SPELL_TAG = re.compile(r'^SP(WI|PR|IN|CL)(\d{3})$')
+# SCS's vanishing exits (is_exit): a trigger on the creature's own hit points below a limit (two spaces:
+# not one of an OR group; a limit of 0 never holds), the action that destroys the creature, what such a
+# block may do besides, and the variable actions among those, which must keep to the creature's own
+# (LOCALS) variables.
+HURT = re.compile(r'^  (?:HPPercentLT|HPLT)\(Myself,[1-9][0-9]*\) *$', re.M)
+GONE = re.compile(r'^ {4}DestroySelf\(\) *$')
+EXIT_KEEPS = {'SetGlobal', 'SetGlobalTimer', 'SetGlobalTimerRandom', 'IncrementGlobal', 'Continue', 'DisplayString',
+              'DisplayStringHead', 'CreateVisualEffect', 'CreateVisualEffectObject', 'PlaySound', 'SmallWait', 'Wait',
+              'DropInventory'}
+VARIABLES = {'SetGlobal', 'SetGlobalTimer', 'SetGlobalTimerRandom', 'IncrementGlobal'}
+OWN_VARIABLE = re.compile(r'^ {4}[A-Za-z]+\("[^"]*","LOCALS",')
 
 
 def guard(family, script):
@@ -238,6 +261,11 @@ def hide_guard(family, script, kind):
 def prep_guard(family, script, kind, cast, spent):
     return ('EEex_LuaTrigger("return BGSE_Prep and BGSE_Prep(EEex_LuaTrigger_Object,'
             f"'{family}','{script}','{kind}','{cast}','{spent}') or false\")")
+
+
+def stay_guard(family, script):
+    return ('EEex_LuaTrigger("return BGSE_Stay and BGSE_Stay(EEex_LuaTrigger_Object,'
+            f"'{family}','{script}') or false\")")
 
 
 def prep_notice(family, script, kind, cast, spent):
@@ -714,6 +742,34 @@ def opener_twin(block, question):
     return trig + head + mark + rest[:-len('\nEND\n')] + '\n    Continue()\nEND\n'
 
 
+def is_exit(block, vanishing):
+    """SCS's vanishing exit: its triggers check the creature's own hit points below a limit (HURT: not
+    negated, not one of an OR group), and its responses do nothing but leave. At least one destroys the
+    creature (DestroySelf) or casts or applies at it, without a spellbook, a spell that removes its target
+    (SELF_CAST; vanishing as hides keys spells: SCS's Erinyes and Melissan's allies with Dryad Teleport,
+    its mind flayers with dw#mfesc); every other action is the creature's own bookkeeping, an effect, a
+    message, a wait or its dropped inventory (EXIT_KEEPS; variables only its own LOCALS ones). A block
+    that does more (a cutscene, a story variable: Demogorgon's death scene) belongs to its encounter."""
+    trig, resp = split(COMMENT.sub('', block))
+    if not HURT.search(trig):
+        return False
+    leaves = False
+    for line in resp.split('\n'):
+        action = ACTION.match(line)
+        if not action:
+            continue
+        if GONE.match(line) or cast_at_self(line) in vanishing:
+            leaves = True
+        elif action.group(1) not in EXIT_KEEPS or (action.group(1) in VARIABLES and not OWN_VARIABLE.match(line)):
+            return False
+    return leaves
+
+
+def exits(text, spans, vanishing):
+    """Indices of SCS's vanishing exits, above and below the anchor."""
+    return [i for i, (a, b) in enumerate(spans) if is_exit(text[a:b], vanishing)]
+
+
 def is_anchor(block):
     trig, resp = split(block)
     if CASTSPELL not in trig or FIRST_ROUND in resp:
@@ -804,10 +860,10 @@ def plan(text, teleports=frozenset()):
     return spans, anchor, sorted(copies - standing)
 
 
-def patch(text, script, teleports=frozenset(), hides=None):
+def patch(text, script, teleports=frozenset(), hides=None, vanishing=frozenset()):
     """Return (patched text or None, reason, family, number of copies) for the named script;
     teleports names the spells that move their caster (is_jump), hides the spells that make their
-    target invisible (free_hide)."""
+    target invisible (free_hide), vanishing those that remove their target (is_exit)."""
     text = text.replace('\r', '')
     script = script.lower()
     hides = hides or {}
@@ -825,12 +881,15 @@ def patch(text, script, teleports=frozenset(), hides=None):
     if anchor is None:
         return None, 'no-anchor', fam, 0
     hidden = hiding(text, spans, hides)
+    leaving = set(exits(text, spans, vanishing))
     insert = ''
     for i in copies:
         block = text[spans[i][0]:spans[i][1]]
-        # A copy that gives free invisibility stands aside as its original does.
-        if i in hidden:
-            block = aside(block, [f'  !{hide_guard(fam, script, hidden[i])}'])
+        # A copy that gives free invisibility or is a vanishing exit stands aside as its original does.
+        extra = ([f'  !{hide_guard(fam, script, hidden[i])}'] if i in hidden else []) + (
+            [f'  !{stay_guard(fam, script)}'] if i in leaving else [])
+        if extra:
+            block = aside(block, extra)
         insert += block.replace('IF\n', f'IF\n  {guard(fam, script)}\n', 1) + '\n'
     at = spans[anchor][0]
     head, tail = text[:at], text[at:]
@@ -842,7 +901,8 @@ def patch(text, script, teleports=frozenset(), hides=None):
         conditions = ([f'  !{zones_guard(fam, script)}'] if i in cloudy else []) + (
             [f'  !{search_guard(fam, script)}'] if i in hunting else []) + (
             [f'  !{hide_guard(fam, script, hidden[i])}'] if i in hidden else []) + (
-            [f'  !{prep_guard(fam, script, *preps[i])}'] if i in preps else [])
+            [f'  !{prep_guard(fam, script, *preps[i])}'] if i in preps else []) + (
+            [f'  !{stay_guard(fam, script)}'] if i in leaving else [])
         if conditions:
             a, b = spans[i]
             block = aside(text[a:b], conditions)
@@ -890,10 +950,13 @@ def main():
     innates = frozenset(line.strip().upper() for line in Path(sys.argv[5]).read_text(encoding='utf-8').splitlines()
                         if line.strip()) if len(sys.argv) > 5 else frozenset()
     times = read_times(sys.argv[6]) if len(sys.argv) > 6 else {}
+    # The spells that remove their target, one a line as vanishing keys them.
+    vanishing = frozenset(line.strip().upper() for line in Path(sys.argv[7]).read_text(encoding='utf-8').splitlines()
+                          if line.strip()) if len(sys.argv) > 7 else frozenset()
     rows = []
     for path in sorted(folder.glob('*.baf')):
         text = path.read_text(encoding='latin-1')
-        patched, reason, fam, copies = patch(text, path.stem, teleports, hides)
+        patched, reason, fam, copies = patch(text, path.stem, teleports, hides, vanishing)
         text = text.replace('\r', '')
         spans, anchor, _ = plan(text, teleports)
         cloudy = len(clouds(text, spans, anchor)) if patched else 0
@@ -901,8 +964,9 @@ def main():
         jumping = len(jumps(text, spans, teleports)) if patched else 0
         hidden = len(hiding(text, spans, hides)) if patched else 0
         preps = len(preparations(text, spans, anchor)) if patched else 0
+        leaving = len(exits(text, spans, vanishing)) if patched else 0
         rows.append({'script': path.stem, 'family': fam, 'result': reason, 'copies': copies, 'clouds': cloudy,
-                     'hunts': hunting, 'jumps': jumping, 'hides': hidden, 'preps': preps,
+                     'hunts': hunting, 'jumps': jumping, 'hides': hidden, 'preps': preps, 'exits': leaving,
                      'teleporter': bool(patched) and teleporter(text, teleports),
                      'gifts': script_gifts(text, hides, innates, times) if patched else []})
     summary = {}

@@ -30,6 +30,10 @@
 -- prep=false holds back all of SCS's preparation for the creature (its prebuffs, contingencies and
 -- chain contingencies); prepSkip holds back what it names: kinds ('prebuff', 'contingency', 'chain')
 -- or spells, as SCS's blocks cast or spend them (combat-intent/prep.lua).
+--
+-- leave=true lets the creature leave the fight for good as its SCS script has it (its vanishing exit
+-- when badly hurt, bgse/lib/hook.tpa); by default the engine keeps it in the fight (Christopher,
+-- 2026-10-28: nobody leaves for good, or almost nobody).
 local targeting=require('combat-intent.targeting')
 local M={}
 M.bonus=1
@@ -56,7 +60,7 @@ function M.check(o)
             elseif not selector(v) then return false,'target' end
         elseif k=='always' then
             if type(v)~='boolean' then return false,'always' end
-        elseif k=='guard' or k=='hide' or k=='prep' or k=='doors' then
+        elseif k=='guard' or k=='hide' or k=='prep' or k=='doors' or k=='leave' then
             if type(v)~='boolean' then return false,k end
         elseif k=='await' then
             if v~='guard' and v~='post' and v~='stand' then return false,k end

@@ -76,6 +76,16 @@
 // (bgse_opener_twin). SCS's own blocks that end its preparation when no opener fires do not cover
 // every one of its settings.
 //
+// SCS's vanishing exits (bgse_exit_block; Christopher, 2026-10-28: nobody leaves for good): a block
+// whose triggers check the creature's own hit points below a limit and whose responses do nothing but
+// leave: they destroy the creature or cast a spell at it that removes its target from the game
+// (bgse_vanish), with only its own bookkeeping, effects, messages, waits and its dropped inventory
+// besides (SCS's Erinyes, Melissan's allies, its mind flayers). It gets a last condition that holds when
+// BGSE_Stay says no (first in an OR group that lacks members, as above), in place and in its copy above
+// the hook: the engine keeps a creature it drives in the fight unless its orders let it leave, and for
+// every other creature SCS's block runs as before. A block that does more (a cutscene, a story variable)
+// belongs to its encounter and stays as it is.
+//
 // tools/hook_rule.py is the reference version of this rule. Keep the two in step;
 // tests/integration/test_hook_installer.py compares them.
 
@@ -252,14 +262,17 @@ END
 // Whether a spell makes its target invisible: 1 when an ability has opcode 20 (Invisibility) on
 // the caster or on the spell's target (target 1 or 2), 2 when one such is Improved Invisibility
 // (parameter 2 is 1); 0 for a spell the game lacks. bgse_innate_spell is 1 when its file says it is
-// an innate ability (type 4). bgse_form as in bgse_spell_res.
+// an innate ability (type 4), bgse_removing when an ability has opcode 68 (Unsummon creature: it
+// removes the creature from the game) on the caster or on the spell's target. bgse_form as in
+// bgse_spell_res.
 DEFINE_PATCH_FUNCTION bgse_hides_target
   STR_VAR bgse_form = ~R~
           bgse_spell = ~~
-  RET bgse_hiding bgse_innate_spell
+  RET bgse_hiding bgse_innate_spell bgse_removing
 BEGIN
   SET bgse_hiding = 0
   SET bgse_innate_spell = 0
+  SET bgse_removing = 0
   LPF bgse_spell_res STR_VAR bgse_form = EVAL ~%bgse_form%~ bgse_spell = EVAL ~%bgse_spell%~ RET bgse_res END
   TEXT_SPRINT res ~%bgse_res%~
   PATCH_IF (STRING_LENGTH ~%res%~ > 0) AND (STRING_LENGTH ~%res%~ <= 8) BEGIN
@@ -291,6 +304,9 @@ BEGIN
                         SET bgse_hiding = 1
                       END
                     END
+                    PATCH_IF (opcode = 68) AND ((target = 1) OR (target = 2)) BEGIN
+                      SET bgse_removing = 1
+                    END
                   END
                 END
               END
@@ -304,8 +320,9 @@ END
 
 // Look a spell up in the game once (bgse_hides_target): bgse_looked lists the spells looked up so
 // far, bgse_invisible those that make their target invisible, bgse_improved those of Improved
-// Invisibility and bgse_innate those whose files say innate (|NAME| entries in upper case, as scripts
-// name them; bgse_form as in bgse_spell_res).
+// Invisibility, bgse_innate those whose files say innate and bgse_vanish those that remove their
+// target from the game (|NAME| entries in upper case, as scripts name them; bgse_form as in
+// bgse_spell_res).
 DEFINE_PATCH_FUNCTION bgse_look_spell
   STR_VAR bgse_form = ~R~
           bgse_spell = ~~
@@ -313,11 +330,12 @@ DEFINE_PATCH_FUNCTION bgse_look_spell
           bgse_invisible = ~|~
           bgse_improved = ~|~
           bgse_innate = ~|~
-  RET bgse_looked bgse_invisible bgse_improved bgse_innate
+          bgse_vanish = ~|~
+  RET bgse_looked bgse_invisible bgse_improved bgse_innate bgse_vanish
 BEGIN
   PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%bgse_spell%|~ ~%bgse_looked%~) < 0) BEGIN
     LPF bgse_hides_target STR_VAR bgse_form = EVAL ~%bgse_form%~ bgse_spell = EVAL ~%bgse_spell%~
-      RET bgse_hiding bgse_innate_spell END
+      RET bgse_hiding bgse_innate_spell bgse_removing END
     TEXT_SPRINT bgse_looked ~%bgse_looked%%bgse_spell%|~
     PATCH_IF (bgse_hiding > 0) BEGIN
       TEXT_SPRINT bgse_invisible ~%bgse_invisible%%bgse_spell%|~
@@ -327,6 +345,9 @@ BEGIN
     END
     PATCH_IF (bgse_innate_spell = 1) BEGIN
       TEXT_SPRINT bgse_innate ~%bgse_innate%%bgse_spell%|~
+    END
+    PATCH_IF (bgse_removing = 1) BEGIN
+      TEXT_SPRINT bgse_vanish ~%bgse_vanish%%bgse_spell%|~
     END
   END
 END
@@ -434,6 +455,70 @@ BEGIN
       END ~%MATCH0%~
     END
     SET bgse_hide = (foreign = 0) ? kind : 0
+  END
+END
+
+// Whether a block is one of SCS's vanishing exits (tools/hook_rule.py: is_exit): its triggers check the
+// creature's own hit points below a limit above 0 (HPPercentLT or HPLT at Myself, two spaces in: not
+// negated, not one of an OR group), and its responses do nothing but leave. At least one action destroys
+// the creature (DestroySelf()) or casts or applies at it without a spellbook a spell that removes its
+// target (bgse_vanish, |NAME| entries in upper case, the forms bgse_self_spells reads); every other one is
+// SetGlobal, SetGlobalTimer, SetGlobalTimerRandom or IncrementGlobal on the creature's own LOCALS
+// variables, Continue, DisplayString, DisplayStringHead, CreateVisualEffect, CreateVisualEffectObject,
+// PlaySound, SmallWait, Wait or DropInventory. Comments go first.
+DEFINE_PATCH_FUNCTION bgse_exit_block
+  STR_VAR bgse_block = ~~
+          bgse_vanish = ~|~
+  RET bgse_exit
+BEGIN
+  SET bgse_exit = 0
+  INNER_PATCH_SAVE text ~%bgse_block%~ BEGIN
+    REPLACE_TEXTUALLY CASE_SENSITIVE ~ *//.*$~ ~~
+  END
+  TEXT_SPRINT trig ~~
+  TEXT_SPRINT resp ~~
+  INNER_PATCH ~%text%~ BEGIN
+    SET then = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~%LNL%THEN%LNL%~)
+    PATCH_IF (then > 0) BEGIN
+      READ_ASCII 0 trig (then)
+      READ_ASCII then resp (BUFFER_LENGTH - then)
+    END
+  END
+  PATCH_IF (STRING_LENGTH ~%resp%~ > 0)
+      AND (INDEX (CASE_SENSITIVE ~^  \(HPPercentLT\|HPLT\)(Myself,[1-9][0-9]*) *$~ ~%trig%~) >= 0) BEGIN
+    SET leaves = 0
+    SET other = 0
+    INNER_PATCH ~%resp%~ BEGIN
+      REPLACE_EVALUATE CASE_SENSITIVE ~^    \([A-Za-z_][A-Za-z0-9_]*\)(.*$~ BEGIN
+        TEXT_SPRINT action ~%MATCH1%~
+        TEXT_SPRINT line ~%MATCH0%~
+        TEXT_SPRINT name ~~
+        PATCH_IF ((~%line%~ STRING_MATCHES_REGEXP ~^    \(ApplySpellRES\|ForceSpellRES\|ReallyForceSpellRES\|SpellNoDecRES\)("[^"]*",Myself) *$~) = 0) BEGIN
+          INNER_PATCH ~%line%~ BEGIN
+            REPLACE_EVALUATE CASE_SENSITIVE ~"\([^"]*\)"~ BEGIN
+              TEXT_SPRINT name ~%MATCH1%~
+            END ~%MATCH0%~
+          END
+        END ELSE PATCH_IF ((~%line%~ STRING_MATCHES_REGEXP ~^    \(ApplySpell\|ForceSpell\|ReallyForceSpell\|SpellNoDec\)(Myself,[^,()" ]+) *$~) = 0) BEGIN
+          INNER_PATCH ~%line%~ BEGIN
+            REPLACE_EVALUATE CASE_SENSITIVE ~(Myself,\([^,()" ]+\))~ BEGIN
+              TEXT_SPRINT name ~%MATCH1%~
+            END ~%MATCH0%~
+          END
+        END
+        TO_UPPER name
+        PATCH_IF ((~%line%~ STRING_MATCHES_REGEXP ~^    DestroySelf() *$~) = 0)
+            OR ((STRING_LENGTH ~%name%~ > 0) AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%name%|~ ~%bgse_vanish%~) >= 0)) BEGIN
+          SET leaves += 1
+        END ELSE PATCH_IF ((~%action%~ STRING_MATCHES_REGEXP ~^\(SetGlobal\|SetGlobalTimer\|SetGlobalTimerRandom\|IncrementGlobal\|Continue\|DisplayString\|DisplayStringHead\|CreateVisualEffect\|CreateVisualEffectObject\|PlaySound\|SmallWait\|Wait\|DropInventory\)$~) != 0) BEGIN
+          SET other += 1
+        END ELSE PATCH_IF ((~%action%~ STRING_MATCHES_REGEXP ~^\(SetGlobal\|SetGlobalTimer\|SetGlobalTimerRandom\|IncrementGlobal\)$~) = 0)
+            AND (INDEX (CASE_SENSITIVE ~^    [A-Za-z]+("[^"]*","LOCALS",~ ~%line%~) != 0) BEGIN
+          SET other += 1
+        END
+      END ~%MATCH0%~
+    END
+    SET bgse_exit = ((leaves > 0) AND (other = 0)) ? 1 : 0
   END
 END
 
@@ -1264,15 +1349,16 @@ END
 
 // Hook one decompiled SCS script; bgse_script is its resref in lower case, bgse_teleports the
 // spells that move their caster, bgse_invisible those that make their target invisible,
-// bgse_improved those of Improved Invisibility and bgse_innate those whose files say innate (|NAME|
-// entries in upper case: resrefs, SPELL.IDS names and numbers); bgse_times the game's timer names
-// (bgse_times_list). bgse_result is hooked, not-scs, unsafe-name, no-castspell, already-hooked or
-// no-anchor; only "hooked" changes bgse_baf. bgse_clouds counts the cloud blocks that stand aside,
-// bgse_hunts the hunting blocks, bgse_jumps the scripted jumps into the fight, bgse_hides the blocks
-// that give the creature free invisibility, bgse_preps SCS's preparation blocks; bgse_teleporter is 1
-// when a hooked script teleports its creature by script, bgse_hider when it makes its creature
-// invisible for free, and bgse_gifts lists the real abilities that stand in for that
-// (bgse_block_gifts), each once, in the order of its blocks.
+// bgse_improved those of Improved Invisibility, bgse_innate those whose files say innate and
+// bgse_vanish those that remove their target (|NAME| entries in upper case: resrefs, SPELL.IDS names
+// and numbers); bgse_times the game's timer names (bgse_times_list). bgse_result is hooked, not-scs,
+// unsafe-name, no-castspell, already-hooked or no-anchor; only "hooked" changes bgse_baf. bgse_clouds
+// counts the cloud blocks that stand aside, bgse_hunts the hunting blocks, bgse_jumps the scripted
+// jumps into the fight, bgse_hides the blocks that give the creature free invisibility, bgse_preps
+// SCS's preparation blocks, bgse_exits its vanishing exits; bgse_teleporter is 1 when a hooked script
+// teleports its creature by script, bgse_hider when it makes its creature invisible for free, and
+// bgse_gifts lists the real abilities that stand in for that (bgse_block_gifts), each once, in the
+// order of its blocks.
 DEFINE_PATCH_FUNCTION bgse_hook_baf
   STR_VAR bgse_baf = ~~
           bgse_script = ~~
@@ -1280,9 +1366,10 @@ DEFINE_PATCH_FUNCTION bgse_hook_baf
           bgse_invisible = ~|~
           bgse_improved = ~|~
           bgse_innate = ~|~
+          bgse_vanish = ~|~
           bgse_times = ~|~
-  RET bgse_result bgse_family bgse_copies bgse_clouds bgse_hunts bgse_jumps bgse_hides bgse_preps bgse_teleporter bgse_hider
-      bgse_gifts bgse_baf
+  RET bgse_result bgse_family bgse_copies bgse_clouds bgse_hunts bgse_jumps bgse_hides bgse_preps bgse_exits
+      bgse_teleporter bgse_hider bgse_gifts bgse_baf
 BEGIN
   TEXT_SPRINT bgse_result ~not-scs~
   TEXT_SPRINT bgse_family ~~
@@ -1292,6 +1379,7 @@ BEGIN
   SET bgse_jumps = 0
   SET bgse_hides = 0
   SET bgse_preps = 0
+  SET bgse_exits = 0
   SET bgse_teleporter = 0
   SET bgse_hider = 0
   TEXT_SPRINT bgse_gifts ~|~
@@ -1330,10 +1418,10 @@ BEGIN
     // own: each function call copies every variable, so the thousands of a big script would slow
     // down every call. A block's flags are the bits of one number: 1 book, 2 items, 4 special, 8 pick,
     // 16 lastseen, 32 encounter, 64 copy, 128 cloud, 256 hunt, 512 jump, 1024 and 2048 plain and
-    // improved free invisibility, 4096 maybe SCS's preparation. plan has a record for each block from
-    // the anchor on with flags (the others have none), its number, start, end and flags as longs; edits
-    // and tail_edits one for each block above the anchor and from it that stands aside or, above it,
-    // may be the preparation, its start, end and flags.
+    // improved free invisibility, 4096 maybe SCS's preparation, 8192 vanishing exit. plan has a record
+    // for each block from the anchor on with flags (the others have none), its number, start, end and
+    // flags as longs; edits and tail_edits one for each block above the anchor and from it that stands
+    // aside or, above it, may be the preparation, its start, end and flags.
     SET n = 0
     SET anchor = 0 - 1
     SET at = 0
@@ -1398,6 +1486,12 @@ BEGIN
             PATCH_IF (bgse_jump = 1) AND ((flags BAND 256) = 0) BEGIN
               SET flags = flags BOR 512
             END
+          END
+          PATCH_IF (INDEX (CASE_SENSITIVE ~^  \(HPPercentLT\|HPLT\)(Myself,~ ~%block%~) >= 0) BEGIN
+            // SCS's vanishing exits, above and below the anchor (each checks the creature's own hit
+            // points so).
+            LPF bgse_exit_block STR_VAR bgse_block = EVAL ~%block%~ bgse_vanish = EVAL ~%bgse_vanish%~ RET bgse_exit END
+            SET flags = flags BOR (bgse_exit * 8192)
           END
           PATCH_IF (anchor < 0) BEGIN
             // SCS's cloud escape or stand-still (tools/hook_rule.py: is_cloud); only those above
@@ -1489,7 +1583,7 @@ BEGIN
               WRITE_LONG (BUFFER_LENGTH - 8) stop
               WRITE_LONG (BUFFER_LENGTH - 4) flags
             END
-            PATCH_IF ((flags BAND 3840) > 0) BEGIN
+            PATCH_IF ((flags BAND 12032) > 0) BEGIN
               INNER_PATCH_SAVE tail_edits ~%tail_edits%~ BEGIN
                 INSERT_BYTES BUFFER_LENGTH 12
                 WRITE_LONG (BUFFER_LENGTH - 12) start
@@ -1596,15 +1690,24 @@ BEGIN
             READ_LONG (12 * k + 8) flags
           END
           READ_ASCII s copy (e - s)
+          // A copy that gives free invisibility or is a vanishing exit stands aside as its original does.
+          TEXT_SPRINT extra ~~
           PATCH_IF ((flags BAND 3072) > 0) BEGIN
-            // A copy that gives free invisibility stands aside as its original does.
             TEXT_SPRINT kind ~plain~
             PATCH_IF ((flags BAND 2048) = 2048) BEGIN
               TEXT_SPRINT kind ~improved~
             END
-            TEXT_SPRINT hide_line ~  !EEex_LuaTrigger("return BGSE_Hide and BGSE_Hide(EEex_LuaTrigger_Object,'%bgse_family%','%bgse_script%','%kind%') or false")~
+            TEXT_SPRINT extra ~  !EEex_LuaTrigger("return BGSE_Hide and BGSE_Hide(EEex_LuaTrigger_Object,'%bgse_family%','%bgse_script%','%kind%') or false")~
+          END
+          PATCH_IF ((flags BAND 8192) = 8192) BEGIN
+            PATCH_IF (STRING_LENGTH ~%extra%~ > 0) BEGIN
+              TEXT_SPRINT extra ~%extra%%LNL%~
+            END
+            TEXT_SPRINT extra ~%extra%  !EEex_LuaTrigger("return BGSE_Stay and BGSE_Stay(EEex_LuaTrigger_Object,'%bgse_family%','%bgse_script%') or false")~
+          END
+          PATCH_IF (STRING_LENGTH ~%extra%~ > 0) BEGIN
             INNER_PATCH_SAVE copy ~%copy%~ BEGIN
-              LPF bgse_aside INT_VAR bgse_from = 0 bgse_to = BUFFER_LENGTH STR_VAR bgse_lines = EVAL ~%hide_line%~ END
+              LPF bgse_aside INT_VAR bgse_from = 0 bgse_to = BUFFER_LENGTH STR_VAR bgse_lines = EVAL ~%extra%~ END
             END
           END
           INNER_PATCH ~%copy%~ BEGIN
@@ -1624,6 +1727,7 @@ BEGIN
       TEXT_SPRINT search_line ~  !EEex_LuaTrigger("return BGSE_Search and BGSE_Search(EEex_LuaTrigger_Object,'%bgse_family%','%bgse_script%') or false")~
       TEXT_SPRINT plain_line ~  !EEex_LuaTrigger("return BGSE_Hide and BGSE_Hide(EEex_LuaTrigger_Object,'%bgse_family%','%bgse_script%','plain') or false")~
       TEXT_SPRINT improved_line ~  !EEex_LuaTrigger("return BGSE_Hide and BGSE_Hide(EEex_LuaTrigger_Object,'%bgse_family%','%bgse_script%','improved') or false")~
+      TEXT_SPRINT stay_line ~  !EEex_LuaTrigger("return BGSE_Stay and BGSE_Stay(EEex_LuaTrigger_Object,'%bgse_family%','%bgse_script%') or false")~
       TEXT_SPRINT head ~~
       TEXT_SPRINT tail ~~
       INNER_PATCH ~%bgse_baf%~ BEGIN
@@ -1688,6 +1792,14 @@ BEGIN
               TEXT_SPRINT lines ~%lines%  !EEex_LuaTrigger("return BGSE_Prep and BGSE_Prep(EEex_LuaTrigger_Object,'%bgse_family%','%bgse_script%','%bgse_prep%','%bgse_cast%','%bgse_spent%') or false")~
               SET bgse_preps += 1
             END
+            // A vanishing exit stays out while the engine keeps the creature in the fight.
+            PATCH_IF ((flags BAND 8192) = 8192) BEGIN
+              PATCH_IF (STRING_LENGTH ~%lines%~ > 0) BEGIN
+                TEXT_SPRINT lines ~%lines%%LNL%~
+              END
+              TEXT_SPRINT lines ~%lines%%stay_line%~
+              SET bgse_exits += 1
+            END
             INNER_PATCH_SAVE block ~%block%~ BEGIN
               PATCH_IF (STRING_LENGTH ~%lines%~ > 0) BEGIN
                 LPF bgse_aside INT_VAR bgse_from = 0 bgse_to = BUFFER_LENGTH STR_VAR bgse_lines = EVAL ~%lines%~ END
@@ -1745,11 +1857,11 @@ END
 // bgse_teleports and bgse_checked (|NAME| entries in upper case) are the spells known to move
 // their caster and all spells looked up so far for that: the spells of the script's casts without a
 // spellbook are looked up in the game once each (bgse_moves_caster), and both come back with them.
-// bgse_invisible, bgse_improved, bgse_innate and bgse_looked do the same for the spells known to make
-// their target invisible, those of Improved Invisibility, those whose files say innate and all spells
-// looked up for that, from the script's casts and applications at the creature itself
-// (bgse_look_spell). bgse_times are the game's timer names (bgse_times_list); bgse_gifts as in
-// bgse_hook_baf.
+// bgse_invisible, bgse_improved, bgse_innate, bgse_vanish and bgse_looked do the same for the spells
+// known to make their target invisible, those of Improved Invisibility, those whose files say innate,
+// those that remove their target and all spells looked up for that, from the script's casts and
+// applications at the creature itself (bgse_look_spell). bgse_times are the game's timer names
+// (bgse_times_list); bgse_gifts as in bgse_hook_baf.
 DEFINE_PATCH_FUNCTION bgse_hook_bcs
   STR_VAR bgse_script = ~~
           bgse_teleports = ~|~
@@ -1757,10 +1869,11 @@ DEFINE_PATCH_FUNCTION bgse_hook_bcs
           bgse_invisible = ~|~
           bgse_improved = ~|~
           bgse_innate = ~|~
+          bgse_vanish = ~|~
           bgse_looked = ~|~
           bgse_times = ~|~
-  RET bgse_result bgse_family bgse_copies bgse_clouds bgse_hunts bgse_jumps bgse_hides bgse_preps bgse_teleporter bgse_hider
-      bgse_gifts bgse_teleports bgse_checked bgse_invisible bgse_improved bgse_innate bgse_looked
+  RET bgse_result bgse_family bgse_copies bgse_clouds bgse_hunts bgse_jumps bgse_hides bgse_preps bgse_exits bgse_teleporter
+      bgse_hider bgse_gifts bgse_teleports bgse_checked bgse_invisible bgse_improved bgse_innate bgse_vanish bgse_looked
 BEGIN
   TEXT_SPRINT bgse_result ~failed~
   TEXT_SPRINT bgse_family ~~
@@ -1770,6 +1883,7 @@ BEGIN
   SET bgse_jumps = 0
   SET bgse_hides = 0
   SET bgse_preps = 0
+  SET bgse_exits = 0
   SET bgse_teleporter = 0
   SET bgse_hider = 0
   TEXT_SPRINT bgse_gifts ~|~
@@ -1801,14 +1915,15 @@ BEGIN
       REPLACE_EVALUATE CASE_SENSITIVE ~\([RI]\)=\([^|]+\)~ BEGIN
         LPF bgse_look_spell STR_VAR bgse_form = EVAL ~%MATCH1%~ bgse_spell = EVAL ~%MATCH2%~ bgse_looked = EVAL ~%bgse_looked%~
             bgse_invisible = EVAL ~%bgse_invisible%~ bgse_improved = EVAL ~%bgse_improved%~ bgse_innate = EVAL ~%bgse_innate%~
-          RET bgse_looked bgse_invisible bgse_improved bgse_innate END
+            bgse_vanish = EVAL ~%bgse_vanish%~
+          RET bgse_looked bgse_invisible bgse_improved bgse_innate bgse_vanish END
       END ~%MATCH0%~
     END
     LPF bgse_hook_baf STR_VAR bgse_baf = EVAL ~%baf%~ bgse_script = EVAL ~%bgse_script%~ bgse_teleports = EVAL ~%bgse_teleports%~
         bgse_invisible = EVAL ~%bgse_invisible%~ bgse_improved = EVAL ~%bgse_improved%~ bgse_innate = EVAL ~%bgse_innate%~
-        bgse_times = EVAL ~%bgse_times%~
-      RET bgse_result bgse_family bgse_copies bgse_clouds bgse_hunts bgse_jumps bgse_hides bgse_preps bgse_teleporter bgse_hider
-          bgse_gifts bgse_baf END
+        bgse_vanish = EVAL ~%bgse_vanish%~ bgse_times = EVAL ~%bgse_times%~
+      RET bgse_result bgse_family bgse_copies bgse_clouds bgse_hunts bgse_jumps bgse_hides bgse_preps bgse_exits bgse_teleporter
+          bgse_hider bgse_gifts bgse_baf END
     PATCH_IF (~%bgse_result%~ STRING_EQUAL_CASE ~hooked~) BEGIN
       DELETE_BYTES 0 BUFFER_LENGTH
       INSERT_BYTES 0 (STRING_LENGTH ~%bgse_baf%~)
@@ -1823,6 +1938,7 @@ BEGIN
     SET bgse_jumps = 0
     SET bgse_hides = 0
     SET bgse_preps = 0
+    SET bgse_exits = 0
     SET bgse_teleporter = 0
     SET bgse_hider = 0
     TEXT_SPRINT bgse_gifts ~|~

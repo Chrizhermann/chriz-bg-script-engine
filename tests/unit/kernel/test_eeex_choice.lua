@@ -3837,4 +3837,43 @@ assert(dz.kind=='door' and dz.door==50 and faulty:inspect().counts.doorFailures=
 end)()
 groups=groups+1
 
+-- 48. Staying (Christopher, 2026-10-28: nobody leaves for good). BGSE_Stay keeps a creature the engine
+-- drives in the fight, so SCS's vanishing exit stands aside, with one 'stay' row a creature; not for a
+-- creature off the engine's side, a script it does not carry, with the choice off, or when its orders
+-- let it leave (leave=true). A load forgets the rows.
+;(function()
+local function setup(seed,orders)
+    local w=world()
+    local d=directors.new(w,{reader=reader})
+    local c=choices.new(w,{reader=reader,director=d,seed=seed,orders=orders})
+    local list={}
+    c:setSink(function(row) list[#list+1]=row end)
+    local r=runtime.install(w,{director=d,choice=c,version='test'})
+    local function rows() local out={};for _,row in ipairs(list) do if row.kind=='stay' then out[#out+1]=row end end;return out end
+    return w,c,r,rows
+end
+local g,ch,root,rows=setup(91)
+local m=g.add(sprite(1,0,0,255))
+assert(g.BGSE_Stay(m,'mage','s1')==true and g.BGSE_Stay(m,'mage','s1')==true and #rows()==1)
+local r=rows()[1]
+assert(r.member==1 and r.resref=='TEST1' and r.family=='mage' and ch:inspect().counts.kept==1)
+assert(g.BGSE_Stay(m,'fighter','s3')==false)
+m.m_typeAI.m_EnemyAlly=128
+assert(g.BGSE_Stay(m,'mage','s1')==false)
+m.m_typeAI.m_EnemyAlly=255
+root.setChoice(false)
+assert(g.BGSE_Stay(m,'mage','s1')==false)
+root.setChoice(true)
+assert(g.BGSE_Stay(m,'mage','s1')==true and #rows()==1)
+ch:invalidate()
+assert(g.BGSE_Stay(m,'mage','s1')==true and #rows()==2 and ch:inspect().counts.errors==0)
+-- Orders: leave=true lets SCS's exit run for that creature file, and only for it.
+local g2,ch2,_,rows2=setup(92,{TEST1={leave=true}})
+local m2=g2.add(sprite(1,0,0,255))
+local o2=g2.add(sprite(2,0,0,255))
+assert(g2.BGSE_Stay(m2,'mage','s1')==false and g2.BGSE_Stay(o2,'mage','s1')==true)
+assert(#rows2()==1 and rows2()[1].member==2 and ch2:inspect().counts.errors==0)
+end)()
+groups=groups+1
+
 return groups

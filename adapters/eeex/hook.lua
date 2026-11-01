@@ -9,6 +9,8 @@
 -- by its own skill (F2f). SCS's preparation (prebuffs, contingencies, chain contingencies,
 -- first-round casts) asks BGSE_Prep(object, family, script, kind, cast, spent) the same way, and a
 -- prebuff, contingency or chain that ran calls BGSE_Prepped with the same names from its response.
+-- SCS's vanishing exits ask BGSE_Stay(object, family, script) the same way: the engine keeps every
+-- creature it drives in the fight unless its orders let it leave.
 -- All go by the script that decides for the creature (kernel/hook.lua, driver), which for a creature
 -- with two hooked scripts is the higher one, also in the lower one's blocks.
 -- Switches live in the player's Baldur.lua under [BGSE] (Enabled, Mages, Priests, Fighters,
@@ -296,6 +298,18 @@ function M.install(g,options)
             local a=actor(object,script)
             local driver=gate:driver(a)
             return choice~=nil and driver~=nil and choice:holdsPrep(driver,a.id,kind,cast,spent)==true
+        end)
+        return ok and result==true
+    end
+    -- True for every creature the engine drives and keeps in the fight (gate:driver, choice:stays): SCS's
+    -- vanishing exits stand aside unless the creature's orders let it leave. Any error is false, so SCS's
+    -- block runs.
+    g.BGSE_Stay=function(object,family,script)
+        local ok,result=pcall(function()
+            register()
+            local a=actor(object,script)
+            local driver=gate:driver(a)
+            return choice~=nil and driver~=nil and choice:stays(driver,a.id)==true
         end)
         return ok and result==true
     end

@@ -46,6 +46,10 @@ OUTER_TEXT_SPRINT bgse_gifts_of ~|~
 OUTER_SET bgse_hidden = 0
 // SCS's preparation blocks (prebuffs, contingencies, chains, first-round casts) that ask the engine.
 OUTER_SET bgse_prepared = 0
+// The spells known to remove their target from the game, and SCS's vanishing exits that yield while
+// the engine keeps the creature in the fight (Christopher, 2026-10-28: nobody leaves for good).
+OUTER_TEXT_SPRINT bgse_vanish ~|~
+OUTER_SET bgse_kept = 0
 LAF bgse_times_list RET bgse_times END
 ACTION_BASH_FOR ~override~ ~^.+\.bcs$~ BEGIN
   COPY_EXISTING ~%BASH_FOR_FILE%~ ~override~
@@ -56,10 +60,10 @@ ACTION_BASH_FOR ~override~ ~^.+\.bcs$~ BEGIN
       TO_LOWER bgse_script
       LPF bgse_hook_bcs STR_VAR bgse_script = EVAL ~%bgse_script%~ bgse_teleports = EVAL ~%bgse_teleports%~
           bgse_checked = EVAL ~%bgse_checked%~ bgse_invisible = EVAL ~%bgse_invisible%~
-          bgse_improved = EVAL ~%bgse_improved%~ bgse_innate = EVAL ~%bgse_innate%~ bgse_looked = EVAL ~%bgse_looked%~
-          bgse_times = EVAL ~%bgse_times%~
-        RET bgse_result bgse_family bgse_copies bgse_clouds bgse_hunts bgse_jumps bgse_hides bgse_preps bgse_teleporter bgse_hider
-            bgse_gifts bgse_teleports bgse_checked bgse_invisible bgse_improved bgse_innate bgse_looked END
+          bgse_improved = EVAL ~%bgse_improved%~ bgse_innate = EVAL ~%bgse_innate%~ bgse_vanish = EVAL ~%bgse_vanish%~
+          bgse_looked = EVAL ~%bgse_looked%~ bgse_times = EVAL ~%bgse_times%~
+        RET bgse_result bgse_family bgse_copies bgse_clouds bgse_hunts bgse_jumps bgse_hides bgse_preps bgse_exits bgse_teleporter
+            bgse_hider bgse_gifts bgse_teleports bgse_checked bgse_invisible bgse_improved bgse_innate bgse_vanish bgse_looked END
       PATCH_IF (~%bgse_result%~ STRING_EQUAL_CASE ~hooked~) BEGIN
         SET bgse_hooked += 1
         SET bgse_copied += bgse_copies
@@ -68,6 +72,7 @@ ACTION_BASH_FOR ~override~ ~^.+\.bcs$~ BEGIN
         SET bgse_jumped += bgse_jumps
         SET bgse_hidden += bgse_hides
         SET bgse_prepared += bgse_preps
+        SET bgse_kept += bgse_exits
         TEXT_SPRINT bgse_registry ~%bgse_registry%  ['%bgse_script%']='%bgse_family%',%LNL%~
         PATCH_IF (bgse_teleporter = 1) BEGIN
           TEXT_SPRINT bgse_teleporters ~%bgse_teleporters%%bgse_script%|~
@@ -80,7 +85,7 @@ ACTION_BASH_FOR ~override~ ~^.+\.bcs$~ BEGIN
             TEXT_SPRINT bgse_gifts_of ~%bgse_gifts_of%%bgse_script%>%MATCH1%|~
           END ~%MATCH0%~
         END
-        PATCH_LOG ~BGSE hook: %BASH_FOR_RES% (%bgse_family%, %bgse_copies% guarded SCS blocks, %bgse_clouds% SCS cloud blocks, %bgse_hunts% SCS hunting blocks, %bgse_jumps% SCS jumps, %bgse_hides% SCS free invisibility blocks, %bgse_preps% SCS preparation blocks)~
+        PATCH_LOG ~BGSE hook: %BASH_FOR_RES% (%bgse_family%, %bgse_copies% guarded SCS blocks, %bgse_clouds% SCS cloud blocks, %bgse_hunts% SCS hunting blocks, %bgse_jumps% SCS jumps, %bgse_hides% SCS free invisibility blocks, %bgse_preps% SCS preparation blocks, %bgse_exits% SCS vanishing exits)~
       END ELSE PATCH_IF NOT (~%bgse_result%~ STRING_EQUAL_CASE ~not-scs~) BEGIN
         SET bgse_skipped += 1
         PATCH_PRINT ~BGSE hook: left %BASH_FOR_RES% as it is (%bgse_result%)~
@@ -168,3 +173,4 @@ PRINT ~BGSE teleport: %bgse_jumped% SCS jumps into the fight yield to the creatu
 PRINT ~BGSE hide: %bgse_hidden% SCS blocks of free invisibility yield where the engine hides the creature its own way, %bgse_skilled% thieves got hide skills for their level.~
 PRINT ~BGSE gift: %bgse_gifted% creatures SCS makes invisible for free got real innate abilities for it, %bgse_made% innate copies of spells made.~
 PRINT ~BGSE prep: %bgse_prepared% SCS preparation blocks (prebuffs, contingencies, chains, first-round casts) ask the engine and tell it what ran.~
+PRINT ~BGSE stay: %bgse_kept% SCS vanishing exits yield while the engine keeps the creature in the fight.~

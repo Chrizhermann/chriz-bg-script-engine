@@ -289,8 +289,38 @@ Python, and `tests/integration/test_hook_installer.py` checks they agree.
     single-target one without. SCS's `DWAP…` and `DWAW…` helpers are pre-cast summons (Animate Dead,
     Animal Summoning, Aerial Servant, Invisible Stalker, Conjure Fire Elemental), not area buffs. A lab
     check of Haste on allies is planned.
+12. SCS's vanishing exits (2026-10-30; Christopher, 2026-10-28: nobody leaves for good, or almost
+    nobody; [FIGHT-01](FIGHT-01-fighter-and-monster-rounds.md), "Disengage"). A block is a vanishing
+    exit when a trigger of its own (not negated, not one of an OR group) checks that the creature's own
+    hit points are below a limit above 0 (`HPPercentLT(Myself,n)`, `HPLT(Myself,n)`) and its responses
+    do nothing but leave (`is_exit`, `bgse_exit_block`): at least one action destroys the creature
+    (`DestroySelf`) or casts or applies at it, without a spellbook (the forms of rule 9), a spell that
+    takes its target out of the game (an ability effect with opcode 68 at target 1 or 2), and every
+    other action is its own bookkeeping, an effect, a sound, a message, a wait or its dropped inventory
+    (`SetGlobal`, `SetGlobalTimer`, `SetGlobalTimerRandom` and `IncrementGlobal` on `LOCALS` only,
+    `Continue`, `DisplayString`, `DisplayStringHead`, `CreateVisualEffect`, `CreateVisualEffectObject`,
+    `PlaySound`, `SmallWait`, `Wait`, `DropInventory`). A block that does more belongs to its encounter
+    and stays as it is: Demogorgon's death scene (`DEMOGOR2`, a cutscene that sets a global), the
+    silver dragon's exit in its lair (`DRAGSILV`, which also casts Stoneskin), death handlers (`Die()`,
+    also in an OR group with the hit point check: the summoned djinni `SUMDJ01`). The installer reads
+    the vanishing spells from the game's spell files (`bgse_hides_target`, SPELL.IDS names included);
+    `tools/hook_rule.py` takes their list as a file. Each exit, above or below the anchor and in its copy
+    above the hook, gets the condition `!EEex_LuaTrigger(...BGSE_Stay(...)...)`, last, after the other
+    rules' conditions, or first when its triggers end in an OR group that lacks members (rule 6). It
+    holds the exit back for a creature the engine drives (`api:stays`, as `api:searches` decides),
+    unless the creature's orders say `leave = true` (`combat-intent/orders.lua`); then, and whenever the
+    engine is off or errs, SCS's exit runs as before. Each creature the engine keeps is logged once
+    (`stay` rows, `counts.kept`).
 
-`BGSE_Zones`, `BGSE_Search`, `BGSE_Hide` and `BGSE_Prep` go by the script that decides for the creature: the
+    In the SR lab 6 blocks in 6 scripts are exits: the Erinyes (`ERINYES`, Dryad Teleport below a
+    quarter of its hit points), Melissan's alu-fiend, Balor and succubus in the final fight (`FINALUF`,
+    `FINBALOR`, `FINSUCC`, below 15 %) and the mind flayers (`FLAYER01`, `FLAYER02`, SCS's
+    `DW#MFESC`); the lab's vanishing spells are `DRYAD_TELEPORT` (`SPWI995`) and `DW#MFESC`. Without
+    Spell Revisions 3 (`ERINYES`, `FLAYER01`, `FLAYER02`). SCS's script for the Pirate Mage (`PPMAG01`,
+    Dryad Teleport below 20 hit points; the creature's own script, above its hooked SCS mage script)
+    carries none of SCS's difficulty markers, so no rule hooks it and it still vanishes.
+
+`BGSE_Zones`, `BGSE_Search`, `BGSE_Hide`, `BGSE_Prep` and `BGSE_Stay` go by the script that decides for the creature: the
 first hooked script in its stack, since a lower script runs only after every higher one let the
 pass through and a higher hooked script asks on the way. So in a creature with two hooked scripts (SCS's general
 AI above a mage script, or a monster script above the general AI) the lower script's cloud and
@@ -309,7 +339,9 @@ blocks in 70 scripts; and on the no-SR lab's 878 decompiled scripts, 99 blocks i
 game's GTIMES.IDS as a seventh argument, both labs agree again, gifts included (5.5 minutes for the
 SR lab: 124 blocks in 36 scripts; no-SR lab 63 blocks in 29 scripts). With the preparation rule
 (rule 11, 2026-10-28) both labs agree again: 6,173 preparation blocks in the SR lab, 5,054 without
-Spell Revisions.
+Spell Revisions. With the exit rule (rule 12, 2026-10-30), given the names of the spells that take
+their target out of the game as an eighth argument, both labs agree again: 6 exits in the SR lab, 3
+without Spell Revisions.
 
 The claim is cached per creature and game tick, so the copies and the hook ask once per
 script pass and get the same answer. When the engine declines or is switched off, every

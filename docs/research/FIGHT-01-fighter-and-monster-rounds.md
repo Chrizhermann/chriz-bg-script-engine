@@ -1067,6 +1067,14 @@ good": the Erinyes, Melissan's allies, and the mind flayer's escape (`DW#MFESC`,
 script above the hook; lab batch J, runs 3 and 4, below). Retreats and escapes only for creatures
 or encounters chosen with Christopher.
 
+Built 2026-10-30 ([HOOK-01](HOOK-01-scs-hook-placement.md), rule 12): SCS's vanishing exits wait
+while the engine drives the creature. Badly hurt, the Erinyes, Melissan's alu-fiend, Balor and
+succubus and the mind flayers fight on; they heal where they stand as far as they can, as everyone
+else does. A fight's designer lets a chosen creature leave as SCS has it with `leave = true` in its
+orders. Story exits stay theirs: Demogorgon's death scene, the silver dragon's exit in its lair,
+Abazigal's. The Pirate Mage (`PPMAG01`) still vanishes: SCS's script for it is no hooked script. Not
+seen in game yet; the next lab batch with Erinyes or mind flayers shows it.
+
 ### Lab batch J: whole fights with a mirror party (2026-10-28)
 
 The big lab round of step 3 (Spell Revisions lab, cleaned up after). Two groups fought the lab's
