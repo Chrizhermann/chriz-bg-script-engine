@@ -895,10 +895,19 @@ mage still charmed the party's last member twice, and now the dead leave the pic
 after the first potion, as designed. The mind flayer's escape seen in runs 3 and 4 goes with SCS's
 other vanishing exits.
 
-Next, in the order agreed with Christopher on 2026-10-27 for the first release: the rest of the big
-lab round (batch J again on this build, and a party of the same strength for the mixed fights, which also show the replacement in whole fights, thieves in whole fights, the veil in game,
-the prebuffs in game); then the boss fights, designed with Christopher one by one (Melissan's own
-among them). The Erinyes' withdrawal comes with a later "disengage" step (SCS's blueprint for it and
+Runs 5 to 7 (2026-11-02, FIGHT-01) finished the big lab round. Two faults found on the way are
+fixed: a response's actions stood on one line, of which the game runs only the first (doors never
+opened, weapon switches never attacked), and a kensai rated Artisan's Kitpack's Ki Strike as twenty
+more damage on every swing of the fight. Abilities without casting time now take a moment before
+the swing, as buff potions do. In run 7 the mirror fights came out even with SCS's (four wins of four
+each, about as fast and with about as much left); against the fiends the engine's group did better
+than SCS's in each of the three runs (more left, fewer deaths). SCS's melee strike one foe together
+(the party's kensai first), the engine's spread over the foes at hand: a point for the design round
+on group tactics. The mage's and priest's prebuffs ran in every engine mirror fight (nine each; the
+fiends' scripts have none).
+
+Next, in the order agreed with Christopher on 2026-10-27 for the first release: the boss fights,
+designed with Christopher one by one (Melissan's own among them). The Erinyes' withdrawal comes with a later "disengage" step (SCS's blueprint for it and
 Christopher's answers of 2026-10-28: FIGHT-01, "Disengage"): nobody flees for good, a short retreat
 is fine; escapes from melee with own spells only for chosen foes; no new uses of Mislead (too
 buggy; it stays in the mages' preparation); morale flight thin and rare. After the release: traps, scripted encounter phases, a harder Insane, groups
