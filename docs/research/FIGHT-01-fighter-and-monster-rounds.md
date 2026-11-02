@@ -1781,7 +1781,31 @@ miss, a fifth more damage, 0.17) against its swing (0.27): the moment costs a se
 so Ki Focus first, then Oil of Speed, then the swing.
 
 Tests: defence group 15 (the same haste without casting time cast before the swing, with a casting
-time not); the mutation that drops it is caught. Still to see in game: lab batch J, run 7.
+time not); the mutation that drops it is caught. Seen in game: run 7, below.
+
+### Lab batch J, run 7 (2026-11-02)
+
+The same fights on snapshot `d804e97` (run 6's build with instant abilities taking a moment); 22
+minutes, no guard tripped, the lab clean after.
+
+| Fights | Group won | Seconds | Group's hit points left | Group deaths |
+|---|---|---|---|---|
+| j1 (mirror), engine | 4 of 4 | 72, 56, 48, 61 | 0.72, 0.85, 0.74, 0.67 | 3 in all |
+| j1 (mirror), SCS alone | 4 of 4 | 57, 51, 66, 52 | 0.84, 0.81, 0.56, 0.90 | 1 in all |
+| j2 (fiends), engine | 3 of 3 | 86, 75, 105 | 0.77, 0.68, 0.74 | 1 in all |
+| j2 (fiends), SCS alone | 3 of 3 | 65, 180, 82 | 0.76, 0.38, 0.65 | 4 in all |
+
+- **The kensai uses Ki Focus now:** half a second in, before its first swing, and again every 8 to
+  10 seconds while it fights; Oil of Speed follows at 9 seconds, when the casting aura of the Ki
+  Focus has run out (drinks wait for it, "Buffs over the rest of the fight").
+- **The mirror fights are even with SCS's:** four wins of four in both modes, about as fast (59
+  seconds on average against 57) and with about as much left (three quarters against four fifths);
+  the party's kensai fell at 11 to 13 seconds (SCS's group: 6 or 7).
+- **The fiend fights stay the engine's:** more left (0.73 on average against 0.60), faster (89
+  seconds against 109) and one death against four.
+- Runs 5 to 7 together: the engine's group lost two mirror fights of twelve (one more ran out of
+  time, slightly ahead), SCS's none; against the fiends both won all nine, the engine's with more
+  left and fewer deaths in each run.
 
 ## Agreed (Christopher, 2026-10-25)
 
