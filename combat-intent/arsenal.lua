@@ -268,14 +268,21 @@ end
 -- slot and abilityNum for SelectWeaponAbility, whether it can backstab (M.THIEF) and the item's
 -- category (ITEMCAT.IDS, for critical hit effects of one category); also the creature's strength
 -- and exceptional strength and which of strength's bonuses the weapon takes (strengthHit,
--- strengthDamage), for buffs that change its strength (combat-intent/defence.lua).
+-- strengthDamage), for buffs that change its strength (combat-intent/defence.lua), and the weapon's
+-- own damage dice and its ammunition's (rolls: {dice, sides} each), for luck on base weapon damage
+-- (threat.luckGain).
 local function attack(c,s,hit,damage)
     local stats=c.stats
     local melee=not s.ranged
     local out={item=s.item,ability=s.number+1,slot=s.slot,abilityNum=s.number,ammo=s.ammo,ranged=s.ranged,
         launcher=s.launcher,fist=s.slot==M.FIST or nil,itemType=number(s.record.itemType) and s.record.itemType or nil,
         str=number(c.str) and c.str or nil,strExtra=number(c.strExtra) and c.strExtra or nil,
-        strengthHit=takes(s,M.STRENGTH_HIT) or nil,strengthDamage=takes(s,M.STRENGTH_DAMAGE) or nil}
+        strengthHit=takes(s,M.STRENGTH_HIT) or nil,strengthDamage=takes(s,M.STRENGTH_DAMAGE) or nil,rolls={}}
+    for _,part in ipairs({s.use,s.shot}) do
+        if number(part.dice) and number(part.sides) and part.dice>0 and part.sides>0 then
+            out.rolls[#out.rolls+1]={dice=part.dice,sides=part.sides}
+        end
+    end
     if melee and number(s.record.usability) and not targeting.has(s.record.usability,M.THIEF) then out.backstab=true end
     out.thac0=value(stats.thac0)-hit-value(stats.hitBonus)-value(melee and stats.meleeHit or stats.missileHit)
     out.damage=math.max(0,damage+value(stats.damageBonus)+value(melee and stats.meleeDamage or stats.missileDamage))

@@ -864,7 +864,11 @@ H[54]=function(c,e,who,p)
     else modifier(c,e,who,p,'thac0','buff','debuff') end
 end
 for op in pairs(WEAPON_DAMAGE) do H[op]=function(c,e,who,p) modifier(c,e,who,p,'damage','buff','debuff') end end
-H[250]=function(c,e,who,p) modifier(c,e,who,p,'damage','buff','debuff') end
+-- Opcode 250 is luck for base weapon damage alone (DAMAGELUCK; IESDP: each of the weapon's own damage
+-- dice rolls parameter 1 higher, at most its sides, or lower, at least 1; parameter 2 means
+-- nothing): Artisan's Kitpack's Ki Strike (Kensai Overhaul) sets 20, every die at its top. Its worth hangs on the weapon's dice
+-- (threat.luckGain), so it is no flat damage.
+H[250]=function(c,e,who,p) signed(c,e,who,p,e.p1,'damageLuck','buff','debuff') end
 H[1]=function(c,e,who,p) modifier(c,e,who,p,'attacks','buff','debuff') end
 H[18]=function(c,e,who,p) if e.p1>0 then kind(c,'buff','hp',who,e,p) elseif e.p1<0 then kind(c,'debuff','hp',who,e,p) end end
 H[22]=function(c,e,who,p) modifier(c,e,who,p,'luck','buff','debuff') end
@@ -1733,6 +1737,16 @@ function M.classify(record,index,lookup,options)
     if reach then c.release=true;c.ownRange=c.range;c.range=reach end
     c.recharge=recharge(c,record,ability,where)
     spent(c.hits)
+    -- A hit that takes the spell off its holder takes all the spell's effects with it (opcode 321
+    -- matches their source), so a buff on the caster whose own on-hit effect is spent so lasts until
+    -- its first hit lands (untilHit), whatever its effects' durations: Ki Strike's top damage and
+    -- critical bonus end with the blow, its critical bonus set to last otherwise.
+    local buff=c.roles.buff
+    if type(buff)=='table' and type(buff.who)=='table' and buff.who.self then
+        for _,h in ipairs(c.hits or {}) do
+            if h.once and h.who=='self' then buff.untilHit=true;break end
+        end
+    end
     c.times=nil;c.owner=nil;c.node=nil;c.when=nil;c.inherit=nil;c.conditionAt=nil;c.delay=nil;c.filter=nil
     c.aim=nil;c.remap=nil
     c.marks=nil
@@ -2610,7 +2624,9 @@ function M.weaken(role,e,ac)
     local typed=label and by[PERCENT_TYPES[label]]
     local percent=(number(by[0]) and by[0] or 0)+(number(typed) and typed or 0)
     local apr=math.max(0,a.apr-threat.attacks(amount(role,'attacks')))*slow
-    local damage=math.max(0,a.damage-amount(role,'damage'))*math.max(0,1-percent/100)
+    -- Bad luck for base weapon damage lowers the weapon's own dice (threat.luckGain: 0 unknown).
+    local unlucky=threat.luckGain(a.rolls,-amount(role,'damageLuck'))
+    local damage=math.max(0,a.damage-amount(role,'damage')+unlucky)*math.max(0,1-percent/100)
     local after=armed and apr*threat.hitChance(a.thac0+worse,ac)*damage*kept or 0
     local power=math.max(0,level-amount(role,'castingLevel'))/level
     local cast=spell*slow*kept*power*(1-failing(role,e))
@@ -3045,7 +3061,8 @@ function M.armour(list)
     return ac/n
 end
 
--- An enemy's attack data with the defaults filled in.
+-- An enemy's attack data with the defaults filled in; rolls (the weapon's own damage dice,
+-- combat-intent/arsenal.lua) only when known.
 function M.attack(e)
     local a=type(e)=='table' and type(e.attack)=='table' and e.attack or {}
     local u=M.unknownAttack
@@ -3053,7 +3070,23 @@ function M.attack(e)
     return {apr=apr,thac0=number(a.thac0) and a.thac0 or u.thac0,
         damage=number(a.damage) and a.damage>=0 and a.damage or u.damage,
         ranged=a.ranged==true,magical=a.magical~=false,range=number(a.range) and a.range or nil,
-        damageType=number(a.damageType) and a.damageType or nil}
+        damageType=number(a.damageType) and a.damageType or nil,rolls=type(a.rolls)=='table' and a.rolls or nil}
+end
+-- What luck of n for base weapon damage (opcode 250, combat-intent/spells.lua) changes the mean
+-- damage of one hit with rolls ({dice, sides} each, the weapon's own damage dice): each die rolls n
+-- higher, at most its sides, or n lower, at least 1. 0 when the dice are not known.
+function M.luckGain(rolls,n)
+    if type(rolls)~='table' or not number(n) or n==0 then return 0 end
+    local total=0
+    for _,r in ipairs(rolls) do
+        local dice,sides=type(r)=='table' and r.dice,type(r)=='table' and r.sides
+        if number(dice) and number(sides) and dice>0 and sides>0 and sides<=1000 then
+            local sum=0
+            for x=1,sides do sum=sum+math.max(1,math.min(sides,x+n)) end
+            total=total+dice*(sum/sides-(sides+1)/2)
+        end
+    end
+    return total
 end
 
 -- How much of a creature's class casts, 0 for none.
@@ -3176,7 +3209,8 @@ function M.wielded(caster)
     return {apr=number(w.apr) and w.apr or caster.apr,thac0=number(w.thac0) and w.thac0 or caster.thac0,
         damage=w.damage,ranged=w.ranged==true,range=w.range,damageType=w.damageType,fist=w.fist==true or nil,
         magical=(number(w.enchantment) and w.enchantment>0) or math.floor(flags/64)%2==1,
-        str=w.str,strExtra=w.strExtra,strengthHit=w.strengthHit,strengthDamage=w.strengthDamage}
+        str=w.str,strExtra=w.strExtra,strengthHit=w.strengthHit,strengthDamage=w.strengthDamage,
+        rolls=type(w.rolls)=='table' and w.rolls or nil}
 end
 
 -- How many seconds the fight is expected to last from now, from both sides' strength, round by
@@ -3872,14 +3906,21 @@ end
 -- slot and abilityNum for SelectWeaponAbility, whether it can backstab (M.THIEF) and the item's
 -- category (ITEMCAT.IDS, for critical hit effects of one category); also the creature's strength
 -- and exceptional strength and which of strength's bonuses the weapon takes (strengthHit,
--- strengthDamage), for buffs that change its strength (combat-intent/defence.lua).
+-- strengthDamage), for buffs that change its strength (combat-intent/defence.lua), and the weapon's
+-- own damage dice and its ammunition's (rolls: {dice, sides} each), for luck on base weapon damage
+-- (threat.luckGain).
 local function attack(c,s,hit,damage)
     local stats=c.stats
     local melee=not s.ranged
     local out={item=s.item,ability=s.number+1,slot=s.slot,abilityNum=s.number,ammo=s.ammo,ranged=s.ranged,
         launcher=s.launcher,fist=s.slot==M.FIST or nil,itemType=number(s.record.itemType) and s.record.itemType or nil,
         str=number(c.str) and c.str or nil,strExtra=number(c.strExtra) and c.strExtra or nil,
-        strengthHit=takes(s,M.STRENGTH_HIT) or nil,strengthDamage=takes(s,M.STRENGTH_DAMAGE) or nil}
+        strengthHit=takes(s,M.STRENGTH_HIT) or nil,strengthDamage=takes(s,M.STRENGTH_DAMAGE) or nil,rolls={}}
+    for _,part in ipairs({s.use,s.shot}) do
+        if number(part.dice) and number(part.sides) and part.dice>0 and part.sides>0 then
+            out.rolls[#out.rolls+1]={dice=part.dice,sides=part.sides}
+        end
+    end
     if melee and number(s.record.usability) and not targeting.has(s.record.usability,M.THIEF) then out.backstab=true end
     out.thac0=value(stats.thac0)-hit-value(stats.hitBonus)-value(melee and stats.meleeHit or stats.missileHit)
     out.damage=math.max(0,damage+value(stats.damageBonus)+value(melee and stats.meleeDamage or stats.missileDamage))
@@ -4434,7 +4475,11 @@ local function edge(role,a,debuff)
     local by=type(role.damagePercentBy)=='table' and role.damagePercentBy or {}
     local label=weapons.DAMAGE[a.damageType]
     local percent=(number(by[0]) and by[0] or 0)+(label and number(by[M.PERCENT_TYPES[label]]) and by[M.PERCENT_TYPES[label]] or 0)
-    return hit,amount(role,'damage'),percent,amount(role,'critical')
+    -- Luck for base weapon damage moves the weapon's own dice (threat.luckGain): a buff's gain, a
+    -- debuff's loss.
+    local luck=amount(role,'damageLuck')
+    local lucky=debuff and -threat.luckGain(a.rolls,-luck) or threat.luckGain(a.rolls,luck)
+    return hit,amount(role,'damage')+lucky,percent,amount(role,'critical')
 end
 -- What a buff or debuff role's strength changes of the bonuses to hit and to damage of weapon held
 -- (its attack data: the wielder's strength and exceptional strength, and which bonuses the weapon
@@ -4517,7 +4562,9 @@ end
 -- swings with (f.attack when nil); own: what the spell puts on f itself (its debuff role); hits:
 -- the on-hit effects it gives f (payload); tables: the game's strength tables (might). A haste f
 -- holds already (its guard's roles) is not hastened again; an improved one over a normal one adds
--- what doubling its attacks before that brings.
+-- what doubling its attacks before that brings. A buff that lasts until its first hit lands
+-- (untilHit: Ki Strike) adds that one hit's edge, as likely as one of f's swings over r rounds lands
+-- (misses leave it on), and its haste or extra attacks nothing.
 function M.offense(buff,f,frame,r,held,own,hits,tables)
     held=held or f.attack
     if type(buff)~='table' or type(held)~='table' then return 0 end
@@ -4544,6 +4591,12 @@ function M.offense(buff,f,frame,r,held,own,hits,tables)
     local weaker,softer=might(own,held,true,tables)
     lost,less=lost+weaker,less+softer
     local d=math.max(0,a.damage+damage-less+a.damage*(percent-fewer)/100)
+    if buff.untilHit then
+        local h=threat.hitChance(a.thac0-hit+lost,ac)
+        local lands=1-(1-h)^math.max(0,a.apr*r)
+        local one=swing(1,d,crit-blunt)-swing(1,a.damage,0)
+        return math.max(0,one)*lands/hp+payload(hits,held,a.apr,a.thac0-hit+lost,crit-blunt,frame,r)
+    end
     local before=a.apr*swing(threat.hitChance(a.thac0,ac),a.damage,0)
     local after=apr*swing(threat.hitChance(a.thac0-hit+lost,ac),d,crit-blunt)
     return math.max(0,after-before)*r/hp+payload(hits,held,apr,a.thac0-hit+lost,crit-blunt,frame,r)

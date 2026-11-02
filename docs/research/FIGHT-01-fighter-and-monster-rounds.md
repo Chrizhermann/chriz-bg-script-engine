@@ -1670,7 +1670,79 @@ fighter, the last one standing: no other foe is in play, so the charm is worth n
 casts what harms him.
 
 Tests: the director's groups 12 and 13, the director adapter's group 11; 17 mutations checked.
-Still to see in game: batch J again.
+Seen in game: lab batch J, run 5, below (4 to 7 `gone` rows in each of the engine's fights).
+
+### Lab batch J, run 5 (2026-11-02)
+
+The same 14 fights as run 4 (`.work/stepJ-lab`, SR lab on Insane, BD0072) on snapshot `c79e24d`:
+the dead leave the group's picture at once, the fight as the group knows it, the best option by wit,
+SCS's vanishing exits wait while the engine drives the creature, doors in the search, and responses
+one action a line. The lab's party archer now takes up its bow and shoots in one response too
+(`EquipRanged` had stood on the attack's line). 25 minutes, no guard tripped, the lab clean after.
+
+| Fights | Group won | Seconds | Group's hit points left | Group deaths |
+|---|---|---|---|---|
+| j1 (mirror), engine | 3 of 4 | 51, 108, 52 (lost at 115) | 0.54, 0.21, 0.67 (lost: 0) | 2, 5, 1 (lost: 7) |
+| j1 (mirror), SCS alone | 4 of 4 | 61, 72, 102, 75 | 0.81, 0.75, 0.78, 0.81 | none |
+| j2 (fiends), engine | 3 of 3 | 82, 100, 81 | 0.75, 0.74, 0.66 | 1 in all |
+| j2 (fiends), SCS alone | 3 of 3 | 124, 70, 155 | 0.45, 0.62, 0.40 | 5 in all |
+
+- **Against the fiends the engine was the better group:** faster in two of three fights, with more
+  left and four fewer deaths than SCS's.
+- **In the mirror fights SCS's group was far better** this time: no death in four fights, against the
+  engine's one lost fight and wins with a fifth to two thirds left. With four fights a side the
+  spread is wide (run 4 had it the other way round), but the first seconds show a real difference:
+  SCS's fighter and kensai drank Oil of Speed in the first half second and were hasted from the first
+  second; SCS's kensai used Ki Focus (`SPCL144`, which Artisan's Kitpack's Kensai Overhaul makes of Kai in this lab) three or four times a fight; all of
+  SCS's group went for the party's kensai, dead after 7 or 8 seconds. The engine's fighter drank Fire
+  Giant Strength first and Oil of Speed eight seconds later; its kensai never drank Oil of Speed in
+  the first sixteen seconds and used Ki Strike (`C0KN#04`) instead of Ki Focus, twice. The party's
+  kensai fell at 15 seconds or survived.
+- **The fighter's order holds:** at strength 17 Fire Giant Strength (22) roughly doubles what a hit
+  of his does, haste adds a third more attacks, so the engine's 0.395 against 0.094 was its model's
+  honest answer. **The kensai's was a fault:** Ki Strike rated 1.0 to 3.5, Ki Focus 0.17 (below,
+  "Ki Strike").
+- **SCS's vanishing exits waited:** the mind flayer at 38 seconds (j2-own-2) and the erinyes at 34
+  (j2-own-3) would have left; both fought on (`stay` rows).
+- **Weapon switches attack now:** the archer's switch to its bow and its first arrow came in one
+  response (1.7 and 1.8 seconds).
+- **The fight's rest at the start:** the first two decisions, a third of a second in, still reckoned
+  13 to 16 seconds; from the third on 17 to 42; the fights lasted 51 to 155. Better than run 4's
+  constant 13, still short.
+
+### Ki Strike: a buff that ends with its hit (2026-11-02)
+
+Ki Strike (`C0KN#04`, from Artisan's Kitpack's Kensai Overhaul in this lab; the kensai's "next attack within one round deals maximum damage", with
+a doubled critical modifier and fatigue after) holds three things the engine read wrong:
+
+- Opcode 250 with 20 is luck for base weapon damage (IESDP: as luck, on the weapon's own damage dice
+  alone): every die rolls 20 higher, at most its sides, so every die at its top. The classifier read
+  it as 20 more damage a hit.
+- Its critical bonus (opcode 301) is set to last (timing 9), so the whole buff counted as lasting:
+  20 more damage on every swing for the rest of the fight.
+- Its blow casts `C0KN#04A`, which takes every effect of Ki Strike off again (opcode 321) and
+  fatigues the kensai: one strengthened hit.
+
+What the engine does now:
+
+- **Luck for base weapon damage** (`damageLuck`, `combat-intent/spells.lua`) moves the weapon's own
+  dice (`threat.luckGain`): each die rolls that much higher, at most its sides, or lower, at least 1.
+  A creature's attack data carries its weapon's dice and its ammunition's (`rolls`,
+  `combat-intent/arsenal.lua`); without them luck counts nothing. Bad luck on an enemy counts as the
+  damage it loses (`harm.weaken`).
+- **A buff that ends with its hit** (`untilHit`): when a spell's own on-hit effect takes the spell
+  off its holder (the "spent" on-hit effects that already counted once, F2a), all its effects go
+  with it, so its buff counts for that one hit, as likely as one of the creature's swings over the
+  fight lands (`defence.offense`), whatever its effects' durations.
+
+Example: the kensai's katana (1d10) rolls 5.5 on average; Ki Strike's blow rolls 10 and doubles a
+hit on 18 or more instead of 20, once. Worth what that one blow adds, no longer more than the rest
+of the fight's swings, so Ki Focus's twelve seconds of hits that do not miss, with a fifth more
+damage, can win (the next lab run shows whether they do).
+
+Tests: the classifier's on-hit group (Ki Strike, bad luck, Smite Evil's buff until its hit), the
+arsenal's dice, `luckGain`, a Ki Strike worth one hit against the same edge lasting a minute, bad
+luck in `harm.weaken`; 7 mutations caught. Still to see in game: lab batch J again.
 
 ## Agreed (Christopher, 2026-10-25)
 

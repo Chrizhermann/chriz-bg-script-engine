@@ -310,7 +310,11 @@ local function edge(role,a,debuff)
     local by=type(role.damagePercentBy)=='table' and role.damagePercentBy or {}
     local label=weapons.DAMAGE[a.damageType]
     local percent=(number(by[0]) and by[0] or 0)+(label and number(by[M.PERCENT_TYPES[label]]) and by[M.PERCENT_TYPES[label]] or 0)
-    return hit,amount(role,'damage'),percent,amount(role,'critical')
+    -- Luck for base weapon damage moves the weapon's own dice (threat.luckGain): a buff's gain, a
+    -- debuff's loss.
+    local luck=amount(role,'damageLuck')
+    local lucky=debuff and -threat.luckGain(a.rolls,-luck) or threat.luckGain(a.rolls,luck)
+    return hit,amount(role,'damage')+lucky,percent,amount(role,'critical')
 end
 -- What a buff or debuff role's strength changes of the bonuses to hit and to damage of weapon held
 -- (its attack data: the wielder's strength and exceptional strength, and which bonuses the weapon
@@ -393,7 +397,9 @@ end
 -- swings with (f.attack when nil); own: what the spell puts on f itself (its debuff role); hits:
 -- the on-hit effects it gives f (payload); tables: the game's strength tables (might). A haste f
 -- holds already (its guard's roles) is not hastened again; an improved one over a normal one adds
--- what doubling its attacks before that brings.
+-- what doubling its attacks before that brings. A buff that lasts until its first hit lands
+-- (untilHit: Ki Strike) adds that one hit's edge, as likely as one of f's swings over r rounds lands
+-- (misses leave it on), and its haste or extra attacks nothing.
 function M.offense(buff,f,frame,r,held,own,hits,tables)
     held=held or f.attack
     if type(buff)~='table' or type(held)~='table' then return 0 end
@@ -420,6 +426,12 @@ function M.offense(buff,f,frame,r,held,own,hits,tables)
     local weaker,softer=might(own,held,true,tables)
     lost,less=lost+weaker,less+softer
     local d=math.max(0,a.damage+damage-less+a.damage*(percent-fewer)/100)
+    if buff.untilHit then
+        local h=threat.hitChance(a.thac0-hit+lost,ac)
+        local lands=1-(1-h)^math.max(0,a.apr*r)
+        local one=swing(1,d,crit-blunt)-swing(1,a.damage,0)
+        return math.max(0,one)*lands/hp+payload(hits,held,a.apr,a.thac0-hit+lost,crit-blunt,frame,r)
+    end
     local before=a.apr*swing(threat.hitChance(a.thac0,ac),a.damage,0)
     local after=apr*swing(threat.hitChance(a.thac0-hit+lost,ac),d,crit-blunt)
     return math.max(0,after-before)*r/hp+payload(hits,held,apr,a.thac0-hit+lost,crit-blunt,frame,r)

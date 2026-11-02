@@ -387,7 +387,9 @@ function M.weaken(role,e,ac)
     local typed=label and by[PERCENT_TYPES[label]]
     local percent=(number(by[0]) and by[0] or 0)+(number(typed) and typed or 0)
     local apr=math.max(0,a.apr-threat.attacks(amount(role,'attacks')))*slow
-    local damage=math.max(0,a.damage-amount(role,'damage'))*math.max(0,1-percent/100)
+    -- Bad luck for base weapon damage lowers the weapon's own dice (threat.luckGain: 0 unknown).
+    local unlucky=threat.luckGain(a.rolls,-amount(role,'damageLuck'))
+    local damage=math.max(0,a.damage-amount(role,'damage')+unlucky)*math.max(0,1-percent/100)
     local after=armed and apr*threat.hitChance(a.thac0+worse,ac)*damage*kept or 0
     local power=math.max(0,level-amount(role,'castingLevel'))/level
     local cast=spell*slow*kept*power*(1-failing(role,e))

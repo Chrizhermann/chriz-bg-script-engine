@@ -523,6 +523,31 @@ blow.frame.self.weapon={damage=10,damageType=3,apr=2,thac0=10}
 assert(find(defence.options(blow,{}),'TESTDBLW').worth>0.5)
 blow.frame.enemies[1].level=11
 assert(find(defence.options(blow,{}),'TESTDBLW')==nil)
+-- Artisan's Kitpack's Ki Strike (Kensai Overhaul): luck 20 for base weapon damage (every die at its top), a critical bonus set to
+-- last, and a hit that takes the strike off again: worth that one hit (the sword's 1d10 at 10, the
+-- critical chance 3 in 20), as likely as a swing lands while the fight lasts, never every swing of
+-- the fight (the same edge lasting a minute is worth far more). Luck counts by the weapon's own
+-- dice (threat.luckGain): one higher, at most its sides; lower, at least 1; nothing unknown.
+assert(near(threat.luckGain({{dice=1,sides=10}},20),4.5) and near(threat.luckGain({{dice=1,sides=6}},2),1.5))
+assert(near(threat.luckGain({{dice=1,sides=6}},-2),-1.5) and near(threat.luckGain({{dice=2,sides=4}},1),1.5))
+assert(threat.luckGain(nil,20)==0 and threat.luckGain({{dice=1,sides=6}},0)==0)
+hitWorld['EFF:TESTKIEF']={kind='EFF',resref='TESTKIEF',effect=fx(146,{p2=1,res='TESTKIHT',timing=1,target=2,duration=0})}
+hitWorld['SPL:TESTKIHT']=sub('TESTKIHT',{fx(321,{target=1,res='TESTKIST',timing=1,duration=0})},1)
+local kiStrike=onHits('TESTKIST',{fx(250,{p1=20,duration=6}),fx(301,{p1=2,timing=9,duration=0}),
+    fx(248,{duration=6,res='TESTKIEF'})})
+local kiLasting=onHits('TESTKILA',{fx(250,{p1=20,duration=60}),fx(301,{p1=2,duration=60})})
+assert(kiStrike.roles.buff.untilHit==true and kiLasting.roles.buff.untilHit==nil)
+local ki=input({fighter(11,130)},{row('TESTKIST',kiStrike,1),row('TESTKILA',kiLasting,1)},{mind=mind.new({ownWeapon=true})})
+ki.frame.self.weapon={damage=10,damageType=3,apr=2,thac0=10,rolls={{dice=1,sides=10}}}
+opts=defence.options(ki,{})
+local blow1=(14.5*(1+0.1*defence.critOpen)-10)/60
+local kis,kil=find(opts,'TESTKIST'),find(opts,'TESTKILA')
+assert(kis and kis.worth<=blow1+1e-9 and kis.worth>=0.9*blow1)
+assert(kil and kil.worth>2*kis.worth)
+-- Without the weapon's dice the luck brings nothing: the strike's critical bonus alone.
+ki.frame.self.weapon.rolls=nil
+local bare=find(defence.options(ki,{}),'TESTKIST')
+assert(bare and bare.worth<kis.worth and bare.worth<=(10*(1+0.1*defence.critOpen)-10)/60+1e-9)
 -- A caster that casts does not swing.
 i.frame.self.guard={}
 i.mind=mind.new()

@@ -416,7 +416,11 @@ H[54]=function(c,e,who,p)
     else modifier(c,e,who,p,'thac0','buff','debuff') end
 end
 for op in pairs(WEAPON_DAMAGE) do H[op]=function(c,e,who,p) modifier(c,e,who,p,'damage','buff','debuff') end end
-H[250]=function(c,e,who,p) modifier(c,e,who,p,'damage','buff','debuff') end
+-- Opcode 250 is luck for base weapon damage alone (DAMAGELUCK; IESDP: each of the weapon's own damage
+-- dice rolls parameter 1 higher, at most its sides, or lower, at least 1; parameter 2 means
+-- nothing): Artisan's Kitpack's Ki Strike (Kensai Overhaul) sets 20, every die at its top. Its worth hangs on the weapon's dice
+-- (threat.luckGain), so it is no flat damage.
+H[250]=function(c,e,who,p) signed(c,e,who,p,e.p1,'damageLuck','buff','debuff') end
 H[1]=function(c,e,who,p) modifier(c,e,who,p,'attacks','buff','debuff') end
 H[18]=function(c,e,who,p) if e.p1>0 then kind(c,'buff','hp',who,e,p) elseif e.p1<0 then kind(c,'debuff','hp',who,e,p) end end
 H[22]=function(c,e,who,p) modifier(c,e,who,p,'luck','buff','debuff') end
@@ -1285,6 +1289,16 @@ function M.classify(record,index,lookup,options)
     if reach then c.release=true;c.ownRange=c.range;c.range=reach end
     c.recharge=recharge(c,record,ability,where)
     spent(c.hits)
+    -- A hit that takes the spell off its holder takes all the spell's effects with it (opcode 321
+    -- matches their source), so a buff on the caster whose own on-hit effect is spent so lasts until
+    -- its first hit lands (untilHit), whatever its effects' durations: Ki Strike's top damage and
+    -- critical bonus end with the blow, its critical bonus set to last otherwise.
+    local buff=c.roles.buff
+    if type(buff)=='table' and type(buff.who)=='table' and buff.who.self then
+        for _,h in ipairs(c.hits or {}) do
+            if h.once and h.who=='self' then buff.untilHit=true;break end
+        end
+    end
     c.times=nil;c.owner=nil;c.node=nil;c.when=nil;c.inherit=nil;c.conditionAt=nil;c.delay=nil;c.filter=nil
     c.aim=nil;c.remap=nil
     c.marks=nil

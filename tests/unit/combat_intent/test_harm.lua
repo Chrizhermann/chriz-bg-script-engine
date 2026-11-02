@@ -43,6 +43,11 @@ do
     assert(harm.weaken(role({'slow'}),creature({state=0x10000}),5)==0)
     assert(harm.weaken(role({'blind'}),creature({state=0x40000}),5)==0)
     assert(harm.weaken(role({'miscast','deaf'},{miscastBy={arcane=80,divine=80}}),f,5)==0)
+    -- Bad luck of 3 for base weapon damage (opcode 250) lowers a 1d8 sword's roll by 3, at least 1:
+    -- 2.25 off its 4.5, so 5.75 of the 8 a hit; unknown dice, nothing.
+    assert(harm.weaken(role({'damageLuck'},{amounts={damageLuck=3}}),f,5)==0)
+    local rolled=creature({attack={apr=2,thac0=10,damage=8,damageType=3,rolls={{dice=1,sides=8}}}})
+    assert(near(harm.weaken(role({'damageLuck'},{amounts={damageLuck=3}}),rolled,5),1-9.2/12.8))
     -- The caster itself fights with the weapon in its hand; without one it only casts.
     local me=creature({weapon={damage=8,apr=1,thac0=10,damageType=3}})
     me.attack=nil

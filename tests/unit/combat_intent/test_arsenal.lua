@@ -59,6 +59,8 @@ local hand=arsenal.hand(TABLES,fighter(35,0,{apr=2,thac0Right=3,damageRight=2}))
 assert(hand.item=='SWORD' and hand.slot==35 and hand.abilityNum==0 and hand.ability==1 and not hand.ranged)
 assert(hand.thac0==10 and near(hand.damage,8.5) and hand.apr==2 and hand.model.hit==3 and hand.model.damage==2)
 assert(hand.magical and hand.damageType==1 and hand.range==nil and hand.fist==nil)
+-- The sword's own damage die, for luck on base weapon damage (threat.luckGain).
+assert(#hand.rolls==1 and hand.rolls[1].dice==1 and hand.rolls[1].sides==6)
 local others=arsenal.others(TABLES,fighter(35,0,{apr=2,thac0Right=3,damageRight=2}))
 local bow=find(others,'BOW')
 assert(#others==1 and bow.slot==36 and bow.abilityNum==0 and bow.ammo=='ARROWS' and bow.ranged and bow.launcher)
@@ -72,6 +74,8 @@ groups=groups+1
 hand=arsenal.hand(TABLES,fighter(11,0,{apr=3,thac0Right=6,damageRight=4}))
 assert(hand.item=='BOW' and hand.slot==36 and hand.ammo=='ARROWS' and hand.ranged and hand.launcher)
 assert(hand.thac0==7 and near(hand.damage,9.5) and hand.apr==3 and hand.model.hit==6 and hand.model.damage==4)
+-- The bow has no dice of its own; the arrows' die rolls.
+assert(#hand.rolls==1 and hand.rolls[1].dice==1 and hand.rolls[1].sides==6)
 others=arsenal.others(TABLES,fighter(11,0,{apr=3,thac0Right=6,damageRight=4}))
 local sword=find(others,'SWORD')
 assert(#others==1 and sword.slot==35 and sword.thac0==10 and near(sword.damage,8.5) and sword.apr==2 and not sword.ranged)

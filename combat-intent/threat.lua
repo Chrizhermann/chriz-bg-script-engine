@@ -65,7 +65,8 @@ function M.armour(list)
     return ac/n
 end
 
--- An enemy's attack data with the defaults filled in.
+-- An enemy's attack data with the defaults filled in; rolls (the weapon's own damage dice,
+-- combat-intent/arsenal.lua) only when known.
 function M.attack(e)
     local a=type(e)=='table' and type(e.attack)=='table' and e.attack or {}
     local u=M.unknownAttack
@@ -73,7 +74,23 @@ function M.attack(e)
     return {apr=apr,thac0=number(a.thac0) and a.thac0 or u.thac0,
         damage=number(a.damage) and a.damage>=0 and a.damage or u.damage,
         ranged=a.ranged==true,magical=a.magical~=false,range=number(a.range) and a.range or nil,
-        damageType=number(a.damageType) and a.damageType or nil}
+        damageType=number(a.damageType) and a.damageType or nil,rolls=type(a.rolls)=='table' and a.rolls or nil}
+end
+-- What luck of n for base weapon damage (opcode 250, combat-intent/spells.lua) changes the mean
+-- damage of one hit with rolls ({dice, sides} each, the weapon's own damage dice): each die rolls n
+-- higher, at most its sides, or n lower, at least 1. 0 when the dice are not known.
+function M.luckGain(rolls,n)
+    if type(rolls)~='table' or not number(n) or n==0 then return 0 end
+    local total=0
+    for _,r in ipairs(rolls) do
+        local dice,sides=type(r)=='table' and r.dice,type(r)=='table' and r.sides
+        if number(dice) and number(sides) and dice>0 and sides>0 and sides<=1000 then
+            local sum=0
+            for x=1,sides do sum=sum+math.max(1,math.min(sides,x+n)) end
+            total=total+dice*(sum/sides-(sides+1)/2)
+        end
+    end
+    return total
 end
 
 -- How much of a creature's class casts, 0 for none.
@@ -196,7 +213,8 @@ function M.wielded(caster)
     return {apr=number(w.apr) and w.apr or caster.apr,thac0=number(w.thac0) and w.thac0 or caster.thac0,
         damage=w.damage,ranged=w.ranged==true,range=w.range,damageType=w.damageType,fist=w.fist==true or nil,
         magical=(number(w.enchantment) and w.enchantment>0) or math.floor(flags/64)%2==1,
-        str=w.str,strExtra=w.strExtra,strengthHit=w.strengthHit,strengthDamage=w.strengthDamage}
+        str=w.str,strExtra=w.strExtra,strengthHit=w.strengthHit,strengthDamage=w.strengthDamage,
+        rolls=type(w.rolls)=='table' and w.rolls or nil}
 end
 
 -- How many seconds the fight is expected to last from now, from both sides' strength, round by

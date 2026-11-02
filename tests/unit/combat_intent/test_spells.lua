@@ -628,13 +628,27 @@ assert(not c.partial and #c.hits==1 and c.roles.buff.kinds.onHit and c.roles.dam
 assert(h.melee and not h.ranged and h.fists==nil and h.who=='self' and h.seconds==12 and h.once==true and h.eff=='TESTSMEF')
 assert(h.strike.roles.damage.who.target and near(h.strike.roles.damage.types.magic,3.5))
 assert(h.strike.roles.strips.who.self and h.strike.roles.strips.res.TESTSMIT)
+-- The hit takes the whole smite off, so its buff lasts until that hit lands (untilHit).
+assert(c.roles.buff.untilHit==true)
+-- Artisan's Kitpack's Ki Strike (Kensai Overhaul): luck 20 for base weapon damage for a round (opcode 250: every die at its top,
+-- no flat damage), a critical bonus set to last (timing 9), and a hit that takes the strike off
+-- again: all of it lasts until that hit lands. A bad-luck spell (250 below 0) is a debuff.
+hitWorld['EFF:TESTKIEF']={kind='EFF',resref='TESTKIEF',effect=fx(146,{p2=1,res='TESTKIHT',timing=1})}
+hitWorld['SPL:TESTKIHT']=spl('TESTKIHT',{ability({fx(321,{target=1,res='TESTKIST',timing=1})})})
+c=classify(spl('TESTKIST',{ability({fx(250,{target=1,p1=20,duration=6}),fx(301,{target=1,p1=2,timing=9}),
+    fx(248,{target=1,duration=6,res='TESTKIEF'})},{target=5,range=1})}),world(hitWorld))
+assert(c.roles.buff.amounts.damageLuck==20 and c.roles.buff.amounts.critical==2 and c.roles.buff.amounts.damage==nil)
+assert(c.roles.buff.kinds.damageLuck and c.roles.buff.duration=='permanent' and c.roles.buff.untilHit==true)
+assert(c.hits[1].once==true)
+c=classify(spl('TESTCURS',{ability({fx(250,{target=2,p1=-3,duration=12})},{target=1})}),world({}))
+assert(c.roles.debuff.amounts.damageLuck==3 and c.roles.buff==nil)
 -- A poisoned blade and arrows: every hit poisons (no once), 249 for missiles; fists only by bit 2.
 hitWorld['EFF:TESTPSEF']={kind='EFF',resref='TESTPSEF',effect=fx(12,{p1=4,p2=32*65536,timing=1})}
 c=classify(spl('TESTPOIS',{ability({fx(248,{target=1,duration=30,res='TESTPSEF'}),
     fx(249,{target=1,duration=30,res='TESTPSEF'}),fx(248,{target=1,duration=30,p2=4,res='TESTPSEF'})},{target=5})}),
     world(hitWorld))
 assert(#c.hits==3 and c.hits[1].melee and c.hits[2].ranged and not c.hits[2].melee and c.hits[3].fists==true)
-assert(c.hits[1].once==false and c.hits[1].strike.roles.damage.types.poison==4)
+assert(c.hits[1].once==false and c.hits[1].strike.roles.damage.types.poison==4 and c.roles.buff.untilHit==nil)
 -- An on-hit effect that comes through another spell is spent by a hit that takes off the spell
 -- holding it, not the one that cast that spell (opcode 321 matches an effect's own source).
 hitWorld['SPL:TESTKITB']=spl('TESTKITB',{ability({fx(248,{target=1,duration=12,res='TESTKTEF'})},{target=5})})
