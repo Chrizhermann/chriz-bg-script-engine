@@ -20,7 +20,9 @@
 -- Speed, giant strength) comes first when it is worth more than the part of the attack its moment
 -- takes, with no minimum worth: the creature does not leave its weapon for it. Healing and
 -- protection potions are weighed against the attack as before (his call, later, with how long a
--- drink should take).
+-- drink should take). An ability without casting time (speed 0) that strengthens the creature's
+-- own attacks counts as such a moment too (Christopher, 2026-10-25: abilities used "instant" need
+-- not take the whole round): a kensai's Ki Focus before its swing, as a drink.
 --
 -- Worth is counted in shares of an enemy taken out of the fight: the hit points a cast takes
 -- (as a share of the enemy's maximum, no more than it has left), the worth of a kill, or the
@@ -1874,11 +1876,11 @@ local function pick(input)
         for _,o in ipairs(options) do if not (number(o.speed) and o.speed>=mind.slowSpeed) then quick[#quick+1]=o end end
         if quick[1] and quick[1].score>=mind.minValue then options=quick end
     end
-    -- The attack, or the best buff potion before it (see the top): the drink is taken when it is
-    -- worth more than the part of the attack its moment takes.
+    -- The attack, or the best buff potion or instant ability on itself before it (see the top): it
+    -- is taken when it is worth more than the part of the attack its moment takes.
     local boost
     for _,o in ipairs(options) do
-        if o.use and o.boosts and number(o.score) and o.score>0 then boost=o;break end
+        if (o.use or (o.self and o.speed==0)) and o.boosts and number(o.score) and o.score>0 then boost=o;break end
     end
     local function attack()
         if boost and boost.score>value*(1-weapons.paced(M.drinkSeconds)) then return boost,'drink',all() end

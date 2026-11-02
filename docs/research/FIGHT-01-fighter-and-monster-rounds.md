@@ -1742,7 +1742,46 @@ damage, can win (the next lab run shows whether they do).
 
 Tests: the classifier's on-hit group (Ki Strike, bad luck, Smite Evil's buff until its hit), the
 arsenal's dice, `luckGain`, a Ki Strike worth one hit against the same edge lasting a minute, bad
-luck in `harm.weaken`; 7 mutations caught. Still to see in game: lab batch J again.
+luck in `harm.weaken`; 7 mutations caught. Seen in game: run 6, below.
+
+### Lab batch J, run 6 (2026-11-02)
+
+The same fights on snapshot `8b7cdcd` (run 5's build with Ki Strike fixed); 29 minutes, no guard
+tripped, the lab clean after.
+
+| Fights | Group won | Seconds | Group's hit points left | Group deaths |
+|---|---|---|---|---|
+| j1 (mirror), engine | 2 of 4, one more ahead when time ran out | 98, 61, 240 (lost at 111) | 0.21, 0.85, 0.09 (lost: 0) | 5, 0, 6 (lost: 7) |
+| j1 (mirror), SCS alone | 3 of 4, the fourth far ahead when time ran out | 59, 61, 55, 240 | 0.82, 0.82, 0.75, 0.77 | one in all |
+| j2 (fiends), engine | 3 of 3 | 99, 86, 64 | 0.57, 0.60, 0.86 | 3 in all |
+| j2 (fiends), SCS alone | 3 of 3 | 117, 78, 125 | 0.47, 0.39, 0.47 | 6 in all |
+
+- **Ki Strike no longer wins:** the kensai drank Oil of Speed half a second in, in every fight, as
+  SCS's did. **Ki Focus still never came:** worth 0.17 at the start and 0.11 a second later, it lost
+  to the swing (0.27, 0.19) as a whole action, though it is an ability without casting time
+  (below, "Instant abilities").
+- **The fiend fights again went the engine's way:** more left than SCS's group and half its deaths.
+- **The mirror fights again went SCS's way.** In SCS's four fights its group killed the party's
+  kensai within 6 or 7 seconds every time, then its fighter. In the engine's, its own kensai fell
+  first or second (16 to 19 seconds) in three fights of four, and the party's kensai lived longer.
+  SCS's melee all strike the same foe; the engine's spread over the foes at hand. Whether a group
+  should strike one foe together is a point for the design round on group tactics (as after run 4).
+
+### Instant abilities take a moment (2026-11-02)
+
+Christopher, 2026-10-25: potions, abilities and the like are often instant and need not take the
+whole round. Buff potions already came before the swing, taking a moment
+(`choice.drinkSeconds`). Now an ability without casting time (speed 0) that the creature uses on
+itself to strengthen its attacks counts the same way: where it would attack, it comes first when it
+is worth more than the part of the attack its moment takes (`combat-intent/choice.lua`). A spell
+with a casting time still takes its casting.
+
+Example: the kensai at the start of a mirror fight: Ki Focus (twelve seconds of hits that do not
+miss, a fifth more damage, 0.17) against its swing (0.27): the moment costs a seventh of the swing,
+so Ki Focus first, then Oil of Speed, then the swing.
+
+Tests: defence group 15 (the same haste without casting time cast before the swing, with a casting
+time not); the mutation that drops it is caught. Still to see in game: lab batch J, run 7.
 
 ## Agreed (Christopher, 2026-10-25)
 

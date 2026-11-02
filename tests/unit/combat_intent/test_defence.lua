@@ -732,11 +732,17 @@ choice.drinkSeconds=1
 i.frame.self.aura=3
 assert(choice.decide(i).kind=='weapon')
 i.frame.self.aura=nil
--- The same haste as a spell takes its casting, not a moment: the fighter attacks.
+-- The same haste as a spell without casting time takes a moment too, as an innate ability does
+-- (Christopher, 2026-10-25: what is used instantly need not take the round; lab batch J, run 6: a
+-- kensai's Ki Focus, worth 0.17, lost to its swing every time): cast before the swing. With a
+-- casting time it takes its casting: the fighter attacks.
 i=fighterInput({})
 i.spells={row('TESTSHRT',short,1)}
 o=find(defence.options(i,{}),'TESTSHRT')
-assert(o and o.boosts and not o.use and o.score>0)
+assert(o and o.boosts and not o.use and o.self and o.speed==0 and o.score>0)
+pick,why=choice.decide(i)
+assert(pick.resref=='TESTSHRT' and not pick.use and why=='drink')
+i.spells={row('TESTSLHS',spell('TESTSLHS',1,{fx(16,{duration=12})},{speed=3}),1)}
 assert(choice.decide(i).kind=='weapon')
 -- Lab batch J's case: Oil of Speed worth more than the minimum, the attack on a hurt enemy (half its
 -- 40 hit points left, a kill as likely as not) worth more than the Oil. The Oil comes first.
