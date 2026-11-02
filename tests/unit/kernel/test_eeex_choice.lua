@@ -2486,7 +2486,7 @@ assert(a.model.hit==6 and a.model.damage==4 and a.game.hit==6 and a.game.damage=
 local c=last('choice',1)
 assert(c.castKind=='weapon' and c.spell=='TESTSSWD' and c.target==12 and c.slot==35)
 g.BGSE_Act(archer)
-assert(g.queued[#g.queued].text=='SelectWeaponAbility(35,0) AttackOneRound(EEex_Target("BGSE"))')
+assert(g.queued[#g.queued].text=='SelectWeaponAbility(35,0)\nAttackOneRound(EEex_Target("BGSE"))')
 assert(last('swing',1).slot==35 and ch:inspect().counts.switches==1 and archer.aux.EEex_Target.BGSE==12)
 -- The weapon in hand is the same: no second 'arms' row.
 local count=0
@@ -2561,7 +2561,7 @@ groups=groups+1
 local profiles=require('combat-intent.mind')
 assert(choices.response({resref='FLANK',kind='flank',point={x=248,y=100}})=='MoveToPoint([248.100])')
 assert(choices.response({resref='FLANK',kind='flank',point={x=248,y=100},slot=36,abilityNum=0})==
-    'SelectWeaponAbility(36,0) MoveToPoint([248.100])')
+    'SelectWeaponAbility(36,0)\nMoveToPoint([248.100])')
 assert(choices.response({resref='FLANK',kind='flank',point={x=248,y=100},slot=11,abilityNum=0})==nil)
 assert(choices.response({resref='FLANK',kind='flank',point={x=248,y=100},slot=36})==nil)
 ITEMS.TESTSTAB=weapon('TESTSTAB',{flags=0,usability=0x20000000},{dice=1,sides=8,damageBonus=0})
@@ -2657,7 +2657,7 @@ assert(claim(100)==true)
 c=last('choice',1)
 assert(c.castKind=='flank' and c.slot==36 and near(c.backstab,0.8))
 g.BGSE_Act(stabber)
-assert(g.queued[#g.queued].text=='SelectWeaponAbility(36,0) MoveToPoint([248.100])')
+assert(g.queued[#g.queued].text=='SelectWeaponAbility(36,0)\nMoveToPoint([248.100])')
 f=last('flank',1)
 assert(f.slot==36 and ch:inspect().counts.flanks==1 and ch:inspect().counts.switches==1)
 stabber.m_curAction={m_actionID=92}
@@ -3617,10 +3617,32 @@ list,failed=doorReader.read(w,w.area)
 assert(#list==0 and failed==0 and doorReader.open(w,50)==nil)
 -- The response: the walk to the door, OpenDoor at EEex_Target, and the walk behind it when that is a
 -- whole spot.
-assert(choices.doorResponse({x=130,y=0})=='MoveToPoint([130.0])OpenDoor(EEex_Target("BGSE"))')
+assert(choices.doorResponse({x=130,y=0})=='MoveToPoint([130.0])\nOpenDoor(EEex_Target("BGSE"))')
 assert(choices.doorResponse({x=380.6,y=10},{x=496,y=0})==
-    'MoveToPoint([380.10])OpenDoor(EEex_Target("BGSE"))MoveToPoint([496.0])')
-assert(choices.doorResponse({x=130,y=0},{x=1.5,y=0})=='MoveToPoint([130.0])OpenDoor(EEex_Target("BGSE"))')
+    'MoveToPoint([380.10])\nOpenDoor(EEex_Target("BGSE"))\nMoveToPoint([496.0])')
+assert(choices.doorResponse({x=130,y=0},{x=1.5,y=0})=='MoveToPoint([130.0])\nOpenDoor(EEex_Target("BGSE"))')
+-- One action a line: the game reads one action from each line of a queued response, so an action
+-- after another on the same line never runs (the door probe, 2026-11-02: only the walk to the door
+-- ran; lab batch J: a weapon switch never attacked). Every response of several actions holds one
+-- call a line.
+local function oneEach(text)
+    for line in (text..'\n'):gmatch('(.-)\n') do
+        local depth,calls=0,0
+        for c in line:gmatch('.') do
+            if c=='(' then
+                if depth==0 then calls=calls+1 end
+                depth=depth+1
+            elseif c==')' then depth=depth-1 end
+        end
+        if calls~=1 or depth~=0 then return false end
+    end
+    return true
+end
+assert(not oneEach('MoveToPoint([130.0])OpenDoor(X)') and not oneEach('SelectWeaponAbility(35,0) AttackOneRound(X)'))
+assert(oneEach(choices.doorResponse({x=380.6,y=10},{x=496,y=0})) and oneEach(choices.doorResponse({x=130,y=0})))
+assert(oneEach(choices.response({resref='TESTSSWD',kind='weapon',target=12,slot=35,abilityNum=0})))
+assert(oneEach(choices.response({resref='FLANK',kind='flank',point={x=248,y=100},slot=36,abilityNum=0})))
+assert(choices.chain('SelectWeaponAbility(35,0)','','AttackOneRound(X)')=='SelectWeaponAbility(35,0)\nAttackOneRound(X)')
 
 -- The mage of group 33 behind doors: its enemy, last seen 300 away, walked out of its sight; a closed
 -- door stands across the way at 150, another beyond the spot at 400.
@@ -3652,7 +3674,7 @@ end
 local g1,c1,m1,gate1,last1,claim1=scene(471)
 g1.BGSE_Act(m1)
 local r1=last1('door')
-assert(g1.queued[#g1.queued].text=='MoveToPoint([130.0])OpenDoor(EEex_Target("BGSE"))' and m1.aux.EEex_Target.BGSE==50)
+assert(g1.queued[#g1.queued].text=='MoveToPoint([130.0])\nOpenDoor(EEex_Target("BGSE"))' and m1.aux.EEex_Target.BGSE==50)
 assert(r1 and r1.door==50 and r1.to.x==130 and r1.toward.x==300 and r1.clue=='seen' and r1.target==11 and
     r1.behind==nil and r1.tactical==true)
 assert(c1:inspect().search.counts.doors==1 and last1('search')==nil)
@@ -3675,7 +3697,7 @@ m1.m_pos={x=300,y=0}
 assert(claim1(200)==true)
 g1.BGSE_Act(m1)
 local b1=last1('door')
-assert(g1.queued[#g1.queued].text=='MoveToPoint([380.0])OpenDoor(EEex_Target("BGSE"))MoveToPoint([496.0])' and
+assert(g1.queued[#g1.queued].text=='MoveToPoint([380.0])\nOpenDoor(EEex_Target("BGSE"))\nMoveToPoint([496.0])' and
     m1.aux.EEex_Target.BGSE==60 and b1.door==60 and b1.behind.x==496 and b1.toward==nil)
 assert(c1:inspect().search.counts.doors==2)
 -- A door that stays shut: when the mage stands without having opened it, the door is left and the
@@ -3702,7 +3724,7 @@ m10.m_curAction=action(472,'',-1)
 g10.BGSE_Act(m10)
 local cut10=last10('cut')
 assert(cut10.ended[1]=='search' and last10('door-end').why=='cut' and last10('door-end').open==false)
-assert(g10.queued[#g10.queued].text=='MoveToPoint([130.0])OpenDoor(EEex_Target("BGSE"))' and
+assert(g10.queued[#g10.queued].text=='MoveToPoint([130.0])\nOpenDoor(EEex_Target("BGSE"))' and
     c10:inspect().search.counts.doors==2 and c10:inspect().search.counts.doorsShut==0)
 m10.m_curAction={m_actionID=23}
 assert(claim10(160)==true)

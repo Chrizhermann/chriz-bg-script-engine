@@ -273,14 +273,33 @@ The engine searches with what the creature and its group perceived instead
     spot beyond a door in a danger zone counts as searched.
   - *How*: one response, `MoveToPoint` to the nearer of the two spots the game gives for opening the
     door (`m_ptDest1`, `m_ptDest2`), `OpenDoor` at `EEex_Target` naming the door, and to look behind
-    it `MoveToPoint` past it; held while the creature walks or opens, at most twice the walk's seconds
+    it `MoveToPoint` past it, one action a line (the game reads one action from each line of a
+    queued response); held while the creature walks or opens, at most twice the walk's seconds
     plus 3 seconds. Then the door is judged by its own open flag (the ARE door flags).
   - *Log*: `door` rows (door, from, to, behind or toward, clue, target, tactical) and `door-end` rows
     (open, why: done, time, hurt, enemy, cut, zone); counts `doors`, `doorsOpened`, `doorsShut` and
     `doorFailures` (doors or kinds that could not be read; the first error as an `error` row).
-  - Not seen in a game yet: which of an area's lists hold its doors, the flags and fields as EEex
-    gives them, `OpenDoor` at `EEex_Target`, and how `MoveToPoint` fares at a closed door (a door
-    probe in the lab comes next). Open with Christopher: picking locks, bashing doors and Knock, and
+  - *The door probe* (lab step D, 2026-11-02, the SR lab, `DOOR01` of `AR1204`, two scriptless probe
+    creatures, nothing installed):
+    - The reader finds doors in the area's main list (`m_lVertSort`, object type 33) and read
+      `DOOR01` whole: closed, a four-point outline over 19 search-map cells, its two spots for
+      opening, 20 hit points, no key and no lock difficulty. The game's own `NearestDoor` from the
+      player names the same door.
+    - `OpenDoor` at `EEex_Target` opens it: a fighter 204 pixels away had it open within a tick,
+      without walking there.
+    - The engine's door response held its three actions on one line, and the game reads one
+      action a line: only the walk to the door ran, and the door stayed shut. Fixed the same day
+      (one action a line, `chain` in `adapters/eeex/choice.lua`). The same flaw cost every weapon
+      switch its attack (`SelectWeaponAbility` before `AttackOneRound`, or before the walk behind an
+      enemy): in lab batch J, run 4, the archer's switch to its bow at 1.7 seconds only switched,
+      and the attack came a second later from its next decision.
+    - A walk to a spot behind the closed door (`MoveToPoint`) goes up to the door and stops there,
+      trying again and again.
+    - A door the player locked (`Lock`): the thief's `PickLock` had it unlocked within a tick (lock
+      difficulty 0); the fighter's `BashDoor` within two ticks (its flags read open and broken, a
+      tick later broken).
+    - Still to see in game: the whole door response after the fix, in a search.
+    Open with Christopher: picking locks, bashing doors and Knock (now only with the key), and
     whether to look behind doors without any trace, as SCS does.
 - **Tactics by wit** (`mind.tactics`, drawn once a search: clever always, normal in half its
   searches, dull never): leading a moving enemy along its last heading (up to 2 seconds, 150 at

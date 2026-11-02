@@ -210,12 +210,13 @@ failing.BGSE_Prepped(failing.objects[1],'mage','s1','prebuff','dwsw408','')
 -- a load and a response that ran outside a script block.
 local w=world()
 w.EEex_Utility_IterateCPtrList=function(t,fn) for _,x in ipairs(t) do if fn(x) then break end end end
--- The actions each response queues (300: SelectWeaponAbility, a number made up for the test).
-local parsed={['AttackOneRound(X)']={105},['MoveToPoint([1.2])']={23},['SelectWeaponAbility(1,0)AttackOneRound(X)']={300,105}}
+-- The action each line of a response queues: the game reads one action a line (300:
+-- SelectWeaponAbility, a number made up for the test).
+local parsed={['AttackOneRound(X)']=105,['MoveToPoint([1.2])']=23,['SelectWeaponAbility(1,0)']=300}
 w.EEex_Action_QueueResponseStringOnAIBase=function(text,object)
     w.queued[#w.queued+1]=text
     local q=object.m_queuedActions
-    for _,id in ipairs(parsed[text]) do q[#q+1]={m_actionID=id} end
+    for line in (text..'\n'):gmatch('(.-)\n') do q[#q+1]={m_actionID=assert(parsed[line],line)} end
     q.m_nCount=#q
 end
 local brute=creature(4)
@@ -266,13 +267,13 @@ brute.m_queuedActions={m_nCount=0}
 assert(claim()==true and brute.m_curResponseSetNum==-1 and #heard==2 and heard[2].kind=='idle' and heard[2].action==23)
 -- Two actions queued: they give way while both are left and once the first is done, not when
 -- something else runs in their place.
-run('SelectWeaponAbility(1,0)AttackOneRound(X)')
+run('SelectWeaponAbility(1,0)\nAttackOneRound(X)')
 assert(brute.m_curAction.m_actionID==300 and brute.m_queuedActions.m_nCount==1)
 assert(claim()==true and brute.m_curResponseSetNum==-1 and #heard==3 and heard[3].action==300 and heard[3].left==2)
-run('SelectWeaponAbility(1,0)AttackOneRound(X)')
+run('SelectWeaponAbility(1,0)\nAttackOneRound(X)')
 brute.m_curAction=table.remove(brute.m_queuedActions,1);brute.m_queuedActions.m_nCount=0
 assert(brute.m_curAction.m_actionID==105 and claim()==true and brute.m_curResponseSetNum==-1 and #heard==4)
-run('SelectWeaponAbility(1,0)AttackOneRound(X)')
+run('SelectWeaponAbility(1,0)\nAttackOneRound(X)')
 brute.m_curAction={m_actionID=23};brute.m_queuedActions={m_nCount=0}
 assert(claim()==true and brute.m_curResponseSetNum==1 and #heard==4)
 -- Another block took over: its actions are its own, and the engine's record of its own is gone.

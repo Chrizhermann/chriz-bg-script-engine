@@ -12914,12 +12914,22 @@ function M.castBegan(a,timer,tick)
         tick-timer>=a.started then a.cast=tick-timer end
 end
 
--- The weapon a decision takes up first (decision.slot, abilityNum) as the start of its response:
+-- A response of several actions, one a line: the game reads one action from each line of a queued
+-- response (CAIScriptFile::ParseResponseString splits on line feeds, ParseOneLine adds one action),
+-- so an action after another on the same line never runs (the door probe, 2026-11-02; lab batch J's
+-- weapon switches). Empty parts are left out.
+local function chain(...)
+    local lines={}
+    for _,action in ipairs({...}) do if action~='' then lines[#lines+1]=action end end
+    return table.concat(lines,'\n')
+end
+M.chain=chain
+-- The weapon a decision takes up first (decision.slot, abilityNum), the first line of its response:
 -- '' for none, nil for a bad one.
 local function takeUp(decision)
     if decision.slot==nil then return '' end
     if not M.WEAPON_SLOTS[decision.slot] or not whole(decision.abilityNum) then return nil end
-    return 'SelectWeaponAbility('..decision.slot..','..decision.abilityNum..') '
+    return 'SelectWeaponAbility('..decision.slot..','..decision.abilityNum..')'
 end
 -- The response that casts decision's spell (a release with ForceSpellRES), or strikes with the
 -- charge or attacks with a weapon (one not in hand taken up first: decision.slot, abilityNum), or
@@ -12938,7 +12948,7 @@ function M.response(decision)
         local first=''
         if decision.kind=='weapon' then first=takeUp(decision) end
         if not first then return nil end
-        return first..'AttackOneRound(EEex_Target("'..M.targetName..'"))'
+        return chain(first,'AttackOneRound(EEex_Target("'..M.targetName..'"))')
     end
     if M.MOVES[decision.kind] then
         local p=decision.point
@@ -12946,7 +12956,7 @@ function M.response(decision)
         local first=''
         if decision.kind=='flank' then first=takeUp(decision) end
         if not first then return nil end
-        return first..'MoveToPoint(['..p.x..'.'..p.y..'])'
+        return chain(first,'MoveToPoint(['..p.x..'.'..p.y..'])')
     end
     local cast=decision.release and 'ForceSpell' or 'Spell'
     if decision.point then
@@ -12961,14 +12971,15 @@ function M.response(decision)
     end
 end
 -- The response that opens a door (adapters/eeex/search.lua): the walk to point, where it is opened,
--- OpenDoor at EEex_Target (the caster's table names the door), and the walk on to behind when given.
+-- OpenDoor at EEex_Target (the caster's table names the door), and the walk on to behind when given,
+-- one action a line.
 function M.doorResponse(point,behind)
     local walk='MoveToPoint(['..math.floor(point.x)..'.'..math.floor(point.y)..'])'
     local on=''
     if type(behind)=='table' and whole(behind.x) and whole(behind.y) then
         on='MoveToPoint(['..behind.x..'.'..behind.y..'])'
     end
-    return walk..'OpenDoor(EEex_Target("'..M.targetName..'"))'..on
+    return chain(walk,'OpenDoor(EEex_Target("'..M.targetName..'"))',on)
 end
 
 -- Whether a friend in frame (the creature itself or an ally it sees) has lost hit points, is held
@@ -14576,7 +14587,7 @@ function M.new(g,options)
             local first=''
             if flank then first=takeUp(decision) end
             if not first then return 'skipped' end
-            decision.response=first..'MoveToPoint(['..point.x..'.'..point.y..'])'
+            decision.response=chain(first,'MoveToPoint(['..point.x..'.'..point.y..'])')
             moves[object.m_id]={tick=tick,point=point,zones=type(decision.zones)=='table' and decision.zones or {},
                 limit=M.walkTicks(decision.walk)+M.moveMargin,kite=kite or nil,flank=flank and decision.target or nil,
                 position=position and (decision.cast or true) or nil}
