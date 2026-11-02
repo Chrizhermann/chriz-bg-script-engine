@@ -298,7 +298,12 @@ The engine searches with what the creature and its group perceived instead
     - A door the player locked (`Lock`): the thief's `PickLock` had it unlocked within a tick (lock
       difficulty 0); the fighter's `BashDoor` within two ticks (its flags read open and broken, a
       tick later broken).
-    - Still to see in game: the whole door response after the fix, in a search.
+    - With the fix, a second probe the same day: the fighter walked to the door, opened it 7 ticks
+      after it set off, and walked on through to the spot behind it (about 2 seconds in all); the
+      same with the door named in the response. At the locked door (no key) its `OpenDoor` did
+      nothing, and the walk on stopped at the door; the fighter stood still 41 ticks after it set
+      off, which the engine takes as a door it could not open.
+    - Still to see in game: the door response in a real search.
     Open with Christopher: picking locks, bashing doors and Knock (now only with the key), and
     whether to look behind doors without any trace, as SCS does.
 - **Tactics by wit** (`mind.tactics`, drawn once a search: clever always, normal in half its

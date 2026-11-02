@@ -908,8 +908,10 @@ Christopher's answers of 2026-10-29 to what the engine still lacks for a fight o
 - **Doors go into the first release** ("muss rein"): SCS's fighters open a nearby door while they
   hunt, so whoever stands behind a closed door must not be safe from our creatures. Built
   2026-10-29: the engine's search opens a closed door across its way and looks behind doors near a
-  searched spot, by creatures with hands for doors (FIGHT-01, "Doors"); a door probe in the lab is
-  next. Open with Christopher: picking locks, bashing and Knock (now only with the key), and looking
+  searched spot, by creatures with hands for doors (FIGHT-01, "Doors"). The door probe (2026-11-02)
+  found the response's three actions on one line, of which the game runs only the first (the same
+  flaw cost every weapon switch its attack); with one action a line a second probe walked to the
+  door, opened it and walked through. Next: doors in a real search. Open with Christopher: picking locks, bashing and Knock (now only with the key), and looking
   behind doors without any trace.
 - **Hurt creatures heal where they stand.** A potion is "quasi nur ein paar Millisekunden": no
   general retreat to heal, and no big focus on enemies going far away. Rare, chosen cases may come
