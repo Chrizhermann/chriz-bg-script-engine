@@ -177,6 +177,8 @@ function M.new(config)
     end
     -- Whether the gate is on for a family right now (for helpers that act outside a claim).
     function api:allows(family) return enabled and known[family]==true and families[family]==true end
+    -- Whether the gate's own switch is on (the engine's kill switch), for helpers outside any family.
+    function api:on() return enabled end
     -- Whether the gate would ask the decider about this creature from this script now (its
     -- switches, the registry, the scripts below it, a decider and no backoff after an error),
     -- without asking.

@@ -1,7 +1,8 @@
 """Check that the WeiDU hook (bgse/lib/hook.tpa) and tools/hook_rule.py patch decompiled scripts
-alike, byte for byte, without a game: WeiDU runs bgse_hook_baf and bgse_own_baf (the game's own
-vanishing exits) on every script of a folder with --nogame, and each result, its counts, its gifts and
-its text must match the Python rule's (patch, patch_own).
+alike, byte for byte, without a game: WeiDU runs bgse_hook_baf, bgse_own_baf (the game's own
+vanishing exits) and bgse_talk_baf (SCS's talk on sight) on every script of a folder with --nogame, and
+each result, its counts, its gifts and its text must match the Python rule's (patch, patch_own,
+patch_talk).
 
     python tools/hook_agree.py <weidu.exe> <folder-with-baf> [work-folder] [teleports.txt] [hides.txt]
         [innates.txt] [gtimes.ids] [vanishing.txt]
@@ -53,6 +54,15 @@ ACTION_BASH_FOR ~%argv[1]%~ ~^.+\.baf$~ BEGIN
     INSERT_BYTES 0 (STRING_LENGTH ~%bgse_baf%~)
     WRITE_ASCIIE 0 ~%bgse_baf%~
     PATCH_PRINT ~OWN|%BASH_FOR_RES%|%bgse_exits%~
+  COPY ~%BASH_FOR_FILESPEC%~ ~%argv[4]%/%BASH_FOR_RES%.baf~
+    READ_ASCII 0 baf (BUFFER_LENGTH)
+    TEXT_SPRINT script ~%BASH_FOR_RES%~
+    TO_LOWER script
+    LPF bgse_talk_baf STR_VAR bgse_baf = EVAL ~%baf%~ bgse_script = EVAL ~%script%~ RET bgse_talks bgse_baf END
+    DELETE_BYTES 0 BUFFER_LENGTH
+    INSERT_BYTES 0 (STRING_LENGTH ~%bgse_baf%~)
+    WRITE_ASCIIE 0 ~%bgse_baf%~
+    PATCH_PRINT ~TALK|%BASH_FOR_RES%|%bgse_talks%~
 END
 '''
 
@@ -98,6 +108,7 @@ def main():
                           if line.strip()) if len(sys.argv) > 8 else frozenset()
     (work / 'out').mkdir(parents=True, exist_ok=True)
     (work / 'own').mkdir(parents=True, exist_ok=True)
+    (work / 'talk').mkdir(parents=True, exist_ok=True)
     listed = '|' + ''.join(f'{name}|' for name in sorted(teleports))
     invisible = '|' + ''.join(f'{name}|' for name in sorted(hides))
     improved = '|' + ''.join(f'{name}|' for name, kind in sorted(hides.items()) if kind == 'improved')
@@ -109,14 +120,17 @@ def main():
                                       .replace('~TIMES~', f'~{timers}~').replace('~VANISH~', f'~{vanish}~'), encoding='ascii')
     run = subprocess.run([str(weidu), 'harness.tp2', '--nogame', '--force-install-list', '1',
                           '--args', str(ROOT / 'bgse/lib/hook.tpa'), '--args', str(folder), '--args', 'out',
-                          '--args', 'own', '--no-exit-pause', '--quick-log'], cwd=work, capture_output=True, text=True,
-                         encoding='latin-1')
+                          '--args', 'own', '--args', 'talk', '--no-exit-pause', '--quick-log'], cwd=work,
+                         capture_output=True, text=True, encoding='latin-1')
     (work / 'weidu.out').write_text(run.stdout + run.stderr, encoding='utf-8')
-    weidu_rows, own_rows = {}, {}
+    weidu_rows, own_rows, talk_rows = {}, {}, {}
     for line in run.stdout.splitlines():
         if line.startswith('OWN|'):
             _, res, count = line.split('|', 2)
             own_rows[res.lower()] = int(count)
+        if line.startswith('TALK|'):
+            _, res, count = line.split('|', 2)
+            talk_rows[res.lower()] = int(count)
         if line.startswith('AGREE|'):
             _, res, result, fam, copies, clouds, hunts, jumps, teleporter, hidden, hider, preps, exits, gifts = line.split(
                 '|', 13)
@@ -126,7 +140,7 @@ def main():
                                        re.sub(r'\|[RI]:', '|', gifts))
     outcomes, mismatches = Counter(), []
     paths = sorted(folder.glob('*.baf'))
-    own_exits = 0
+    own_exits = talks = 0
     for path in paths:
         stem = path.stem.lower()
         source = path.read_text(encoding='latin-1')
@@ -140,6 +154,16 @@ def main():
             mismatches.append(f'{path.name}: own exits text differs')
             continue
         own_exits += count
+        # SCS's talk on sight (patch_talk), in every script; only SCS's talk-on-sight script has any.
+        talk, spoken = hook_rule.patch_talk(source, stem)
+        if talk_rows.get(stem) != spoken:
+            mismatches.append(f'{path.name}: talks WeiDU {talk_rows.get(stem)}, Python {spoken}')
+            continue
+        text = (work / 'talk' / f'{path.stem.upper()}.baf').read_bytes().decode('latin-1')
+        if text != (talk if talk is not None else source.replace('\r', '')):
+            mismatches.append(f'{path.name}: talk text differs')
+            continue
+        talks += spoken
         expected, counts = reference(source, stem, teleports, hides, innates, times, vanishing)
         got = weidu_rows.get(stem)
         if got != counts:
@@ -163,7 +187,8 @@ def main():
     gifts = Counter(gift for row in weidu_rows.values() for gift in row[11].strip('|').split('|') if gift)
     print(f'jumps {jumps}, teleporting scripts {teleporters}, free invisibility blocks {hidden} in {hiders} scripts, '
           f'preparation blocks {preps}, vanishing exits {exits}, the game\'s own vanishing exits {own_exits} in '
-          f'{sum(1 for n in own_rows.values() if n)} scripts')
+          f'{sum(1 for n in own_rows.values() if n)} scripts, talks on sight {talks} in '
+          f'{sum(1 for n in talk_rows.values() if n)} scripts')
     print('gifts:', dict(sorted(gifts.items())))
     for m in mismatches[:40]:
         print('  ' + m)

@@ -333,6 +333,8 @@ function M.new(config)
     end
     -- Whether the gate is on for a family right now (for helpers that act outside a claim).
     function api:allows(family) return enabled and known[family]==true and families[family]==true end
+    -- Whether the gate's own switch is on (the engine's kill switch), for helpers outside any family.
+    function api:on() return enabled end
     -- Whether the gate would ask the decider about this creature from this script now (its
     -- switches, the registry, the scripts below it, a decider and no backoff after an error),
     -- without asking.
@@ -10614,6 +10616,47 @@ function M.holds(kind,cast,spent,orders)
 end
 return M
 end
+factories["combat-intent.talk"]=function(require)
+-- Talk on sight (Christopher, 2026-11-03: a creature that speaks to the party as soon as it sees it
+-- prepares when it sees the party, and the talk comes right after, so it cannot be caught
+-- unprepared). The installer holds SCS's talk-on-sight blocks while BGSE_TalkHold says so
+-- (bgse/lib/hook.tpa, tools/hook_rule.py: patch_talk). On the first ask the engine starts the
+-- creature's preparation: it turns on SCS's own switch for preparing out of sight (offscreenprep,
+-- so SCS's prebuffs run with SCS's difficulty rules in the scripts below while the talk waits) and
+-- queues what the fight's designer adds (combat-intent/encounters.lua). The talk waits at least one
+-- script pass, for SCS's preparation to run, then until the creature is idle, at most TIMEOUT ticks.
+-- Plain values only; nothing here touches the engine.
+local M={}
+-- The longest a talk waits for the preparation, in game ticks (15 a second): it never stays stuck.
+M.TIMEOUT=90
+
+local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
+
+-- One ask of BGSE_TalkHold for a creature: state is what the last ask left (nil before the first),
+-- facts {tick, on (the engine on), busy (the creature has an action running or queued)}. Returns
+-- whether the talk waits now, the state to keep and what happened: 'start' (the preparation begins
+-- now: the adapter sets offscreenprep and queues the designer's extras), 'wait', 'done', 'timeout'
+-- or 'off' (the engine is off: the talk goes on as before, and nothing is kept).
+function M.step(state,facts)
+    facts=type(facts)=='table' and facts or {}
+    if facts.on~=true then return false,state,'off' end
+    local tick=number(facts.tick) and facts.tick or 0
+    if type(state)~='table' then
+        return true,{phase='preparing',since=tick,passes=0},'start'
+    end
+    if state.phase~='preparing' then return false,state,nil end
+    local passes=(number(state.passes) and state.passes or 0)+1
+    local since=number(state.since) and state.since or tick
+    if tick-since>=M.TIMEOUT or tick<since then
+        return false,{phase='done',since=since,passes=passes},'timeout'
+    end
+    if facts.busy==true then
+        return true,{phase='preparing',since=since,passes=passes},'wait'
+    end
+    return false,{phase='done',since=since,passes=passes},'done'
+end
+return M
+end
 factories["adapters.eeex.resources"]=function(require)
 -- In-game twin of tools/ie_resources.py: the same SPL, ITM, EFF, PRO and CRE records, read from the
 -- engine's resource table through EEex (Fetch, then Demand, as EEex_Resource_Demand does; CRes
@@ -13225,6 +13268,7 @@ local summons=require('combat-intent.summons')
 local zones=require('combat-intent.zones')
 local mind=require('combat-intent.mind')
 local orders=require('combat-intent.orders')
+local talk=require('combat-intent.talk')
 local removal=require('combat-intent.removal')
 local search=require('combat-intent.search')
 local backstab=require('combat-intent.backstab')
@@ -13258,6 +13302,10 @@ M.targetName='BGSE'
 -- ticks after it began at most. A cast or drink of the engine's is covered by the marker for its
 -- casting time and this many ticks more (the last of the aura and the start).
 M.timer='castspell'
+-- SCS's switch for preparing out of sight (its prebuffs run without a visible enemy while it is 1),
+-- which the engine turns on when a talk-on-sight creature sees the party (combat-intent/talk.lua).
+-- In capitals, as the game stores new local names.
+M.offscreen='OFFSCREENPREP'
 M.roundTicks=90
 M.waitTicks=15
 M.coverSlack=15
@@ -13529,7 +13577,9 @@ function M.new(g,options)
     local prepHeld,prepHeldCount={},0
     -- The creatures SCS's vanishing exits asked to leave and the engine kept, for one 'stay' row each.
     local kept,keptCount={},0
-    local counts={preps=0,prepHolds=0,kept=0,cut=0,waits=0,marked=0,escapes=0,escaped=0,unescaped=0,zoneFailures=0,stayed=0,left=0,pains=0,witFailures=0,decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
+    -- Each talk-on-sight creature's preparation before its talk (combat-intent/talk.lua), by object id.
+    local talks,talkCount={},0
+    local counts={talkHolds=0,preps=0,prepHolds=0,kept=0,cut=0,waits=0,marked=0,escapes=0,escaped=0,unescaped=0,zoneFailures=0,stayed=0,left=0,pains=0,witFailures=0,decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
         hits=0,misses=0,errors=0,holds=0,frozen=0,marks=0,markFailures=0,defences=0,guarded=0,unguarded=0,
         guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0,arms=0,attacks=0,attackHits=0,
         weaponFailures=0,releases=0,heals=0,cures=0,potions=0,cared=0,uncared=0,summons=0,conjured=0,
@@ -15361,6 +15411,41 @@ function M.new(g,options)
         failed('stay',result)
         return false
     end
+    -- Talk on sight (BGSE_TalkHold, combat-intent/talk.lua): whether creature id's talk waits now while
+    -- it prepares. On the first ask SCS's switch for preparing out of sight goes on (M.offscreen), so
+    -- its prebuffs run in its scripts below the talk with SCS's difficulty rules; the talk waits that
+    -- pass, then while the creature is busy, at most talk.TIMEOUT ticks. A 'talk' row when it starts
+    -- and when it ends. With the choice off, or on any error, the talk goes on as before.
+    function api:talkHold(id)
+        if not (enabled and not missing) then return false end
+        local ok,result=pcall(function()
+            local sprite=get(id)
+            if not sprite then return false end
+            local tick=now() or 0
+            local queued=sprite.m_queuedActions
+            local busy=sprite.m_curAction.m_actionID~=0 or (queued~=nil and queued.m_nCount>0)
+            local had=talks[id]
+            local wait,state,event=talk.step(had,{tick=tick,on=true,busy=busy})
+            if not had then
+                if talkCount>=M.cacheLimit then talks,talkCount={},0 end
+                talkCount=talkCount+1
+            end
+            talks[id]=state
+            local resref=text(sprite.m_resref:get())
+            if event=='start' then
+                g.EEex_Sprite_SetLocalInt(sprite,M.offscreen,1)
+                counts.talkHolds=counts.talkHolds+1
+                record({kind='talk',tick=tick,member=id,resref=resref,phase='start'})
+            elseif event=='done' or event=='timeout' then
+                record({kind='talk',tick=tick,member=id,resref=resref,phase=event,passes=state.passes,
+                    ticks=tick-state.since})
+            end
+            return wait
+        end)
+        if ok then return result==true end
+        failed('talk',result)
+        return false
+    end
     -- Whether the engine weighs danger zones for creature id of family now (BGSE_Zones: SCS's own
     -- cloud blocks stand aside meanwhile): not for a creature off the engine's
     -- side, and with no enemy in sight only when the engine has a way out of a zone that hurts it.
@@ -15430,6 +15515,7 @@ function M.new(g,options)
         waits={}
         prepHeld,prepHeldCount={},0
         kept,keptCount={},0
+        talks,talkCount={},0
         outside,outsideCount={},0
         seeker:invalidate()
         hider:invalidate()
@@ -15770,6 +15856,15 @@ function M.install(g,options)
             local a=actor(object,script)
             local driver=gate:driver(a)
             return choice~=nil and driver~=nil and choice:stays(driver,a.id)==true
+        end)
+        return ok and result==true
+    end
+    -- True while the engine holds a talk-on-sight creature's talk to prepare it first (choice:talkHold,
+    -- combat-intent/talk.lua): SCS's talk-on-sight blocks wait meanwhile. The gate's switch off or any
+    -- error is false, so the talk goes on as before.
+    g.BGSE_TalkHold=function(object,family,script)
+        local ok,result=pcall(function()
+            return choice~=nil and gate:on()==true and choice:talkHold(object.m_id)==true
         end)
         return ok and result==true
     end

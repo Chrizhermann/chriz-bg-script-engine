@@ -3988,4 +3988,56 @@ assert(#rows2()==1 and rows2()[1].member==2 and ch2:inspect().counts.errors==0)
 end)()
 groups=groups+1
 
+-- 49. Talk on sight (Christopher, 2026-11-03: a creature that talks to the party on sight prepares
+-- first). BGSE_TalkHold holds the talk on the first ask and turns on SCS's switch for preparing out of
+-- sight; the talk waits that pass, then while the creature is busy, and goes once it is idle, with a
+-- 'talk' row at the start and at the end. The gate's or the choice's switch off lets the talk go and
+-- starts nothing; it is never stuck; a load forgets.
+;(function()
+local talk=require('combat-intent.talk')
+local w=world()
+local d=directors.new(w,{reader=reader})
+local c=choices.new(w,{reader=reader,director=d,seed=93})
+local list={}
+c:setSink(function(row) list[#list+1]=row end)
+local r=runtime.install(w,{director=d,choice=c,version='test'})
+local function talks() local out={};for _,row in ipairs(list) do if row.kind=='talk' then out[#out+1]=row end end;return out end
+local t=w.add(sprite(5,0,0,128))
+t.m_queuedActions={m_nCount=0}
+w.ticks=200
+assert(w.BGSE_TalkHold(t,'','dw#shdlg')==true and t.locals.OFFSCREENPREP==1)
+assert(#talks()==1 and talks()[1].phase=='start' and talks()[1].member==5 and talks()[1].resref=='TEST5')
+-- SCS's prebuffs queued in that pass, and then running, keep the talk waiting; idle, it goes.
+t.m_queuedActions.m_nCount=2
+w.ticks=203
+assert(w.BGSE_TalkHold(t,'','dw#shdlg')==true and #talks()==1)
+t.m_queuedActions.m_nCount=0;t.m_curAction.m_actionID=31
+w.ticks=210
+assert(w.BGSE_TalkHold(t,'','dw#shdlg')==true)
+t.m_curAction.m_actionID=0
+w.ticks=215
+assert(w.BGSE_TalkHold(t,'','dw#shdlg')==false)
+local done=talks()[2]
+assert(#talks()==2 and done.phase=='done' and done.passes==3 and done.ticks==15)
+-- Done stays done: the talk goes at once from then on, with no new row.
+assert(w.BGSE_TalkHold(t,'','dw#shdlg')==false and #talks()==2 and c:inspect().counts.talkHolds==1)
+-- The engine's switch off (the gate) or the choice off: the talk goes, nothing starts.
+local u=w.add(sprite(6,0,0,128))
+r.setEnabled(false)
+assert(w.BGSE_TalkHold(u,'','dw#shdlg')==false and u.locals.OFFSCREENPREP==nil)
+r.setEnabled(true)
+r.setChoice(false)
+assert(w.BGSE_TalkHold(u,'','dw#shdlg')==false and u.locals.OFFSCREENPREP==nil)
+r.setChoice(true)
+-- Never stuck: still busy when the time is up, the talk goes.
+assert(w.BGSE_TalkHold(u,'','dw#shdlg')==true and u.locals.OFFSCREENPREP==1)
+u.m_curAction.m_actionID=31
+w.ticks=215+talk.TIMEOUT
+assert(w.BGSE_TalkHold(u,'','dw#shdlg')==false and talks()[#talks()].phase=='timeout')
+-- A load forgets: the creature prepares again on its next ask (SCS's own blocks spend what was cast).
+c:invalidate()
+assert(w.BGSE_TalkHold(t,'','dw#shdlg')==true and c:inspect().counts.errors==0)
+end)()
+groups=groups+1
+
 return groups

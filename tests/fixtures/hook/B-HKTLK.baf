@@ -1,0 +1,48 @@
+IF
+  OR(3)
+    INI("DMWW_genai_difficulty",0)
+    INI("DMWW_genai_difficulty",1)
+    INI("DMWW_genai_difficulty",2)
+  OR(2)
+    Global("bgselow","LOCALS",1)
+    !INI("DMWW_genai_difficulty",0)
+  See([PC])
+  NumTimesTalkedTo(0)
+THEN
+  RESPONSE #100
+    Dialog([PC])
+END
+
+IF
+  OR(2)
+    INI("DMWW_genai_difficulty",0)
+    INI("DMWW_genai_difficulty",3)
+  NumTimesTalkedTo(0)
+  See([PC])
+THEN
+  RESPONSE #100
+    SetGlobal("bgsemet","LOCALS",1)
+    StartDialogNoSet([PC])
+END
+
+IF
+  NumTimesTalkedTo(0)
+  See([PC])
+  OR(2)
+    Global("bgsetalk","LOCALS",0)
+    Global("bgsetalk","LOCALS",1)
+THEN
+  RESPONSE #100
+    StartDialogNoSet([PC])
+END
+
+IF
+  NumTimesTalkedTo(0)
+  See([PC])
+  OR(3)
+    Global("bgseopen","LOCALS",0)
+    Global("bgseopen","LOCALS",1)
+THEN
+  RESPONSE #100
+    Dialog([PC])
+END

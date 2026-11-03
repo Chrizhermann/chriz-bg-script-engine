@@ -313,6 +313,15 @@ function M.install(g,options)
         end)
         return ok and result==true
     end
+    -- True while the engine holds a talk-on-sight creature's talk to prepare it first (choice:talkHold,
+    -- combat-intent/talk.lua): SCS's talk-on-sight blocks wait meanwhile. The gate's switch off or any
+    -- error is false, so the talk goes on as before.
+    g.BGSE_TalkHold=function(object,family,script)
+        local ok,result=pcall(function()
+            return choice~=nil and gate:on()==true and choice:talkHold(object.m_id)==true
+        end)
+        return ok and result==true
+    end
     -- SCS's preparation ran for the creature (choice:prepped logs it for a creature the engine drives).
     g.BGSE_Prepped=function(object,family,script,kind,cast,spent)
         pcall(function()

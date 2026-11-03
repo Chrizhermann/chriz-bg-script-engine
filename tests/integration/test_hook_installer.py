@@ -20,7 +20,7 @@ FIXTURES = ROOT / 'tests/fixtures/hook'
 HOOKED = {'B-HKMAG': ('mage', 7), 'B-HKPRI': ('priest', 2), 'B-HKRNG': ('fighter', 0),
           'B-HKMON': ('monster', 9), 'B-HKTHF': ('fighter', 3), 'B-HKFEN': ('monster', 0), 'B-HKPRP': ('mage', 0),
           'B-HKEXT': ('monster', 6)}
-UNTOUCHED = ('B-HKNOA', 'B-HKOLD', 'B-HKCST', 'B-HKNON', 'B-HKVAN')
+UNTOUCHED = ('B-HKNOA', 'B-HKOLD', 'B-HKCST', 'B-HKNON', 'B-HKVAN', 'B-HKTLX')
 # The fake game's spells that move their caster: the monster's chase and jump spells, and a
 # creature's own innate teleport.
 TELEPORTS = frozenset({'B-HKFIT', 'INNATE_FIEND_TELEPORT', 'B-HKBLK'})
@@ -101,6 +101,8 @@ TRIGGER = """IDS V1.0
 0x4014 GlobalLT(S:Name*,S:Area*,I:Value*)
 0x4015 CheckSpellState(O:Object*,I:State*SplState)
 0x4016 HPLT(O:Object*,I:Hit Points*)
+0x4017 NumTimesTalkedTo(I:Num*)
+0x4018 NumTimesTalkedToGT(I:Num*)
 0x4089 OR(I:OrCount*)
 """
 ACTION = """IDS V1.0
@@ -141,6 +143,8 @@ ACTION = """IDS V1.0
 34 SmallWait(I:Time*)
 35 StartCutSceneMode()
 36 EndCutSceneMode()
+37 Dialog(O:Object*)
+38 StartDialogNoSet(O:Object*)
 """
 IDS = {
     'OBJECT': ('IDS V1.0\n0 Nothing\n1 Myself\n12 NearestEnemyOf\n18 LastSeenBy\n20 LastHeardBy\n21 Player1\n22 Player2\n'
@@ -414,6 +418,7 @@ def test_installer_matches_reference_and_is_reversible(tmp_path: Path) -> None:
     before = _snapshot(tmp_path)
     originals = _decompile(tmp_path, HOOKED)
     own = _decompile(tmp_path, ['B-HKOWN'])['B-HKOWN']
+    talk = _decompile(tmp_path, ['B-HKTLK'])['B-HKTLK']
 
     output = _install(tmp_path, '--force-install-list', '0')
     assert 'SUCCESSFULLY INSTALLED' in output, output
@@ -430,6 +435,7 @@ def test_installer_matches_reference_and_is_reversible(tmp_path: Path) -> None:
     assert 'BGSE stay: 5 SCS vanishing exits yield while the engine keeps the creature in the fight.' in output, output
     assert ("BGSE stay: 2 vanishing exits in the game's own scripts yield while the engine keeps the creature in the "
             'fight.') in output, output
+    assert 'BGSE talk: 4 SCS talk-on-sight blocks wait while the engine prepares the creature.' in output, output
     for name, reason in (('B-HKNOA', 'no-anchor'), ('B-HKOLD', 'already-hooked'), ('B-HKCST', 'no-castspell')):
         assert f'left {name} as it is ({reason})'.casefold() in output.casefold(), output
     installed = _snapshot(tmp_path)
@@ -538,6 +544,13 @@ def test_installer_matches_reference_and_is_reversible(tmp_path: Path) -> None:
     expected_own, count = hook_rule.patch_own(own, 'B-HKOWN', VANISH)
     assert count == 2 and expected_own.count(hook_rule.stay_guard('', 'b-hkown')) == 2
     assert _decompile(tmp_path, ['B-HKOWN'])['B-HKOWN'] == expected_own
+    # SCS's talk-on-sight script: its four talk blocks wait while the engine prepares the creature, with no family
+    # (the one whose triggers end in an OR group that lacks a member takes the condition first). The script that
+    # does more besides its talk on sight stays as it is (UNTOUCHED).
+    expected_talk, talks = hook_rule.patch_talk(talk, 'B-HKTLK')
+    assert talks == 4 and expected_talk.count(hook_rule.talk_guard('', 'b-hktlk')) == 4
+    assert 'IF\n  !' + hook_rule.talk_guard('', 'b-hktlk') + '\n  NumTimesTalkedTo(0)\n' in expected_talk
+    assert _decompile(tmp_path, ['B-HKTLK'])['B-HKTLK'] == expected_talk
     # SCS's preparation above the hook asks the engine first and tells it what ran, once in each response
     # that casts: the mage's prebuff and first-round cast, and the preparation script's two prebuffs (one
     # spends a spell by its file, one casts a name SCS left unfilled), contingency, chain at the party and

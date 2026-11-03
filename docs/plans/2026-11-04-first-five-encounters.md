@@ -53,3 +53,8 @@ Python/WeiDU agreement check on both labs.
 - Step 1 (2026-11-04): `combat-intent/encounters.lua` holds the orders; the runtime hands them to
   the choice. Tarnesh, Karlat and Neira prefer the protagonist lightly: an attack on the protagonist
   counts a quarter more (`LIGHT=0.25`, to tune in the lab).
+- Step 2, SCS's own preparation (2026-11-04): installer rule 13 (HOOK-01) holds `DW#SHDLG`'s talk blocks
+  while `BGSE_TalkHold` says so; the engine turns on SCS's `offscreenprep` and waits for the
+  preparation (`combat-intent/talk.lua`). Still to come with steps 3 and 4: the designer's extras
+  (potions, our own instant copies), and Karlat's own talk script, which is the game's `INITDLG`.
+  To check in the lab: that SCS's prebuffs run in the held pass and the talk starts after.

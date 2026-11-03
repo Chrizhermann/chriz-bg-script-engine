@@ -999,3 +999,51 @@ def test_own_exits_wait_while_the_engine_keeps_the_creature_in_the_fight():
     assert hook_rule.patch_own(source, "b-hk'own", VANISH) == (None, 0)
     # Without the game's spell facts only the exit that destroys the creature is one.
     assert hook_rule.patch_own(source, 'B-HKOWN')[1] == 1
+
+
+@pytest.mark.parametrize('triggers, responses, talks', [
+    # SCS's talk on sight: a party member it sees and has not talked to, the talk with that party member.
+    (['See([PC])', 'NumTimesTalkedTo(0)'], [['Dialog([PC])']], True),
+    (['NumTimesTalkedTo(0)', 'See([PC])'], [['VerbalConstant(Myself,INITIAL_MEETING)', 'StartDialogNoSet([PC])']], True),
+    (['INI("DMWW_genai_difficulty",0)', 'See([PC])', 'NumTimesTalkedTo(0)'], [['Dialogue([PC])']], True),
+    (['See([PC])  // ~a comment~', 'NumTimesTalkedTo(0)'], [['StartDialogueNoSet([PC])']], True),
+    # Not a talk on sight: someone else, after the first talk, no talk, a talk it starts without seeing.
+    (['See(Player1)', 'NumTimesTalkedTo(0)'], [['Dialog(Player1)']], False),
+    (['See([PC])', 'NumTimesTalkedToGT(0)'], [['Dialog([PC])']], False),
+    (['See([PC])', 'NumTimesTalkedTo(0)'], [['Enemy()']], False),
+    (['NumTimesTalkedTo(0)'], [['Dialog([PC])']], False),
+    (['See([PC])', 'NumTimesTalkedTo(0)'], [['Dialog(LastSeenBy(Myself))']], False),
+])
+def test_talks_on_sight_are_a_talk_with_a_party_member_seen(triggers, responses, talks):
+    lines = ''.join(f'  {t}\n' for t in triggers)
+    body = ''.join('  RESPONSE #100\n' + ''.join(f'    {a}\n' for a in r) for r in responses)
+    block = f'IF\n{lines}THEN\n{body}END\n'
+    assert hook_rule.is_talk(block) is talks
+
+
+def test_talks_on_sight_wait_while_the_engine_prepares_the_creature():
+    # SCS's talk-on-sight script, every block a talk on sight: all four take BGSE_TalkHold's condition without a
+    # family, last, and first where the triggers end in an OR group that lacks a member. A script that does more
+    # besides a talk on sight (a scripted encounter such as SCS's Icharyd) stays as it is, and so do a script without
+    # SCS's marker, one with SCS's round timer, one patched before and one whose name cannot go into Lua text.
+    source = text('B-HKTLK')
+    spans = hook_rule.blocks(source)
+    assert [hook_rule.is_talk(source[a:b]) for a, b in spans] == [True, True, True, True]
+    patched, count = hook_rule.patch_talk(source, 'B-HKTLK')
+    assert count == 4
+    hold = '  !' + hook_rule.talk_guard('', 'b-hktlk')
+    assert hold == ("  !EEex_LuaTrigger(\"return BGSE_TalkHold and BGSE_TalkHold(EEex_LuaTrigger_Object,'','b-hktlk') "
+                    'or false")')
+    assert patched.count(hold) == 4
+    for a, b in spans:
+        assert patched.count(hook_rule.aside(source[a:b], [hold])) == 1
+    assert 'IF\n' + hold + '\n  NumTimesTalkedTo(0)\n  See([PC])\n  OR(3)\n' in patched
+    mixed = text('B-HKTLX')
+    assert [hook_rule.is_talk(mixed[a:b]) for a, b in hook_rule.blocks(mixed)] == [True, False, False, False]
+    assert hook_rule.patch_talk(mixed, 'B-HKTLX') == (None, 0)
+    assert hook_rule.patch_talk(patched, 'B-HKTLK') == (None, 0)
+    assert hook_rule.patch_talk(source.replace('DMWW_', 'XXXX_'), 'B-HKTLK') == (None, 0)
+    assert hook_rule.patch_talk(source + 'IF\n  GlobalTimerNotExpired("castspell","LOCALS")\nTHEN\n  RESPONSE #100\n'
+                                '    NoAction()\nEND\n', 'B-HKTLK') == (None, 0)
+    assert hook_rule.patch_talk(source, "b-hk'tlk") == (None, 0)
+    assert hook_rule.patch_talk(text('B-HKOWN'), 'B-HKOWN') == (None, 0)

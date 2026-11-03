@@ -50,6 +50,8 @@ OUTER_SET bgse_prepared = 0
 // the engine keeps the creature in the fight (Christopher, 2026-10-28: nobody leaves for good).
 OUTER_TEXT_SPRINT bgse_vanish ~|~
 OUTER_SET bgse_kept = 0
+// SCS's talk-on-sight blocks that wait while the engine prepares the creature (Christopher, 2026-11-03).
+OUTER_SET bgse_talked = 0
 LAF bgse_times_list RET bgse_times END
 ACTION_BASH_FOR ~override~ ~^.+\.bcs$~ BEGIN
   COPY_EXISTING ~%BASH_FOR_FILE%~ ~override~
@@ -89,6 +91,17 @@ ACTION_BASH_FOR ~override~ ~^.+\.bcs$~ BEGIN
       END ELSE PATCH_IF NOT (~%bgse_result%~ STRING_EQUAL_CASE ~not-scs~) BEGIN
         SET bgse_skipped += 1
         PATCH_PRINT ~BGSE hook: left %BASH_FOR_RES% as it is (%bgse_result%)~
+      END
+    // SCS's talk-on-sight script (its DMWW_ marker, no castspell round timer): its talk blocks wait while the
+    // engine prepares the creature (bgse/lib/hook.tpa: bgse_talk_bcs).
+    END ELSE PATCH_IF (INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~DMWW_~) >= 0)
+        AND (INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~BGSE_TalkHold~) < 0) BEGIN
+      TEXT_SPRINT bgse_script ~%BASH_FOR_RES%~
+      TO_LOWER bgse_script
+      LPF bgse_talk_bcs STR_VAR bgse_script = EVAL ~%bgse_script%~ RET bgse_talks END
+      PATCH_IF (bgse_talks > 0) BEGIN
+        SET bgse_talked += bgse_talks
+        PATCH_LOG ~BGSE talk: %BASH_FOR_RES% (%bgse_talks% SCS talk-on-sight blocks)~
       END
     END
   BUT_ONLY_IF_IT_CHANGES
@@ -205,3 +218,4 @@ PRINT ~BGSE gift: %bgse_gifted% creatures SCS makes invisible for free got real 
 PRINT ~BGSE prep: %bgse_prepared% SCS preparation blocks (prebuffs, contingencies, chains, first-round casts) ask the engine and tell it what ran.~
 PRINT ~BGSE stay: %bgse_kept% SCS vanishing exits yield while the engine keeps the creature in the fight.~
 PRINT ~BGSE stay: %bgse_stayed% vanishing exits in the game's own scripts yield while the engine keeps the creature in the fight.~
+PRINT ~BGSE talk: %bgse_talked% SCS talk-on-sight blocks wait while the engine prepares the creature.~

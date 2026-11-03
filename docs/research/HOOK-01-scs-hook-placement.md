@@ -355,6 +355,25 @@ Python, and `tests/integration/test_hook_installer.py` checks they agree.
     they are. BG2's own generic mages `MAGE18Y` and `MAGE18Z` cast Time Stop and Gate before their Dryad
     Teleport below 15 hit points; that does more than leave, so they stay as they are too (and no
     creature of the SR lab carries them above a hooked script).
+13. SCS's talk on sight (2026-11-04; Christopher, 2026-11-03: a creature that speaks to the party as
+    soon as it sees it prepares first, and the talk comes right after; BOSS-01). SCS gives the creatures
+    that talk to the party on sight and then fight its own talk script (`DW#SHDLG`: Tarnesh, Neira and
+    others); its prebuffs need a visible enemy, so they ran only after the talk. A script with SCS's
+    `DMWW_` marker, no `castspell` round timer and every block a talk on sight (`is_talk`,
+    `bgse_talk_block`: `NumTimesTalkedTo(0)` and `See([PC])` among the triggers, a `Dialog` or
+    `StartDialogNoSet` at `[PC]` in a response) gets on each block the condition
+    `!EEex_LuaTrigger(...BGSE_TalkHold(...)...)` with no family, last, or first when the triggers end in
+    an OR group that lacks members (`patch_talk`, `bgse_talk_baf`, `bgse_talk_bcs`; the installer looks
+    at every override script with `DMWW_` and no `castspell`). On the first ask the engine turns on
+    SCS's own switch for preparing out of sight (the local `offscreenprep`, which SCS's prebuff blocks
+    accept instead of a visible enemy, with SCS's difficulty rules) and holds the talk for that script
+    pass, then while the creature is busy, at most 90 ticks (`combat-intent/talk.lua`,
+    `api:talkHold`); with the engine or the choice off, or on any error, the talk goes on as before.
+    A scripted encounter whose script does more than talk (SCS's `DW#ICHAR`, Icharyd's storm) is
+    designed one by one and stays as it is. Of the scripts with `DMWW_` and no `castspell` (84 in the
+    no-SR EET lab, 88 in the SR lab, 52 in the BG2-only lab) only `DW#SHDLG` qualifies, with its two
+    blocks, in both EET labs; WeiDU and Python agree on all of them (`tools/hook_agree.py`). Not seen
+    in game yet: the order of the passes around the held talk is checked in the next lab batch.
 
 `BGSE_Zones`, `BGSE_Search`, `BGSE_Hide`, `BGSE_Prep` and `BGSE_Stay` go by the script that decides for the creature: the
 first hooked script in its stack, since a lower script runs only after every higher one let the

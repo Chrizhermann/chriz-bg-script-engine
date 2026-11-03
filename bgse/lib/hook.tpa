@@ -95,6 +95,13 @@
 // is none. Any other trigger may tie the exit to a story, so such an exit stays as it is. Only compiled scripts
 // that may hold one are decompiled (bgse_exit_candidate).
 //
+// SCS's talk on sight (bgse_talk_baf; Christopher, 2026-11-03: a creature that speaks to the party on sight
+// prepares when it sees the party, and the talk comes right after): in SCS's talk-on-sight script (its DMWW_
+// marker, no castspell round timer, and every block one that starts the talk with a party member the creature sees
+// and has not talked to), each block gets a last condition that holds while BGSE_TalkHold says no (first in an OR
+// group that lacks members, as above). Scripted encounters whose scripts do more are designed one by one. The engine holds the talk for a moment and turns on SCS's own switch for preparing
+// out of sight, so the creature's prebuffs run first, with SCS's difficulty rules (combat-intent/talk.lua).
+//
 // tools/hook_rule.py is the reference version of this rule. Keep the two in step;
 // tests/integration/test_hook_installer.py compares them.
 
@@ -730,6 +737,129 @@ BEGIN
     END
   WITH DEFAULT
     SET bgse_exits = 0
+    DELETE_BYTES 0 BUFFER_LENGTH
+    INSERT_BYTES 0 (STRING_LENGTH ~%bcs%~)
+    WRITE_ASCIIE 0 ~%bcs%~
+  END
+END
+
+// Whether a block of a decompiled script is SCS's talk on sight (tools/hook_rule.py: is_talk):
+// NumTimesTalkedTo(0) and See([PC]) among its triggers, and a response that starts the talk with that party
+// member (Dialog or StartDialogNoSet at [PC]). Comments do not count.
+DEFINE_PATCH_FUNCTION bgse_talk_block
+  STR_VAR bgse_block = ~~
+  RET bgse_talk
+BEGIN
+  SET bgse_talk = 0
+  INNER_PATCH_SAVE text ~%bgse_block%~ BEGIN
+    REPLACE_TEXTUALLY CASE_SENSITIVE ~ *//.*$~ ~~
+  END
+  SET then = INDEX (CASE_SENSITIVE EXACT_MATCH ~%LNL%THEN%LNL%~ ~%text%~)
+  PATCH_IF (then >= 0) BEGIN
+    INNER_PATCH ~%text%~ BEGIN
+      READ_ASCII 0 trig (then)
+      READ_ASCII then resp (BUFFER_LENGTH - then)
+    END
+    PATCH_IF (INDEX (CASE_SENSITIVE ~^ +NumTimesTalkedTo(0) *$~ ~%trig%~) >= 0)
+        AND (INDEX (CASE_SENSITIVE ~^ +See(\[PC\]) *$~ ~%trig%~) >= 0)
+        AND (INDEX (CASE_SENSITIVE ~^    \(Dialog\|Dialogue\|StartDialogNoSet\|StartDialogueNoSet\)(\[PC\]) *$~ ~%resp%~) >= 0) BEGIN
+      SET bgse_talk = 1
+    END
+  END
+END
+
+// SCS's talk on sight in one decompiled script (tools/hook_rule.py: patch_talk; Christopher, 2026-11-03: a
+// creature that speaks to the party on sight prepares when it sees the party, and the talk comes right after).
+// bgse_script is its resref in lower case. In a script with SCS's DMWW_ marker, no castspell round timer and every
+// block a talk on sight (bgse_talk_block: SCS gives such a script to the creatures that talk to the party on sight
+// and then fight), each block gets a condition that holds while BGSE_TalkHold says no, with no family: last, first
+// when its triggers end in an OR group that lacks members (bgse_aside). bgse_talks counts them. A scripted
+// encounter whose script does more (SCS's Icharyd and his storm), a script patched before (BGSE_TalkHold in it)
+// and one whose name cannot go into Lua text stay as they are. bgse_baf comes back without carriage returns, as
+// bgse_hook_baf gives it.
+DEFINE_PATCH_FUNCTION bgse_talk_baf
+  STR_VAR bgse_baf = ~~
+          bgse_script = ~~
+  RET bgse_talks bgse_baf
+BEGIN
+  SET bgse_talks = 0
+  INNER_PATCH_SAVE bgse_baf ~%bgse_baf%~ BEGIN
+    PATCH_IF (INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~%MNL%~) >= 0) BEGIN
+      REPLACE_TEXTUALLY CASE_SENSITIVE EXACT_MATCH ~%MNL%~ ~~
+    END
+    PATCH_IF (INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~DMWW_~) >= 0) AND (INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~castspell~) < 0)
+        AND (INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~BGSE_TalkHold~) < 0)
+        AND (INDEX (EXACT_MATCH ~'~ ~%bgse_script%~) < 0) AND (INDEX (EXACT_MATCH ~"~ ~%bgse_script%~) < 0)
+        AND (INDEX (EXACT_MATCH ~\~ ~%bgse_script%~) < 0) BEGIN
+      TEXT_SPRINT talk_line ~  !EEex_LuaTrigger("return BGSE_TalkHold and BGSE_TalkHold(EEex_LuaTrigger_Object,'','%bgse_script%') or false")~
+      // First every block is counted, and those that talk on sight; only a script of nothing else is changed.
+      SET count = 0
+      SET talking = 0
+      SET pos = 0
+      WHILE (pos >= 0) BEGIN
+        SET stop = 0 - 1
+        SET start = INDEX_BUFFER (CASE_SENSITIVE ~^IF%LNL%~ pos)
+        PATCH_IF (start >= 0) BEGIN
+          SET end = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~%LNL%END%LNL%~ start)
+          PATCH_IF (end >= 0) BEGIN
+            SET stop = end + 5
+          END
+        END
+        PATCH_IF (stop < 0) BEGIN
+          SET pos = 0 - 1
+        END ELSE BEGIN
+          SET pos = stop
+          READ_ASCII start block (stop - start)
+          SET count += 1
+          LPF bgse_talk_block STR_VAR bgse_block = EVAL ~%block%~ RET bgse_talk END
+          SET talking += bgse_talk
+        END
+      END
+      PATCH_IF (count > 0) AND (talking = count) BEGIN
+        SET pos = 0
+        WHILE (pos >= 0) BEGIN
+          SET stop = 0 - 1
+          SET start = INDEX_BUFFER (CASE_SENSITIVE ~^IF%LNL%~ pos)
+          PATCH_IF (start >= 0) BEGIN
+            SET end = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~%LNL%END%LNL%~ start)
+            PATCH_IF (end >= 0) BEGIN
+              SET stop = end + 5
+            END
+          END
+          PATCH_IF (stop < 0) BEGIN
+            SET pos = 0 - 1
+          END ELSE BEGIN
+            LPF bgse_aside INT_VAR bgse_from = start bgse_to = stop STR_VAR bgse_lines = EVAL ~%talk_line%~ END
+            SET pos = stop + STRING_LENGTH ~%LNL%%talk_line%~
+            SET bgse_talks += 1
+          END
+        END
+      END
+    END
+  END
+END
+
+// SCS's talk on sight in the BCS in the patch buffer (bgse_talk_baf); bgse_script is its resref in lower case. A
+// script that fails to decompile, patch or compile is left exactly as it was (bgse_talks 0).
+DEFINE_PATCH_FUNCTION bgse_talk_bcs
+  STR_VAR bgse_script = ~~
+  RET bgse_talks
+BEGIN
+  SET bgse_talks = 0
+  READ_ASCII 0 bcs (BUFFER_LENGTH)
+  PATCH_TRY
+    INNER_PATCH_SAVE baf ~%bcs%~ BEGIN
+      DECOMPILE_BCS_TO_BAF
+    END
+    LPF bgse_talk_baf STR_VAR bgse_baf = EVAL ~%baf%~ bgse_script = EVAL ~%bgse_script%~ RET bgse_talks bgse_baf END
+    PATCH_IF (bgse_talks > 0) BEGIN
+      DELETE_BYTES 0 BUFFER_LENGTH
+      INSERT_BYTES 0 (STRING_LENGTH ~%bgse_baf%~)
+      WRITE_ASCIIE 0 ~%bgse_baf%~
+      COMPILE_BAF_TO_BCS
+    END
+  WITH DEFAULT
+    SET bgse_talks = 0
     DELETE_BYTES 0 BUFFER_LENGTH
     INSERT_BYTES 0 (STRING_LENGTH ~%bcs%~)
     WRITE_ASCIIE 0 ~%bcs%~

@@ -251,6 +251,11 @@ OWN_VARIABLE = re.compile(r'^ {4}[A-Za-z]+\("[^"]*","LOCALS",')
 # no OR group), and the resource an action may name in quotes (a spell by its file, a visual effect, a sound).
 OWN_HP = re.compile(r'^  !?(?:HP|HPGT|HPLT|HPPercent|HPPercentGT|HPPercentLT)\(Myself,[0-9]+\) *$')
 SIGHT = re.compile(r'^  !?(?:See|Detect)\([^"]*\) *$')
+# SCS's talk on sight (patch_talk): the creature sees a party member it has not talked to yet and starts the talk
+# with that party member.
+UNTALKED = re.compile(r'^ +NumTimesTalkedTo\(0\) *$', re.M)
+SEES_PARTY = re.compile(r'^ +See\(\[PC\]\) *$', re.M)
+TALK_START = re.compile(r'^ {4}(?:Dialog|Dialogue|StartDialogNoSet|StartDialogueNoSet)\(\[PC\]\) *$', re.M)
 RESOURCE_ARG = re.compile(r'^( {4}(?:ApplySpellRES|ForceSpellRES|ReallyForceSpellRES|SpellNoDecRES|CreateVisualEffect|'
                           r'CreateVisualEffectObject|PlaySound)\()"[^"]*"', re.M)
 
@@ -282,6 +287,11 @@ def prep_guard(family, script, kind, cast, spent):
 
 def stay_guard(family, script):
     return ('EEex_LuaTrigger("return BGSE_Stay and BGSE_Stay(EEex_LuaTrigger_Object,'
+            f"'{family}','{script}') or false\")")
+
+
+def talk_guard(family, script):
+    return ('EEex_LuaTrigger("return BGSE_TalkHold and BGSE_TalkHold(EEex_LuaTrigger_Object,'
             f"'{family}','{script}') or false\")")
 
 
@@ -823,6 +833,35 @@ def patch_own(text, script, vanishing=frozenset()):
     return (text if leaving else None), len(leaving)
 
 
+def is_talk(block):
+    """SCS's talk on sight: NumTimesTalkedTo(0) and See([PC]) among the triggers, and a response that starts the
+    talk with that party member (Dialog or StartDialogNoSet at [PC]). Comments do not count."""
+    trig, resp = split(COMMENT.sub('', block))
+    return bool(UNTALKED.search(trig) and SEES_PARTY.search(trig) and TALK_START.search(resp))
+
+
+def patch_talk(text, script):
+    """Return (patched text or None, number of talk blocks) for SCS's talk-on-sight script: SCS's DMWW_ marker, no
+    castspell round timer, and every block a talk on sight (is_talk). SCS gives it to the creatures that speak to the
+    party on sight and then fight (dw#shdlg); Christopher, 2026-11-03: such a creature prepares when it sees the party,
+    and the talk comes right after. Each block gets BGSE_TalkHold's condition with no family: last, first when its
+    triggers end in an OR group that lacks members (aside). A scripted encounter whose script does more (SCS's
+    Icharyd and his storm) is designed one by one and stays as it is; so do a script patched before (BGSE_TalkHold in
+    it) and one whose name cannot go into Lua text."""
+    text = text.replace('\r', '')
+    script = script.lower()
+    if 'DMWW_' not in text or 'castspell' in text or 'BGSE_TalkHold' in text or any(c in script for c in '\'"\\'):
+        return None, 0
+    spans = blocks(text)
+    talks = [i for i, (a, b) in enumerate(spans) if is_talk(text[a:b])]
+    if len(talks) != len(spans):
+        return None, 0
+    for i in reversed(talks):
+        a, b = spans[i]
+        text = text[:a] + aside(text[a:b], [f'  !{talk_guard("", script)}']) + text[b:]
+    return (text if talks else None), len(talks)
+
+
 def is_anchor(block):
     trig, resp = split(block)
     if CASTSPELL not in trig or FIRST_ROUND in resp:
@@ -1021,6 +1060,7 @@ def main():
         rows.append({'script': path.stem, 'family': fam, 'result': reason, 'copies': copies, 'clouds': cloudy,
                      'hunts': hunting, 'jumps': jumping, 'hides': hidden, 'preps': preps, 'exits': leaving,
                      'own_exits': patch_own(text, path.stem, vanishing)[1],
+                     'talks': patch_talk(text, path.stem)[1],
                      'teleporter': bool(patched) and teleporter(text, teleports),
                      'gifts': script_gifts(text, hides, innates, times) if patched else []})
     summary = {}
