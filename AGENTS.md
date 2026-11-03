@@ -65,6 +65,8 @@ It will ship as an optional, experimental CEBG component.
   Baldur/InfinityLoader process is running, and not while Chris is working or streaming.
 - Run many fights per launch and log decisions and outcomes. Use small reproductions only to
   diagnose failures.
+- Before building or changing lab tooling, read `docs/learned.md` section 6: it lists the traps found
+  so far (the first BG1 probe repeated two of them). Reuse earlier labs' code in `.work/step*-lab/`.
 
 ## Safety
 
@@ -83,4 +85,6 @@ It will ship as an optional, experimental CEBG component.
   token per command. No public release and no contact with upstream authors without Chris's OK.
 - Work on branches and keep commits focused.
 - Tests: `powershell -NoProfile -File scripts/test.ps1 -Suite all`. The bridge-installer test
-  needs `BGSE_WEIDU` set to a WeiDU executable.
+  needs `BGSE_WEIDU` set to a WeiDU executable. After a change to decision logic, run the whole
+  suite, not only the tests of the file you changed. Mutation checks: `tools/mutation_check.py`,
+  which refuses a red baseline (on one, every mutation looks caught).

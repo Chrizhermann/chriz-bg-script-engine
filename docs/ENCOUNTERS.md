@@ -19,7 +19,8 @@ the sheet gathers facts and suggestions, he decides.
 4. **Creature edits** go in `bgse/encounters.tpa`. A new kind of edit gets a variant in
    `tests/integration/test_hook_installer.py` (`test_a_designed_creature_gets_its_scores_book_and_items`).
 5. **New engine behaviour**: plain logic in `combat-intent/` with tests, the EEex side in `adapters/eeex/` with
-   tests, a mutation check; keep both labs' installer agreement when an installer rule for scripts changes.
+   tests, the whole suite, a mutation check (`tools/mutation_check.py`); keep both labs' installer agreement
+   when an installer rule for scripts changes.
 6. **Finish**: full suite, the sheet and the plan's Done list, commit, push.
 7. **Lab batch** as the plan says (Core Rules and Hard or Insane, several runs, engine against SCS).
 
