@@ -307,6 +307,57 @@ level temporary hit points (at most 1d8 + 10), lasting a turn per level.
 **Lab checks (later):** as for Karlat, at Core Rules and at Hard and Insane (her preparation starts at
 Hard), several runs for her potion.
 
+## 5. Greywolf (Prism's quest, Nashkel Mines)
+
+Facts from the no-SR lab `eet-nosr-2`.
+
+**Who:** `GREYWO`, a level-7 fighter with 66 hit points, STR 16, DEX 18, CON 16, INT 13 (normal wit),
+WIS 11, THAC0 14. He fights with two swords, an Excellent Long Sword and a Long Sword in the off
+hand, and is fully trained for it (three stars each in long sword and two-weapon style). Studded
+Leather Armor and his dexterity give armor class about 3. He carries 46 arrows (Piercing +1, Ice,
+Fire, plain) but no bow, so they are only loot. XP 1,400. Scripts: his own `GREYWOLF` above SCS's
+melee script `DW1MELGE` (Karlat's).
+
+SCS's random potions, all undroppable: healing (`DW#RND04`: half the time Extra Healing, otherwise
+one or two Potions of Healing or nothing), protection (`DW#RND12`: Freedom or Invulnerability, three
+times in five nothing) and battle (`DW#RND28`: Hill Giant or Stone Giant Strength, Heroism, Power or
+Oil of Speed, a third of the time nothing).
+
+**The story** (`PRISM.DLG`, `GREYWO.DLG`, `PRISMCUT.BCS`, `GREYWOLF.BCS`): Prism, a sculptor near the
+Nashkel Mines (`BG5400`), stole emeralds for the eyes of his statue. If the party agrees to guard
+him or takes his offer, Greywolf arrives in a cutscene ("None cross Greywolf and live!") and asks
+who they are:
+- standing aside: his bounty is for the gems, so he kills Prism and leaves;
+- arguing: he waits a moment, then attacks Prism, and turns on the party if it stays close;
+- defending Prism: the fight;
+- if the party already took his bounty, he recognizes them and attacks.
+Charmed, he lets them live and leaves. Handing Prism to the guards instead makes Prism fight alone.
+
+**What SCS does** (`DW1MELGE`, as for Karlat): potions once he is hostile and sees a foe: Oil of
+Speed at once, Heroism and the strength potions with a foe close, a Potion of Healing below three
+quarters. He never drinks the Extra Healing or the Invulnerability, which half and a fifth of the
+runs give him. Targets: badly hurt casters and thieves within reach first, otherwise the nearest
+foe; he runs only while panicked.
+
+**The engine:** a fighter of normal wit. His best buff potion comes first as the fight starts, his
+healing and protection potions by worth (the Extra Healing and the Invulnerability too); targets by
+worth, chasing foes who step away.
+
+**Earlier idea (Christopher, 2026-10-29):** Greywolf is alone; perhaps give him an archer, priest or
+mage companion.
+
+**Open (suggestions to Christopher, 2026-11-04), scaled by difficulty:**
+- A bow for Greywolf himself, so that his arrows matter: with a long bow (and a bow proficiency) he
+  shoots Ice and Fire arrows at casters from range and switches to his two swords in melee; at
+  normal wit he steps back to shoot now and then. It uses only arrows he already carries.
+- The companion from Hard, Core stays the lone Greywolf of SCS's strength: which kind, archer, priest
+  or mage?
+- He is already a hard fight for a chapter-2 party (level 7, 66 hit points, two trained swords;
+  Sleep does not touch him), so Core needs no more than the engine's play.
+
+**Lab checks (later):** a level 2 to 4 party at Core and at Insane, several runs for his potions; the
+three choices of the talk.
+
 ## Later: Nimbul (Nashkel, chapter 3), facts gathered so far
 
 From the no-SR lab, 2026-11-04; SCS's script for him (`DW#MG293`) is not read yet.
