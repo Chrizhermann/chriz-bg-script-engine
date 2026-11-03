@@ -63,7 +63,10 @@
 -- held while its target lives and it attacks, or for a round from the attack, and then whether
 -- its target lost hit points is recorded. AttackOneRound walks to a target out of reach first, as
 -- the game's attack actions do, and the walk counts toward its round (lab step W), so a creature
--- that chases (F1d) needs no move of its own; the choice row logs the seconds of the walk. Once its
+-- that chases (F1d) needs no move of its own; the choice row logs the seconds of the walk. A melee
+-- target that runs off, further than when the attack began and than a weapon's reach once that walk
+-- is over (M.outrun), ends the attack, and the engine decides again: the game's attack would follow
+-- it for the rest of its two rounds (lab batch E8 v1, a mage after a panicking hero). Once its
 -- target died the engine decides again at once, and its new decision, or a wait, replaces the
 -- attack still running (adapters/eeex/hook.lua): the game's attack can go on at a dead target, once
 -- in lab batch I for a minute. A spell that conjures a weapon is cast on the caster.
@@ -204,6 +207,7 @@ local spells=require('combat-intent.spells')
 local targeting=require('combat-intent.targeting')
 local defence=require('combat-intent.defence')
 local weapons=require('combat-intent.weapons')
+local threat=require('combat-intent.threat')
 local choice=require('combat-intent.choice')
 local summons=require('combat-intent.summons')
 local zones=require('combat-intent.zones')
@@ -333,6 +337,17 @@ end
 -- Ticks a walk of the given seconds may take: twice the straight walk, as paths bend.
 function M.walkTicks(seconds)
     return type(seconds)=='number' and seconds>0 and math.ceil(seconds*M.ticksPerSecond*2) or 0
+end
+-- Whether the target of a melee attack has run off (s: the attack's record; at: the attacker's
+-- spot; seen: its target, at tick): the walk the choice expected to it is over (twice the straight
+-- walk, as paths bend, and moveMargin), and the target stands further off than when the attack
+-- began and than a weapon's reach (threat.reach), by half that reach. The game's attack follows such
+-- a target for the rest of its two rounds (lab batch E8 v1: Tarnesh chased the panicking hero with
+-- his staff while his Magic Missile was ready); the engine decides again.
+function M.outrun(s,at,seen,tick)
+    if not s.melee or type(s.apart)~='number' or type(seen)~='table' or type(tick)~='number' then return false end
+    if tick-s.tick<=M.walkTicks(s.walk)+M.moveMargin then return false end
+    return targeting.distance(at,seen)>math.max(s.apart,threat.reach)+threat.reach/2
 end
 -- Seconds until the casting aura frees, from its count (EEex_Sprite_GetCastTimer: -1 while free).
 function M.auraLeft(timer)
@@ -1797,11 +1812,13 @@ function M.new(g,options)
         local s=strikes[id]
         if s then
             local target=get(s.target)
-            local alive=target~=nil and targeting.alive(sense.actor(g,target))
+            local seen=target and sense.actor(g,target)
+            local alive=seen~=nil and targeting.alive(seen)
             local going=alive and tick-s.tick<M.strikeTicks and
                 (M.ATTACKS[sprite.m_curAction.m_actionID] or tick-s.tick<M.roundTicks)
             if s.weapon then
-                if going then return hold() end
+                -- A melee target that ran off ends the attack as well (M.outrun).
+                if going and not M.outrun(s,{x=sprite.m_pos.x,y=sprite.m_pos.y},seen,tick) then return hold() end
                 attacked(s,tick)
             elseif held(sprite)~=s.item then struck(s,tick)
             elseif going then return hold()
@@ -2023,7 +2040,8 @@ function M.new(g,options)
             self=d.self,hits=d.hits,castTicks=spell and type(spell.speed)=='number' and spell.speed*M.speedTicks or nil,
             sources=sources,expected=d.expected,disable=disable,charge=d.kind=='strike' and d.spell or nil,
             use=d.use,before=before,count=d.count,creatures=d.creatures,monsters=d.monsters,known=seen,cover=cover,
-            walk=d.walk,melee=d.kind=='teleport' and d.melee or nil,innate=d.kind=='teleport' and d.innate or nil,
+            walk=d.walk,melee=(d.kind=='teleport' or d.kind=='weapon') and d.melee or nil,
+            innate=d.kind=='teleport' and d.innate or nil,
             slot=d.kind=='weapon' and d.slot or nil,abilityNum=d.kind=='weapon' and d.abilityNum or nil,
             backstab=d.kind=='weapon' and d.backstab or nil,at=d.kind=='removal' and d.at or nil,
             lands=d.kind=='removal' and d.lands or nil,openerStep=d.openerStep}
@@ -2063,7 +2081,7 @@ function M.new(g,options)
         if not enabled or missing then return 'skipped' end
         local tick=now()
         if type(tick)~='number' then return 'skipped' end
-        local hp
+        local hp,apart
         if decision.target and not decision.point and not decision.self then
             local target=get(decision.target)
             if not target then return 'skipped' end
@@ -2074,6 +2092,7 @@ function M.new(g,options)
                 g.EEex_Sprite_GetStat(object,sense.stats.trueSight)>0) then return 'skipped' end
             name(object,decision.target)
             hp=seen.hp
+            apart=targeting.distance({x=object.m_pos.x,y=object.m_pos.y},seen)
         end
         local known=idSet(decision.known)
         if decision.kind=='strike' then
@@ -2083,7 +2102,7 @@ function M.new(g,options)
             record({kind='swing',tick=tick,member=object.m_id,item=decision.spell,target=decision.target})
         elseif decision.kind=='weapon' then
             strikes[object.m_id]={caster=object.m_id,item=decision.spell,weapon=true,target=decision.target,hp=hp,tick=tick,
-                known=known,backstab=decision.backstab}
+                known=known,backstab=decision.backstab,melee=decision.melee,walk=decision.walk,apart=apart}
             counts.attacks=counts.attacks+1
             if decision.slot then counts.switches=counts.switches+1 end
             record({kind='swing',tick=tick,member=object.m_id,item=decision.spell,target=decision.target,weapon=true,

@@ -964,6 +964,31 @@ g10.ticks=290
 assert(g10.BGSE_Claim(fighter,'mage','s1')==false and ch10:inspect().reasons['no-enemy']==2)
 assert(ch10:inspect().counts.holds==holds10+1 and last10('attack').target==15 and last10('attack').lost==40)
 fighter.m_curAction={m_actionID=0}
+-- A melee target that runs off (a panicked one) ends the attack once the walk the choice expected
+-- is over (lab batch E8 v1: Tarnesh chased the panicking hero with his staff for two rounds): the
+-- attack is recorded and the mage decides again. Before that, or near where it stood, it is held.
+-- (A new enemy in foe2's variable: the main chunk is at Lua 5.1's 200 locals.)
+foe2=g10.add(sprite(16,60,0,2))
+foe2.stats[2]=5
+g10.ticks=300
+assert(g10.BGSE_Claim(fighter,'mage','s1')==true and last10('choice').target==16)
+g10.BGSE_Act(fighter)
+fighter.m_curAction=action(105,'',16)
+holds10=ch10:inspect().counts.holds
+foe2.m_pos.x=200
+g10.ticks=320
+assert(g10.BGSE_Claim(fighter,'mage','s1')==true and ch10:inspect().counts.holds==holds10+1)
+foe2.m_pos.x=90
+g10.ticks=340
+assert(g10.BGSE_Claim(fighter,'mage','s1')==true and ch10:inspect().counts.holds==holds10+2)
+-- Run off: the attack is over, and with the enemy beyond the staff's reach the mage waits.
+foe2.m_pos.x=200
+g10.ticks=350
+assert(g10.BGSE_Claim(fighter,'mage','s1')==true and last10('wait').tick==350 and last10('wait').reason=='no-option')
+assert(last10('attack').target==16 and last10('attack').hit==false)
+assert(last10('attack').started==300 and last10('attack').tick==350)
+foe2.m_baseStats.m_hitPoints=0;foe2.state=0x800
+fighter.m_curAction={m_actionID=0}
 -- A mage with the meteors ready, a staff in hand, and an enemy 300 away.
 local thrower=g10.add(armed(sprite(2,0,600,255),35,'TESTSTAF'))
 thrower.stats[8],thrower.stats[7],thrower.stats[2]=1,14,8

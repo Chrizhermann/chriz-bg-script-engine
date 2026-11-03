@@ -98,6 +98,13 @@ engine's or the script's, starts the pause before the next defence (SCS's redefe
 - The response stays `AttackOneRound` at `EEex_Target`, which walks to its target first as the
   game's attack actions do; the engine decides again after the round. The choice row logs the walk
   (`walk`, seconds). A long walk is still to be seen in a lab.
+- **A target that runs off ends the attack** (E8 v1, 2026-11-04: Tarnesh chased the hero he had
+  panicked with Horror for two rounds with his staff, while his Magic Missile was ready; the game's
+  attack follows its target for as long as the engine holds it). Once the walk the choice expected is
+  over (twice the straight walk, as paths bend, and two seconds), a melee target that stands further
+  off than when the attack began and than a weapon's reach, by half that reach, makes the engine
+  decide again (`adapters/eeex/choice.lua`, `M.outrun`); the attack is recorded as any other. A
+  target that only steps aside, or a big creature whose body keeps its foe further than 64, keeps it.
 
 ### The engine owns the round (2026-10-25)
 
