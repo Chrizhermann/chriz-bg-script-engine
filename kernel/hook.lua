@@ -201,7 +201,8 @@ function M.new(config)
     -- be in the creature's stack. The first hooked script in the stack decides: a lower script
     -- runs only after every higher one let the pass through, and a higher hooked script asks on
     -- the way. For SCS blocks in any of the creature's hooked scripts that stand aside while the
-    -- engine drives it.
+    -- engine drives it, and for the game's own vanishing exits in a script above the first hooked
+    -- one, which runs first in each pass and lets it through whenever it does not act itself.
     function api:driver(actor)
         local id=type(actor)=='table' and rawget(actor,'id')
         if not scalarId(id) then return nil end
@@ -210,13 +211,14 @@ function M.new(config)
         script=script:lower()
         local found,names=pcall(stack,id)
         if not found or type(names)~='table' then return nil end
-        local first
+        local first,asks
         for _,name in ipairs(names) do
             if type(name)=='string' then
                 name=name:lower()
                 if not first and hooked[name] then first=name end
-                if name==script then
-                    if first and api:drives({id=id,script=first},hooked[first]) then return hooked[first] end
+                if name==script then asks=true end
+                if first and asks then
+                    if api:drives({id=id,script=first},hooked[first]) then return hooked[first] end
                     return nil
                 end
             end

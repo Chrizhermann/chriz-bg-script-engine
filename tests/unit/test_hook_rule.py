@@ -942,3 +942,60 @@ def test_vanishing_exits_are_a_hurt_creature_leaving_and_nothing_else(triggers, 
     body = ''.join('  RESPONSE #100\n' + ''.join(f'    {a}\n' for a in r) for r in responses)
     block = f'IF\n{lines}THEN\n{body}END\n'
     assert hook_rule.is_exit(block, frozenset({'B-HKGON', 'DRYAD_TELEPORT'})) is leaves
+
+
+@pytest.mark.parametrize('triggers,responses,stays', [
+    # The game's own exits that no story decides: the Pirate Mage's (hurt, gone), the Hobgoblin Wizard's (with
+    # an enemy in sight and a message), the Nymph's; other checks of its own hit points or sight, negated or
+    # not, a spell named by its file, an effect, a sound, a wait and its dropped loot.
+    (['HPLT(Myself,20)'], [['ForceSpell(Myself,DRYAD_TELEPORT)']], True),
+    (['See(NearestEnemyOf(Myself))', 'HPLT(Myself,15)'],
+     [['DisplayStringHead(Myself,50681)  // <Invalid Strref 50681>', 'ReallyForceSpell(Myself,DRYAD_TELEPORT)']], True),
+    (['HPPercentLT(Myself,25)', 'See(NearestEnemyOf(Myself))'], [['ReallyForceSpell(Myself,DRYAD_TELEPORT)']], True),
+    (['HPPercentLT(Myself,25)', 'HPGT(Myself,0)', '!See([PC])', 'Detect(LastSeenBy(Myself))'],
+     [['CreateVisualEffectObject("SPDIMNDR",Myself)', 'PlaySound("GATE")', 'SmallWait(4)', 'DropInventory()',
+       'ForceSpellRES("b-hkgon",Myself)']], True),
+    # A story's exit: Terminsel's (his own Death variable), Lady Yuth's (once she has stolen); an exit that keeps
+    # a variable of its own, sees a named creature, checks a state, an area or an OR group, or names another
+    # creature; and no exit at all.
+    (['HPLT(Myself,6)', 'Global("Death","LOCALS",0)'],
+     [['DisplayString(Myself,61345)', 'ForceSpell(Myself,DRYAD_TELEPORT)']], False),
+    (['HPPercentLT(Myself,70)', 'Global("stolenFrom","LOCALS",1)'], [['ForceSpell(Myself,DRYAD_TELEPORT)']], False),
+    (['HPLT(Myself,10)'], [['SetGlobal("fled","LOCALS",1)', 'ForceSpell(Myself,DRYAD_TELEPORT)']], False),
+    (['HPLT(Myself,10)', 'See("Bodhi")'], [['ForceSpell(Myself,DRYAD_TELEPORT)']], False),
+    (['HPLT(Myself,10)', '!StateCheck(Myself,STATE_REALLY_DEAD)'], [['DestroySelf()']], False),
+    (['HPLT(Myself,10)', 'AreaCheck("AR1201")'], [['DestroySelf()']], False),
+    (['HPLT(Myself,10)', 'OR(2)', '  See([PC])', '  Detect([PC])'], [['DestroySelf()']], False),
+    (['HPLT(Myself,10)'], [['DisplayStringHead("Bodhi",61345)', 'DestroySelf()']], False),
+    (['HPLT(Myself,10)'], [['ForceSpellRES("b-hkheal",Myself)']], False),
+])
+def test_own_exits_are_hurt_and_sight_alone(triggers, responses, stays):
+    lines = ''.join(f'  {t}\n' for t in triggers)
+    body = ''.join('  RESPONSE #100\n' + ''.join(f'    {a}\n' for a in r) for r in responses)
+    block = f'IF\n{lines}THEN\n{body}END\n'
+    assert hook_rule.is_own_exit(block, frozenset({'B-HKGON', 'DRYAD_TELEPORT'})) is stays
+
+
+def test_own_exits_wait_while_the_engine_keeps_the_creature_in_the_fight():
+    # The game's own script: its exits that no story decides take BGSE_Stay's condition last, without a family;
+    # the story exits, the heal and the rest stay as they are. SCS's scripts and a script patched before stay
+    # as they are; so does one without an exit.
+    source = text('B-HKOWN')
+    spans = hook_rule.blocks(source)
+    leaving = hook_rule.own_exits(source, spans, VANISH)
+    assert len(leaving) == 2
+    patched, count = hook_rule.patch_own(source, 'B-HKOWN', VANISH)
+    assert count == 2
+    stay = '  !' + hook_rule.stay_guard('', 'b-hkown')
+    assert stay == "  !EEex_LuaTrigger(\"return BGSE_Stay and BGSE_Stay(EEex_LuaTrigger_Object,'','b-hkown') or false\")"
+    assert patched.count(stay) == 2
+    for i, (a, b) in enumerate(spans):
+        block = source[a:b]
+        assert patched.count(hook_rule.aside(block, [stay]) if i in leaving else block) == 1, i
+    assert hook_rule.patch_own(patched, 'B-HKOWN', VANISH) == (None, 0)
+    assert hook_rule.patch_own(source.replace('IF\n', 'IF\n  Global("DMWW_x","GLOBAL",0)\n', 1), 'B-HKOWN', VANISH) == (
+        None, 0)
+    assert hook_rule.patch_own(text('B-HKVAN'), 'B-HKVAN', VANISH) == (None, 0)
+    assert hook_rule.patch_own(source, "b-hk'own", VANISH) == (None, 0)
+    # Without the game's spell facts only the exit that destroys the creature is one.
+    assert hook_rule.patch_own(source, 'B-HKOWN')[1] == 1

@@ -318,7 +318,7 @@ Python, and `tests/integration/test_hook_installer.py` checks they agree.
     `DW#MFESC`); the lab's vanishing spells are `DRYAD_TELEPORT` (`SPWI995`) and `DW#MFESC`. Without
     Spell Revisions 3 (`ERINYES`, `FLAYER01`, `FLAYER02`). SCS's script for the Pirate Mage (`PPMAG01`,
     Dryad Teleport below 20 hit points; the creature's own script, above its hooked SCS mage script)
-    carries none of SCS's difficulty markers, so no rule hooks it and it still vanishes.
+    carries none of SCS's difficulty markers, so no rule hooks it; the game's own exits below cover it.
 
     The same kind of exit sits in BG2's own scripts above a hooked one. A census of the SR lab
     (2026-11-02, read-only: each creature's script slots from its creature file and from the area
@@ -327,17 +327,42 @@ Python, and `tests/integration/test_hook_installer.py` checks they agree.
     the Pirate Mage (`PPMAG01`, rewritten by SCS), a Hobgoblin Wizard in `AR1201` (`GPFLEE01`, below
     15 hit points with an enemy in sight), a Nymph (`HGNYMPH`, below a quarter), Terminsel
     (`JATERMIN`, "Elminster's Evasion" below 6 hit points while its local `Death` variable is 0) and
-    Lady Yuth (`STEALYU`, below 70 % once she has stolen from the party), all with Dryad Teleport. They
-    still vanish. Two more hurt blocks end in `DestroySelf()` and do more, so they would stay theirs
-    anyway: the duel mercenaries (`AMDUEL2`, a story global) and a troll that splits into two small
-    trolls (`TROLUO01`).
+    Lady Yuth (`STEALYU`, below 70 % once she has stolen from the party), all with Dryad Teleport. Two
+    more hurt blocks end in `DestroySelf()` and do more, so they stay theirs: the duel mercenaries
+    (`AMDUEL2`, a story global) and a troll that splits into two small trolls (`TROLUO01`).
+
+    The game's own exits (Christopher, 2026-11-03: the Pirate Mage, the Hobgoblin Wizard and the Nymph
+    stay in the fight, Terminsel and Lady Yuth keep their story exits; a slightly slower install is
+    fine). In a script that is not SCS's (no `DMWW_` in it), an exit by the rule above whose triggers
+    check nothing but the creature's own hit points (`HP`, `HPGT`, `HPLT`, `HPPercent`, `HPPercentGT`,
+    `HPPercentLT` at `Myself`) and what it sees (`See` or `Detect`, negated or not, of no named
+    creature; no OR group), and whose responses quote nothing but a resource (a spell by its file, a
+    visual effect, a sound; so they set no variable and name no creature), gets the same condition with
+    no family
+    (`tools/hook_rule.py`: `is_own_exit`, `patch_own`; `bgse/lib/hook.tpa`: `bgse_own_exit_block`,
+    `bgse_own_baf`). Any other trigger may tie the exit to a story, so such an exit stays as it is:
+    Terminsel's checks his `Death` variable, Lady Yuth's her theft. `BGSE_Stay` goes by the script that
+    decides for the creature, also from a script above it (`kernel/hook.lua`, `driver`): such a script
+    runs first in each pass, and when none of its blocks acts the pass reaches the hooked one. Below a
+    hooked script, or in a creature without one, it answers no and the exit runs as before. The
+    installer runs this pass only when it hooked SCS scripts, over every compiled script of the game
+    (most of the game's own sit in its archives) without `DMWW_` or an earlier `BGSE_Stay`. It decompiles
+    only those whose compiled form has a block with an `HPLT` or `HPPercentLT` trigger at a limit above
+    0 and an action that destroys the creature or casts or applies a spell (`bgse_exit_candidate`, the
+    numbers from the game's TRIGGER.IDS and ACTION.IDS; 161 of the SR lab's 7,464 scripts that are not
+    SCS's, 96 of the no-SR lab's 4,297), and looks up the spells each casts at itself. On both labs
+    exactly the three exits qualify (`GPFLEE01`, `HGNYMPH`, `PPMAG01`); `JATERMIN` and `STEALYU` stay as
+    they are. BG2's own generic mages `MAGE18Y` and `MAGE18Z` cast Time Stop and Gate before their Dryad
+    Teleport below 15 hit points; that does more than leave, so they stay as they are too (and no
+    creature of the SR lab carries them above a hooked script).
 
 `BGSE_Zones`, `BGSE_Search`, `BGSE_Hide`, `BGSE_Prep` and `BGSE_Stay` go by the script that decides for the creature: the
 first hooked script in its stack, since a lower script runs only after every higher one let the
 pass through and a higher hooked script asks on the way. So in a creature with two hooked scripts (SCS's general
 AI above a mage script, or a monster script above the general AI) the lower script's cloud and
 hunting blocks stand aside exactly when the higher one's do (`kernel/hook.lua`, `driver`; since
-2026-10-25, before which each script went by its own family).
+2026-10-25, before which each script went by its own family). A script without a hook above the first
+hooked one goes by it too (since 2026-11-03, for the game's own vanishing exits).
 
 `tools/hook_agree.py` checks that WeiDU and `tools/hook_rule.py` agree without a game: WeiDU runs
 `bgse_hook_baf` on a folder of decompiled scripts with `--nogame`, and every result, count and text

@@ -1,0 +1,55 @@
+IF
+  HPLT(Myself,20)
+THEN
+  RESPONSE #100
+    ForceSpellRES("b-hkgon",Myself)
+END
+
+IF
+  See(NearestEnemyOf(Myself))
+  HPPercentLT(Myself,25)
+THEN
+  RESPONSE #100
+    DisplayStringHead(Myself,1)
+    CreateVisualEffectObject("SPDIMNDR",Myself)
+    DestroySelf()
+END
+
+IF
+  HPLT(Myself,6)
+  Global("Death","LOCALS",0)
+THEN
+  RESPONSE #100
+    ReallyForceSpellRES("b-hkgon",Myself)
+END
+
+IF
+  HPPercentLT(Myself,50)
+  Global("stolenFrom","LOCALS",1)
+THEN
+  RESPONSE #100
+    ForceSpellRES("b-hkgon",Myself)
+END
+
+IF
+  HPLT(Myself,10)
+THEN
+  RESPONSE #100
+    SetGlobal("fled","LOCALS",1)
+    ForceSpellRES("b-hkgon",Myself)
+END
+
+IF
+  HPPercentLT(Myself,50)
+THEN
+  RESPONSE #100
+    ForceSpellRES("b-hkheal",Myself)
+END
+
+IF
+  See(NearestEnemyOf(Myself))
+THEN
+  RESPONSE #100
+    AttackReevaluate(NearestEnemyOf(Myself),30)
+END
+

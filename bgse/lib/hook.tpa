@@ -86,6 +86,15 @@
 // every other creature SCS's block runs as before. A block that does more (a cutscene, a story variable)
 // belongs to its encounter and stays as it is.
 //
+// The game's own vanishing exits (bgse_own_baf; Christopher, 2026-11-03: the Pirate Mage, a Hobgoblin Wizard
+// and a Nymph stay in the fight, Terminsel and Lady Yuth keep their story exits): the same kind of exit in a
+// script that is not SCS's runs above SCS's hooked script when it sits higher in the creature's stack. One
+// whose triggers check nothing but the creature's own hit points and what it sees, and whose responses keep no
+// variable and name no creature, gets the same condition, without a family (bgse_own_exit_block): BGSE_Stay
+// goes by the script that decides for the creature, the first hooked one below, and answers no wherever there
+// is none. Any other trigger may tie the exit to a story, so such an exit stays as it is. Only compiled scripts
+// that may hold one are decompiled (bgse_exit_candidate).
+//
 // tools/hook_rule.py is the reference version of this rule. Keep the two in step;
 // tests/integration/test_hook_installer.py compares them.
 
@@ -519,6 +528,211 @@ BEGIN
       END ~%MATCH0%~
     END
     SET bgse_exit = ((leaves > 0) AND (other = 0)) ? 1 : 0
+  END
+END
+
+// Whether a block is one of the game's own vanishing exits that no story decides (tools/hook_rule.py:
+// is_own_exit): a vanishing exit (bgse_exit_block) whose every trigger checks the creature's own hit points (HP,
+// HPGT, HPLT, HPPercent, HPPercentGT or HPPercentLT at Myself) or what it sees (See or Detect, negated or not,
+// with nothing quoted: no named creature), two spaces in (no OR group), and whose responses quote nothing but
+// a resource (the first argument of ApplySpellRES, ForceSpellRES, ReallyForceSpellRES, SpellNoDecRES,
+// CreateVisualEffect, CreateVisualEffectObject or PlaySound), so they set no variable and name no creature.
+// Comments go first.
+DEFINE_PATCH_FUNCTION bgse_own_exit_block
+  STR_VAR bgse_block = ~~
+          bgse_vanish = ~|~
+  RET bgse_exit
+BEGIN
+  LPF bgse_exit_block STR_VAR bgse_block = EVAL ~%bgse_block%~ bgse_vanish = EVAL ~%bgse_vanish%~ RET bgse_exit END
+  PATCH_IF (bgse_exit = 1) BEGIN
+    INNER_PATCH_SAVE text ~%bgse_block%~ BEGIN
+      REPLACE_TEXTUALLY CASE_SENSITIVE ~ *//.*$~ ~~
+    END
+    SET then = INDEX (CASE_SENSITIVE EXACT_MATCH ~%LNL%THEN%LNL%~ ~%text%~)
+    INNER_PATCH ~%text%~ BEGIN
+      READ_ASCII 0 trig (then)
+      READ_ASCII then resp (BUFFER_LENGTH - then)
+    END
+    SET other = 0
+    INNER_PATCH ~%trig%~ BEGIN
+      REPLACE_EVALUATE CASE_SENSITIVE ~^.+$~ BEGIN
+        PATCH_IF ((~%MATCH0%~ STRING_EQUAL ~IF~) = 0)
+            AND ((~%MATCH0%~ STRING_MATCHES_REGEXP ~^  !?\(HP\|HPGT\|HPLT\|HPPercent\|HPPercentGT\|HPPercentLT\)(Myself,[0-9]+) *$~) != 0)
+            AND ((~%MATCH0%~ STRING_MATCHES_REGEXP ~^  !?\(See\|Detect\)([^"]*) *$~) != 0) BEGIN
+          SET other += 1
+        END
+      END ~%MATCH0%~
+    END
+    INNER_PATCH_SAVE named ~%resp%~ BEGIN
+      REPLACE_TEXTUALLY CASE_SENSITIVE ~^\(    \(ApplySpellRES\|ForceSpellRES\|ReallyForceSpellRES\|SpellNoDecRES\|CreateVisualEffect\|CreateVisualEffectObject\|PlaySound\)(\)"[^"]*"~ ~\1~
+    END
+    PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~"~ ~%named%~) >= 0) BEGIN
+      SET other += 1
+    END
+    SET bgse_exit = (other = 0) ? 1 : 0
+  END
+END
+
+// The game's own vanishing exits in one decompiled script (tools/hook_rule.py: patch_own; Christopher,
+// 2026-11-03: the Pirate Mage, a Hobgoblin Wizard and a Nymph stay in the fight, Terminsel and Lady Yuth keep
+// their story exits). bgse_script is its resref in lower case and bgse_vanish the spells that remove their
+// target (as in bgse_exit_block). Each exit that no story decides (bgse_own_exit_block) gets a last condition
+// that holds when BGSE_Stay says no, with no family: BGSE_Stay goes by the script that decides for the creature
+// (kernel/hook.lua, driver). bgse_exits counts them. A script of SCS's (DMWW_ in it), one patched before
+// (BGSE_Stay in it) and one whose name cannot go into Lua text stay as they are. bgse_baf comes back without
+// carriage returns, as bgse_hook_baf gives it.
+DEFINE_PATCH_FUNCTION bgse_own_baf
+  STR_VAR bgse_baf = ~~
+          bgse_script = ~~
+          bgse_vanish = ~|~
+  RET bgse_exits bgse_baf
+BEGIN
+  SET bgse_exits = 0
+  INNER_PATCH_SAVE bgse_baf ~%bgse_baf%~ BEGIN
+    PATCH_IF (INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~%MNL%~) >= 0) BEGIN
+      REPLACE_TEXTUALLY CASE_SENSITIVE EXACT_MATCH ~%MNL%~ ~~
+    END
+    PATCH_IF (INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~DMWW_~) < 0) AND (INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~BGSE_Stay~) < 0)
+        AND (INDEX (EXACT_MATCH ~'~ ~%bgse_script%~) < 0) AND (INDEX (EXACT_MATCH ~"~ ~%bgse_script%~) < 0)
+        AND (INDEX (EXACT_MATCH ~\~ ~%bgse_script%~) < 0) BEGIN
+      TEXT_SPRINT stay_line ~  !EEex_LuaTrigger("return BGSE_Stay and BGSE_Stay(EEex_LuaTrigger_Object,'','%bgse_script%') or false")~
+      SET pos = 0
+      WHILE (pos >= 0) BEGIN
+        SET stop = 0 - 1
+        SET start = INDEX_BUFFER (CASE_SENSITIVE ~^IF%LNL%~ pos)
+        PATCH_IF (start >= 0) BEGIN
+          SET end = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~%LNL%END%LNL%~ start)
+          PATCH_IF (end >= 0) BEGIN
+            SET stop = end + 5
+          END
+        END
+        PATCH_IF (stop < 0) BEGIN
+          SET pos = 0 - 1
+        END ELSE BEGIN
+          SET pos = stop
+          READ_ASCII start block (stop - start)
+          PATCH_IF (INDEX (CASE_SENSITIVE ~^  \(HPPercentLT\|HPLT\)(Myself,~ ~%block%~) >= 0) BEGIN
+            LPF bgse_own_exit_block STR_VAR bgse_block = EVAL ~%block%~ bgse_vanish = EVAL ~%bgse_vanish%~ RET bgse_exit END
+            PATCH_IF (bgse_exit = 1) BEGIN
+              LPF bgse_aside INT_VAR bgse_from = start bgse_to = stop STR_VAR bgse_lines = EVAL ~%stay_line%~ END
+              SET pos = stop + STRING_LENGTH ~%LNL%%stay_line%~
+              SET bgse_exits += 1
+            END
+          END
+        END
+      END
+    END
+  END
+END
+
+// Whether the compiled script in the patch buffer may hold a vanishing exit, so that only such scripts are
+// decompiled (bgse_own_bcs): a block with a hit point trigger (bgse_hurt, its compiled form: TR and the
+// trigger's number from TRIGGER.IDS) and an action that destroys the creature or casts or applies a spell
+// (bgse_leave: AC and the action's number from ACTION.IDS). A block runs from its CR and CO to the next.
+DEFINE_PATCH_FUNCTION bgse_exit_candidate
+  STR_VAR bgse_hurt = ~~
+          bgse_leave = ~~
+  RET bgse_candidate
+BEGIN
+  SET bgse_candidate = 0
+  SET p = INDEX_BUFFER (CASE_SENSITIVE ~%bgse_hurt%~)
+  WHILE (p >= 0) BEGIN
+    SET next = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~CR%LNL%CO%LNL%~ p)
+    PATCH_IF (next < 0) BEGIN
+      SET next = BUFFER_LENGTH
+    END
+    SET a = INDEX_BUFFER (CASE_SENSITIVE ~%bgse_leave%~ p)
+    PATCH_IF (a >= 0) AND (a < next) BEGIN
+      SET bgse_candidate = 1
+      SET p = 0 - 1
+    END ELSE PATCH_IF (next < BUFFER_LENGTH) BEGIN
+      SET p = INDEX_BUFFER (CASE_SENSITIVE ~%bgse_hurt%~ next)
+    END ELSE BEGIN
+      SET p = 0 - 1
+    END
+  END
+END
+
+// The compiled forms bgse_exit_candidate looks for, from the game's TRIGGER.IDS and ACTION.IDS: bgse_hurt a
+// trigger HPLT or HPPercentLT at a limit above 0, bgse_leave an action DestroySelf, ApplySpell, ForceSpell,
+// ReallyForceSpell, SpellNoDec or one of their RES forms (which share their numbers in the game's ACTION.IDS).
+// Each is empty when the game has none of them.
+DEFINE_ACTION_FUNCTION bgse_exit_patterns
+  RET bgse_hurt bgse_leave
+BEGIN
+  OUTER_TEXT_SPRINT hurt ~~
+  ACTION_FOR_EACH name IN ~HPLT~ ~HPPercentLT~ BEGIN
+    OUTER_SET id = IDS_OF_SYMBOL (~TRIGGER~ ~%name%~)
+    ACTION_IF (id >= 0) BEGIN
+      ACTION_IF (STRING_LENGTH ~%hurt%~ > 0) BEGIN
+        OUTER_TEXT_SPRINT hurt ~%hurt%\|~
+      END
+      OUTER_TEXT_SPRINT hurt ~%hurt%%id%~
+    END
+  END
+  OUTER_TEXT_SPRINT leave ~~
+  ACTION_FOR_EACH name IN ~DestroySelf~ ~ApplySpell~ ~ApplySpellRES~ ~ForceSpell~ ~ForceSpellRES~ ~ReallyForceSpell~
+      ~ReallyForceSpellRES~ ~SpellNoDec~ ~SpellNoDecRES~ BEGIN
+    OUTER_SET id = IDS_OF_SYMBOL (~ACTION~ ~%name%~)
+    ACTION_IF (id >= 0) BEGIN
+      ACTION_IF (STRING_LENGTH ~%leave%~ > 0) BEGIN
+        OUTER_TEXT_SPRINT leave ~%leave%\|~
+      END
+      OUTER_TEXT_SPRINT leave ~%leave%%id%~
+    END
+  END
+  OUTER_TEXT_SPRINT bgse_hurt ~~
+  OUTER_TEXT_SPRINT bgse_leave ~~
+  ACTION_IF (STRING_LENGTH ~%hurt%~ > 0) AND (STRING_LENGTH ~%leave%~ > 0) BEGIN
+    OUTER_TEXT_SPRINT bgse_hurt ~TR%LNL%\(%hurt%\) [1-9][0-9]* ~
+    OUTER_TEXT_SPRINT bgse_leave ~AC%LNL%\(%leave%\)OB~
+  END
+END
+
+// The game's own vanishing exits in the BCS in the patch buffer (bgse_own_baf); bgse_script is its resref in
+// lower case. The spells of its casts and applications at the creature itself are looked up in the game once
+// each (bgse_look_spell), and the lists come back with them. A script that fails to decompile, patch or compile
+// is left exactly as it was (bgse_exits 0).
+DEFINE_PATCH_FUNCTION bgse_own_bcs
+  STR_VAR bgse_script = ~~
+          bgse_invisible = ~|~
+          bgse_improved = ~|~
+          bgse_innate = ~|~
+          bgse_vanish = ~|~
+          bgse_looked = ~|~
+  RET bgse_exits bgse_invisible bgse_improved bgse_innate bgse_vanish bgse_looked
+BEGIN
+  SET bgse_exits = 0
+  READ_ASCII 0 bcs (BUFFER_LENGTH)
+  PATCH_TRY
+    INNER_PATCH_SAVE baf ~%bcs%~ BEGIN
+      DECOMPILE_BCS_TO_BAF
+    END
+    INNER_PATCH_SAVE text ~%baf%~ BEGIN
+      REPLACE_TEXTUALLY CASE_SENSITIVE ~ *//.*$~ ~~
+    END
+    LPF bgse_self_spells STR_VAR bgse_text = EVAL ~%text%~ RET bgse_spells END
+    INNER_PATCH ~%bgse_spells%~ BEGIN
+      REPLACE_EVALUATE CASE_SENSITIVE ~\([RI]\)=\([^|]+\)~ BEGIN
+        LPF bgse_look_spell STR_VAR bgse_form = EVAL ~%MATCH1%~ bgse_spell = EVAL ~%MATCH2%~ bgse_looked = EVAL ~%bgse_looked%~
+            bgse_invisible = EVAL ~%bgse_invisible%~ bgse_improved = EVAL ~%bgse_improved%~ bgse_innate = EVAL ~%bgse_innate%~
+            bgse_vanish = EVAL ~%bgse_vanish%~
+          RET bgse_looked bgse_invisible bgse_improved bgse_innate bgse_vanish END
+      END ~%MATCH0%~
+    END
+    LPF bgse_own_baf STR_VAR bgse_baf = EVAL ~%baf%~ bgse_script = EVAL ~%bgse_script%~ bgse_vanish = EVAL ~%bgse_vanish%~
+      RET bgse_exits bgse_baf END
+    PATCH_IF (bgse_exits > 0) BEGIN
+      DELETE_BYTES 0 BUFFER_LENGTH
+      INSERT_BYTES 0 (STRING_LENGTH ~%bgse_baf%~)
+      WRITE_ASCIIE 0 ~%bgse_baf%~
+      COMPILE_BAF_TO_BCS
+    END
+  WITH DEFAULT
+    SET bgse_exits = 0
+    DELETE_BYTES 0 BUFFER_LENGTH
+    INSERT_BYTES 0 (STRING_LENGTH ~%bcs%~)
+    WRITE_ASCIIE 0 ~%bcs%~
   END
 END
 

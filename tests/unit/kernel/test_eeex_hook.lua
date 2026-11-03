@@ -148,7 +148,8 @@ assert(adapter.stack(bare,bare.objects[1])==nil)
 -- mage script follows the mage's. A script the creature does not carry never stands aside. BGSE_Hide
 -- passes the kind of free invisibility that asks; BGSE_Prep the kind, cast and spent spell of SCS's
 -- preparation, and BGSE_Prepped hands the same on for a creature the engine drives. BGSE_Stay (SCS's
--- vanishing exits) goes the same way.
+-- vanishing exits) goes the same way, and so do the game's own exits in a script without a hook above
+-- the hooked one (no family); below it or without one they never stay.
 local stacked=world()
 stacked.BGSE_HOOKED={s1='mage',dw1melas='fighter'}
 local prepped={}
@@ -157,10 +158,11 @@ local fake={attach=function() end,inspect=function() return {} end,searches=func
     hides=function(_,family,_,kind) return family=='mage' and kind=='plain' end,
     holdsPrep=function(_,family,_,kind,cast,spent) return family=='mage' and kind=='opener' and cast=='SPWI212' and spent=='' end,
     prepped=function(_,family,id,kind,cast,spent) prepped[#prepped+1]={family=family,id=id,kind=kind,cast=cast,spent=spent} end,
-    stays=function(_,family,id) return family=='mage' and id==2 end}
+    stays=function(_,family,id) return family=='mage' and id>=2 end}
 local under=creature(1,{[6]='DW1MELAS',[7]='S1'})
 local over=creature(2,{[6]='S1',[7]='DW1MELAS'})
-stacked.objects[1],stacked.objects[2]=under,over
+local own,low,lone=creature(3,{[2]='PPMAG01',[6]='S1'}),creature(4,{[2]='S1',[6]='PPMAG01'}),creature(5,{[2]='PPMAG01'})
+stacked.objects[1],stacked.objects[2],stacked.objects[3],stacked.objects[4],stacked.objects[5]=under,over,own,low,lone
 local stackedRoot=adapter.install(stacked,{decide=function() return {hold=true} end,choice=fake})
 assert(stacked.BGSE_Search(under,'mage','s1')==false and stacked.BGSE_Search(under,'fighter','dw1melas')==false)
 assert(stacked.BGSE_Zones(under,'mage','s1')==false and stacked.BGSE_Zones(under,'fighter','dw1melas')==false)
@@ -174,6 +176,9 @@ assert(stacked.BGSE_Prep(over,'mage','s1','prebuff','SPWI212','')==false and sta
 assert(stacked.BGSE_Prep(over,'priest','s2','opener','SPWI212','')==false)
 assert(stacked.BGSE_Stay(over,'fighter','dw1melas')==true and stacked.BGSE_Stay(over,'mage','s1')==true)
 assert(stacked.BGSE_Stay(under,'mage','s1')==false and stacked.BGSE_Stay(over,'priest','s2')==false)
+assert(stacked.BGSE_Stay(own,'','ppmag01')==true and stacked.BGSE_Stay(own,'mage','s1')==true)
+assert(stacked.BGSE_Stay(low,'','ppmag01')==false and stacked.BGSE_Stay(lone,'','ppmag01')==false)
+assert(stacked.BGSE_Stay(own,'','other')==false)
 stacked.BGSE_Prepped(over,'fighter','dw1melas','prebuff','dwsw408','WIZARD_STONE_SKIN')
 stacked.BGSE_Prepped(over,'priest','s2','prebuff','dwsw408','WIZARD_STONE_SKIN')
 assert(#prepped==1 and prepped[1].family=='mage' and prepped[1].id==2 and prepped[1].kind=='prebuff')

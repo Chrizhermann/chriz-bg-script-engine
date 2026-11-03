@@ -159,6 +159,36 @@ END
 ACTION_IF (STRING_LENGTH ~%bgse_copies%~ > 1) BEGIN
   LAF bgse_create_gifts STR_VAR bgse_copies = EVAL ~%bgse_copies%~ RET bgse_made END
 END
+// The game's own vanishing exits (Christopher, 2026-11-03: the Pirate Mage, a Hobgoblin Wizard and a Nymph stay
+// in the fight; Terminsel and Lady Yuth keep their story exits): in a script that is not SCS's, an exit whose
+// triggers check nothing but the creature's own hit points and what it sees waits while the engine keeps the
+// creature in the fight. It asks only from above a hooked script in the creature's stack (kernel/hook.lua,
+// driver), so nothing changes without one. The game's own scripts mostly sit in its archives; only those whose
+// compiled form may hold such an exit are decompiled (bgse/lib/hook.tpa).
+OUTER_SET bgse_stayed = 0
+ACTION_IF (bgse_hooked > 0) BEGIN
+  LAF bgse_exit_patterns RET bgse_hurt bgse_leave END
+  ACTION_IF (STRING_LENGTH ~%bgse_hurt%~ > 0) BEGIN
+    COPY_EXISTING_REGEXP GLOB ~^.+\.bcs$~ ~override~
+      PATCH_IF (INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~DMWW_~) < 0)
+          AND (INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~BGSE_Stay~) < 0) BEGIN
+        LPF bgse_exit_candidate STR_VAR bgse_hurt = EVAL ~%bgse_hurt%~ bgse_leave = EVAL ~%bgse_leave%~ RET bgse_candidate END
+        PATCH_IF (bgse_candidate = 1) BEGIN
+          TEXT_SPRINT bgse_script ~%SOURCE_RES%~
+          TO_LOWER bgse_script
+          LPF bgse_own_bcs STR_VAR bgse_script = EVAL ~%bgse_script%~ bgse_invisible = EVAL ~%bgse_invisible%~
+              bgse_improved = EVAL ~%bgse_improved%~ bgse_innate = EVAL ~%bgse_innate%~ bgse_vanish = EVAL ~%bgse_vanish%~
+              bgse_looked = EVAL ~%bgse_looked%~
+            RET bgse_exits bgse_invisible bgse_improved bgse_innate bgse_vanish bgse_looked END
+          PATCH_IF (bgse_exits > 0) BEGIN
+            SET bgse_stayed += bgse_exits
+            PATCH_LOG ~BGSE stay: %SOURCE_RES% (%bgse_exits% vanishing exits of the game's own)~
+          END
+        END
+      END
+    BUT_ONLY_IF_IT_CHANGES
+  END
+END
 // The engine reads which scripts carry the hook, to tell a creature's hooked scripts from
 // others in its script slots (adapters/eeex/hook.lua).
 <<<<<<<< .../bgse-inline/M_BGSEHK.lua
@@ -174,3 +204,4 @@ PRINT ~BGSE hide: %bgse_hidden% SCS blocks of free invisibility yield where the 
 PRINT ~BGSE gift: %bgse_gifted% creatures SCS makes invisible for free got real innate abilities for it, %bgse_made% innate copies of spells made.~
 PRINT ~BGSE prep: %bgse_prepared% SCS preparation blocks (prebuffs, contingencies, chains, first-round casts) ask the engine and tell it what ran.~
 PRINT ~BGSE stay: %bgse_kept% SCS vanishing exits yield while the engine keeps the creature in the fight.~
+PRINT ~BGSE stay: %bgse_stayed% vanishing exits in the game's own scripts yield while the engine keeps the creature in the fight.~

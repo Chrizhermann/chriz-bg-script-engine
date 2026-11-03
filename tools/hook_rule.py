@@ -92,6 +92,16 @@ condition too. Which spells remove their target comes from the game's spell file
 resrefs, SPELL.IDS names and numbers). A block that does more (a cutscene, a story variable: Demogorgon's
 death scene) belongs to its encounter and stays as it is.
 
+The game's own vanishing exits (patch_own; Christopher, 2026-11-03: the Pirate Mage, a Hobgoblin Wizard
+and a Nymph stay in the fight, Terminsel and Lady Yuth keep their story exits): the same kind of exit in
+a script that is not SCS's (no DMWW_ in it) runs above SCS's hooked script when it sits higher in the
+creature's stack. One whose triggers check nothing but the creature's own hit points and what it sees,
+and whose responses quote nothing but a resource (no variable, no named creature), gets the same condition,
+without a family:
+BGSE_Stay goes by the script that decides for the creature, the first hooked one below (kernel/hook.lua,
+driver), and answers no wherever there is none. Any other trigger may tie the exit to a story (Terminsel's
+Death variable, Lady Yuth's theft), so such an exit stays as it is.
+
 Run it on a folder of decompiled scripts to see what an install would do:
     python tools/hook_rule.py <folder-with-baf> [report.json] [teleports.txt] [hides.txt] [innates.txt]
         [gtimes.ids] [vanishing.txt]
@@ -236,6 +246,13 @@ EXIT_KEEPS = {'SetGlobal', 'SetGlobalTimer', 'SetGlobalTimerRandom', 'IncrementG
               'DropInventory'}
 VARIABLES = {'SetGlobal', 'SetGlobalTimer', 'SetGlobalTimerRandom', 'IncrementGlobal'}
 OWN_VARIABLE = re.compile(r'^ {4}[A-Za-z]+\("[^"]*","LOCALS",')
+# The game's own vanishing exits (is_own_exit): what their triggers may check besides the hurt line, the
+# creature's own hit points and what it sees (See or Detect, negated or not, of no named creature; two spaces:
+# no OR group), and the resource an action may name in quotes (a spell by its file, a visual effect, a sound).
+OWN_HP = re.compile(r'^  !?(?:HP|HPGT|HPLT|HPPercent|HPPercentGT|HPPercentLT)\(Myself,[0-9]+\) *$')
+SIGHT = re.compile(r'^  !?(?:See|Detect)\([^"]*\) *$')
+RESOURCE_ARG = re.compile(r'^( {4}(?:ApplySpellRES|ForceSpellRES|ReallyForceSpellRES|SpellNoDecRES|CreateVisualEffect|'
+                          r'CreateVisualEffectObject|PlaySound)\()"[^"]*"', re.M)
 
 
 def guard(family, script):
@@ -770,6 +787,42 @@ def exits(text, spans, vanishing):
     return [i for i, (a, b) in enumerate(spans) if is_exit(text[a:b], vanishing)]
 
 
+def is_own_exit(block, vanishing):
+    """A vanishing exit (is_exit) in one of the game's own scripts that no story decides: every trigger checks
+    the creature's own hit points or what it sees (OWN_HP, SIGHT: no variable, no named creature, no OR group),
+    and its responses quote nothing but a resource (RESOURCE_ARG), so they set no variable and name no
+    creature. Terminsel's exit (while his Death variable is 0) and Lady Yuth's (once she has stolen) belong to
+    their stories."""
+    if not is_exit(block, vanishing):
+        return False
+    trig, resp = split(COMMENT.sub('', block))
+    if any(line and line != 'IF' and not (OWN_HP.match(line) or SIGHT.match(line)) for line in trig.split('\n')):
+        return False
+    return '"' not in RESOURCE_ARG.sub(r'\1', resp)
+
+
+def own_exits(text, spans, vanishing):
+    """Indices of the vanishing exits of one of the game's own scripts that no story decides."""
+    return [i for i, (a, b) in enumerate(spans) if is_own_exit(text[a:b], vanishing)]
+
+
+def patch_own(text, script, vanishing=frozenset()):
+    """Return (patched text or None, number of exits) for a script that is not SCS's (no DMWW_ in it) and was
+    not patched before (no BGSE_Stay in it): each of its vanishing exits that no story decides (own_exits) gets
+    BGSE_Stay's condition with no family, last (it has no OR group). BGSE_Stay goes by the script that decides
+    for the creature (kernel/hook.lua, driver)."""
+    text = text.replace('\r', '')
+    script = script.lower()
+    if 'DMWW_' in text or 'BGSE_Stay' in text or any(c in script for c in '\'"\\'):
+        return None, 0
+    spans = blocks(text)
+    leaving = own_exits(text, spans, vanishing)
+    for i in reversed(leaving):
+        a, b = spans[i]
+        text = text[:a] + aside(text[a:b], [f'  !{stay_guard("", script)}']) + text[b:]
+    return (text if leaving else None), len(leaving)
+
+
 def is_anchor(block):
     trig, resp = split(block)
     if CASTSPELL not in trig or FIRST_ROUND in resp:
@@ -967,6 +1020,7 @@ def main():
         leaving = len(exits(text, spans, vanishing)) if patched else 0
         rows.append({'script': path.stem, 'family': fam, 'result': reason, 'copies': copies, 'clouds': cloudy,
                      'hunts': hunting, 'jumps': jumping, 'hides': hidden, 'preps': preps, 'exits': leaving,
+                     'own_exits': patch_own(text, path.stem, vanishing)[1],
                      'teleporter': bool(patched) and teleporter(text, teleports),
                      'gifts': script_gifts(text, hides, innates, times) if patched else []})
     summary = {}

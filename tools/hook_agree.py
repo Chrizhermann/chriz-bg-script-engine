@@ -1,6 +1,7 @@
 """Check that the WeiDU hook (bgse/lib/hook.tpa) and tools/hook_rule.py patch decompiled scripts
-alike, byte for byte, without a game: WeiDU runs bgse_hook_baf on every script of a folder with
---nogame, and each result, its counts, its gifts and its text must match the Python rule's.
+alike, byte for byte, without a game: WeiDU runs bgse_hook_baf and bgse_own_baf (the game's own
+vanishing exits) on every script of a folder with --nogame, and each result, its counts, its gifts and
+its text must match the Python rule's (patch, patch_own).
 
     python tools/hook_agree.py <weidu.exe> <folder-with-baf> [work-folder] [teleports.txt] [hides.txt]
         [innates.txt] [gtimes.ids] [vanishing.txt]
@@ -42,6 +43,16 @@ ACTION_BASH_FOR ~%argv[1]%~ ~^.+\.baf$~ BEGIN
     INSERT_BYTES 0 (STRING_LENGTH ~%bgse_baf%~)
     WRITE_ASCIIE 0 ~%bgse_baf%~
     PATCH_PRINT ~AGREE|%BASH_FOR_RES%|%bgse_result%|%bgse_family%|%bgse_copies%|%bgse_clouds%|%bgse_hunts%|%bgse_jumps%|%bgse_teleporter%|%bgse_hides%|%bgse_hider%|%bgse_preps%|%bgse_exits%|%bgse_gifts%~
+  COPY ~%BASH_FOR_FILESPEC%~ ~%argv[3]%/%BASH_FOR_RES%.baf~
+    READ_ASCII 0 baf (BUFFER_LENGTH)
+    TEXT_SPRINT script ~%BASH_FOR_RES%~
+    TO_LOWER script
+    LPF bgse_own_baf STR_VAR bgse_baf = EVAL ~%baf%~ bgse_script = EVAL ~%script%~ bgse_vanish = ~VANISH~
+      RET bgse_exits bgse_baf END
+    DELETE_BYTES 0 BUFFER_LENGTH
+    INSERT_BYTES 0 (STRING_LENGTH ~%bgse_baf%~)
+    WRITE_ASCIIE 0 ~%bgse_baf%~
+    PATCH_PRINT ~OWN|%BASH_FOR_RES%|%bgse_exits%~
 END
 '''
 
@@ -86,6 +97,7 @@ def main():
     vanishing = frozenset(line.strip().upper() for line in Path(sys.argv[8]).read_text(encoding='utf-8').splitlines()
                           if line.strip()) if len(sys.argv) > 8 else frozenset()
     (work / 'out').mkdir(parents=True, exist_ok=True)
+    (work / 'own').mkdir(parents=True, exist_ok=True)
     listed = '|' + ''.join(f'{name}|' for name in sorted(teleports))
     invisible = '|' + ''.join(f'{name}|' for name in sorted(hides))
     improved = '|' + ''.join(f'{name}|' for name, kind in sorted(hides.items()) if kind == 'improved')
@@ -97,11 +109,14 @@ def main():
                                       .replace('~TIMES~', f'~{timers}~').replace('~VANISH~', f'~{vanish}~'), encoding='ascii')
     run = subprocess.run([str(weidu), 'harness.tp2', '--nogame', '--force-install-list', '1',
                           '--args', str(ROOT / 'bgse/lib/hook.tpa'), '--args', str(folder), '--args', 'out',
-                          '--no-exit-pause', '--quick-log'], cwd=work, capture_output=True, text=True,
+                          '--args', 'own', '--no-exit-pause', '--quick-log'], cwd=work, capture_output=True, text=True,
                          encoding='latin-1')
     (work / 'weidu.out').write_text(run.stdout + run.stderr, encoding='utf-8')
-    weidu_rows = {}
+    weidu_rows, own_rows = {}, {}
     for line in run.stdout.splitlines():
+        if line.startswith('OWN|'):
+            _, res, count = line.split('|', 2)
+            own_rows[res.lower()] = int(count)
         if line.startswith('AGREE|'):
             _, res, result, fam, copies, clouds, hunts, jumps, teleporter, hidden, hider, preps, exits, gifts = line.split(
                 '|', 13)
@@ -111,9 +126,21 @@ def main():
                                        re.sub(r'\|[RI]:', '|', gifts))
     outcomes, mismatches = Counter(), []
     paths = sorted(folder.glob('*.baf'))
+    own_exits = 0
     for path in paths:
         stem = path.stem.lower()
-        expected, counts = reference(path.read_text(encoding='latin-1'), stem, teleports, hides, innates, times, vanishing)
+        source = path.read_text(encoding='latin-1')
+        # The game's own vanishing exits (patch_own), in every script; only one that is not SCS's has any.
+        own, count = hook_rule.patch_own(source, stem, vanishing)
+        if own_rows.get(stem) != count:
+            mismatches.append(f'{path.name}: own exits WeiDU {own_rows.get(stem)}, Python {count}')
+            continue
+        text = (work / 'own' / f'{path.stem.upper()}.baf').read_bytes().decode('latin-1')
+        if text != (own if own is not None else source.replace('\r', '')):
+            mismatches.append(f'{path.name}: own exits text differs')
+            continue
+        own_exits += count
+        expected, counts = reference(source, stem, teleports, hides, innates, times, vanishing)
         got = weidu_rows.get(stem)
         if got != counts:
             mismatches.append(f'{path.name}: WeiDU {got}, Python {counts}')
@@ -135,7 +162,8 @@ def main():
     exits = sum(row[10] for row in weidu_rows.values())
     gifts = Counter(gift for row in weidu_rows.values() for gift in row[11].strip('|').split('|') if gift)
     print(f'jumps {jumps}, teleporting scripts {teleporters}, free invisibility blocks {hidden} in {hiders} scripts, '
-          f'preparation blocks {preps}, vanishing exits {exits}')
+          f'preparation blocks {preps}, vanishing exits {exits}, the game\'s own vanishing exits {own_exits} in '
+          f'{sum(1 for n in own_rows.values() if n)} scripts')
     print('gifts:', dict(sorted(gifts.items())))
     for m in mismatches[:40]:
         print('  ' + m)

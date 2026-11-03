@@ -920,8 +920,10 @@ Christopher's answers of 2026-10-29 to what the engine still lacks for a fight o
   searched spot, by creatures with hands for doors (FIGHT-01, "Doors"). The door probe (2026-11-02)
   found the response's three actions on one line, of which the game runs only the first (the same
   flaw cost every weapon switch its attack); with one action a line a second probe walked to the
-  door, opened it and walked through. Next: doors in a real search. Open with Christopher: picking locks, bashing and Knock (now only with the key), and looking
-  behind doors without any trace.
+  door, opened it and walked through. Next: doors in a real search. Christopher, 2026-11-03: a locked
+  door may also be opened by picking the lock (thieves), bashing it (strong fighters) or Knock (mages),
+  not only with the key, and creatures look behind doors without any trace, as SCS does ("Können wir
+  gerne alles so machen").
 - **Hurt creatures heal where they stand.** A potion is "quasi nur ein paar Millisekunden": no
   general retreat to heal, and no big focus on enemies going far away. Rare, chosen cases may come
   (a clever foe that flees more cleverly, priests that keep strong fighters alive), designed case by
@@ -932,7 +934,25 @@ Christopher's answers of 2026-10-29 to what the engine still lacks for a fight o
 - **Later:** menu spells and shapeshifts (Polymorph Self, Shapechange, Nahal's Reckless Dweomer),
   and attack wands and scrolls ("Wands sowieso ziemlich broken für Spieler sowie auch Gegner").
 - **Group tactics** (fighters guarding their casters, falling back and regrouping) stay a design
-  session of their own.
+  session of their own. Christopher, 2026-11-03, on SCS's melee striking one foe together: focusing
+  one foe and spreading out to keep several busy can both be clever; which is better when is not
+  simple, so both get a worth and the rules are set with him.
+
+Christopher's answers of 2026-11-03:
+- **The game's own vanishing exits:** the Pirate Mage, the Hobgoblin Wizard and the Nymph stay in the
+  fight; Terminsel and Lady Yuth keep their story exits; a slightly slower install is fine. Built the
+  same day (HOOK-01, rule 12; FIGHT-01, "Disengage").
+- **Teleport Field** teleports again and again; tactical spells like it get a worth, "auch AI muss
+  sich positionieren, genau wie Spieler".
+- **Spell Revisions leaves the main installer.** CEBG's own spells (mostly as in vanilla, small
+  changes, a few bigger ones, built by two other agents with Christopher) become the compatibility
+  target; labs run on the no-SR lab first. Dispel gets a new balance: no Spell Immunity, rather a
+  protection against Dispel and Breach or something like Pierce Shield, open to more than mages.
+- **Dispel Magic and Remove Magic:** a clever caster estimates from what it sees (the foe's level,
+  class, how strong its protections look) whether it out-levels the foe; never knowing for certain,
+  except perhaps a special boss such as Irenicus. An area dispel is worth casting once anyway, as it
+  strips several foes.
+- **Boss fights** start in early BG1 and go through all of them in story order.
 
 ## To design with Christopher
 

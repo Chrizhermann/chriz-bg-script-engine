@@ -413,6 +413,7 @@ def test_installer_matches_reference_and_is_reversible(tmp_path: Path) -> None:
     _fake_game(tmp_path)
     before = _snapshot(tmp_path)
     originals = _decompile(tmp_path, HOOKED)
+    own = _decompile(tmp_path, ['B-HKOWN'])['B-HKOWN']
 
     output = _install(tmp_path, '--force-install-list', '0')
     assert 'SUCCESSFULLY INSTALLED' in output, output
@@ -427,6 +428,8 @@ def test_installer_matches_reference_and_is_reversible(tmp_path: Path) -> None:
     assert ('BGSE prep: 7 SCS preparation blocks (prebuffs, contingencies, chains, first-round casts) ask the engine '
             'and tell it what ran.') in output, output
     assert 'BGSE stay: 5 SCS vanishing exits yield while the engine keeps the creature in the fight.' in output, output
+    assert ("BGSE stay: 2 vanishing exits in the game's own scripts yield while the engine keeps the creature in the "
+            'fight.') in output, output
     for name, reason in (('B-HKNOA', 'no-anchor'), ('B-HKOLD', 'already-hooked'), ('B-HKCST', 'no-castspell')):
         assert f'left {name} as it is ({reason})'.casefold() in output.casefold(), output
     installed = _snapshot(tmp_path)
@@ -529,6 +532,12 @@ def test_installer_matches_reference_and_is_reversible(tmp_path: Path) -> None:
     for name in HOOKED:
         stays = hooked[name].count(hook_rule.stay_guard(HOOKED[name][0], name.lower()))
         assert stays == {'B-HKEXT': 6, 'B-HKMON': 2}.get(name, 0), name
+    # The game's own script: its two exits that no story decides (a hurt teleport away, and a hurt
+    # vanish with an enemy in sight, a message and an effect) wait the same way, with no family; its
+    # story exits (a variable of its own), the exit that sets a variable and its heal stay as they are.
+    expected_own, count = hook_rule.patch_own(own, 'B-HKOWN', VANISH)
+    assert count == 2 and expected_own.count(hook_rule.stay_guard('', 'b-hkown')) == 2
+    assert _decompile(tmp_path, ['B-HKOWN'])['B-HKOWN'] == expected_own
     # SCS's preparation above the hook asks the engine first and tells it what ran, once in each response
     # that casts: the mage's prebuff and first-round cast, and the preparation script's two prebuffs (one
     # spends a spell by its file, one casts a name SCS left unfilled), contingency, chain at the party and

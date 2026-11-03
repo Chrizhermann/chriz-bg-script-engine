@@ -254,7 +254,8 @@ assert(raw.new({now=clock,decide=function() end,below=function() return {} end})
 
 -- 18. driver() names the family of the script that decides for the creature: the first hooked
 -- script in its stack, when the gate would ask from it (drives). The script that asks must be in
--- the stack; a lower script follows the higher one's answer, not its own family's.
+-- the stack; a lower script follows the higher one's answer, not its own family's, and so does a
+-- script without a hook above it (the game's own vanishing exits).
 local stacks={[7]={'tanari','s1'},[8]={'other','s1'},[9]={'s1','other'},[10]={'s1'},[11]={}}
 local function after(id,script)
     local list=stacks[id]
@@ -276,7 +277,10 @@ g:setFamily('monster',false)
 assert(g:driver({id=7,script='s1'})==nil and g:drives({id=7,script='s1'},'mage')==true)
 g:setFamily('monster',true)
 assert(g:driver({id=8,script='s1'})=='mage')
-assert(g:driver({id=9,script='s1'})==nil)
+assert(g:driver({id=8,script='OTHER'})=='mage' and g:driver({id=8,script='gone'})==nil)
+assert(g:driver({id=7,script='other'})==nil)
+assert(g:driver({id=9,script='s1'})==nil and g:driver({id=9,script='other'})==nil)
+g:setFamily('mage',false);assert(g:driver({id=8,script='other'})==nil);g:setFamily('mage',true)
 assert(g:driver({id=10,script='S1'})=='mage' and g:driver({id=10,script='tanari'})==nil)
 assert(g:driver({id=11,script='s1'})==nil and g:driver({id=12,script='s1'})==nil and g:driver({id=13,script='s1'})==nil)
 assert(g:driver(nil)==nil and g:driver({id=7})==nil and g:driver({id=-1,script='s1'})==nil)

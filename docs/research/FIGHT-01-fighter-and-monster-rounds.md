@@ -304,8 +304,9 @@ The engine searches with what the creature and its group perceived instead
       nothing, and the walk on stopped at the door; the fighter stood still 41 ticks after it set
       off, which the engine takes as a door it could not open.
     - Still to see in game: the door response in a real search.
-    Open with Christopher: picking locks, bashing doors and Knock (now only with the key), and
-    whether to look behind doors without any trace, as SCS does.
+    Christopher, 2026-11-03: a locked door may also be opened by picking the lock (thieves), bashing
+    it (strong fighters) or Knock (mages), not only with the key, and creatures look behind doors
+    without any trace, as SCS does ("Können wir gerne alles so machen"). Still to build.
 - **Tactics by wit** (`mind.tactics`, drawn once a search: clever always, normal in half its
   searches, dull never): leading a moving enemy along its last heading (up to 2 seconds, 150 at
   most), spreading out from members that search the same spot (80 apart), casters staying 120
@@ -1096,10 +1097,15 @@ while the engine drives the creature. Badly hurt, the Erinyes, Melissan's alu-fi
 succubus and the mind flayers fight on; they heal where they stand as far as they can, as everyone
 else does. A fight's designer lets a chosen creature leave as SCS has it with `leave = true` in its
 orders. Story exits stay theirs: Demogorgon's death scene, the silver dragon's exit in its lair,
-Abazigal's. The Pirate Mage (`PPMAG01`) still vanishes: SCS's script for it is no hooked script. So
-do four more creatures whose exit sits in BG2's own script above SCS's (a census of the SR lab,
-HOOK-01, rule 12): a Hobgoblin Wizard, a Nymph, Terminsel and Lady Yuth. Whether they stay too is
-open with Christopher. Not seen in game yet; the next lab batch with Erinyes or mind flayers shows it.
+Abazigal's. Not seen in game yet; the next lab batch with Erinyes or mind flayers shows it.
+
+Built 2026-11-03 (Christopher: "jo"): the same kind of exit in the game's own scripts above SCS's
+waits too, when only the creature's hit points and what it sees decide it. The Pirate Mage (`PPMAG01`,
+Dryad Teleport below 20 hit points), the Hobgoblin Wizard in the Unseeing Eye's lair (`GPFLEE01`, below
+15 hit points with an enemy in sight) and the Nymph (`HGNYMPH`, below a quarter) fight on while the
+engine drives them. Terminsel (his own `Death` variable) and Lady Yuth (once she has stolen from the
+party) keep their story exits. The install takes a few seconds longer: it looks through the game's own
+scripts for such exits ([HOOK-01](HOOK-01-scs-hook-placement.md), rule 12).
 
 ### Lab batch J: whole fights with a mirror party (2026-10-28)
 
