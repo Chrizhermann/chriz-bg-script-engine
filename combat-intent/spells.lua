@@ -96,6 +96,8 @@ local function longer(a,b)
     return math.max(a,b)
 end
 
+-- The power words, which work only below a hit point limit (below).
+local HP_LIMITED={[209]=true,[210]=true,[217]=true}
 -- One effect's contribution to a role: who gets it, how likely, saves, level range, duration.
 -- An area role also names the side filters of the areas it came through: 'allies', 'enemies' or
 -- 'all' (the delivering area's, else the spell's own).
@@ -126,6 +128,8 @@ local function add(c,name,who,e,p)
     end
     r.duration=longer(r.duration,seconds(e))
     if e.breakFree then r.breakFree=e.breakFree end
+    -- A disable that also comes from an effect without a hit point limit has none (below).
+    if name=='disable' and not HP_LIMITED[e.opcode] then r.anyHp=true;r.belowHp=nil end
     return r
 end
 local function kind(c,name,label,who,e,p)
@@ -273,17 +277,29 @@ for _,op in ipairs({55,209,238}) do
     local plain=H[op]
     H[op]=function(c,e,who,p) plain(c,e,who,p);c.roles.disable.slays=true end
 end
--- Power Word, Kill (209) and Power Word, Stun (210) work only on a creature with fewer than 60 or
--- 90 hit points left (the engine's own limits): belowHp.
+-- Power Word, Sleep (217) puts a creature to sleep as opcode 39 does (parameter 2 is passed on: 0
+-- wakes it on damage), always for five rounds, whatever its duration field says (IESDP).
+M.powerSleepSeconds=30
+H[217]=function(c,e,who,p)
+    local x={}
+    for k,v in pairs(e) do x[k]=v end
+    x.timing,x.duration=0,M.powerSleepSeconds
+    local r=kind(c,'disable','sleep',who,x,p)
+    if e.p2==0 then r.wakesOnDamage=true else r.staysAsleep=true end
+end
+-- Power Word, Kill (209), Power Word, Stun (210) and Power Word, Sleep (217) work only on a creature
+-- with fewer than 60, 90 or 20 hit points left (the engine's own limits): belowHp, unless another
+-- effect of the role works whatever the hit points (anyHp, see add): some installs' Power Word Sleep
+-- also lets a creature of 20 or more save against a plain sleep.
 local function below(op,limit)
     local plain=H[op]
     H[op]=function(c,e,who,p)
         plain(c,e,who,p)
         local r=c.roles.disable
-        if r then r.belowHp=math.max(r.belowHp or 0,limit) end
+        if r and not r.anyHp then r.belowHp=math.max(r.belowHp or 0,limit) end
     end
 end
-below(209,60);below(210,90)
+below(209,60);below(210,90);below(217,20)
 -- A short pause of the caster itself (two seconds after Spell Revisions' Shout and Cone of
 -- Cold) is a cost of casting, not harm: it is kept as c.pause, in seconds. A longer one stays a
 -- disable on the caster.

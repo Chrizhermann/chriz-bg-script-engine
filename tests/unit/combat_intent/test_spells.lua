@@ -399,6 +399,17 @@ assert(not one(fx(189,{p1=10,target=1}),{target=5}).roles.buff.kinds.alacrity)
 assert(one(fx(209)).roles.disable.kinds.death and one(fx(209)).roles.disable.belowHp==60)
 assert(one(fx(210)).roles.disable.kinds.stun and one(fx(210)).roles.disable.belowHp==90)
 assert(one(fx(13)).roles.disable.belowHp==nil)
+-- Power Word, Sleep sleeps below 20 hit points, five rounds whatever its duration says, waking on
+-- damage when parameter 2 is 0. Beside a plain sleep with a save (an install's Power Word Sleep that
+-- lets stronger creatures save), the role has no limit, whichever comes first.
+local pws=one(fx(217,{timing=1})).roles.disable
+assert(pws.kinds.sleep and pws.belowHp==20 and pws.duration==30 and pws.wakesOnDamage and not pws.staysAsleep)
+assert(one(fx(217,{p2=1})).roles.disable.staysAsleep)
+local function both(a,b) return classify(spl('TESTPWS',{ability({a,b})}),world({})).roles.disable end
+local mixed=both(fx(217),fx(39,{save=1,duration=30}))
+assert(mixed.belowHp==nil and mixed.anyHp and mixed.save.spell and mixed.duration==30)
+assert(both(fx(39,{save=1,duration=30}),fx(217)).belowHp==nil)
+assert(both(fx(209),fx(217)).belowHp==60)
 -- Bits above 4 of the save type are flags, not saves.
 c=one(fx(12,{p1=1,save=2^24+2^10}))
 assert(c.roles.damage.save==nil)
