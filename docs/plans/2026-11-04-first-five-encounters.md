@@ -82,6 +82,12 @@ Python/WeiDU agreement check on both labs.
   entry gives him his own copy (`talk = ~INITDLG>BGSEKARL~`) whose talk alone waits; the talk rule's `own`
   mode holds only the talk blocks of such a copy (HOOK-01, rule 13). Checked on his real lab files with
   the lab's IDS: the copy agrees with the Python rule, and uninstall restores him.
+- Step 5, Silke (2026-11-04): her entry puts her preparation into her cutscene (`cutscene = ~SILKECUT~`,
+  `prepare = ~POTN11 SPWI212~`: the potion she carries and one Mirror Image she has memorized, cast with its
+  casting and the slot spent), before her wait while the "thugs" walk up. The cutscene runs without
+  triggers, so this holds on every difficulty (BOSS-01). Garrick's line comes from a second kind of entry,
+  `bgse_encounter_line`, which finds the state by what it does. Checked on the real lab files: both go in
+  where planned, and uninstall restores them.
 - Encounter tooling (2026-11-04, Christopher: build each encounter faster than the last): the guide
   [docs/ENCOUNTERS.md](../ENCOUNTERS.md) with a checklist, where each decision goes and the pitfalls so far,
   and `tools/scout.py`, which shows everything about a creature in one command.

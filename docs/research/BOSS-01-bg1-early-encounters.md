@@ -160,8 +160,22 @@ Minor Sequencer when it is worth it.
   charms, Mirror Image, the potion); one or two slots change from run to run (two first-level slots
   are empty today). Which creatures and how much chance is designed when the first fights are built.
 
+**Built (2026-11-04):**
+- In her cutscene (`SILKECUT`), while her "thugs" walk up and before the party chooses, Silke drinks her
+  Potion of Invulnerability and casts one of her Mirror Images at herself, with its casting and the slot
+  spent. That cutscene runs without triggers, so it cannot ask for the difficulty: she prepares on every
+  difficulty. On Core this changes little against SCS, whose Silke casts Mirror Image as soon as she sees
+  the party and drinks the potion at the fight's start; she simply starts the fight ready.
+- Garrick's line ends his offer, before the cutscene that takes him to the Red Sheaf: "And when she
+  sings, folks forget their own minds. Best stay on her good side!" Its place is found by what the state
+  does (it starts that cutscene), not by its number.
+- In the no-SR lab her book differs from the SR lab's above: Chromatic Orb, Magic Missile and Shield;
+  Melf's Acid Arrow and two Mirror Images; Monster Summoning I and Haste; Confusion; SCS's Minor Sequencer
+  `DW#MS9`; random healing and invisibility potions.
+
 **Lab checks (later):** the engine's Silke against SCS's with the same parties, at average hit points
-without double damage; the target is roughly SCS's strength, and she should feel dangerous.
+without double damage; the target is roughly SCS's strength, and she should feel dangerous. Check that
+the drink and the cast show in the cutscene and the talk follows.
 
 ## 3. Karlat (Beregost, Red Sheaf)
 

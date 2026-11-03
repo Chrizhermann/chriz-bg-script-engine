@@ -40,9 +40,10 @@ normally.
 | a spellbook | `bgse/encounters.tpa` | `book = ~priest1=SPPR111,SPPR117 priest2=SPPR201 wizard3=SPWI304~`: those levels' memorized spells become these |
 | items to carry | `bgse/encounters.tpa` | `carries = ~POTN10~` (a free pack slot, unless it carries one) |
 | preparation before a talk whose script many creatures share (the game's `INITDLG`) | `bgse/encounters.tpa`, plus `talkPrep` in `encounters.lua` | `talk = ~INITDLG>BGSEKARL~`: the creature gets its own copy, whose talk waits while it prepares |
+| preparation in a cutscene, in sight of the party | `bgse/encounters.tpa` | `cutscene = ~SILKECUT~ prepare = ~POTN11 SPWI212~`: before its wait it drinks what it carries and casts what it has memorized (on every difficulty: such cutscenes check no triggers) |
+| a new line in a dialogue | `bgse/encounters.tpa` | `LAF bgse_encounter_line` with `dlg`, `after` (an action the state's transition does), `state` (a label) and `line`: the line follows that state and takes its transition over |
 
-Not built yet, each comes with its encounter (plan steps 5 and 6), and gets its row here then: dialogue lines
-(Garrick), scripted moments such as Silke's thugs, and new creatures (Kestrel).
+Not built yet, it comes with its encounter (plan step 6) and gets its row here then: new creatures (Kestrel).
 
 ## Tools
 
@@ -87,3 +88,8 @@ creates the creature, so a playthrough may differ (scout shows the odds).
 - The installer tests' synthetic game numbers triggers and actions its own way. To check a real script
   there, copy the lab's IDS files into it first (and drop the compiled fixtures), or the script decompiles
   into the wrong commands.
+- A cutscene started with `StartCutSceneEx(…,FALSE)` runs every block without checking triggers, so it
+  cannot ask for the difficulty.
+- A label in a `.d` file lives only while that file compiles; a second `.d` names the state by its number.
+  WeiDU leaves strings it added to the TLK after an uninstall (unused), so tests compare the old strings,
+  not the whole file.

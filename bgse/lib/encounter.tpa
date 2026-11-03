@@ -11,12 +11,16 @@
 // - talk: its own copy of a talk script many creatures share, as ~INITDLG>BGSEKARL~ (the script in its
 //   slots, and the copy's name): the copy's talk on sight waits while the engine prepares the creature
 //   (bgse/lib/hook.tpa: bgse_talk_bcs), as SCS's talk-on-sight scripts do, and the creature's slot names the
-//   copy, so no other creature's talk changes.
+//   copy, so no other creature's talk changes;
+// - cutscene and prepare: in that cutscene, before the creature's first wait in its block, it drinks each
+//   item of prepare it carries and casts each spell of prepare it has memorized, the slot spent
+//   (bgse_encounter_cutscene).
 // A spell this game lacks, or whose file says another kind or level than its place in the book, and an
 // item this game lacks, are left out with a warning; the rest of the entry still applies, and a book level
 // none of whose spells this game has stays as it is. So does a talk the creature's slots do not name, a copy
-// name another mod has taken, and a script without a talk on sight. A creature file that is missing or no
-// CRE V1.0 file is left out. bgse_changed is 1 when the creature changed.
+// name another mod has taken, and a script without a talk on sight; and in a cutscene, what the creature
+// neither carries nor has memorized. A creature file that is missing or no CRE V1.0 file is left out.
+// bgse_changed is 1 when the creature or its cutscene changed.
 DEFINE_ACTION_FUNCTION bgse_encounter
   INT_VAR str = 0
           int = 0
@@ -28,6 +32,8 @@ DEFINE_ACTION_FUNCTION bgse_encounter
           book = ~~
           carries = ~~
           talk = ~~
+          cutscene = ~~
+          prepare = ~~
   RET bgse_changed
 BEGIN
   OUTER_SET bgse_changed = 0
@@ -43,7 +49,9 @@ BEGIN
         LPF bgse_encounter_book STR_VAR cre = EVAL ~%cre%~ book = EVAL ~%book%~ RET bgse_booked END
         LPF bgse_encounter_carries STR_VAR cre = EVAL ~%cre%~ carries = EVAL ~%carries%~ RET bgse_given END
         LPF bgse_encounter_talk STR_VAR cre = EVAL ~%cre%~ talk = EVAL ~%talk%~ RET bgse_talked END
-        SET bgse_changed = (bgse_raised + bgse_booked + bgse_given + bgse_talked > 0) ? 1 : 0
+        LPF bgse_encounter_cutscene STR_VAR cre = EVAL ~%cre%~ cutscene = EVAL ~%cutscene%~ prepare = EVAL ~%prepare%~
+          RET bgse_prepared END
+        SET bgse_changed = (bgse_raised + bgse_booked + bgse_given + bgse_talked + bgse_prepared > 0) ? 1 : 0
       END ELSE BEGIN
         PATCH_PRINT ~BGSE encounter: %cre%.cre is no CRE V1.0 file, left as it is~
       END
@@ -310,6 +318,225 @@ BEGIN
     END
   END
 END
+
+// The preparation of bgse_encounter in a cutscene (Christopher, 2026-11-04, for Silke: she plans the ambush
+// herself, so she is ready, and the party sees a real caster first): in the cutscene script's block for the
+// creature (CutSceneId with its script name), before the block's first wait, it drinks each item of prepare
+// it carries (UseItem) and casts each spell of prepare it has memorized at itself (ForceSpellRES, with its
+// casting, then RemoveSpellRES, so the slot is spent), in the order prepare names them. A cutscene that runs
+// without triggers cannot ask for the difficulty, so this holds on every difficulty. bgse_prepared is 1 when
+// the cutscene changed.
+DEFINE_PATCH_FUNCTION bgse_encounter_cutscene
+  STR_VAR cre = ~~
+          cutscene = ~~
+          prepare = ~~
+  RET bgse_prepared
+BEGIN
+  SET bgse_prepared = 0
+  PATCH_IF (STRING_LENGTH ~%cutscene%~ > 0) AND (STRING_LENGTH ~%prepare%~ > 0) BEGIN
+    READ_ASCII 0x280 who (32) NULL
+    // What it carries and the spells it has memorized, as |RESREF| entries.
+    TEXT_SPRINT carried ~|~
+    READ_LONG 0x2bc item_at
+    READ_LONG 0x2c0 item_count
+    FOR (i = 0; i < item_count; i += 1) BEGIN
+      PATCH_IF (item_at + 20 * i + 20 <= BUFFER_LENGTH) BEGIN
+        READ_ASCII (item_at + 20 * i) name (8) NULL
+        TO_UPPER name
+        TEXT_SPRINT carried ~%carried%%name%|~
+      END
+    END
+    TEXT_SPRINT ready ~|~
+    READ_LONG 0x2b0 at
+    READ_LONG 0x2b4 count
+    FOR (i = 0; i < count; i += 1) BEGIN
+      PATCH_IF (at + 12 * i + 12 <= BUFFER_LENGTH) BEGIN
+        READ_ASCII (at + 12 * i) name (8) NULL
+        TO_UPPER name
+        TEXT_SPRINT ready ~%ready%%name%|~
+      END
+    END
+    TEXT_SPRINT actions ~~
+    TEXT_SPRINT wanted ~~
+    INNER_PATCH ~%prepare%~ BEGIN
+      REPLACE_EVALUATE CASE_INSENSITIVE ~[A-Za-z0-9_#-]+~ BEGIN
+        TEXT_SPRINT wanted ~%wanted%%MATCH0%|~
+      END ~%MATCH0%~
+    END
+    SET pos = 0
+    WHILE (pos < STRING_LENGTH ~%wanted%~) BEGIN
+      INNER_PATCH ~%wanted%~ BEGIN
+        SET to = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~|~ pos)
+        READ_ASCII pos res (to - pos)
+      END
+      SET pos = to + 1
+      TO_UPPER res
+      PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%res%|~ ~%carried%~) >= 0) BEGIN
+        TEXT_SPRINT actions ~%actions%    UseItem("%res%",Myself)%LNL%~
+      END ELSE PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%res%|~ ~%ready%~) >= 0) BEGIN
+        TEXT_SPRINT actions ~%actions%    ForceSpellRES("%res%",Myself)%LNL%    RemoveSpellRES("%res%")%LNL%~
+      END ELSE BEGIN
+        PATCH_PRINT ~BGSE encounter: %cre%.cre neither carries %res% nor has it memorized, so it does not use it in %cutscene%~
+      END
+    END
+    PATCH_IF (STRING_LENGTH ~%actions%~ > 0) AND (STRING_LENGTH ~%who%~ > 0) BEGIN
+      PATCH_IF (FILE_EXISTS_IN_GAME ~%cutscene%.bcs~) BEGIN
+        SET bgse_cut = 0
+        INNER_ACTION BEGIN
+          COPY_EXISTING ~%cutscene%.bcs~ ~override~
+            LPF bgse_cut_prep_bcs STR_VAR who = EVAL ~%who%~ actions = EVAL ~%actions%~ RET bgse_cut END
+          BUT_ONLY_IF_IT_CHANGES
+        END
+        SET bgse_prepared = bgse_cut
+        PATCH_IF (bgse_cut = 0) BEGIN
+          PATCH_PRINT ~BGSE encounter: %cutscene% has no block for %who%, so %cre%.cre does not prepare there~
+        END
+      END ELSE BEGIN
+        PATCH_PRINT ~BGSE encounter: this game lacks %cutscene%.bcs, so %cre%.cre does not prepare there~
+      END
+    END
+  END
+END
+
+// The preparation lines (actions, one an indented line) before the first wait of the block of the cutscene in
+// the patch buffer whose response names who in CutSceneId, or after that line in a block without a wait. A
+// script that fails to decompile, patch or compile, or has no such block, is left exactly as it was (bgse_cut 0).
+DEFINE_PATCH_FUNCTION bgse_cut_prep_bcs
+  STR_VAR who = ~~
+          actions = ~~
+  RET bgse_cut
+BEGIN
+  SET bgse_cut = 0
+  READ_ASCII 0 bcs (BUFFER_LENGTH)
+  PATCH_TRY
+    INNER_PATCH_SAVE baf ~%bcs%~ BEGIN
+      DECOMPILE_BCS_TO_BAF
+    END
+    INNER_PATCH_SAVE baf ~%baf%~ BEGIN
+      PATCH_IF (INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~%MNL%~) >= 0) BEGIN
+        REPLACE_TEXTUALLY CASE_SENSITIVE EXACT_MATCH ~%MNL%~ ~~
+      END
+      SET at = INDEX_BUFFER (CASE_INSENSITIVE EXACT_MATCH ~CutSceneId("%who%")~)
+      PATCH_IF (at >= 0) BEGIN
+        SET end = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~%LNL%END%LNL%~ at)
+        SET wait = INDEX_BUFFER (CASE_SENSITIVE ~^    Wait(~ at)
+        PATCH_IF (end >= 0) BEGIN
+          PATCH_IF (wait >= 0) AND (wait < end) BEGIN
+            SET into = wait
+          END ELSE BEGIN
+            SET into = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~%LNL%~ at) + 1
+          END
+          INSERT_BYTES into (STRING_LENGTH ~%actions%~)
+          WRITE_ASCIIE into ~%actions%~
+          SET bgse_cut = 1
+        END
+      END
+    END
+    PATCH_IF (bgse_cut = 1) BEGIN
+      DELETE_BYTES 0 BUFFER_LENGTH
+      INSERT_BYTES 0 (STRING_LENGTH ~%baf%~)
+      WRITE_ASCIIE 0 ~%baf%~
+      COMPILE_BAF_TO_BCS
+    END
+  WITH DEFAULT
+    SET bgse_cut = 0
+    DELETE_BYTES 0 BUFFER_LENGTH
+    INSERT_BYTES 0 (STRING_LENGTH ~%bcs%~)
+    WRITE_ASCIIE 0 ~%bcs%~
+  END
+END
+
+// A line a designed encounter adds to a dialogue (Christopher writes or approves each one): line, said in a new
+// state named state, which follows the state of dialogue dlg whose transition does after (the text of an action
+// there, such as ~StartCutSceneEx("Garrcut"~) and takes that transition over. The state is found by what it does,
+// not by its number; a dialogue where no state or more than one does it is left as it is, with a warning.
+// bgse_said is 1 when the line went in.
+DEFINE_ACTION_FUNCTION bgse_encounter_line
+  STR_VAR dlg = ~~
+          after = ~~
+          state = ~~
+          line = ~~
+  RET bgse_said
+BEGIN
+  OUTER_SET bgse_said = 0
+  OUTER_SET bgse_line_from = 0 - 1
+  OUTER_SET bgse_line_trans = 0 - 1
+  OUTER_SET bgse_line_hits = 0
+  OUTER_SET bgse_line_new = 0
+  ACTION_IF (STRING_LENGTH ~%dlg%~ > 0) AND (FILE_EXISTS_IN_GAME ~%dlg%.dlg~) BEGIN
+    COPY_EXISTING ~%dlg%.dlg~ ~override~
+      READ_ASCII 0 dlg_bytes (BUFFER_LENGTH)
+      INNER_PATCH_SAVE text ~%dlg_bytes%~ BEGIN
+        DECOMPILE_DLG_TO_D
+      END
+      INNER_PATCH ~%text%~ BEGIN
+        // The new state comes after the last: its number is the count of states.
+        SET p = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~THEN BEGIN ~)
+        WHILE (p >= 0) BEGIN
+          SET bgse_line_new += 1
+          SET p = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~THEN BEGIN ~ (p + 1))
+        END
+        SET hit = INDEX_BUFFER (CASE_INSENSITIVE EXACT_MATCH ~%after%~)
+        WHILE (hit >= 0) BEGIN
+          SET bgse_line_hits += 1
+          PATCH_IF (bgse_line_hits = 1) BEGIN
+            // The state: the last "THEN BEGIN n" before the hit; the transition: how many transitions of
+            // that state begin before the hit, less one.
+            SET begin = 0 - 1
+            SET p = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~THEN BEGIN ~)
+            WHILE (p >= 0) AND (p < hit) BEGIN
+              SET begin = p
+              SET p = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~THEN BEGIN ~ (p + 1))
+            END
+            PATCH_IF (begin >= 0) BEGIN
+              SET from = begin + STRING_LENGTH ~THEN BEGIN ~
+              SET stop = INDEX_BUFFER (CASE_SENSITIVE ~[^0-9]~ from)
+              READ_ASCII from number (stop - from)
+              SET bgse_line_from = number
+              SET bgse_line_trans = 0 - 1
+              SET p = INDEX_BUFFER (CASE_SENSITIVE ~^  IF ~ begin)
+              WHILE (p >= 0) AND (p < hit) BEGIN
+                SET bgse_line_trans += 1
+                SET p = INDEX_BUFFER (CASE_SENSITIVE ~^  IF ~ (p + 1))
+              END
+            END
+          END
+          SET hit = INDEX_BUFFER (CASE_INSENSITIVE EXACT_MATCH ~%after%~ (hit + 1))
+        END
+      END
+    BUT_ONLY_IF_IT_CHANGES
+    ACTION_IF (bgse_line_hits = 1) AND (bgse_line_from >= 0) AND (bgse_line_trans >= 0) BEGIN
+      OUTER_TEXT_SPRINT bgse_line_dlg ~%dlg%~
+      OUTER_TEXT_SPRINT bgse_line_state ~%state%~
+      OUTER_TEXT_SPRINT bgse_line_text ~%line%~
+      COMPILE EVALUATE_BUFFER ~.../bgse-inline/bgse-line-add.d~
+      COMPILE EVALUATE_BUFFER ~.../bgse-inline/bgse-line-alter.d~
+      OUTER_SET bgse_said = 1
+    END ELSE BEGIN
+      PRINT ~BGSE encounter: %dlg%.dlg has %bgse_line_hits% states that do %after%, so its line is left out~
+    END
+  END ELSE BEGIN
+    PRINT ~BGSE encounter: %dlg%.dlg is not in this game, its line is left out~
+  END
+END
+
+// The two steps of bgse_encounter_line, compiled one after the other, so that the new state copies the
+// transitions as they were before the old state's transition points at it. A label lives only while its own
+// file compiles, so the second step names the new state by its number (bgse_line_new).
+<<<<<<<< .../bgse-inline/bgse-line-add.d
+APPEND ~%bgse_line_dlg%~
+  IF ~~ THEN BEGIN %bgse_line_state%
+    SAY ~%bgse_line_text%~
+    COPY_TRANS ~%bgse_line_dlg%~ %bgse_line_from%
+  END
+END
+>>>>>>>>
+<<<<<<<< .../bgse-inline/bgse-line-alter.d
+ALTER_TRANS ~%bgse_line_dlg%~ BEGIN %bgse_line_from% END BEGIN %bgse_line_trans% END BEGIN
+  "EPILOGUE" ~GOTO %bgse_line_new%~
+  "ACTION" ~~
+END
+>>>>>>>>
 
 // The items of bgse_encounter: each it does not carry yet, in a free pack slot. bgse_given counts them.
 DEFINE_PATCH_FUNCTION bgse_encounter_carries

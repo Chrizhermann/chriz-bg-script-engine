@@ -3,6 +3,23 @@
 // docs/research/BOSS-01-bg1-early-encounters.md; the engine's side of it is combat-intent/encounters.lua.
 // Each entry adds what it changed to bgse_designed.
 
+// 2. Silke, Beregost (Christopher, 2026-11-03 and 2026-11-04): she plans the ambush herself, so when her
+// "thugs" arrive she drinks her Potion of Invulnerability and casts Mirror Image in sight of the party,
+// before it chooses. Garrick warns of her songs at the end of his offer, before the party meets her.
+LAF bgse_encounter
+  STR_VAR cre = ~silke~
+          cutscene = ~SILKECUT~
+          prepare = ~POTN11 SPWI212~
+  RET bgse_changed END
+OUTER_SET bgse_designed += bgse_changed
+LAF bgse_encounter_line
+  STR_VAR dlg = ~garric~
+          after = ~StartCutSceneEx("Garrcut"~
+          state = ~bgse_silke_song~
+          line = ~And when she sings, folks forget their own minds. Best stay on her good side!~
+  RET bgse_said END
+OUTER_SET bgse_lines += bgse_said
+
 // 3. Karlat, Red Sheaf, Beregost (Christopher, 2026-11-04): his own copy of the game's talk script INITDLG,
 // which many creatures share, so that only his talk waits while he drinks his battle potion before he speaks.
 LAF bgse_encounter

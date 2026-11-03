@@ -4,6 +4,7 @@ WeiDU's result must match tools/hook_rule.py block for block; scripts the rule l
 must keep their exact bytes; reinstall and uninstall must be clean.
 """
 import os
+import re
 import shutil
 import struct
 import subprocess
@@ -146,6 +147,13 @@ ACTION = """IDS V1.0
 36 EndCutSceneMode()
 37 Dialog(O:Object*)
 38 StartDialogNoSet(O:Object*)
+39 CutSceneId(O:Object*)
+40 MoveViewPoint(P:Target*,I:ScrollSpeed*Scroll)
+41 Wait(I:Time*)
+42 StartDialogue(S:DialogFile*,O:Target*)
+43 MoveToPoint(P:Point*)
+44 ClearAllActions()
+45 StartCutSceneEx(S:Cutscene*,I:CheckTriggers*Boolean)
 """
 IDS = {
     'OBJECT': ('IDS V1.0\n0 Nothing\n1 Myself\n12 NearestEnemyOf\n18 LastSeenBy\n20 LastHeardBy\n21 Player1\n22 Player2\n'
@@ -163,6 +171,7 @@ IDS = {
               '3101 DEMILICH_TRAP_SOUL\n3159 INNATE_FIEND_TELEPORT\n'),
     'STATS': 'IDS V1.0\n18 RESISTMAGIC\n200 WIZARD_IMPROVED_ALACRITY\n',
     'BOOLEAN': 'IDS V1.0\n0 FALSE\n1 TRUE\n',
+    'SCROLL': 'IDS V1.0\n0 INSTANT\n',
     'SPLSTATE': 'IDS V1.0\n12 CONTINGENCY_TRIGGERED\n',
 }
 
@@ -675,16 +684,17 @@ PRIEST_LEVELS = {'SPPR101': 1, 'SPPR102': 1, 'SPPR108': 1, 'SPPR111': 1, 'SPPR11
                  'SPPR208': 2, 'SPPR211': 2, 'SPPR213': 2, 'SPPR314': 3}
 
 
-def _book_cre(book, wis=14, items=()) -> bytes:
+def _book_cre(book, wis=14, items=(), name='') -> bytes:
     """A level-5 cleric with these memorized spells by (type, spell level) (type 0 priest, 1 wizard, 2
-    innate), each known once, WIS wis, these items (resref, slot word) and the memorization rows a real
-    creature has, five slots in each of its first three priest levels; no effects."""
+    innate), each known once, WIS wis, these items (resref, slot word), script name name and the memorization
+    rows a real creature has, five slots in each of its first three priest levels; no effects."""
     head = bytearray(0x2D4)
     head[:8] = b'CRE V1.0'
     struct.pack_into('<II', head, 0x08, 0xFFFFFFFF, 0xFFFFFFFF)
     head[0x238:0x23F] = bytes([12, 0, 14, wis, 16, 10, 13])
     head[0x234], head[0x273] = 5, 3
     head[0x248:0x250] = b'DW#SHDLG'
+    head[0x280:0x2A0] = name.encode('ascii').ljust(32, b'\0')
     rows = [(level, 0) for level in range(7)] + [(level, 1) for level in range(9)] + [(0, 2)]
     known, info, memorized, index = b'', b'', b'', 0
     for level, kind in rows:
@@ -765,10 +775,10 @@ def test_a_designed_creature_gets_its_scores_book_and_items(tmp_path: Path, vari
     installed = _snapshot(tmp_path)
     if variant == 'absent':
         assert 'BGSE encounter: neira.cre is not in this game, left out' in output, output
-        assert 'BGSE encounter: 0 designed creatures changed.' in output, output
+        assert 'BGSE encounter: 0 designed creatures changed, 0 lines added to dialogues.' in output, output
         assert 'override/neira.cre' not in installed
     else:
-        assert 'BGSE encounter: 1 designed creatures changed.' in output, output
+        assert 'BGSE encounter: 1 designed creatures changed, 0 lines added to dialogues.' in output, output
         new = installed['override/neira.cre']
         assert new[0x23B] == (17 if variant == 'strong' else 15)
         assert new[0x238:0x23B] == before['override/neira.cre'][0x238:0x23B]
@@ -829,15 +839,116 @@ def test_a_designed_creature_gets_its_own_talk_script(tmp_path: Path, variant: s
     assert installed['override/b-hktalk.cre'] == before['override/b-hktalk.cre']
     karlat, old = installed['override/karlat.cre'], before['override/karlat.cre']
     if variant == 'plain':
-        assert 'BGSE encounter: 1 designed creatures changed.' in output, output
+        assert 'BGSE encounter: 1 designed creatures changed, 0 lines added to dialogues.' in output, output
         assert karlat[0x248:0x250] == b'BGSEKARL' and karlat[:0x248] + karlat[0x250:] == old[:0x248] + old[0x250:]
         assert _decompile(tmp_path, ['BGSEKARL'])['BGSEKARL'] == hook_rule.patch_talk(source, 'BGSEKARL', own=True)[0]
     else:
         message = ('karlat.cre has no script INITDLG, its talk stays as it is' if variant == 'elsewhere'
                    else 'karlat.cre keeps INITDLG: another mod has BGSEKARL.bcs')
         assert f'BGSE encounter: {message}' in output, output
-        assert 'BGSE encounter: 0 designed creatures changed.' in output, output
+        assert 'BGSE encounter: 0 designed creatures changed, 0 lines added to dialogues.' in output, output
         assert karlat == old
         assert installed.get('override/bgsekarl.bcs') == before.get('override/bgsekarl.bcs')
     _install(tmp_path, '--force-uninstall-list', '0')
     assert _snapshot(tmp_path) == before
+
+
+# Silke's cutscene as the game has it (SILKECUT: she watches her "thugs" walk up, then starts the talk), and
+# Garrick's offer, whose last state starts his cutscene to the Red Sheaf.
+SILKECUT = """IF
+  True()
+THEN
+  RESPONSE #100
+    CutSceneId("Silke")
+    MoveViewPoint([3522.2108],INSTANT)
+    Wait(6)
+    StartDialogue("cutsilk",Player1)
+    EndCutSceneMode()
+END
+
+IF
+  True()
+THEN
+  RESPONSE #100
+    CutSceneId("Merchant1")
+    MoveToPoint([3522.2108])
+END
+"""
+GARRIC = """BEGIN ~GARRIC~
+IF ~Global("CDNoRepeat","LOCALS",0)~ THEN BEGIN 0
+  SAY ~Hail, adventurers.~
+  IF ~~ THEN REPLY ~Tell us more.~ GOTO 1
+END
+IF ~~ THEN BEGIN 1
+  SAY ~I'm Garrick, and I work for Silke Rosena.~
+  IF ~~ THEN REPLY ~Show us to your mistress.~ GOTO 2
+END
+IF ~~ THEN BEGIN 2
+  SAY ~Now just meet me outside of the Red Sheaf Inn.~
+  IF ~~ THEN DO ~ClearAllActions() StartCutSceneMode() StartCutSceneEx("Garrcut",FALSE)~ EXIT
+END
+"""
+
+
+def _decompile_dlg(root: Path, name: str) -> str:
+    out = root / 'decompiled-dlg'
+    shutil.rmtree(out, ignore_errors=True)
+    out.mkdir()
+    result = subprocess.run([str(_weidu()), '--game', str(root), '--noautoupdate', '--no-exit-pause', '--out', str(out),
+                             str(root / 'override' / f'{name}.dlg')],
+                            cwd=root, text=True, encoding='utf-8', errors='replace', stdin=subprocess.DEVNULL,
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=120, check=False)
+    assert result.returncode == 0, result.stdout
+    return next(out.glob('*.d')).read_text(encoding='latin-1').replace('\r', '')
+
+
+@pytest.mark.parametrize('variant', ['plain', 'lacking'])
+def test_silke_prepares_in_her_cutscene_and_garrick_warns_of_her_songs(tmp_path: Path, variant: str) -> None:
+    # Silke's entry (bgse/encounters.tpa): in SILKECUT, before her wait, she drinks her Potion of Invulnerability
+    # and casts one of her Mirror Images at herself, the slot spent; Garrick's line follows the state that starts
+    # his cutscene and takes its transition over. 'lacking': a Silke without Mirror Image only drinks, and a
+    # Garrick whose offer starts no cutscene keeps his dialogue. Uninstall restores the files; the TLK keeps the
+    # game's strings as they were (WeiDU leaves a string it added in the TLK, unused).
+    _fake_game(tmp_path)
+    (tmp_path / 'fixture/b-hkcut.baf').write_text(SILKECUT, encoding='ascii')
+    garric = GARRIC if variant == 'plain' else GARRIC.replace(' StartCutSceneEx("Garrcut",FALSE)', '')
+    (tmp_path / 'fixture/garric.d').write_text(garric, encoding='ascii')
+    (tmp_path / 'fixture/extra.tp2').write_text(
+        'BACKUP ~fixture/backup-extra~\nAUTHOR ~BGSE test~\nBEGIN ~Silke and Garrick~\n'
+        'COMPILE ~fixture/b-hkcut.baf~\nCOMPILE ~fixture/garric.d~\n', encoding='ascii')
+    _run(tmp_path, 'fixture/extra.tp2', '--force-install-list', '0')
+    compiled = next(p for p in (tmp_path / 'override').iterdir() if p.name.lower() == 'b-hkcut.bcs').read_bytes()
+    (tmp_path / 'override/SILKECUT.BCS').write_bytes(compiled)
+    book = {(1, 1): ['SPWI112'], (1, 2): ['SPWI211', 'SPWI212', 'SPWI212'] if variant == 'plain' else ['SPWI211']}
+    (tmp_path / 'override/SILKE.CRE').write_bytes(_book_cre(book, 12, [('POTN11', 18)], 'SILKE'))
+    tlk = tmp_path / 'lang/en_us/dialog.tlk'
+    before, before_tlk = _snapshot(tmp_path), tlk.read_bytes()
+    output = _install(tmp_path, '--force-install-list', '0')
+    assert 'SUCCESSFULLY INSTALLED' in output, output
+    installed = _snapshot(tmp_path)
+    assert installed['override/silke.cre'] == before['override/silke.cre']
+    # WeiDU's comments after names it shows (// POTN11) do not count.
+    cut = re.sub(r' *//[^\n]*', '', _decompile(tmp_path, ['SILKECUT'])['SILKECUT'])
+    prep = '    UseItem("POTN11",Myself)\n'
+    if variant == 'plain':
+        prep += '    ForceSpellRES("SPWI212",Myself)\n    RemoveSpellRES("SPWI212")\n'
+    assert '    MoveViewPoint([3522.2108],INSTANT)\n' + prep + '    Wait(6)\n' in cut, cut
+    assert cut.count('UseItem(') == 1 and 'CutSceneId("Merchant1")\n    MoveToPoint([3522.2108])\nEND' in cut, cut
+    dialogue = _decompile_dlg(tmp_path, 'GARRIC')
+    line = 'And when she sings, folks forget their own minds. Best stay on her good side!'
+    if variant == 'plain':
+        assert ('BGSE encounter: 1 designed creatures changed, 1 lines added to dialogues.') in output, output
+        state2 = dialogue[dialogue.index('BEGIN 2'):]
+        assert 'IF ~~ THEN GOTO 3\nEND' in state2, dialogue
+        state3 = dialogue[dialogue.index('BEGIN 3'):]
+        assert line in state3 and 'StartCutSceneEx("Garrcut",FALSE)' in state3 and 'EXIT' in state3, dialogue
+        assert dialogue.count('StartCutSceneEx(') == 1, dialogue
+    else:
+        assert 'BGSE encounter: 1 designed creatures changed, 0 lines added to dialogues.' in output, output
+        assert 'silke.cre neither carries SPWI212 nor has it memorized' in output, output
+        assert 'garric.dlg has 0 states that do StartCutSceneEx("Garrcut"' in output, output
+        assert installed['override/garric.dlg'] == before['override/garric.dlg'] and line not in dialogue
+    _install(tmp_path, '--force-uninstall-list', '0')
+    assert _snapshot(tmp_path) == before
+    count = struct.unpack_from('<I', before_tlk, 0x0A)[0]
+    assert [_tlk_text(tlk.read_bytes(), i) for i in range(count)] == [_tlk_text(before_tlk, i) for i in range(count)]
