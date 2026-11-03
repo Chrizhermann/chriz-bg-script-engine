@@ -23,6 +23,14 @@ otherwise.
   caster who could not have known the party was coming, ask Christopher whether he would better be
   caught unprepared and the fight made hard another way.
 
+## Order
+
+Proposed on 2026-11-03 and corrected on 2026-11-04 from the game's scripts: Tarnesh, Silke, Karlat,
+Neira, then Greywolf (Prism's quest at the Nashkel Mines) and Mulahey (the mines' boss). Nimbul
+comes later: Nashkel's area script creates him only once chapter 3 starts, after the mines (the
+Chapter variable counts the chapters shown; arriving in Nashkel starts chapter 2, the mines' lowest
+levels chapter 3).
+
 ## Lab for BG1 fights
 
 `BGSE-Lab/scs-reference` is an EET lab (a copy of an earlier state of Christopher's game, with Spell
@@ -209,3 +217,79 @@ the potions.
 
 **Lab checks (later):** the parties of Tarnesh's checks plus a level 2 to 3 party, at average hit
 points without double damage, and several runs, since his potions differ from run to run.
+
+## 4. Neira (Nashkel Inn)
+
+Facts from the no-SR lab `eet-nosr-2`.
+
+**Who:** `NEIRA`, a level-5 cleric of Mask ("the Lord of Shadows"), 33 hit points, INT 14 and WIS 14
+(clever), DEX 16, THAC0 18, one attack a round. Splint Mail, a Medium Shield and her dexterity give
+armor class about 1; she fights with a Club and wears the helmet The Eyes of Truth (infravision).
+Her spells:
+- first level: Bless, Remove Fear, Armor of Faith;
+- second level: Hold Person (holds the target and any of its allies within 4 feet for a turn),
+  Silence, 15' Radius (saves at −5) and Spiritual Hammer;
+- third level: Unholy Blight (1d4 a caster level to good creatures in a 15-foot radius, half on a
+  save, otherwise also −2 to all rolls for 4 rounds).
+
+Her letter `SCRLNEI` is a later bounty notice on the protagonist: last seen near Beregost, "a
+formidable foe", "likely to have well-equipped traveling companions". SCS gives her a random healing
+potion (`DW#RND02`, undroppable: a third of the time a Potion of Healing, a sixth two, a sixth Extra
+Healing, a third nothing). The Randomiser mod (8.1.1, component 1100, which places items by in-game
+scripts, so per run) can put one of its items into her pack, as loot only: Bracers of Defense AC 8,
+the Excellent Short Bow, Chain Mail +1, Leather Armor +1, Armor of Missile Attraction +2 or the ring
+The Victor (`FL24T4.BCS`). Scripts: SCS's talk-on-sight script
+`DW#SHDLG` above SCS's priest script `DW#PR141`.
+
+**The story** (`NEIRA.DLG`): a bounty hunter who sits in the Nashkel Inn (`BG4801`) from the start of
+the game. She speaks first ("Just fancy my luck seeing you stroll in here, bold as day!"); all four
+answers end in her attack, bribes included ("I have made my deals and shall abide by them"). Her
+death in Nashkel can start Rasaad's introduction (`RASAAD_.DLG`: "You should not make a habit of
+picking fights in the street").
+
+**What SCS does:**
+- Talk: from Core Rules (SCS's default setting) she starts the talk at once when she sees the party
+  (`StartDialogNoSet`); on lower difficulties she uses the normal `Dialog`.
+- Preparation from Hard: Armor of Faith and Spiritual Hammer appear at once "as if cast before", using
+  up the memorized spells. Like Karlat's potions they need a visible enemy, so this happens when she
+  turns hostile after the talk.
+- Fight: alone, she opens four times in five with Hold Person at the first foe she sees; then Hold
+  Person by class (fighters, rangers, paladins, fighter/thieves, bards, thieves, then anyone),
+  skipping foes with Free Action, undead and the already held. Silence at mages, clerics and druids.
+  Unholy Blight at a non-evil foe with another party member within 15 feet (or at a lone hero), or
+  centred on herself when party members stand close. Spiritual Hammer for melee. Bless and Remove
+  Fear only with allies, so not when she is alone.
+- She never drinks the undroppable Potion of Healing she may carry (her priest script only knows the
+  droppable one); an Extra Healing she drinks below half her hit points.
+
+**The engine:** a clever caster. Talk-on-sight creatures prepare when they see the party, with SCS's
+difficulty rules, and the talk follows at once (decided for Tarnesh, also meant for Neira): from
+Hard she starts the talk with Armor of Faith and her hammer already up. In the fight she casts by
+worth (Hold Person on the most dangerous fighter, Silence on casters, Unholy Blight where it hits
+several, the hammer in melee), breaks enemy casts as a clever caster, and drinks her healing potions
+by worth, the undroppable ones too.
+
+**Following earlier decisions:** a light protagonist preference, as for Tarnesh and Karlat (she
+carries the bounty notice); a small encounter, close to SCS.
+
+**Open (question to Christopher, 2026-11-04):** how strong is the party usually when it reaches the
+Nashkel Inn? For Silke and Karlat the answer was about SCS's strength.
+
+**Lab checks (later):** as for Karlat, at Core Rules and at Hard and Insane (her preparation starts at
+Hard), several runs for her potion.
+
+## Later: Nimbul (Nashkel, chapter 3), facts gathered so far
+
+From the no-SR lab, 2026-11-04; SCS's script for him (`DW#MG293`) is not read yet.
+- `NIMBUL`, a level-7/7 mage/thief, 21 hit points, DEX 18, INT 16 (clever).
+- Spells: Chromatic Orb twice, Charm Person and Armor; Power Word, Sleep, Invisibility and Mirror
+  Image; Dire Charm and Minor Spell Deflection; Confusion; and SCS's Minor Sequencer `DW#MS10` (two
+  Charm Person, as Silke).
+- Items: Short Sword +1, Throwing Axe, the ring Topsider's Crutch, the boots Senses of the Cat, a
+  Find Familiar scroll, three bard-song scrolls and a letter. Random potions: healing (`DW#RND03`,
+  half the time Extra Healing), protection (`DW#RND24`: Invulnerability or Defense, half the time
+  nothing) and invisibility (`DW#RND37`).
+- Nashkel's area script (`BG4800`) creates him outside once chapter 3 starts. His own script
+  (`SHOUTDLG`) talks on sight at every difficulty: "I am Death come for thee"; both answers end in
+  his attack. Charmed, he tells a fable about a "house of iron" that hired him, a hint at the Iron
+  Throne.
