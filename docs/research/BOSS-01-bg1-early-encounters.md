@@ -34,6 +34,27 @@ ones after. Until it stands, the SR lab can show whether the engine does sensibl
 is not judged there (Sleep, Power Word Sleep, Mirror Image and the like differ under Spell Revisions).
 Encounter tests run at Insane without double damage.
 
+## Spells to tune against
+
+Christopher's own spell mod (`chriz-bg-magic`, designed with the spell-mod session; nothing built
+yet, decision page https://claude.ai/artifact/DjQs3Dqb5WoxiP7Erkztky) replaces Spell Revisions: vanilla
+EE 2.7.3.0 unless his decisions say otherwise (wizard levels 1 to 3 decided as of 2026-11-03, the rest
+proposals). For early BG1 tuning that means, among others:
+- Sleep, Color Spray, Stinking Cloud: vanilla, and damage wakes the sleeper.
+- Power Word Sleep: vanilla (below 20 hit points, no save), damage wakes; elves resist, undead,
+  dragons and elementals are immune.
+- Horror, Magic Missile, Mage Armor, Hold Person, Charm Person: vanilla; undead immune to fear.
+- Mirror Image: vanilla values; area damage ignores the images, targeted attacks pop one.
+- Chromatic Orb: SCS's version (no death or petrification, no save bonus).
+- Blindness: much shorter (a round per two caster levels, 2 to 5 rounds); to be looked at again with
+  the engine, which handles blindness badly in Christopher's view.
+- Dispel Magic (everyone in the area) and Remove Magic (enemies only) stay apart as in vanilla; Spell
+  Immunity stays vanilla for now and there is no shield against Dispel or Breach yet.
+
+The new no-SR lab (`BGSE-Lab/eet-nosr`, CEBG's recommended choice without Spell Revisions and without
+maximum hit points, installed 2026-11-03) has vanilla spells plus SCS's spell changes; tuning
+re-checks what the spell mod changes once it is built.
+
 ## 1. Tarnesh (Friendly Arm Inn)
 
 **Who:** `TARNES`, a level-4 mage (SCS makes him a conjurer), 25 hit points, INT 16 (clever by the
