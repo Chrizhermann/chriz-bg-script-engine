@@ -119,6 +119,31 @@ Python/WeiDU agreement check on both labs.
     Greywolf's cutscene with Kestrel), Core and Insane, engine against SCS.
   - Labs run only while the PC is free (Christopher's rule for background labs); a waiter tries every
     few minutes.
+  - Batch v1 (2026-11-04, 8 fights, Tarnesh against the lone level-1 hero): the hero lost every fight, to the
+    engine and to SCS alike, on Core and Insane. It showed one fault of the engine's: after Horror a mage's
+    staff swing followed the panicking hero for two rounds while his Magic Missile was ready; a melee
+    target that runs off now ends the attack (FIGHT-01, F1d). The lab then logged only the engine's
+    choices; it now logs every action the foes and the party start, in both modes.
+  - The parties (batch v2): BG1 companions made beside the PC join it (`JoinParty` on each, their own
+    files, levels and gear), their scripts cleared, healed to their maximum; the lab plays every member as a
+    simple player (healing potions below 40%, Jaheira's and Yeslick's cures, Dynaheir's Magic Missile,
+    Yeslick's Bless, Hold Person and Doom, else an attack on the nearest foe). The PC cannot die; its fall
+    ends the phase, as it would end the game.
+  - Batch v2 (2026-11-04, Tarnesh, 32 fights: four parties, engine and SCS, Core and Insane, two runs each).
+    The party won 3 of 16 fights against the engine's Tarnesh and 5 of 16 against SCS's; the lone hero lost all
+    of them, the level 2 to 4 party won all four on Core, and on Insane it won both against SCS's Tarnesh and
+    neither against the engine's. The engine kills the lone hero faster (10 to 25 seconds against SCS's 21 to
+    33): Sleep, the staff on the sleeping hero, Magic Missile. SCS opens with Mirror Image, Power Word Sleep
+    and Sleep and aims its Magic Missiles at the protagonist; the engine holds that opener, opens with Sleep
+    or Horror, never casts Mirror Image or Power Word Sleep on Core, and spreads its missiles by worth (a
+    light protagonist preference). Three fights ran into the two-minute limit: with his three Magic Missiles
+    spent and the party asleep, the engine's Tarnesh waited (casters do not walk into melee; SCS's mages
+    never melee either: `NeverMelee`). Questions for Christopher (2026-11-04): should a caster with nothing
+    left beat a helpless foe with its weapon, and is the light preference right when SCS's missiles end the
+    game by killing the protagonist? Tarnesh also carries a Scroll of Magic Missile nobody reads.
+  - The four other encounters' ways in (flows, 2026-11-04): Neira and Greywolf work in both modes (Prism's
+    plea, Greywolf's cutscene, Kestrel created by the engine on Core); Karlat's and Silke's needed two lab
+    fixes (see ENCOUNTERS.md: the NPC list's names, a party made out of the creature's sight).
 - Encounter tooling (2026-11-04, Christopher: build each encounter faster than the last): the guide
   [docs/ENCOUNTERS.md](../ENCOUNTERS.md) with a checklist, where each decision goes and the pitfalls so far,
   and `tools/scout.py`, which shows everything about a creature in one command.

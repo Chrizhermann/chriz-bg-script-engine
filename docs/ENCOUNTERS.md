@@ -115,4 +115,8 @@ creates the creature, so a playthrough may differ (scout shows the odds).
   file, script or spawn file: Garrick (`GARRIC`) in Beregost at (2504.2270), Khalid and Jaheira inside the
   Friendly Arm Inn (`BG2301`). A search of areas, scripts, dialogs and INI files finds no Garrick at all;
   `scout.py --where` reads the list. A save names an NPC whose copy it holds `*` and its file name from the
-  second letter on (`*ARRIC`).
+  second letter on (`*ARRIC`), and in the game that NPC's file name reads the same, so a lookup by `GARRIC`
+  finds nobody (the encounter lab's first Silke runs).
+- Testing a talk-on-sight creature in a small room: the console's move (`C:MoveToArea`) drops the party
+  inside, where Karlat sees it at once and sets off to talk; moved again, it is gone, and `INITDLG` does not
+  try a second time. Make the party in the street and let it walk in through the door (`LeaveAreaLUA`).
