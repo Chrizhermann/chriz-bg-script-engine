@@ -498,6 +498,9 @@ H[332]=function(c,e,who,p)
     local r=kind(c,e.p1>0 and 'buff' or 'debuff','damagePercent',who,e,p)
     tally(set(r,'damagePercentBy'),e.p2,math.abs(e.p1)*p)
 end
+-- Unlock (Knock; IESDP: it "only works on locks that can normally be picked"): a door's lock, for the
+-- engine's search (combat-intent/doors.lua, doors.way).
+H[125]=function(c,e,who,p) kind(c,'unlock','door',who,e,p) end
 -- Teleport Field (IESDP): each delivery sends the receiver off in a random direction, up to parameter
 -- 1 away (measured as a projectile's radius); teleportRange keeps the farthest.
 H[222]=function(c,e,who,p)

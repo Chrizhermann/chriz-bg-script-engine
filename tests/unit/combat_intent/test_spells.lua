@@ -356,6 +356,8 @@ c=one(fx(0,{p1=4,p2=2,target=1}),{target=5})
 assert(c.roles.protection.kinds.armor and c.roles.protection.amounts.armor==4)
 assert(one(fx(0,{p1=-2})).roles.debuff.kinds.armor)
 assert(one(fx(222,{p1=160})).roles.debuff.kinds.teleportField)
+-- Knock's unlocking, for the engine's door search.
+assert(one(fx(125)).roles.unlock.kinds.door)
 -- Teleport Field's range, the farthest of its deliveries.
 assert(one(fx(222,{p1=160})).roles.debuff.amounts.teleportRange==160)
 assert(one(fx(120,{p1=3,target=1}),{target=5}).roles.protection.weapons[0]==3)

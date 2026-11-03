@@ -923,7 +923,8 @@ Christopher's answers of 2026-10-29 to what the engine still lacks for a fight o
   door, opened it and walked through. Next: doors in a real search. Christopher, 2026-11-03: a locked
   door may also be opened by picking the lock (thieves), bashing it (strong fighters) or Knock (mages),
   not only with the key, and creatures look behind doors without any trace, as SCS does ("Können wir
-  gerne alles so machen").
+  gerne alles so machen"). Built the same day except bashing, which waits for the lock probe's numbers
+  (FIGHT-01, "Doors").
 - **Hurt creatures heal where they stand.** A potion is "quasi nur ein paar Millisekunden": no
   general retreat to heal, and no big focus on enemies going far away. Rare, chosen cases may come
   (a clever foe that flees more cleverly, priests that keep strong fighters alive), designed case by

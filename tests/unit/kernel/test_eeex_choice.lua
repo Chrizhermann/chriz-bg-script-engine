@@ -3621,6 +3621,16 @@ assert(choices.doorResponse({x=130,y=0})=='MoveToPoint([130.0])\nOpenDoor(EEex_T
 assert(choices.doorResponse({x=380.6,y=10},{x=496,y=0})==
     'MoveToPoint([380.10])\nOpenDoor(EEex_Target("BGSE"))\nMoveToPoint([496.0])')
 assert(choices.doorResponse({x=130,y=0},{x=1.5,y=0})=='MoveToPoint([130.0])\nOpenDoor(EEex_Target("BGSE"))')
+-- A locked door: its lock first (picked, the unlocking spell cast at it, or bashed), then OpenDoor; a key
+-- needs nothing more, and a spell name that cannot go into the response is left out.
+assert(choices.doorResponse({x=130,y=0},nil,'pick')==
+    'MoveToPoint([130.0])\nPickLock(EEex_Target("BGSE"))\nOpenDoor(EEex_Target("BGSE"))')
+assert(choices.doorResponse({x=130,y=0},{x=496,y=0},'knock','SPWI207')==
+    'MoveToPoint([130.0])\nSpellRES("SPWI207",EEex_Target("BGSE"))\nOpenDoor(EEex_Target("BGSE"))\nMoveToPoint([496.0])')
+assert(choices.doorResponse({x=130,y=0},nil,'bash')==
+    'MoveToPoint([130.0])\nBashDoor(EEex_Target("BGSE"))\nOpenDoor(EEex_Target("BGSE"))')
+assert(choices.doorResponse({x=130,y=0},nil,'key')==choices.doorResponse({x=130,y=0}))
+assert(choices.doorResponse({x=130,y=0},nil,'knock','SP")X')==choices.doorResponse({x=130,y=0}))
 -- One action a line: the game reads one action from each line of a queued response, so an action
 -- after another on the same line never runs (the door probe, 2026-11-02: only the walk to the door
 -- ran; lab batch J: a weapon switch never attacked). Every response of several actions holds one
@@ -3640,6 +3650,8 @@ local function oneEach(text)
 end
 assert(not oneEach('MoveToPoint([130.0])OpenDoor(X)') and not oneEach('SelectWeaponAbility(35,0) AttackOneRound(X)'))
 assert(oneEach(choices.doorResponse({x=380.6,y=10},{x=496,y=0})) and oneEach(choices.doorResponse({x=130,y=0})))
+assert(oneEach(choices.doorResponse({x=130,y=0},{x=496,y=0},'knock','SPWI207')) and
+    oneEach(choices.doorResponse({x=130,y=0},nil,'bash')))
 assert(oneEach(choices.response({resref='TESTSSWD',kind='weapon',target=12,slot=35,abilityNum=0})))
 assert(oneEach(choices.response({resref='FLANK',kind='flank',point={x=248,y=100},slot=36,abilityNum=0})))
 assert(choices.chain('SelectWeaponAbility(35,0)','','AttackOneRound(X)')=='SelectWeaponAbility(35,0)\nAttackOneRound(X)')
@@ -3787,6 +3799,20 @@ assert(walks(g8,m8,last8))
 local g9,_,m9,_,last9=scene(479,nil,function(m) m.items[18]={cResRef=str('TESTKEY')} end,locked)
 g9.BGSE_Act(m9)
 assert(last9('door').door==50 and m9.aux.EEex_Target.BGSE==50)
+-- A lock of difficulty 50 (Christopher, 2026-11-03): a mage of Open Locks 60 picks it, held while it
+-- picks; one of 40 cannot, nor one at a lock whose difficulty cannot be read.
+local function hard(d) d.m_dwFlags=2;d.m_lockDifficulty=50 end
+local function picker(skill) return function(m) m.stats[26]=skill end end
+local g12,c12,m12,_,last12,claim12=scene(482,nil,picker(60),hard)
+g12.BGSE_Act(m12)
+assert(g12.queued[#g12.queued].text=='MoveToPoint([130.0])\nPickLock(EEex_Target("BGSE"))\nOpenDoor(EEex_Target("BGSE"))')
+assert(last12('door').way=='pick' and c12:inspect().search.counts.unlocks==1)
+m12.m_curAction={m_actionID=145}
+assert(claim12(160)==true and last12('door-end')==nil)
+local g13,_,m13,_,last13=scene(483,nil,picker(40),hard)
+assert(walks(g13,m13,last13))
+local g14,_,m14,_,last14=scene(484,nil,picker(100),function(d) d.m_dwFlags=2;d.m_lockDifficulty=nil end)
+assert(walks(g14,m14,last14))
 
 -- The seeker on its own (adapters/eeex/search.lua): a spot beyond a door in a danger zone counts as
 -- searched; a door whose spot lies in a zone is left for now and the search walks on; a try cut short
@@ -3851,6 +3877,30 @@ assert(broken:inspect().counts.doorFailures==2 and lastz('error').where=='door-o
 local after=0
 for _,row in ipairs(rowsz) do if row.kind=='error' then after=after+1 end end
 assert(after==errors+1)
+-- With nothing to go on, in a fight and indoors (the area's type, ARE header bit 0 clear), the seeker
+-- looks behind the closed door near it (SCS's door block); not outdoors, not a minute after its last
+-- sight of an enemy, not where the area's type cannot be read.
+local wq=doorWorld()
+local sq=wq.add(sprite(1,0,0,255,{m_pArea=wq.area}))
+wq.door(door(50,150))
+local frameq={area='AR0001',self={id=1,x=0,y=0,hp=40,maxHp=40,ea=255},enemies={}}
+local function quietSeeker()
+    return seekers.new(wq,{director={clues=function() return {} end,group=function() return {} end},reader=reader,
+        record=function() end})
+end
+local function lookAt(seeker,tick) return seeker:decide(sq,frameq,tick,'mage',clever,{},{},nil,nil) end
+local sq1=quietSeeker()
+sq1:fight(sq,frameq,100)
+wq.area.m_header={m_areaType=0}
+local dq=lookAt(sq1,200)
+assert(dq.kind=='door' and dq.door==50 and dq.behind and dq.behind.x>150)
+wq.area.m_header={m_areaType=1}
+assert(select(2,lookAt(sq1,200))=='no-clue')
+wq.area.m_header={m_areaType=0}
+assert(select(2,lookAt(sq1,100+61*15))=='no-clue')
+wq.area.m_header=nil
+assert(select(2,lookAt(sq1,200))=='no-clue')
+assert(select(2,lookAt(quietSeeker(),200))=='no-clue')
 -- A door that cannot be read is logged once ('door-read') and left out; the others still count.
 wz.door(door(56,200,{m_dwFlags='x'}))
 local faulty=fresh()

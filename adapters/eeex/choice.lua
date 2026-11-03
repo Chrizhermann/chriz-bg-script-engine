@@ -395,15 +395,23 @@ function M.response(decision)
     end
 end
 -- The response that opens a door (adapters/eeex/search.lua): the walk to point, where it is opened,
--- OpenDoor at EEex_Target (the caster's table names the door), and the walk on to behind when given,
--- one action a line.
-function M.doorResponse(point,behind)
+-- the way through a locked door's lock (way: 'pick' PickLock, 'knock' the unlocking spell cast at the
+-- door, 'bash' BashDoor; a key needs nothing, OpenDoor uses it), OpenDoor at EEex_Target (the caster's
+-- table names the door), and the walk on to behind when given, one action a line.
+function M.doorResponse(point,behind,way,spell)
     local walk='MoveToPoint(['..math.floor(point.x)..'.'..math.floor(point.y)..'])'
+    local door='EEex_Target("'..M.targetName..'")'
+    local unlock=''
+    if way=='pick' then unlock='PickLock('..door..')'
+    elseif way=='bash' then unlock='BashDoor('..door..')'
+    elseif way=='knock' and type(spell)=='string' and spell:match('^[%w_#%-]+$') then
+        unlock='SpellRES("'..spell..'",'..door..')'
+    end
     local on=''
     if type(behind)=='table' and whole(behind.x) and whole(behind.y) then
         on='MoveToPoint(['..behind.x..'.'..behind.y..'])'
     end
-    return chain(walk,'OpenDoor(EEex_Target("'..M.targetName..'"))',on)
+    return chain(walk,unlock,'OpenDoor('..door..')',on)
 end
 
 -- Whether a friend in frame (the creature itself or an ally it sees) has lost hit points, is held
@@ -1658,8 +1666,8 @@ function M.new(g,options)
                 clue=d.clue,aim=d.target,innate=d.innate}
         end
         if d.kind=='door' then
-            return {own=true,response=M.doorResponse(d.point,d.behind),kind='door',door=d.door,point=d.point,behind=d.behind,
-                toward=d.toward,clue=d.clue,target=d.target}
+            return {own=true,response=M.doorResponse(d.point,d.behind,d.way,d.spell),kind='door',door=d.door,point=d.point,
+                behind=d.behind,toward=d.toward,clue=d.clue,target=d.target,way=d.way,spell=d.spell}
         end
         return {own=true,response='MoveToPoint(['..d.point.x..'.'..d.point.y..'])',kind=d.kind,point=d.point,
             clue=d.clue,target=d.target,gaveUp=d.gaveUp,guard=d.guard}
@@ -2049,7 +2057,7 @@ function M.new(g,options)
             if not point then return 'skipped' end
             local behind=decision.behind and walkable(object,{point=decision.behind}) or nil
             name(object,decision.door)
-            decision.response=M.doorResponse(point,behind)
+            decision.response=M.doorResponse(point,behind,decision.way,decision.spell)
             seeker:door(object,decision,point,behind,tick)
         elseif decision.kind=='modal' then
             seeker:mode(object,tick)

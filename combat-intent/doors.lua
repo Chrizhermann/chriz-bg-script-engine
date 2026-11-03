@@ -13,8 +13,10 @@
 -- A door it failed to open (a door the game keeps shut, a lock it misjudged) is left for retrySeconds.
 -- Never: a door with an armed trap (the trap would spring on the creature), a secret door nobody has
 -- found, a door into another area, a "door" that blocks nothing when closed (areas keep cages, vines,
--- a harp and scripted barriers as doors without a leaf); a locked door only with its key (the game's
--- own rule).
+-- a harp and scripted barriers as doors without a leaf); a locked door only with a way through its lock
+-- (M.way: its key, picking it, Knock or bashing it).
+-- In a fight, indoors, with nothing to go on, a creature looks behind the nearest closed door near it
+-- (combat-intent/search.lua; SCS's door block above, Christopher, 2026-11-03).
 -- Inputs are plain values; nothing here touches the engine.
 local targeting=require('combat-intent.targeting')
 local M={}
@@ -67,12 +69,39 @@ function M.middle(door)
     return {x=(b.left+b.right)/2,y=(b.top+b.bottom)/2}
 end
 
+-- Ways through a locked door (Christopher, 2026-11-03: key, picking the lock, bashing it or Knock,
+-- "können wir gerne alles so machen"), the cheapest first: its key (OpenDoor opens a locked door for a
+-- creature that carries it, IESDP), picking the lock (success "depends on points in the Open Locks
+-- skill", IESDP: Open Locks at or above the door's lock difficulty), a ready spell that unlocks (opcode
+-- 125, Knock: it "only works on locks that can normally be picked", IESDP), bashing it (a chance each
+-- try, unlock.bash). A lock of difficulty unpickable can be neither picked nor knocked open, nor can one
+-- whose difficulty could not be read.
+M.unpickable=100
+-- Bashing is tried when a try succeeds at least this often.
+M.bashMin=0.05
+-- How the creature gets through door: 'open' when it is not locked, else 'key', 'pick', 'knock' or
+-- 'bash', the first it has; nil when it has none. unlock: what the creature has for locks (picks, its
+-- Open Locks; knock, the resref of a ready spell that unlocks; bash, its chance a try).
+function M.way(door,unlock)
+    if type(door)~='table' then return nil end
+    if door.locked~=true then return 'open' end
+    if door.key==true then return 'key' end
+    local u=type(unlock)=='table' and unlock or {}
+    local hard=number(door.difficulty) and door.difficulty or M.unpickable
+    if hard<M.unpickable then
+        if number(u.picks) and u.picks>=hard then return 'pick' end
+        if type(u.knock)=='string' and u.knock~='' then return 'knock' end
+    end
+    if number(u.bash) and u.bash>=M.bashMin then return 'bash' end
+    return nil
+end
+
 -- Whether door is one the creature may open: closed, with a box, a leaf that blocks the way when
 -- closed (blocks), not a secret door nobody has found (hidden), without an armed trap, not into
--- another area (travel), and not locked unless the creature carries its key (key).
-function M.usable(door)
+-- another area (travel), and not locked unless the creature has a way through the lock (M.way).
+function M.usable(door,unlock)
     return type(door)=='table' and number(door.id) and door.open==false and M.box(door)~=nil and door.blocks~=false and
-        door.hidden~=true and door.trapped~=true and door.travel~=true and (door.locked~=true or door.key==true)
+        door.hidden~=true and door.trapped~=true and door.travel~=true and M.way(door,unlock)~=nil
 end
 
 -- Whether the straight way from a to b crosses box, widened by margin (Liang and Barsky's clipping).
@@ -118,14 +147,14 @@ function M.beyond(from,door)
     return whole({x=c.x+dx/len*M.behind,y=c.y+dy/len*M.behind})
 end
 
--- The doors the creature may try now: usable, within reach, and not failed within retrySeconds
--- (input.failed: door id to the tick it failed).
+-- The doors the creature may try now: usable with what it has for locks (input.unlock), within reach,
+-- and not failed within retrySeconds (input.failed: door id to the tick it failed).
 local function candidates(input)
     local self=input.frame.self
     local failed=type(input.failed)=='table' and input.failed or {}
     local out={}
     for _,d in ipairs(list(input.doors)) do
-        if M.usable(d) and targeting.distance(self,M.middle(d))<=M.reach and
+        if M.usable(d,input.unlock) and targeting.distance(self,M.middle(d))<=M.reach and
             not (number(failed[d.id]) and input.tick>=failed[d.id] and
                 input.tick-failed[d.id]<M.retrySeconds*M.ticksPerSecond) then
             out[#out+1]=d

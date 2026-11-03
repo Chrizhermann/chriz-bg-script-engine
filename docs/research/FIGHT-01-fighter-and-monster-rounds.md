@@ -306,7 +306,25 @@ The engine searches with what the creature and its group perceived instead
     - Still to see in game: the door response in a real search.
     Christopher, 2026-11-03: a locked door may also be opened by picking the lock (thieves), bashing
     it (strong fighters) or Knock (mages), not only with the key, and creatures look behind doors
-    without any trace, as SCS does ("Können wir gerne alles so machen"). Still to build.
+    without any trace, as SCS does ("Können wir gerne alles so machen").
+  - *Locked doors* (built 2026-11-03, `doors.way`): the cheapest way the creature has, its key first,
+    then picking the lock when its Open Locks (STATS.IDS 26) reach the door's lock difficulty
+    (`m_lockDifficulty`, 0 to 100; IESDP: picking "depends on points in the Open Locks skill"), then a
+    ready spell that unlocks (opcode 125, Knock: it "only works on locks that can normally be picked",
+    IESDP), then bashing. A lock of 100, or one whose difficulty cannot be read, is neither picked nor
+    knocked open. The response puts the lock first: the walk, `PickLock`, `SpellRES` of the spell or
+    `BashDoor` at `EEex_Target`, then `OpenDoor` and the walk on, one action a line; it is held while
+    the creature picks, casts or bashes, 3 seconds longer than an open door. Bashing waits for the lock
+    probe's numbers (IESDP gives no rule for it), so no creature bashes yet.
+  - *Behind a door without a trace* (built 2026-11-03): with nothing to go on, a creature that saw an
+    enemy or was hit within the last minute, in an area that is no outdoor one (its ARE header's area
+    type), looks behind the nearest closed door it may open within 15 of where it stands, as SCS's
+    door block does (`genai/ssl/chase.ssl`: in a fight, not outdoors, no enemy within 30, a closed door
+    within 15). Where the area type cannot be read it does not.
+  - *The lock probe* (`.work/stepD-lab`, phases `locks`, the SR lab, nothing installed) waits for a
+    quiet PC: picking at difficulty 60 with Open Locks 30 and 100, and at 100; bashing at 60 by Strength
+    9 and 18/00, and at 100, each watched for a minute; Knock cast at the door at 60 and at 100; and how
+    the bindings name the area type.
 - **Tactics by wit** (`mind.tactics`, drawn once a search: clever always, normal in half its
   searches, dull never): leading a moving enemy along its last heading (up to 2 seconds, 150 at
   most), spreading out from members that search the same spot (80 apart), casters staying 120

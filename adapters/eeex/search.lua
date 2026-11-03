@@ -38,6 +38,17 @@ M.walkGrace=8
 M.walkMargin=30
 M.walkSpeed=100
 M.openTicks=15
+-- The actions that get a creature through a locked door (ACTION.IDS: PickLock, BashDoor, Spell for an
+-- unlocking spell), held as opening is, and unlockTicks more for the lock.
+M.UNLOCKING={[145]=true,[148]=true,[31]=true}
+M.unlockTicks=45
+-- STATS.IDS LOCKPICKING: the creature's Open Locks (combat-intent/doors.lua, doors.way).
+M.lockStat=26
+-- A creature that saw an enemy or was hit within fightSeconds is still in the fight: with nothing to
+-- go on, indoors, it looks behind a closed door near it (SCS's in-a-fight flag; combat-intent/search.lua).
+M.fightSeconds=60
+-- The ARE header's area type bit of an outdoor area (IESDP: 0x48, bit 0).
+M.OUTDOOR=0x1
 -- Ticks a look and the rogue's detection mode are held.
 M.lookTicks=15
 M.modalTicks=8
@@ -66,7 +77,7 @@ function M.new(g,options)
     local states,stateCount={},0
     local counts={hunts=0,walks=0,looks=0,returns=0,gaveUp=0,detects=0,modals=0,teleports=0,hitClues=0,guards=0,
         stuck=0,guardFailures=0,awaits=0,guardWalks=0,readyFailures=0,doors=0,doorsOpened=0,doorsShut=0,
-        doorFailures=0}
+        doorFailures=0,unlocks=0}
     local seeker={}
     local doorError
     -- The area's doors, read once a tick for each area.
@@ -150,6 +161,7 @@ function M.new(g,options)
         local id=frame.self.id
         local s=state(id)
         s.hp=frame.self.hp
+        s.fought=tick
         if not s.post then
             s.post={x=frame.self.x,y=frame.self.y}
             s.guard=guards(sprite,id,tick,orders)
@@ -275,6 +287,22 @@ function M.new(g,options)
         table.sort(out,function(a,b) return a.id<b.id end)
         return out
     end
+    -- What the creature has for locks (combat-intent/doors.lua, doors.way): its Open Locks and the
+    -- unlocking spell it has ready (search.unlocks). Bashing waits for the lock probe's numbers.
+    local function locks(sprite,rows)
+        local ok,picks=pcall(g.EEex_Sprite_GetStat,sprite,M.lockStat)
+        return {picks=ok and type(picks)=='number' and picks or nil,knock=search.unlocks(rows)}
+    end
+    -- Whether the creature's area is no outdoor one (its ARE header's area type); nil when it cannot be
+    -- read, so no door is looked behind without a clue.
+    local function indoors(sprite)
+        local ok,kind=pcall(function() return sprite.m_pArea.m_header.m_areaType end)
+        if not ok or type(kind)~='number' then
+            ok,kind=pcall(function() return sprite.m_pArea.m_header.reference.m_areaType end)
+        end
+        if not ok or type(kind)~='number' then return nil end
+        return g.EEex_BAnd(kind,M.OUTDOOR)==0
+    end
     -- A rogue's Detect Illusion skill, unless its detection mode is on already or it hides in shadows.
     local function illusion(sprite)
         local ok,mode=pcall(function() return sprite.m_nModalState end)
@@ -292,7 +320,10 @@ function M.new(g,options)
         local id=self.id
         local s=state(id)
         s.family,s.area=family,frame.area
-        if type(s.hp)=='number' and type(self.hp)=='number' and self.hp<s.hp then hit(s,sprite,frame,tick,s.hp-self.hp) end
+        if type(s.hp)=='number' and type(self.hp)=='number' and self.hp<s.hp then
+            s.fought=tick
+            hit(s,sprite,frame,tick,s.hp-self.hp)
+        end
         s.hp=self.hp
         local patience=search.patience({mind=m,frame=frame})
         local away,out=director and director.away and director:away(id,tick) or {},{}
@@ -310,16 +341,19 @@ function M.new(g,options)
                 guard=s.guard or nil,wit=m.wit})
         end
         local opener=opens(sprite,m,orders)
-        local doorList
+        local doorList,unlock,inside
         if opener then
             local ok,v=pcall(doorsOf,sprite,frame,tick)
             if ok then doorList=v else doorFailed('door-read',v) end
+            unlock=locks(sprite,rows)
+            inside=indoors(sprite)
         end
+        local fighting=type(s.fought)=='number' and tick>=s.fought and tick-s.fought<=M.fightSeconds*M.ticksPerSecond
         local d,why=search.decide({tick=tick,frame=frame,mind=m,family=family,clues=list,post=s.post,since=s.since,
             searched=s.searched,gaveUp=s.gaveUp,detected=s.detected,jumped=s.jumped,group=group(id,frame.area,tick),
             guard=s.guard,detects=search.options(rows,carried),teleports=search.teleports(rows),illusion=illusion(sprite),
             tactical=s.tactical,away=away,await=type(orders)=='table' and orders.await or nil,opener=opener,
-            doors=doorList,failed=s.doors})
+            doors=doorList,failed=s.doors,unlock=unlock,fighting=fighting,indoors=inside})
         if not d then
             if why=='given-up' then
                 giveUp(s,id,tick,newest and 'patience' or 'no-clue')
@@ -424,12 +458,14 @@ function M.new(g,options)
         local s=state(id)
         local from={x=sprite.m_pos.x,y=sprite.m_pos.y}
         local walk=targeting.distance(from,point)+(behind and targeting.distance(point,behind) or 0)
-        s.act={kind='door',door=decision.door,tick=tick,
-            limit=math.ceil(walk/M.walkSpeed*M.ticksPerSecond*2)+M.walkMargin+M.openTicks}
+        s.act={kind='door',door=decision.door,way=decision.way,tick=tick,
+            limit=math.ceil(walk/M.walkSpeed*M.ticksPerSecond*2)+M.walkMargin+M.openTicks+(decision.way and M.unlockTicks or 0)}
         s.aim,s.aimTick=behind or point,tick
         counts.doors=counts.doors+1
+        if decision.way then counts.unlocks=counts.unlocks+1 end
         record({kind='door',tick=tick,member=id,door=decision.door,from=from,to=point,behind=behind,
-            toward=decision.toward,clue=decision.clue,target=decision.target,tactical=s.tactical})
+            toward=decision.toward,clue=decision.clue,target=decision.target,tactical=s.tactical,way=decision.way,
+            spell=decision.spell})
     end
     -- A door's try, over (why: 'time', 'done' once the creature neither walks nor opens, 'hurt',
     -- 'enemy', or seeker:stop's): open, or shut and left for doors.retrySeconds when the creature
@@ -441,7 +477,7 @@ function M.new(g,options)
             counts.doorsShut=counts.doorsShut+1
             s.doors[a.door]=tick
         end
-        record({kind='door-end',tick=tick,member=id,door=a.door,open=open,why=why})
+        record({kind='door-end',tick=tick,member=id,door=a.door,open=open,why=why,way=a.way})
     end
     -- The teleport prepared for a search (decision: its spell, clue and target), to point, an open
     -- spot: cast like the engine's other casts, which hold it; the members spread out from its spot.
@@ -478,7 +514,7 @@ function M.new(g,options)
         if tick<a.tick or tick-a.tick>=a.limit then why='time' end
         if not why and (a.kind=='walk' or a.kind=='door') and tick-a.tick>=M.walkGrace then
             local action=sprite.m_curAction.m_actionID
-            if action~=M.MOVE and (a.kind=='walk' or action~=M.OPEN) then why='done' end
+            if action~=M.MOVE and (a.kind=='walk' or (action~=M.OPEN and not M.UNLOCKING[action])) then why='done' end
         end
         if not why and type(s.hp)=='number' and sprite.m_baseStats.m_hitPoints<s.hp then why='hurt' end
         if not why and sense.seesEnemy(g,sprite) then why='enemy' end

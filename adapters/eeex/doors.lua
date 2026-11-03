@@ -6,7 +6,9 @@
 -- least 3 points, that impedes search-map cells, m_nClosedSearch: areas also keep cages, vines, a harp
 -- and scripted barriers as doors without one), the two spots the game gives for opening it
 -- (m_ptDest1, m_ptDest2), the travel trigger it is linked to (m_triggerName: a door into another
--- area), its key (m_keyType) and its trap (m_trapActivated) come from the same object. A door that
+-- area), its key (m_keyType), its lock difficulty (m_lockDifficulty, 0 to 100) and its trap
+-- (m_trapActivated) come from the same object. A door whose lock difficulty cannot be read counts as
+-- one that cannot be picked (combat-intent/doors.lua, doors.way). A door that
 -- cannot be read is left out; a door whose trap or travel link cannot be read counts as trapped or as
 -- a way out, so the search leaves it shut (fail soft). Session-local: nothing is kept past the tick.
 local sense=require('adapters.eeex.sense')
@@ -58,12 +60,13 @@ local function plain(g,id,object)
     if first then points[#points+1]=first end
     if second then points[#points+1]=second end
     local okTrap,trap=pcall(function() return d.m_trapActivated end)
+    local okHard,hard=pcall(function() return d.m_lockDifficulty end)
     local travel=text(d.m_triggerName)
     local key=text(d.m_keyType)
     return {id=id,open=band(flags,M.OPEN)~=0,locked=band(flags,M.LOCKED)~=0,blocks=outline>=3 and cells>0,
         hidden=band(flags,M.SECRET)~=0 and band(flags,M.FOUND)==0,
         trapped=not (okTrap and number(trap) and trap==0),travel=travel==nil or travel~='',
-        keyType=key~=nil and key~='' and key or nil,box=box,points=points}
+        keyType=key~=nil and key~='' and key or nil,difficulty=okHard and number(hard) and hard or nil,box=box,points=points}
 end
 
 -- The doors of area as plain values (each read anew, the key not yet looked at), the count of

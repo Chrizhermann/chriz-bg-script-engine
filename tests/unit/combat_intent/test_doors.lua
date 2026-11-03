@@ -173,4 +173,58 @@ d=search.decide(input({frame={self=at,enemies={},allies={}},clues={here},opener=
 assert(d.kind=='door' and d.door==12)
 groups=groups+1
 
+-- 9. Locked doors (Christopher, 2026-11-03: key, picking, Knock or bashing, "können wir gerne alles so
+-- machen"), the cheapest way first: the key, then picking with Open Locks at or above the lock's
+-- difficulty, then a ready unlocking spell (only on a lock that can be picked), then bashing. A lock of
+-- 100, or of unknown difficulty, is neither picked nor knocked open; bashing needs a fair chance.
+local locked=function(fields) local f={locked=true,difficulty=60};for k,v in pairs(fields or {}) do f[k]=v end;return door(1,0,0,f) end
+assert(doors.way(door(1,0,0))=='open' and doors.way(locked({key=true}),{picks=100,knock='SPWI207'})=='key')
+assert(doors.way(locked(),{picks=60})=='pick' and doors.way(locked(),{picks=59})==nil)
+assert(doors.way(locked(),{picks=30,knock='SPWI207',bash=0.5})=='knock' and doors.way(locked(),{knock=''})==nil)
+assert(doors.way(locked(),{bash=0.5})=='bash' and doors.way(locked(),{bash=doors.bashMin/2})==nil)
+assert(doors.way(locked({difficulty=100}),{picks=100,knock='SPWI207'})==nil and
+    doors.way(locked({difficulty=100}),{picks=100,bash=0.3})=='bash')
+local unread=locked();unread.difficulty=nil
+assert(doors.way(unread,{picks=100,knock='SPWI207'})==nil and doors.way(nil)==nil)
+assert(doors.usable(locked(),{picks=80})==true and doors.usable(locked())==false and doors.usable(locked(),{picks=10})==false)
+-- In the search: the way goes with the door decision, and Knock names its spell.
+local barred=door(6,1150,1000,{locked=true,difficulty=40})
+d=search.decide(input({clues={seen},opener=true,doors={barred},unlock={picks=50}}))
+assert(d.kind=='door' and d.door==6 and d.way=='pick' and d.spell==nil and d.toward.x==1300)
+d=search.decide(input({clues={seen},opener=true,doors={barred},unlock={knock='SPWI207'}}))
+assert(d.kind=='door' and d.way=='knock' and d.spell=='SPWI207')
+d=search.decide(input({clues={seen},opener=true,doors={barred}}))
+assert(d.kind=='search')
+d=search.decide(input({clues={seen},opener=true,doors={door(6,1150,1000)}}))
+assert(d.kind=='door' and d.way==nil)
+-- The unlocking spell the creature has ready: the lowest level, ties by name; none spent or unusable.
+local unlocking={roles={unlock={kinds={door=true},who={target=true}}},level=2}
+local function book(resref,fields)
+    local r={resref=resref,ready=1,usable=true,spell=unlocking}
+    for k,v in pairs(fields or {}) do r[k]=v end
+    return r
+end
+assert(search.unlocks({book('SPWI207'),book('XXKNOCK',{level=1})})=='XXKNOCK')
+assert(search.unlocks({book('SPWI207',{ready=0}),book('XXKNOCK',{usable=false})})==nil)
+assert(search.unlocks({book('B'),book('A')})=='A' and search.unlocks({{resref='X',ready=1,usable=true,spell={roles={}}}})==nil)
+groups=groups+1
+
+-- 10. With nothing to go on, in a fight and indoors, the creature looks behind the nearest closed door
+-- near it (SCS's door block); not outdoors, not out of a fight, not without hands, not rooted, not a
+-- door beyond nearSpot.
+local here10=self({x=1300,y=1000})
+local function idle(fields)
+    local i=input({frame={self=here10,enemies={},allies={}},opener=true,doors={east},fighting=true,indoors=true})
+    for k,v in pairs(fields or {}) do i[k]=v end
+    return search.decide(i)
+end
+d=idle()
+assert(d.kind=='door' and d.door==12 and d.behind.x==1400+doors.behind and d.clue==nil and d.key==nil)
+assert(select(2,idle({indoors=false}))=='no-clue' and select(2,idle({fighting=false}))=='no-clue')
+assert(select(2,idle({opener=false}))=='no-clue' and select(2,idle({doors={door(14,1600,1000)}}))=='no-clue')
+assert(select(2,idle({frame={self=self({x=1300,y=1000,rooted=true}),enemies={},allies={}}}))=='no-clue')
+d=idle({doors={door(12,1400,1000,{locked=true,difficulty=20})},unlock={picks=20}})
+assert(d.kind=='door' and d.way=='pick')
+groups=groups+1
+
 return groups

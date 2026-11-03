@@ -948,6 +948,9 @@ H[332]=function(c,e,who,p)
     local r=kind(c,e.p1>0 and 'buff' or 'debuff','damagePercent',who,e,p)
     tally(set(r,'damagePercentBy'),e.p2,math.abs(e.p1)*p)
 end
+-- Unlock (Knock; IESDP: it "only works on locks that can normally be picked"): a door's lock, for the
+-- engine's search (combat-intent/doors.lua, doors.way).
+H[125]=function(c,e,who,p) kind(c,'unlock','door',who,e,p) end
 -- Teleport Field (IESDP): each delivery sends the receiver off in a random direction, up to parameter
 -- 1 away (measured as a projectile's radius); teleportRange keeps the farthest.
 H[222]=function(c,e,who,p)
@@ -9338,8 +9341,10 @@ factories["combat-intent.doors"]=function(require)
 -- A door it failed to open (a door the game keeps shut, a lock it misjudged) is left for retrySeconds.
 -- Never: a door with an armed trap (the trap would spring on the creature), a secret door nobody has
 -- found, a door into another area, a "door" that blocks nothing when closed (areas keep cages, vines,
--- a harp and scripted barriers as doors without a leaf); a locked door only with its key (the game's
--- own rule).
+-- a harp and scripted barriers as doors without a leaf); a locked door only with a way through its lock
+-- (M.way: its key, picking it, Knock or bashing it).
+-- In a fight, indoors, with nothing to go on, a creature looks behind the nearest closed door near it
+-- (combat-intent/search.lua; SCS's door block above, Christopher, 2026-11-03).
 -- Inputs are plain values; nothing here touches the engine.
 local targeting=require('combat-intent.targeting')
 local M={}
@@ -9392,12 +9397,39 @@ function M.middle(door)
     return {x=(b.left+b.right)/2,y=(b.top+b.bottom)/2}
 end
 
+-- Ways through a locked door (Christopher, 2026-11-03: key, picking the lock, bashing it or Knock,
+-- "können wir gerne alles so machen"), the cheapest first: its key (OpenDoor opens a locked door for a
+-- creature that carries it, IESDP), picking the lock (success "depends on points in the Open Locks
+-- skill", IESDP: Open Locks at or above the door's lock difficulty), a ready spell that unlocks (opcode
+-- 125, Knock: it "only works on locks that can normally be picked", IESDP), bashing it (a chance each
+-- try, unlock.bash). A lock of difficulty unpickable can be neither picked nor knocked open, nor can one
+-- whose difficulty could not be read.
+M.unpickable=100
+-- Bashing is tried when a try succeeds at least this often.
+M.bashMin=0.05
+-- How the creature gets through door: 'open' when it is not locked, else 'key', 'pick', 'knock' or
+-- 'bash', the first it has; nil when it has none. unlock: what the creature has for locks (picks, its
+-- Open Locks; knock, the resref of a ready spell that unlocks; bash, its chance a try).
+function M.way(door,unlock)
+    if type(door)~='table' then return nil end
+    if door.locked~=true then return 'open' end
+    if door.key==true then return 'key' end
+    local u=type(unlock)=='table' and unlock or {}
+    local hard=number(door.difficulty) and door.difficulty or M.unpickable
+    if hard<M.unpickable then
+        if number(u.picks) and u.picks>=hard then return 'pick' end
+        if type(u.knock)=='string' and u.knock~='' then return 'knock' end
+    end
+    if number(u.bash) and u.bash>=M.bashMin then return 'bash' end
+    return nil
+end
+
 -- Whether door is one the creature may open: closed, with a box, a leaf that blocks the way when
 -- closed (blocks), not a secret door nobody has found (hidden), without an armed trap, not into
--- another area (travel), and not locked unless the creature carries its key (key).
-function M.usable(door)
+-- another area (travel), and not locked unless the creature has a way through the lock (M.way).
+function M.usable(door,unlock)
     return type(door)=='table' and number(door.id) and door.open==false and M.box(door)~=nil and door.blocks~=false and
-        door.hidden~=true and door.trapped~=true and door.travel~=true and (door.locked~=true or door.key==true)
+        door.hidden~=true and door.trapped~=true and door.travel~=true and M.way(door,unlock)~=nil
 end
 
 -- Whether the straight way from a to b crosses box, widened by margin (Liang and Barsky's clipping).
@@ -9443,14 +9475,14 @@ function M.beyond(from,door)
     return whole({x=c.x+dx/len*M.behind,y=c.y+dy/len*M.behind})
 end
 
--- The doors the creature may try now: usable, within reach, and not failed within retrySeconds
--- (input.failed: door id to the tick it failed).
+-- The doors the creature may try now: usable with what it has for locks (input.unlock), within reach,
+-- and not failed within retrySeconds (input.failed: door id to the tick it failed).
 local function candidates(input)
     local self=input.frame.self
     local failed=type(input.failed)=='table' and input.failed or {}
     local out={}
     for _,d in ipairs(list(input.doors)) do
-        if M.usable(d) and targeting.distance(self,M.middle(d))<=M.reach and
+        if M.usable(d,input.unlock) and targeting.distance(self,M.middle(d))<=M.reach and
             not (number(failed[d.id]) and input.tick>=failed[d.id] and
                 input.tick-failed[d.id]<M.retrySeconds*M.ticksPerSecond) then
             out[#out+1]=d
@@ -9544,7 +9576,9 @@ factories["combat-intent.search"]=function(require)
 --   the foe comes back (combat-intent/choice.lua's readiness), by when that is likely (M.mazeLeft).
 -- - doors (Christopher, 2026-10-29: "muss rein"; combat-intent/doors.lua): a creature with hands for
 --   a door opens a closed one that its way to a spot crosses, and on a searched spot, or with none
---   left, looks behind a closed door nearby.
+--   left, looks behind a closed door nearby; in a fight, indoors, with nothing to go on at all, it
+--   looks behind the nearest closed door near it, as SCS does (Christopher, 2026-11-03). A locked door
+--   it opens with its key, by picking the lock, with Knock or by bashing it (doors.way).
 -- Inputs are plain values; nothing here touches the engine.
 local targeting=require('combat-intent.targeting')
 local doors=require('combat-intent.doors')
@@ -9722,6 +9756,20 @@ function M.options(rows,carried)
         end
     end
     return out
+end
+
+-- The ready spell that unlocks a door (opcode 125, Knock: doors.way), the lowest level first, ties by
+-- name: its resref, or nil.
+function M.unlocks(rows)
+    local best,bestLevel
+    for _,row in ipairs(list(rows)) do
+        if type(row)=='table' and type(row.resref)=='string' and number(row.ready) and row.ready>0 and row.usable and
+            type(row.spell)=='table' and type(row.spell.roles)=='table' and type(row.spell.roles.unlock)=='table' then
+            local level=number(row.level) and row.level or number(row.spell.level) and row.spell.level or 9
+            if not best or level<bestLevel or (level==bestLevel and row.resref<best) then best,bestLevel=row.resref,level end
+        end
+    end
+    return best
 end
 
 -- One teleport from a classified spell c (combat-intent/spells.lua), or nil: cast at a point, it
@@ -10040,9 +10088,11 @@ end
 -- {kind='return', point} (given up, or kept near its post: back there); while foes are out of play
 -- and nothing else is left to search, how it awaits them (M.await: a 'guard' walk, a 'return' or a
 -- 'look' with await set);
--- {kind='door', door, point, toward or behind, clue, target, key, searched} (combat-intent/doors.lua:
--- point where the creature stands to open door; toward the spot it walks on to afterwards, or behind
--- the spot behind the door it looks from).
+-- {kind='door', door, point, toward or behind, clue, target, key, searched, way, spell}
+-- (combat-intent/doors.lua: point where the creature stands to open door; toward the spot it walks on to
+-- afterwards, or behind the spot behind the door it looks from; way how it gets through a locked door,
+-- 'key', 'pick', 'knock' or 'bash', and spell the unlocking spell for 'knock'; no way for a door that is
+-- not locked).
 -- input: tick; frame (self: x, y, hp, maxHp, moraleBreak, seeInvisible, rooted; enemies empty);
 -- mind (wit, tactics, searchPatience); family; clues; post; since (the tick its search began, if
 -- it searches); searched (keys of searched spots); gaveUp (the tick the creature gave up, if it
@@ -10050,10 +10100,21 @@ end
 -- group (other members: {id, family, point}); guard; detects (see M.detection); teleports (see
 -- M.jump); illusion (its Detect Illusion skill); tactical (M.draw's, once a search); away (foes out
 -- of play, M.await) and await (its orders' way to await them); opener (whether it can open doors,
--- doors.opener), doors (the area's doors, see doors.usable) and failed (door id to the tick it
--- failed to open it).
+-- doors.opener), doors (the area's doors, see doors.usable), unlock (what it has for locks, see
+-- doors.way), failed (door id to the tick it failed to open it), fighting (it fought lately) and
+-- indoors (its area is no outdoor one).
 -- The decision says what the adapter keeps: searched (a key now searched), gaveUp (true when the
 -- creature gives up now).
+-- A door decision d for door, with the way through its lock (doors.way) when it is locked, and for
+-- Knock the spell's resref.
+local function opening(input,door,d)
+    local way=doors.way(door,input.unlock)
+    if way and way~='open' then
+        d.way=way
+        if way=='knock' then d.spell=input.unlock.knock end
+    end
+    return d
+end
 function M.decide(input)
     if type(input)~='table' or type(input.frame)~='table' or type(input.frame.self)~='table' or
         type(input.mind)~='table' or not number(input.tick) then return nil,'bad-input' end
@@ -10072,18 +10133,7 @@ function M.decide(input)
     end
     local newest
     for _,c in ipairs(clues) do if not newest or c.tick>newest then newest=c.tick end end
-    if not newest then
-        -- Nothing to go on: one that searched goes back to its post; foes out of play are awaited.
-        if number(input.gaveUp) or number(input.since) then return back(not number(input.gaveUp)) end
-        local d=M.await(input)
-        if d then return d end
-        return nil,'no-clue'
-    end
-    -- Given up, and nothing new since: back to the post, then the creature's own life.
-    if number(input.gaveUp) and newest<=input.gaveUp then return back() end
-    if (input.tick-newest)/M.ticksPerSecond>patience then return back(true) end
     local tactical=M.tactical(input)
-    local searched=type(input.searched)=='table' and input.searched or {}
     -- A door to look behind from where the creature stands (a guard's only near its post), led by
     -- the heading of the newest clue that has one.
     local function behind(lead)
@@ -10095,8 +10145,26 @@ function M.decide(input)
         end
         local d=doors.near(input,self,lead,tactical)
         if not d or (input.guard and post and targeting.distance(post,doors.middle(d))>M.guardRadius) then return nil end
-        return {kind='door',door=d.id,point=doors.access(self,d),behind=doors.beyond(self,d)}
+        return opening(input,d,{kind='door',door=d.id,point=doors.access(self,d),behind=doors.beyond(self,d)})
     end
+    if not newest then
+        -- Nothing to go on. In a fight, indoors, the creature looks behind the nearest closed door near
+        -- it (SCS's door block, genai/ssl/chase.ssl: in a fight, not outdoors, no enemy near, a closed
+        -- door within 15; Christopher, 2026-11-03: "können wir gerne alles so machen").
+        if input.fighting==true and input.indoors==true then
+            local d=behind()
+            if d then return d end
+        end
+        -- One that searched goes back to its post; foes out of play are awaited.
+        if number(input.gaveUp) or number(input.since) then return back(not number(input.gaveUp)) end
+        local d=M.await(input)
+        if d then return d end
+        return nil,'no-clue'
+    end
+    -- Given up, and nothing new since: back to the post, then the creature's own life.
+    if number(input.gaveUp) and newest<=input.gaveUp then return back() end
+    if (input.tick-newest)/M.ticksPerSecond>patience then return back(true) end
+    local searched=type(input.searched)=='table' and input.searched or {}
     local clue=best(input,clues,searched)
     if not clue then return behind() or {kind='look'} end
     local key=M.key(clue)
@@ -10135,7 +10203,8 @@ function M.decide(input)
     if input.opener==true then
         local d=doors.between(input,p)
         if d then
-            return {kind='door',door=d.id,point=doors.access(self,d),toward=p,clue=clue.kind,target=clue.id,key=key}
+            return opening(input,d,{kind='door',door=d.id,point=doors.access(self,d),toward=p,clue=clue.kind,
+                target=clue.id,key=key})
         end
     end
     local o,at=M.jump(input,p,walk,tactical)
@@ -11866,7 +11935,9 @@ factories["adapters.eeex.doors"]=function(require)
 -- least 3 points, that impedes search-map cells, m_nClosedSearch: areas also keep cages, vines, a harp
 -- and scripted barriers as doors without one), the two spots the game gives for opening it
 -- (m_ptDest1, m_ptDest2), the travel trigger it is linked to (m_triggerName: a door into another
--- area), its key (m_keyType) and its trap (m_trapActivated) come from the same object. A door that
+-- area), its key (m_keyType), its lock difficulty (m_lockDifficulty, 0 to 100) and its trap
+-- (m_trapActivated) come from the same object. A door whose lock difficulty cannot be read counts as
+-- one that cannot be picked (combat-intent/doors.lua, doors.way). A door that
 -- cannot be read is left out; a door whose trap or travel link cannot be read counts as trapped or as
 -- a way out, so the search leaves it shut (fail soft). Session-local: nothing is kept past the tick.
 local sense=require('adapters.eeex.sense')
@@ -11918,12 +11989,13 @@ local function plain(g,id,object)
     if first then points[#points+1]=first end
     if second then points[#points+1]=second end
     local okTrap,trap=pcall(function() return d.m_trapActivated end)
+    local okHard,hard=pcall(function() return d.m_lockDifficulty end)
     local travel=text(d.m_triggerName)
     local key=text(d.m_keyType)
     return {id=id,open=band(flags,M.OPEN)~=0,locked=band(flags,M.LOCKED)~=0,blocks=outline>=3 and cells>0,
         hidden=band(flags,M.SECRET)~=0 and band(flags,M.FOUND)==0,
         trapped=not (okTrap and number(trap) and trap==0),travel=travel==nil or travel~='',
-        keyType=key~=nil and key~='' and key or nil,box=box,points=points}
+        keyType=key~=nil and key~='' and key or nil,difficulty=okHard and number(hard) and hard or nil,box=box,points=points}
 end
 
 -- The doors of area as plain values (each read anew, the key not yet looked at), the count of
@@ -12026,6 +12098,17 @@ M.walkGrace=8
 M.walkMargin=30
 M.walkSpeed=100
 M.openTicks=15
+-- The actions that get a creature through a locked door (ACTION.IDS: PickLock, BashDoor, Spell for an
+-- unlocking spell), held as opening is, and unlockTicks more for the lock.
+M.UNLOCKING={[145]=true,[148]=true,[31]=true}
+M.unlockTicks=45
+-- STATS.IDS LOCKPICKING: the creature's Open Locks (combat-intent/doors.lua, doors.way).
+M.lockStat=26
+-- A creature that saw an enemy or was hit within fightSeconds is still in the fight: with nothing to
+-- go on, indoors, it looks behind a closed door near it (SCS's in-a-fight flag; combat-intent/search.lua).
+M.fightSeconds=60
+-- The ARE header's area type bit of an outdoor area (IESDP: 0x48, bit 0).
+M.OUTDOOR=0x1
 -- Ticks a look and the rogue's detection mode are held.
 M.lookTicks=15
 M.modalTicks=8
@@ -12054,7 +12137,7 @@ function M.new(g,options)
     local states,stateCount={},0
     local counts={hunts=0,walks=0,looks=0,returns=0,gaveUp=0,detects=0,modals=0,teleports=0,hitClues=0,guards=0,
         stuck=0,guardFailures=0,awaits=0,guardWalks=0,readyFailures=0,doors=0,doorsOpened=0,doorsShut=0,
-        doorFailures=0}
+        doorFailures=0,unlocks=0}
     local seeker={}
     local doorError
     -- The area's doors, read once a tick for each area.
@@ -12138,6 +12221,7 @@ function M.new(g,options)
         local id=frame.self.id
         local s=state(id)
         s.hp=frame.self.hp
+        s.fought=tick
         if not s.post then
             s.post={x=frame.self.x,y=frame.self.y}
             s.guard=guards(sprite,id,tick,orders)
@@ -12263,6 +12347,22 @@ function M.new(g,options)
         table.sort(out,function(a,b) return a.id<b.id end)
         return out
     end
+    -- What the creature has for locks (combat-intent/doors.lua, doors.way): its Open Locks and the
+    -- unlocking spell it has ready (search.unlocks). Bashing waits for the lock probe's numbers.
+    local function locks(sprite,rows)
+        local ok,picks=pcall(g.EEex_Sprite_GetStat,sprite,M.lockStat)
+        return {picks=ok and type(picks)=='number' and picks or nil,knock=search.unlocks(rows)}
+    end
+    -- Whether the creature's area is no outdoor one (its ARE header's area type); nil when it cannot be
+    -- read, so no door is looked behind without a clue.
+    local function indoors(sprite)
+        local ok,kind=pcall(function() return sprite.m_pArea.m_header.m_areaType end)
+        if not ok or type(kind)~='number' then
+            ok,kind=pcall(function() return sprite.m_pArea.m_header.reference.m_areaType end)
+        end
+        if not ok or type(kind)~='number' then return nil end
+        return g.EEex_BAnd(kind,M.OUTDOOR)==0
+    end
     -- A rogue's Detect Illusion skill, unless its detection mode is on already or it hides in shadows.
     local function illusion(sprite)
         local ok,mode=pcall(function() return sprite.m_nModalState end)
@@ -12280,7 +12380,10 @@ function M.new(g,options)
         local id=self.id
         local s=state(id)
         s.family,s.area=family,frame.area
-        if type(s.hp)=='number' and type(self.hp)=='number' and self.hp<s.hp then hit(s,sprite,frame,tick,s.hp-self.hp) end
+        if type(s.hp)=='number' and type(self.hp)=='number' and self.hp<s.hp then
+            s.fought=tick
+            hit(s,sprite,frame,tick,s.hp-self.hp)
+        end
         s.hp=self.hp
         local patience=search.patience({mind=m,frame=frame})
         local away,out=director and director.away and director:away(id,tick) or {},{}
@@ -12298,16 +12401,19 @@ function M.new(g,options)
                 guard=s.guard or nil,wit=m.wit})
         end
         local opener=opens(sprite,m,orders)
-        local doorList
+        local doorList,unlock,inside
         if opener then
             local ok,v=pcall(doorsOf,sprite,frame,tick)
             if ok then doorList=v else doorFailed('door-read',v) end
+            unlock=locks(sprite,rows)
+            inside=indoors(sprite)
         end
+        local fighting=type(s.fought)=='number' and tick>=s.fought and tick-s.fought<=M.fightSeconds*M.ticksPerSecond
         local d,why=search.decide({tick=tick,frame=frame,mind=m,family=family,clues=list,post=s.post,since=s.since,
             searched=s.searched,gaveUp=s.gaveUp,detected=s.detected,jumped=s.jumped,group=group(id,frame.area,tick),
             guard=s.guard,detects=search.options(rows,carried),teleports=search.teleports(rows),illusion=illusion(sprite),
             tactical=s.tactical,away=away,await=type(orders)=='table' and orders.await or nil,opener=opener,
-            doors=doorList,failed=s.doors})
+            doors=doorList,failed=s.doors,unlock=unlock,fighting=fighting,indoors=inside})
         if not d then
             if why=='given-up' then
                 giveUp(s,id,tick,newest and 'patience' or 'no-clue')
@@ -12412,12 +12518,14 @@ function M.new(g,options)
         local s=state(id)
         local from={x=sprite.m_pos.x,y=sprite.m_pos.y}
         local walk=targeting.distance(from,point)+(behind and targeting.distance(point,behind) or 0)
-        s.act={kind='door',door=decision.door,tick=tick,
-            limit=math.ceil(walk/M.walkSpeed*M.ticksPerSecond*2)+M.walkMargin+M.openTicks}
+        s.act={kind='door',door=decision.door,way=decision.way,tick=tick,
+            limit=math.ceil(walk/M.walkSpeed*M.ticksPerSecond*2)+M.walkMargin+M.openTicks+(decision.way and M.unlockTicks or 0)}
         s.aim,s.aimTick=behind or point,tick
         counts.doors=counts.doors+1
+        if decision.way then counts.unlocks=counts.unlocks+1 end
         record({kind='door',tick=tick,member=id,door=decision.door,from=from,to=point,behind=behind,
-            toward=decision.toward,clue=decision.clue,target=decision.target,tactical=s.tactical})
+            toward=decision.toward,clue=decision.clue,target=decision.target,tactical=s.tactical,way=decision.way,
+            spell=decision.spell})
     end
     -- A door's try, over (why: 'time', 'done' once the creature neither walks nor opens, 'hurt',
     -- 'enemy', or seeker:stop's): open, or shut and left for doors.retrySeconds when the creature
@@ -12429,7 +12537,7 @@ function M.new(g,options)
             counts.doorsShut=counts.doorsShut+1
             s.doors[a.door]=tick
         end
-        record({kind='door-end',tick=tick,member=id,door=a.door,open=open,why=why})
+        record({kind='door-end',tick=tick,member=id,door=a.door,open=open,why=why,way=a.way})
     end
     -- The teleport prepared for a search (decision: its spell, clue and target), to point, an open
     -- spot: cast like the engine's other casts, which hold it; the members spread out from its spot.
@@ -12466,7 +12574,7 @@ function M.new(g,options)
         if tick<a.tick or tick-a.tick>=a.limit then why='time' end
         if not why and (a.kind=='walk' or a.kind=='door') and tick-a.tick>=M.walkGrace then
             local action=sprite.m_curAction.m_actionID
-            if action~=M.MOVE and (a.kind=='walk' or action~=M.OPEN) then why='done' end
+            if action~=M.MOVE and (a.kind=='walk' or (action~=M.OPEN and not M.UNLOCKING[action])) then why='done' end
         end
         if not why and type(s.hp)=='number' and sprite.m_baseStats.m_hitPoints<s.hp then why='hurt' end
         if not why and sense.seesEnemy(g,sprite) then why='enemy' end
@@ -13089,15 +13197,23 @@ function M.response(decision)
     end
 end
 -- The response that opens a door (adapters/eeex/search.lua): the walk to point, where it is opened,
--- OpenDoor at EEex_Target (the caster's table names the door), and the walk on to behind when given,
--- one action a line.
-function M.doorResponse(point,behind)
+-- the way through a locked door's lock (way: 'pick' PickLock, 'knock' the unlocking spell cast at the
+-- door, 'bash' BashDoor; a key needs nothing, OpenDoor uses it), OpenDoor at EEex_Target (the caster's
+-- table names the door), and the walk on to behind when given, one action a line.
+function M.doorResponse(point,behind,way,spell)
     local walk='MoveToPoint(['..math.floor(point.x)..'.'..math.floor(point.y)..'])'
+    local door='EEex_Target("'..M.targetName..'")'
+    local unlock=''
+    if way=='pick' then unlock='PickLock('..door..')'
+    elseif way=='bash' then unlock='BashDoor('..door..')'
+    elseif way=='knock' and type(spell)=='string' and spell:match('^[%w_#%-]+$') then
+        unlock='SpellRES("'..spell..'",'..door..')'
+    end
     local on=''
     if type(behind)=='table' and whole(behind.x) and whole(behind.y) then
         on='MoveToPoint(['..behind.x..'.'..behind.y..'])'
     end
-    return chain(walk,'OpenDoor(EEex_Target("'..M.targetName..'"))',on)
+    return chain(walk,unlock,'OpenDoor('..door..')',on)
 end
 
 -- Whether a friend in frame (the creature itself or an ally it sees) has lost hit points, is held
@@ -14352,8 +14468,8 @@ function M.new(g,options)
                 clue=d.clue,aim=d.target,innate=d.innate}
         end
         if d.kind=='door' then
-            return {own=true,response=M.doorResponse(d.point,d.behind),kind='door',door=d.door,point=d.point,behind=d.behind,
-                toward=d.toward,clue=d.clue,target=d.target}
+            return {own=true,response=M.doorResponse(d.point,d.behind,d.way,d.spell),kind='door',door=d.door,point=d.point,
+                behind=d.behind,toward=d.toward,clue=d.clue,target=d.target,way=d.way,spell=d.spell}
         end
         return {own=true,response='MoveToPoint(['..d.point.x..'.'..d.point.y..'])',kind=d.kind,point=d.point,
             clue=d.clue,target=d.target,gaveUp=d.gaveUp,guard=d.guard}
@@ -14743,7 +14859,7 @@ function M.new(g,options)
             if not point then return 'skipped' end
             local behind=decision.behind and walkable(object,{point=decision.behind}) or nil
             name(object,decision.door)
-            decision.response=M.doorResponse(point,behind)
+            decision.response=M.doorResponse(point,behind,decision.way,decision.spell)
             seeker:door(object,decision,point,behind,tick)
         elseif decision.kind=='modal' then
             seeker:mode(object,tick)
