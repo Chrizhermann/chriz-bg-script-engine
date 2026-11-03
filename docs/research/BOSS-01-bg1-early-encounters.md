@@ -277,20 +277,32 @@ carries the bounty notice).
 herself for more hit points. In this lab Aid is his version (Chris Revisions): 1d8 + 1 per caster
 level temporary hit points (at most 1d8 + 10), lasting a turn per level.
 
-**Open (suggestions to Christopher, 2026-11-04), all in real slots:** at level 5 with WIS 14 she has
-5/3/1 slots; two first-level slots are empty, and Remove Fear does little for a lone caster.
-- Prepared on sight, from Hard as the talk-on-sight rule says: Aid (at level 5 about 33 → 42 hit
-  points), Armor of Faith (a tenth less damage) and Protection From Good (good attackers −2 to hit
-  her, +2 to her saves against them).
-- First level: Armor of Faith, Protection From Good, Doom, Command, Bless.
-- Second level: Aid, Hold Person, Silence and Spiritual Hammer with WIS 15 (one more second-level
-  slot); or, with no stat change, Aid instead of the hammer.
-- Third level: Unholy Blight, or Miscast Magic (a party caster fails 80 % of spells, save at −2).
-- The fight this gives a clever caster: Doom on the strongest fighter (−2 to all rolls, no save),
-  then Hold Person, which then holds far more often; Command knocks a caster out for a round.
-- Later ideas: Chant or Prayer (her foes −1), Draw Upon Holy Might, a Sanctuary trick (she slips
-  away briefly, drinks and comes back; fits Mask and the short-retreat rule, needs engine work), and
-  a spellbook drawn per run (her core stays, one first-level slot and the third-level slot vary).
+**Decided, second round (Christopher, 2026-11-04):**
+- WIS 15 ("gib ihr einfach 15 wis"): at level 5 that gives 5/4/1 slots, all real.
+- Her book, as suggested: first level Armor of Faith, Protection From Good, Doom, Command and Bless
+  (Remove Fear goes; two of these slots were empty); second level Aid, Hold Person, Silence and
+  Spiritual Hammer (she is not strong, so the hammer stays; Draw Upon Holy Might is too weak for
+  her); third level Unholy Blight.
+- Mask is the god of shadow thieves, deception, lies, thievery and shadows; her opener follows that:
+  her buffs on sight (Aid, Armor of Faith, Protection From Good), then a Potion of Invisibility right
+  after, then she watches how the party plays and opens from invisibility, for example Doom and then
+  Hold Person, or Hold Person at once. After the opener she decides by worth. Nothing rigid.
+- The aim, said again: really hard on the high difficulties, normal to beat on the low and middle
+  ones, and immersive.
+
+**Notes for building:**
+- She needs a Potion of Invisibility in her pack. Invisibility ends with her first spell, so the
+  opener's first spell comes as a surprise; until then the party reaches her only with area spells
+  or by revealing her, and she chooses her target from what she sees (for example a fighter without
+  Free Action for Hold Person).
+- Scaled by difficulty, as planned: from Hard the full opener (instant buffs, potion, opening spell
+  from invisibility); on Core and below no instant buffs and no potion opener, she casts her buffs in
+  the fight like any priest. The engine's wit also sinks on the lower difficulties.
+- The opener is a preferred first sequence for this encounter; every step is still checked like any
+  decision (legal target, worth, the party's protections).
+- Still open: Miscast Magic (a party caster fails 80 % of spells, save at −2) instead of Unholy
+  Blight, or as a variant if her spellbook is drawn per run; later ideas: Chant or Prayer, a
+  Sanctuary trick (slip away, drink, come back; needs engine work).
 
 **Lab checks (later):** as for Karlat, at Core Rules and at Hard and Insane (her preparation starts at
 Hard), several runs for her potion.
