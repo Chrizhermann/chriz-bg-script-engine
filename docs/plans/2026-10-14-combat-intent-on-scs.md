@@ -955,7 +955,10 @@ Christopher's answers of 2026-11-03:
   strips several foes. Built the same day (SUPPORT-01, "Insight"): clever, normal and dull guess
   differently, the group learns from what its dispels left, an area dispel tries once at each foe,
   and orders `insight='exact'` give a boss the true levels.
-- **Boss fights** start in early BG1 and go through all of them in story order.
+- **Boss fights** start in early BG1 and go through all of them in story order. About five
+  encounters are talked through and written down one after the other, oriented on SCS, then built
+  and lab-tested together; small encounters stay simple; balance at average hit points without
+  double damage (BOSS-01, which also holds the fight sheets; Tarnesh first).
 
 ## To design with Christopher
 
