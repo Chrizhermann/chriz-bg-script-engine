@@ -51,8 +51,11 @@ normally.
 
 - `python -I tools/scout.py <lab game folder> NEIRA [KARLAT ...] [--where]`: who a creature is, its scores,
   saving throws, its memorized spells and items by name, SCS's random items with their odds, scripts, dialog,
-  effects (weapon proficiencies by name); `--where` adds the areas it stands in and the scripts and dialogs that
-  name it. Read-only.
+  effects (weapon proficiencies by name); `--where` adds the areas it stands in, where the starting game's NPC
+  list (`BALDUR.GAM`) puts it, and the scripts and dialogs that name it. Read-only.
+- Dialogue paths: a DLG's states and replies with their texts, triggers and actions tell which replies lead to
+  the fight (the encounter lab picks them by their text: Silke's party refuses to kill the "thugs", Greywolf's
+  stands against him).
 - Labs (read-only for scouting): the no-SR lab `C:\Users\chris\Games\BGSE-Lab\eet-nosr-2\game`, the SR lab
   `C:\Users\chris\Games\BGSE-Lab\scs-reference\game`. Never Christopher's own game.
 - Scripts and dialogs: decompile a copy with WeiDU into a scratch folder (as `tools/hook_agree.py` does);
@@ -108,3 +111,8 @@ creates the creature, so a playthrough may differ (scout shows the odds).
   already counts with (Kestrel's routine first returned `bgse_made`, and the gift line then said 0).
 - A check on real files in the synthetic game needs every table the routine reads copied in too (such as
   `SAVEWAR.2DA`), or the routine falls back and only warns.
+- BG1's joinable NPCs stand where the starting game's NPC list in `BALDUR.GAM` puts them, not in any area
+  file, script or spawn file: Garrick (`GARRIC`) in Beregost at (2504.2270), Khalid and Jaheira inside the
+  Friendly Arm Inn (`BG2301`). A search of areas, scripts, dialogs and INI files finds no Garrick at all;
+  `scout.py --where` reads the list. A save names an NPC whose copy it holds `*` and its file name from the
+  second letter on (`*ARRIC`).

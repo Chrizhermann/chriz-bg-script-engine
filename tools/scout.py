@@ -5,7 +5,8 @@ time). See docs/ENCOUNTERS.md.
 
     python -I tools/scout.py <game_root> NEIRA [KARLAT ...] [--where]
 
---where also lists the areas whose actors use the creature and the scripts and dialogs that name it; it
+--where also lists the areas whose actors use the creature, where the starting game's NPC list puts it
+(BG1's joinable NPCs, such as Garrick, stand only there) and the scripts and dialogs that name it; it
 reads every area, script and dialog, so it takes a while.
 """
 import struct
@@ -192,8 +193,37 @@ def scout(game, tlk, resref, where=False):
     return out
 
 
+def listed(game, resref):
+    """Where the starting game's NPC list (BALDUR.GAM, GAME V2.0: party and other NPCs, 0x160 bytes each) puts
+    creature resref: BG1's joinable NPCs stand where it says, not in any area file or script (Garrick in
+    Beregost, encounter lab 2026-11-04). An entry names its creature file; once a save holds its own copy of
+    the creature, as '*' and the name from its second letter on, and that copy has to carry the same death
+    variable when the file has one."""
+    data = game.get('BALDUR', 'GAM')
+    if not data or data[:8] != b'GAMEV2.0' or len(data) < 0x38:
+        return []
+    cre = game.get(resref, 'CRE') or b''
+    dv = _resref(cre[0x280:0x2A0]) if cre[:8] == b'CRE V1.0' and len(cre) >= 0x2A0 else ''
+    out = []
+    for offset, count in (struct.unpack_from('<II', data, 0x20), struct.unpack_from('<II', data, 0x30)):
+        for i in range(count):
+            a = offset + 0x160 * i
+            if a + 0x160 > len(data):
+                break
+            if _resref(data[a + 0x0C:a + 0x14]) not in (resref, '*' + resref[1:]):
+                continue
+            at, size = struct.unpack_from('<II', data, a + 0x04)
+            copy = data[at:at + size]
+            if dv and len(copy) >= 0x2A0 and _resref(copy[0x280:0x2A0]) != dv:
+                continue
+            x, y = struct.unpack_from('<HH', data, a + 0x20)
+            out.append(f'listed in BALDUR.GAM\'s NPC list: in {_resref(data[a + 0x18:a + 0x20])} at ({x}.{y})')
+    return out
+
+
 def places(game, resref):
-    """Where creature resref stands: area actors that use it, and scripts and dialogs that name it."""
+    """Where creature resref stands: area actors that use it, the starting game's NPC list, and scripts and
+    dialogs that name it."""
     out = []
     for area in game.names('ARE'):
         data = game.get(area, 'ARE')
@@ -208,12 +238,13 @@ def places(game, resref):
                 x, y = struct.unpack_from('<HH', data, a + 0x20)
                 name = data[a:a + 32].split(b'\0')[0].decode('latin-1')
                 out.append(f'stands in {area} as "{name}" at ({x}.{y}); area script {_resref(data[0x94:0x9C]) or "none"}')
+    out += listed(game, resref)
     needle = f'"{resref}"'.encode('ascii')
     for ext in ('BCS', 'DLG'):
         named = [name for name in game.names(ext) if needle in (game.get(name, ext) or b'').upper()]
         if named:
             out.append(f'named in {ext}: {", ".join(named)}')
-    return out or ['stands in no area and no script or dialog names it']
+    return out or ['stands in no area, no NPC list, and no script or dialog names it']
 
 
 def main(argv):

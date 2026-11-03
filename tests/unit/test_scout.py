@@ -69,6 +69,25 @@ def _area(cre: str) -> bytes:
     return bytes(data)
 
 
+def _gam(entries) -> bytes:
+    """A starting game (GAME V2.0) whose other-NPC list holds entries of (name, area, x, y, creature copy)."""
+    header = bytearray(0xB4)
+    header[:8] = b'GAMEV2.0'
+    at = len(header)
+    copies = at + 0x160 * len(entries)
+    struct.pack_into('<II', header, 0x30, at, len(entries))
+    structs, blobs = bytearray(), bytearray()
+    for name, area, x, y, copy in entries:
+        npc = bytearray(0x160)
+        struct.pack_into('<II', npc, 0x04, copies + len(blobs), len(copy))
+        npc[0x0C:0x0C + len(name)] = name
+        npc[0x18:0x18 + len(area)] = area
+        struct.pack_into('<HH', npc, 0x20, x, y)
+        structs += npc
+        blobs += copy
+    return bytes(header) + bytes(structs) + bytes(blobs)
+
+
 def _game(root: Path) -> None:
     (root / 'override').mkdir()
     (root / 'lang/en_us').mkdir(parents=True)
@@ -81,6 +100,13 @@ def _game(root: Path) -> None:
              'STATS.IDS': b'IDS V1.0\n115 PROFICIENCYCLUB\n',
              'RNDTRES.2DA': (b'2DA V1.0\n*\n   1 2 3 4 5 6 7\ndw#rnd02 dw#ptn08 dw#ptn08 DW#BLANK DW#BLANK dw#ptn08*2 '
                              b'dw#ptn52 * *\n')}
+    # The starting game lists Neira as an NPC too: by her file name without a copy of her (as a new game's
+    # BALDUR.GAM does) and as '*EIRA' with one (as a save's does), and a creature of another death variable
+    # under her name.
+    other = bytearray(_cre())
+    other[0x280:0x285] = b'OTHER'
+    files['BALDUR.GAM'] = _gam([(b'NEIRA', b'BG4800', 7, 8, b''), (b'*EIRA', b'BG4801', 400, 290, _cre()),
+                                (b'*EIRA', b'BG0100', 5, 6, bytes(other))])
     for name, data in files.items():
         (root / 'override' / name).write_bytes(data)
 
@@ -103,6 +129,9 @@ def test_scout_tells_who_a_creature_is_and_what_it_carries(tmp_path: Path) -> No
     assert lines.index('    no slot: HELM01 "(not in this game)"') > lines.index('    pack 1: DW#RND02 "(not in this game)" (undroppable)')
     assert '  its own effects: op233 1/115 (PROFICIENCYCLUB)' in lines
     assert '  stands in BG4801 as "Neira" at (410.300); area script BG4801' in lines
+    assert "  listed in BALDUR.GAM's NPC list: in BG4800 at (7.8)" in lines
+    assert "  listed in BALDUR.GAM's NPC list: in BG4801 at (400.290)" in lines
+    assert not any('BG0100' in line for line in lines), text
     assert '  named in BCS: TALK' in lines
 
 
@@ -112,4 +141,4 @@ def test_scout_names_a_missing_or_broken_creature(tmp_path: Path) -> None:
     game, tlk = ie.Game(tmp_path), scout.Tlk(tmp_path)
     assert scout.scout(game, tlk, 'nobody') == ['NOBODY: not in this game']
     assert scout.scout(game, tlk, 'broken') == ['BROKEN: not a CRE V1.0 file']
-    assert scout.places(game, 'NOBODY') == ['stands in no area and no script or dialog names it']
+    assert scout.places(game, 'NOBODY') == ['stands in no area, no NPC list, and no script or dialog names it']
