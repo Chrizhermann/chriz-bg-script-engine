@@ -17,15 +17,22 @@ otherwise.
 - Balance is judged at the intended setup: no double damage, no maximised hit points; labs use average
   hit point rolls (or random ones), full hit points only at level 1. For each encounter, ask
   Christopher how strong the party usually is at that point.
+- Preparation: instant prebuffing as SCS does it stays, but faster and more reactive ("am liebsten
+  noch schneller und reaktiver. Das ist mir sehr wichtig"). Not everything is prebuffed: for each
+  encounter, what the caster would definitely have prepared, which may depend on the situation. For a
+  caster who could not have known the party was coming, ask Christopher whether he would better be
+  caught unprepared and the fight made hard another way.
 
 ## Lab for BG1 fights
 
 `BGSE-Lab/scs-reference` is an EET lab (a copy of an earlier state of Christopher's game, with Spell
 Revisions); `BGSE-Lab/scs-nosr` holds BG2 only. Like Christopher's game, the EET lab carries Tweaks
-Anthology's maximum hit points (for creatures in game, at level one and on level up). For encounter
-tests the lab copy alone gets average hit points for creatures and the test party (full at level one),
-and Insane without double damage. Spell Revisions stays in the lab until Christopher's own spells
-replace it; spell results are re-checked then.
+Anthology's maximum hit points (for creatures in game, at level one and on level up). Christopher
+(2026-11-03): no Spell Revisions any more; BG1 fights need a new EET lab without it, installed as the
+intended setup: no maximum hit points for creatures, full hit points at level one, rolled or average
+ones after. Until it stands, the SR lab can show whether the engine does sensible things, but balance
+is not judged there (Sleep, Power Word Sleep, Mirror Image and the like differ under Spell Revisions).
+Encounter tests run at Insane without double damage.
 
 ## 1. Tarnesh (Friendly Arm Inn)
 
