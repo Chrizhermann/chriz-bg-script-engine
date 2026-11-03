@@ -94,3 +94,59 @@ with 20 or more saves against it.
   full party finds him easy. He should be a small challenge, not a wall at the very start. Lab checks:
   a lone level-1 protagonist, two level-1 characters and a full level-1 to 2 party, at average hit
   points without double damage.
+
+## 2. Silke (Beregost)
+
+**Who:** `SILKE`, a level-10 bard, 60 hit points, INT 14 (clever; her mage script makes her think as
+a caster). Her book: first level Chromatic Orb twice and Shield (two of five slots empty); second
+level Melf's Acid Arrow, Vocalize and Mirror Image; third level Hold Person and Haste; fourth level
+Emotion: Hopelessness; and as an innate SCS's Minor Sequencer `DW#MS10` with two Charm Person. She
+carries a Quarterstaff, Leather Armor, a Potion of Invulnerability (armor class 0 and +5 to all saves
+for five minutes, so the whole fight) and the scrolls Balagarn's Iron Horn and Cleansing Aria
+(`C0BW101A`, `C0BW201A`, origin unverified). Scripts: SCS's talk script `DW#SILKE` (the original
+talk under SCS's difficulty rules) above the original `SILKE` and SCS's generated mage script
+`DW#MG444`.
+
+**The story** (`SILKE.DLG`, `CUTSILK.DLG`, `GARRIC.DLG`): Garrick hires the party in Beregost as
+bodyguards for Silke against thugs that Feldepost supposedly sent (300 gold; she raises it to 400 or
+cuts it to 200 by her reaction to the party). At the Red Sheaf she calls up three "thugs" (`MERSIL`,
+`MERSIL2`, `MERSIL3`: level-1 commoners with 7 hit points) and warns the party not to talk to them,
+since one is "a mage whose mystic words can sway even the most wise of men". In the cutscene's
+dialogue the party either kills them (she pays; reputation −2) or refuses ("We won't murder those
+who are obviously innocent men"). Then she turns on the party: "I'll deal with them myself, after I
+deal with you!" (`CUTSILK.DLG` state 4 sets `AttackedSilke` and runs `Enemy()`). The party can also
+attack her at any time. Once she is dead, Garrick asks to join; if she lives, she turns up at the
+Ducal Palace in chapter 7.
+
+**What SCS does** (her compiled `DW#MG444`): Mirror Image as soon as she sees the party; potions, the
+Potion of Invulnerability among them; Shield; the Minor Sequencer's two Charm Person; Emotion:
+Hopelessness at groups; Hold Person; Melf's Acid Arrow at casters; Chromatic Orb. Haste is memorized
+but never cast.
+
+**The engine:** clever; owns her rounds as for every creature, casts Haste by worth and fires the
+Minor Sequencer when it is worth it.
+
+**Decided (Christopher, 2026-11-03):**
+- She is a popular, well-liked NPC; she should be dangerous, a fight people remember.
+- Strength: roughly that of SCS's Silke. How strong the party is at that point varies a lot.
+- Instant preparation when the fight starts: the potion and Mirror Image; on higher difficulty also
+  Minor Spell Deflection.
+- Haste and the double Charm: yes.
+- It should be clear beforehand that she is dangerous, perhaps through a short line, for example
+  one Garrick says first; the text is written with Christopher.
+- More ideas for a cooler encounter are welcome.
+
+**Open (suggestions to Christopher, 2026-11-03):**
+- Minor Spell Deflection is a third-level spell (`SPWI318`); her two third-level slots hold Haste and
+  Hold Person. Suggested: from Hard it takes Hold Person's slot (a real slot, so fair). Or a scroll
+  she reads while preparing.
+- Visible preparation as a warning: she drinks the potion and casts Mirror Image when the "thugs"
+  arrive. She plans an ambush herself, so she is ready, and the player sees a real caster before
+  choosing.
+- Garrick's line, a draft in his admiring voice: "And when she sings, folks forget their own minds.
+  Best stay on her good side!" It also announces the charms.
+- A spellbook drawn per run (plan, decision 13): her signature stays (the two charms, Mirror Image,
+  the potion), one or two slots change from run to run; two first-level slots are empty today.
+
+**Lab checks (later):** the engine's Silke against SCS's with the same parties, at average hit points
+without double damage; the target is roughly SCS's strength, and she should feel dangerous.
