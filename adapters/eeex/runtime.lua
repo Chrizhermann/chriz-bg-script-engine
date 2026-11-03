@@ -1,10 +1,11 @@
 -- The installed runtime: the BCS handoff gate with the fight director and the engine's own
 -- choice attached. Without the director or the choice (either failed to start) the gate still
 -- installs, and SCS runs its rounds as before. The choice follows Baldur.lua's [BGSE] Choice
--- (on unless 0).
+-- (on unless 0) and takes the designed encounters' orders (combat-intent/encounters.lua).
 local hook=require('adapters.eeex.hook')
 local director=require('adapters.eeex.director')
 local choice=require('adapters.eeex.choice')
+local encounters=require('combat-intent.encounters')
 local M={}
 function M.install(g,options)
     options=options or {}
@@ -13,7 +14,8 @@ function M.install(g,options)
         if ok then options.director=value end
     end
     if options.choice==nil then
-        local ok,value=pcall(choice.new,g,{director=options.director,enabled=hook.ini(g,'Choice')~=0})
+        local ok,value=pcall(choice.new,g,{director=options.director,enabled=hook.ini(g,'Choice')~=0,
+            orders=encounters.orders()})
         if ok then options.choice=value end
     end
     local own=options.choice

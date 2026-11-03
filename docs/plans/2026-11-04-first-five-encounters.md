@@ -47,3 +47,9 @@ Hard; Core and below play normally (Christopher, 2026-11-04).
 
 Each step gets logic tests, the full suite, a commit and a push; installer rules also get the
 Python/WeiDU agreement check on both labs.
+
+## Done
+
+- Step 1 (2026-11-04): `combat-intent/encounters.lua` holds the orders; the runtime hands them to
+  the choice. Tarnesh, Karlat and Neira prefer the protagonist lightly: an attack on the protagonist
+  counts a quarter more (`LIGHT=0.25`, to tune in the lab).

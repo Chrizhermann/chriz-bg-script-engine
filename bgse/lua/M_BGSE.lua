@@ -5789,6 +5789,40 @@ function M.keep(input,options,swings)
 end
 return M
 end
+factories["combat-intent.encounters"]=function(require)
+-- The designed encounters (docs/research/BOSS-01-bg1-early-encounters.md, designed one by one with
+-- Christopher in story order, SCS as the blueprint, credit DavidW): what the fight's designer tells
+-- each creature, by its creature file. The runtime passes the orders to the engine's choice
+-- (combat-intent/orders.lua); worth decides whatever they leave open. Plain values; nothing here
+-- touches the engine.
+local M={}
+
+-- A light preference for the protagonist (Christopher, 2026-11-03, for Tarnesh: a small, light
+-- preference, not "always"): an attack on the protagonist counts this much more.
+M.LIGHT=0.25
+
+-- Orders by creature file, the resref in capitals.
+M.ORDERS={
+    -- Tarnesh, Friendly Arm Inn: hired to kill the protagonist (2026-11-03).
+    TARNES={target='protagonist',bonus=M.LIGHT},
+    -- Karlat, Red Sheaf, Beregost: carries the bounty notice on the protagonist (2026-11-04).
+    KARLAT={target='protagonist',bonus=M.LIGHT},
+    -- Neira, Nashkel Inn: carries the later bounty notice on the protagonist (2026-11-04).
+    NEIRA={target='protagonist',bonus=M.LIGHT},
+}
+
+-- A copy of the orders, so that whoever takes them cannot change this book.
+function M.orders()
+    local copy={}
+    for resref,o in pairs(M.ORDERS) do
+        local c={}
+        for k,v in pairs(o) do c[k]=v end
+        copy[resref]=c
+    end
+    return copy
+end
+return M
+end
 factories["combat-intent.removal"]=function(require)
 -- The engine's own protection removal for one caster (step 3, D3d; Christopher, 2026-10-20: "Mach
 -- alles"; on improving on SCS: "Wir können uns da gerne an SCS orientieren, aber ich bin auch offen
@@ -15787,10 +15821,11 @@ factories["adapters.eeex.runtime"]=function(require)
 -- The installed runtime: the BCS handoff gate with the fight director and the engine's own
 -- choice attached. Without the director or the choice (either failed to start) the gate still
 -- installs, and SCS runs its rounds as before. The choice follows Baldur.lua's [BGSE] Choice
--- (on unless 0).
+-- (on unless 0) and takes the designed encounters' orders (combat-intent/encounters.lua).
 local hook=require('adapters.eeex.hook')
 local director=require('adapters.eeex.director')
 local choice=require('adapters.eeex.choice')
+local encounters=require('combat-intent.encounters')
 local M={}
 function M.install(g,options)
     options=options or {}
@@ -15799,7 +15834,8 @@ function M.install(g,options)
         if ok then options.director=value end
     end
     if options.choice==nil then
-        local ok,value=pcall(choice.new,g,{director=options.director,enabled=hook.ini(g,'Choice')~=0})
+        local ok,value=pcall(choice.new,g,{director=options.director,enabled=hook.ini(g,'Choice')~=0,
+            orders=encounters.orders()})
         if ok then options.choice=value end
     end
     local own=options.choice
