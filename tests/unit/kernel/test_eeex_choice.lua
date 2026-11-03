@@ -1199,6 +1199,46 @@ g13.ticks=300
 breacher.book[4][1].m_flags=1
 g13.BGSE_Claim(breacher,'mage','s1')
 assert(ch13:inspect().counts.removals==1)
+-- A dispel that rolls (combat-intent/removal.lua, insight): a mage of level 20 dispels the
+-- protection, cast again; the choice row tells the level it works at and how the mage judges it.
+-- The protection stays: the group learns that the spell's one effect stayed against level 20, as
+-- surely as the dispel got through the enemy's magic resistance of 50 (half), and counts the enemy
+-- as tried. A ring's effect no dispel takes teaches nothing.
+records.TESTDSPL=spl('TESTDSPL',3,{fx(58,{p2=1})},1,2)
+;(function()
+local dispeller=g13.add(sprite(3,0,30,255))
+dispeller.stats[34]=20
+learn(dispeller,2,'TESTDSPL')
+local ring=pfmw()
+ring.m_sourceRes,ring.m_flags,ring.m_effectId,ring.m_secondaryType=str('TESTRING'),0,0,0
+warded.m_timedEffectList={pfmw(),ring}
+warded.stats[18]=50
+g13.ticks=400
+assert(g13.BGSE_Claim(dispeller,'mage','s1')==true)
+local d13=last13('choice')
+assert(d13.castKind=='removal' and d13.spell=='TESTDSPL' and d13.target==11 and d13.at==20)
+assert(d13.insight==({clever='estimate',normal='rough',dull='none'})[d13.wit])
+g13.BGSE_Act(dispeller)
+assert(g13.queued[#g13.queued].text=='SpellRES("TESTDSPL",EEex_Target("BGSE"))')
+g13.listeners.started[1](dispeller,action(31,'TESTDSPL',11))
+dispeller.m_curAction={m_actionID=0};dispeller.book[2][1].m_flags=0
+g13.ticks=430
+g13.BGSE_Claim(dispeller,'mage','s1')
+g13.ticks=465
+g13.BGSE_Claim(dispeller,'mage','s1')
+local u13=last13('strip')
+assert(u13 and u13.spell=='TESTDSPL' and u13.took==0 and u13.at==20 and u13.learned==1)
+local seen13=ch13:inspect().dispels[11]
+assert(seen13 and seen13.tried==1 and seen13.sources.TESTPFMW[20].stayed==0.5 and seen13.sources.TESTPFMW[20].went==0)
+assert(seen13.sources.TESTRING==nil)
+assert(ch13:inspect().counts.unstripped==1)
+-- The next decision weighs a dispel at the same protection with what the group saw: worth less.
+dispeller.book[2][1].m_flags=1
+g13.ticks=600
+assert(g13.BGSE_Claim(dispeller,'mage','s1')==true)
+local d2=last13('choice')
+assert(d2.castKind=='removal' and d2.spell=='TESTDSPL' and d2.worth<d13.worth)
+end)()
 groups=groups+1
 
 -- 23. Danger zones (D3e). An enemy's cloud (an area projectile in the area's flight list that

@@ -34,6 +34,11 @@
 -- leave=true lets the creature leave the fight for good as its SCS script has it (its vanishing exit
 -- when badly hurt, bgse/lib/hook.tpa); by default the engine keeps it in the fight (Christopher,
 -- 2026-10-28: nobody leaves for good, or almost nobody).
+--
+-- insight says how the creature judges its dispels against enemies' protections, whatever its wit
+-- (combat-intent/removal.lua): 'exact' reads the caster levels of their effects, for a special boss
+-- (Christopher, 2026-11-03: "Außer vielleicht ein Irenicus oder so"); 'estimate', 'rough' and
+-- 'none' as a clever, a normal and a dull creature judge them.
 local targeting=require('combat-intent.targeting')
 local M={}
 M.bonus=1
@@ -64,6 +69,8 @@ function M.check(o)
             if type(v)~='boolean' then return false,k end
         elseif k=='await' then
             if v~='guard' and v~='post' and v~='stand' then return false,k end
+        elseif k=='insight' then
+            if v~='exact' and v~='estimate' and v~='rough' and v~='none' then return false,k end
         elseif k=='prepSkip' then
             if type(v)~='table' or #v==0 then return false,k end
             for i,s in pairs(v) do

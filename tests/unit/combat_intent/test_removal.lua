@@ -53,10 +53,12 @@ end
 local function row(resref,s,level)
     return {resref=resref,level=level,ready=1,memorized=1,usable=true,list='wizard',spell=s}
 end
+-- A caster of level 15. Groups 1 to 8 weigh dispels by the effects' own caster levels, as a creature
+-- whose orders grant it (insight 'exact'); group 9 by what the caster believes.
 local function input(fields)
     local i={tick=100,family='mage',frame={self={id=1,x=100,y=100,hp=40,maxHp=40,state=0,ac=8,mr=0,level=15,thac0=17,
         ids={ea=255,general=1,race=1,class=1,specific=0,gender=1,alignment=0x11},guard={}},enemies={},allies={}},
-        spells={},plan={},memory={},mind=mind.new()}
+        spells={},plan={},memory={},mind=mind.new(),orders={insight='exact'}}
     for k,v in pairs(fields or {}) do i[k]=v end
     return i
 end
@@ -295,6 +297,168 @@ local noticed={mind={tactics=0.5},frame={self=i.frame.self,enemies={thrall},alli
 assert(choice.notices(noticed)==true)
 noticed.frame.enemies={enemy(11,{wards={charm}})}
 assert(choice.notices(noticed)==false)
+groups=groups+1
+
+-- 9. Insight (Christopher, 2026-11-03): a dispel's chance is what the caster believes of each
+-- effect's caster level, by its wit, unless its orders grant it the effects' own ('exact', for a
+-- special boss). A clever caster ('estimate') guesses whoever cast the protection: the enemy when it
+-- casts spells, else the strongest caster on its side in view, at least what a spell of that level
+-- takes; a normal one ('rough') the enemy's own level, less sure; a dull one ('none') the base
+-- chance. What the group has seen dispels do narrows the guess; an area dispel is worth one try at
+-- enemies no dispel has been tried at.
+local orders=require('combat-intent.orders')
+assert(removal.insight({mind=mind.new()})=='estimate' and removal.insight({})=='estimate')
+assert(removal.insight({mind=mind.new({wit='normal'})})=='rough' and removal.insight({mind=mind.new({wit='dull'})})=='none')
+assert(removal.insight({mind=mind.new({wit='dull'}),orders={insight='exact'}})=='exact')
+assert(removal.insight({mind=mind.new({wit='normal'}),orders={insight='bogus'}})=='rough')
+assert(orders.check({insight='exact'}) and orders.check({insight='none',guard=true}) and select(2,orders.check({insight='all'}))=='insight')
+-- The level a dispel works at: the caster's, a fixed one's own, none for one that always takes.
+assert(removal.dispelAt({kinds={dispel=true},dispel={mode='caster'}},15)==15)
+assert(removal.dispelAt({kinds={dispel=true},dispel={mode='fixed',level=24}},15)==24)
+assert(removal.dispelAt({kinds={dispel=true},dispel={mode='always'}},15)==nil and removal.dispelAt({kinds={}},15)==nil)
+-- The least caster level of a spell level: a wizard's.
+assert(removal.floor(nil)==1 and removal.floor(0)==1 and removal.floor(1)==1 and removal.floor(3)==5)
+assert(removal.floor(6)==11 and removal.floor(9)==17)
+-- Whose work a protection looks like: the enemy's own when it casts spells, else the strongest
+-- living caster on its side in view, else the enemy's own.
+local MAGE={ea=2,general=1,race=1,class=1,specific=0,gender=1,alignment=0x11}
+local fighterFoe=enemy(21,{level=9})
+local mageFoe=enemy(22,{level=14,ids=MAGE})
+assert(removal.source({enemies={fighterFoe,mageFoe}},mageFoe)==14 and removal.source({enemies={fighterFoe,mageFoe}},fighterFoe)==14)
+assert(removal.source({enemies={fighterFoe}},fighterFoe)==9)
+assert(removal.source({enemies={fighterFoe,enemy(23,{level=20,hp=0,ids=MAGE})}},fighterFoe)==9)
+local apprentice=enemy(24,{level=8,ids=MAGE})
+assert(removal.source({enemies={apprentice,mageFoe}},apprentice)==8)
+assert(removal.source({enemies={apprentice,fighterFoe,mageFoe}},fighterFoe)==14)
+-- The guess: Protection from Magical Weapons (an eighth-level spell) on the fighter alone is at
+-- least level 15; Haste (third level) with the mage of 14 beside it is the mage's; a normal caster
+-- takes the fighter's own 9, less sure and without a floor.
+local pf8=ward(120,{source='TESTPFMW',secondary=7,power=8,level=5},{p2=1})
+local g9,s9,f9=removal.guess('estimate',{enemies={fighterFoe}},fighterFoe,pf8)
+assert(g9==15 and s9==removal.spread.estimate and f9==15)
+g9,s9,f9=removal.guess('estimate',{enemies={fighterFoe,mageFoe}},fighterFoe,ward(16,{power=3}))
+assert(g9==14 and f9==5)
+g9,s9,f9=removal.guess('rough',{enemies={fighterFoe,mageFoe}},fighterFoe,pf8)
+assert(g9==9 and s9==removal.spread.rough and f9==1 and removal.spread.rough>removal.spread.estimate)
+-- A belief: unsure at the same level, a little below 49% (the chance falls faster below than it
+-- rises above); far above, 99%; far below, nothing; a floor leaves out the weaker levels.
+local even=removal.believed(15,15,2,1,nil,1)
+assert(even<0.49 and even>0.4)
+-- The levels three spreads either way, weighted as a normal curve.
+local sum,total=0,0
+for x=9,21 do
+    local p=math.exp(-0.5*((x-15)/2)^2)
+    sum,total=sum+p*removal.dispelChance(15,x),total+p
+end
+assert(near(even,sum/total))
+assert(near(removal.believed(30,10,2,1,nil,1),0.99) and removal.believed(5,20,2,1,nil,1)==0)
+assert(removal.believed(12,13,2,13,nil,1)<removal.believed(12,13,2,1,nil,1))
+-- What was seen: effects that stayed lower it, effects that went raise it; two failures more than
+-- one; weight 0 sees nothing, a half sees half; what cannot be (a dispel at level 5 took an effect
+-- of a caster of at least 15) leaves the chance at the guess.
+local base=removal.believed(12,12,2,1,nil,1)
+local failed={[12]={stayed=1,went=0}}
+assert(removal.believed(12,12,2,1,failed,1)<base and removal.believed(12,12,2,1,{[12]={stayed=0,went=1}},1)>base)
+assert(removal.believed(12,12,2,1,{[12]={stayed=2,went=0}},1)<removal.believed(12,12,2,1,failed,1))
+assert(near(removal.believed(12,12,2,1,failed,0),base))
+local half=removal.believed(12,12,2,1,failed,0.5)
+assert(half<base and half>removal.believed(12,12,2,1,failed,1))
+assert(near(removal.believed(15,15,2,15,{[5]={stayed=0,went=1}},1),removal.dispelChance(15,15)))
+-- The belief as M.taken uses it: none for 'exact' (the effects' own levels); the base chance for a
+-- dull caster, whatever the levels; the guess for a clever one, in place of the effect's level
+-- (5: the effect's own would go 99% of the time).
+local i9=input()
+i9.frame.enemies={fighterFoe}
+assert(removal.belief(i9,fighterFoe)==nil)
+i9.orders=nil
+i9.mind=mind.new({wit='dull'})
+local dull=removal.belief(i9,fighterFoe)
+assert(near(dull(pf8,5),0.49) and near(dull(pf8,30),0.49))
+i9.mind=mind.new()
+local clever=removal.belief(i9,fighterFoe)(pf8,15)
+assert(near(clever,removal.believed(15,15,removal.spread.estimate,15,nil,1)))
+assert(near(removal.taken(dispel.roles.removal,{pf8},15,removal.belief(i9,fighterFoe))[1],clever))
+assert(near(removal.taken(dispel.roles.removal,{pf8},15)[1],0.99))
+-- A mage of 20 at the fighter's side: the protection looks like its work, and less likely to go.
+i9.frame.enemies={fighterFoe,enemy(22,{level=20,ids=MAGE})}
+assert(removal.belief(i9,fighterFoe)(pf8,15)<clever)
+i9.mind=mind.new({wit='normal'})
+assert(near(removal.belief(i9,fighterFoe)(pf8,15),removal.believed(15,9,removal.spread.rough,1,nil,0.5)))
+-- An area dispel at an enemy no dispel was tried at counts at least the base chance, once.
+i9.mind=mind.new()
+i9.frame.enemies={fighterFoe,enemy(22,{level=25,ids=MAGE})}
+local far=removal.belief(i9,fighterFoe)(pf8,15)
+assert(far<0.1 and near(removal.belief(i9,fighterFoe,true)(pf8,15),0.49))
+i9.dispels={[21]={tried=1}}
+assert(near(removal.belief(i9,fighterFoe,true)(pf8,15),far))
+-- What the group saw a dispel at 15 leave of that spell lowers it; another spell's stays.
+i9.frame.enemies={fighterFoe}
+i9.dispels={[21]={tried=1,sources={TESTPFMW={[15]={stayed=1,went=0}}}}}
+local seen9=removal.belief(i9,fighterFoe)
+assert(seen9(pf8,15)<clever and near(seen9(ward(16,{source='TESTHAST',power=8}),15),clever))
+assert(near(seen9(pf8,15),removal.believed(15,15,removal.spread.estimate,15,{[15]={stayed=1,went=0}},1)))
+i9.mind=mind.new({wit='normal'})
+assert(near(removal.belief(i9,fighterFoe)(pf8,15),removal.believed(15,9,removal.spread.rough,1,{[15]={stayed=1,went=0}},0.5)))
+i9.mind=mind.new()
+-- Learning: each spell once, by the share of its dispellable effects that stayed and went; when
+-- none went, what stayed counts as likely as the dispel got through; one that cannot have got
+-- through, or has no level, counts only as tried; a spell cast again since stays whole; effects
+-- without a spell teach nothing.
+local book=removal.learn(nil,{A=2,B=1},{A=1,B=1},12,0.5)
+assert(book.tried==1 and near(book.sources.A[12].stayed,0.5) and near(book.sources.A[12].went,0.5))
+assert(book.sources.B[12].stayed==1 and book.sources.B[12].went==0)
+book=removal.learn(book,{A=1,B=1},{A=1,B=1},12,0.5)
+assert(book.tried==2 and near(book.sources.A[12].stayed,1) and near(book.sources.B[12].stayed,1.5))
+book=removal.learn(book,{A=1},{A=1},12,0)
+assert(book.tried==3 and near(book.sources.A[12].stayed,1))
+book=removal.learn(book,{A=1},{},nil,1)
+assert(book.tried==4 and near(book.sources.A[12].went,0.5))
+book=removal.learn({},{C=1,['']=3},{C=2,['']=0},9,1)
+assert(book.tried==1 and book.sources.C[9].stayed==1 and book.sources['']==nil)
+-- Worth: the fighter's protection was cast at level 5 by a weak hand, a mage of 20 at its side. The
+-- boss whose orders read levels takes it 99% of the time; a clever caster takes it for the mage's
+-- work and expects little; a dull one the base chance; a normal one, by the fighter's level 10,
+-- in between. An area dispel tries once at the base chance; after a try that left it, less than at
+-- first.
+local single=spell('TESTDIS1',3,{fx(58,{p2=1})})
+local foe=enemy(11,{wards={ward(120,{source='TESTPFMW',secondary=7,power=8,level=5},{p2=1})}})
+i9=input()
+i9.frame.allies={fighter(2,{x=150})}
+i9.frame.enemies={foe,enemy(12,{x=600,level=20,ids=MAGE})}
+local boss=removal.on(i9,single,foe,3)
+i9.orders=nil
+local guessed=removal.on(i9,single,foe,3)
+assert(boss>0 and guessed>0 and guessed<0.1*boss)
+assert(near(removal.on(i9,dispel,foe,3,true),boss*0.49/0.99))
+i9.dispels={[11]={tried=1,sources={TESTPFMW={[15]={stayed=1,went=0}}}}}
+assert(removal.on(i9,dispel,foe,3,true)<guessed)
+i9.dispels=nil
+i9.mind=mind.new({wit='dull'})
+assert(near(removal.on(i9,single,foe,3),boss*0.49/0.99))
+i9.mind=mind.new({wit='normal'})
+local rough=removal.on(i9,single,foe,3)
+assert(rough>guessed and rough<boss)
+-- The options: a dispel that rolls carries the level it works at and, by enemy, the chance it
+-- lands (M.learn takes them); Breach none.
+i9=input({spells={row('TESTDISP',dispel,3)}})
+i9.frame.allies={fighter(2,{x=150})}
+i9.frame.enemies={enemy(11,{wards={ward(120,{source='TESTPFMW',secondary=7,power=8,level=15},{p2=1})}})}
+local opt=removal.options(i9)[1]
+assert(opt and opt.at==15 and opt.lands[11]==1)
+i9.spells={row('TESTBRCH',breach,5)}
+opt=removal.options(i9)[1]
+assert(opt and opt.at==nil and opt.lands==nil)
+-- A clever caster with Dispel Magic, the weakly cast protection and the mage of 20: the area tries
+-- once, as likely as the base chance; after a try that left the protection, less.
+i9=input({spells={row('TESTDISP',dispel,3)}})
+i9.orders=nil
+i9.frame.allies={fighter(2,{x=150})}
+i9.frame.enemies={foe,enemy(12,{x=600,level=20,ids=MAGE})}
+local once=removal.options(i9)[1]
+assert(once and once.insight=='estimate' and once.hits[1]==11)
+i9.dispels={[11]={tried=1,sources={TESTPFMW={[15]={stayed=1,went=0}}}}}
+local again=removal.options(i9)[1]
+assert(not again or again.worth<0.2*once.worth)
 groups=groups+1
 
 return groups

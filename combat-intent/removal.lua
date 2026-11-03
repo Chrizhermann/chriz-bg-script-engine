@@ -39,6 +39,22 @@
 -- one when it notices, a dull one never (combat-intent/choice.lua, M.tactical); one that does not
 -- weighs the removal on it as on any enemy.
 --
+-- Insight (Christopher, 2026-11-03: a clever mage judges from what it can see whether it beats an
+-- enemy's magic, a normal one roughly, a dull one casts without regard to levels; "es zu 100% wissen
+-- wäre blöd. Außer vielleicht ein Irenicus oder so"): a dispel's chance at each ward is what the
+-- caster believes, not the effect's caster level, which only a creature its designer grants it reads
+-- (orders insight='exact', combat-intent/orders.lua). A clever creature ('estimate') guesses the
+-- level of whoever cast the protection: the enemy itself when it casts spells, else the strongest
+-- caster on its side in view, and at least what a spell of that level takes (M.floor). A normal one
+-- ('rough') takes the enemy's own level and is less sure of it (M.spread). A dull one ('none')
+-- counts the base chance, as if the levels were equal. A guess is a spread of levels around it, and
+-- what the group has seen dispels do to the same spell's effects on that enemy narrows it
+-- (input.dispels, kept by adapters/eeex/choice.lua with M.learn): effects that stayed make a higher
+-- level likelier, effects that went a lower one; a normal creature takes in half as much. An area
+-- dispel is worth casting once at enemies no dispel has been tried at ("Mit einem dispelling screen
+-- wäre es halt auch gut generell ein mal zu casten, damit es AOE auf mehrere weg ist. Egal ob es
+-- dispellen könnte oder nicht"): until then each of their wards counts at least the base chance.
+--
 -- What a removal takes follows the engine (IESDP):
 -- - a dispel (opcode 58) takes each effect that can be dispelled (resistance field bit 0), with a
 --   chance of 49% plus 5% a level the dispel is above the effect's caster level, less 10% a level
@@ -78,6 +94,14 @@ M.INVISIBLE={[20]=true}
 -- Opcode 58 (IESDP): 49% base, 5% a level above the effect's caster level, 10% a level below, 99%
 -- at most.
 M.dispelBase,M.dispelAbove,M.dispelBelow,M.dispelMax=0.49,0.05,0.10,0.99
+-- Insight by wit and the insights orders may give (see the top); the spread of each guess in
+-- levels (a standard deviation; a belief reaches M.tails spreads either way); how much of what it
+-- has seen each takes in.
+M.INSIGHT={clever='estimate',normal='rough',dull='none'}
+M.INSIGHTS={exact=true,estimate=true,rough=true,none=true}
+M.spread={estimate=2,rough=4}
+M.tails=3
+M.learnWeight={estimate=1,rough=0.5}
 -- The kinds of removal weighed here; clouds (zones), sanctuary, nondetection and replacing a
 -- creature are not.
 M.KINDS={dispel=true,schools=true,secondaries=true,opcodes=true,invisibility=true,summons=true,destroy=true}
@@ -132,17 +156,145 @@ function M.dispelChance(level,of)
     if level>=of then p=M.dispelBase+M.dispelAbove*(level-of) else p=M.dispelBase-M.dispelBelow*(of-level) end
     return clamp(p,0,M.dispelMax)
 end
+-- The level removal r's dispel works at when cast at caster level level: its own for a fixed one,
+-- else the caster's; nil without a dispel that rolls.
+function M.dispelAt(r,level)
+    if type(r)~='table' or not list(r.kinds).dispel or type(r.dispel)~='table' or r.dispel.mode=='always' then return nil end
+    if r.dispel.mode=='fixed' then return r.dispel.level end
+    return level
+end
+
+-- The insight the caster weighs a dispel's chance with (see the top): its orders', else its wit's.
+function M.insight(input)
+    local o=type(input)=='table' and type(input.orders)=='table' and input.orders.insight or nil
+    if o~=nil and M.INSIGHTS[o] then return o end
+    local m=type(input)=='table' and input.mind or nil
+    return type(m)=='table' and M.INSIGHT[m.wit] or 'estimate'
+end
+-- The least caster level a spell of level power takes: a wizard's 1, 3, 5 up to 17, a priest's the
+-- same up to its sixth level.
+function M.floor(power)
+    if not number(power) or power<1 then return 1 end
+    return 2*math.floor(power)-1
+end
+-- The level of whoever a clever creature takes enemy e's protections to come from: e's own when e
+-- casts spells, else the highest of the casters on e's side in view (frame.enemies), else e's own.
+function M.source(frame,e)
+    local own=number(e.level) and e.level or 1
+    if ids.caster(e) then return own end
+    local best
+    for _,o in ipairs(list(type(frame)=='table' and frame.enemies)) do
+        if targeting.alive(o) and ids.caster(o) and number(o.level) and (not best or o.level>best) then best=o.level end
+    end
+    return best or own
+end
+-- What a caster of insight ('estimate' or 'rough') believes of the caster level of ward w on enemy
+-- e: the level it guesses, how sure it is (a spread of levels) and the least it can be.
+function M.guess(insight,frame,e,w)
+    if insight=='rough' then return number(e.level) and e.level or 1,M.spread.rough,1 end
+    local floor=M.floor(w.power)
+    return math.max(floor,M.source(frame,e)),M.spread.estimate,floor
+end
+-- The chance a dispel at level at takes a ward whose caster level is believed near guess (spread
+-- and floor as M.guess has them), after what has been seen of dispels at the same spell's effects
+-- on the same enemy: seen, by dispel level, the shares of them that stayed and that went, each
+-- taken in weight times. When nothing is left to believe (what was seen cannot be), the chance at
+-- the guess.
+function M.believed(at,guess,spread,floor,seen,weight)
+    local sum,total=0,0
+    weight=number(weight) and weight or 0
+    for x=math.max(floor,math.floor(guess-M.tails*spread)),math.ceil(guess+M.tails*spread) do
+        local d=(x-guess)/spread
+        local p=math.exp(-0.5*d*d)
+        if weight>0 then
+            for level,o in pairs(list(seen)) do
+                if number(level) and type(o)=='table' then
+                    local c=M.dispelChance(level,x)
+                    p=p*(1-c)^(weight*(number(o.stayed) and o.stayed or 0))*c^(weight*(number(o.went) and o.went or 0))
+                end
+            end
+        end
+        sum=sum+p*M.dispelChance(at,x);total=total+p
+    end
+    if total<=0 then return M.dispelChance(at,guess) end
+    return sum/total
+end
+-- How the caster weighs a dispel's chance at enemy e's wards (see the top): chanceOf(w,at) for
+-- M.taken, or nil for the effects' own caster levels (insight 'exact'). area: the dispel is cast as
+-- an area.
+function M.belief(input,e,area)
+    local insight=M.insight(input)
+    if insight=='exact' then return nil end
+    if insight=='none' then return function(_,at) return M.dispelChance(at,at) end end
+    local book=type(input.dispels)=='table' and e.id~=nil and input.dispels[e.id] or nil
+    book=type(book)=='table' and book or {}
+    local first=area==true and not (number(book.tried) and book.tried>0)
+    local sources=type(book.sources)=='table' and book.sources or {}
+    local weight=M.learnWeight[insight] or 0
+    local cache={}
+    return function(w,at)
+        local s=type(w.source)=='string' and w.source or ''
+        local key=s..'|'..tostring(w.power)..'|'..tostring(at)
+        local c=cache[key]
+        if c==nil then
+            local guess,spread,floor=M.guess(insight,input.frame,e,w)
+            c=M.believed(at,guess,spread,floor,s~='' and sources[s] or nil,weight)
+            if first then c=math.max(c,M.dispelChance(at,at)) end
+            cache[key]=c
+        end
+        return c
+    end
+end
+-- What the group learns from a dispel at level at that was judged on one enemy, into book (what it
+-- has seen of dispels at that enemy; a new one when nil), which it returns. before and after count
+-- the enemy's effects a dispel can take by the spell or item they come from. Each spell counts once:
+-- the share of its effects that stayed and the share that went. When none went at all the dispel
+-- may not have got through: what stayed counts only as likely as it did (land, the chance it got
+-- through the enemy's magic resistance). The dispel counts as tried either way.
+function M.learn(book,before,after,at,land)
+    book=type(book)=='table' and book or {}
+    book.tried=(number(book.tried) and book.tried or 0)+1
+    if not number(at) or type(before)~='table' then return book end
+    after=type(after)=='table' and after or {}
+    local function left(s) return number(after[s]) and after[s] or 0 end
+    local any=false
+    for s,n in pairs(before) do
+        if number(n) and n>0 and left(s)<n then any=true end
+    end
+    local weight=any and 1 or clamp(number(land) and land or 1,0,1)
+    if weight<=0 then return book end
+    book.sources=type(book.sources)=='table' and book.sources or {}
+    for s,n in pairs(before) do
+        if type(s)=='string' and s~='' and number(n) and n>0 then
+            local stayed=clamp(left(s)/n,0,1)
+            local seen=type(book.sources[s])=='table' and book.sources[s] or {}
+            book.sources[s]=seen
+            local o=type(seen[at])=='table' and seen[at] or {stayed=0,went=0}
+            seen[at]=o
+            o.stayed=o.stayed+weight*stayed
+            o.went=o.went+weight*(1-stayed)
+        end
+    end
+    return book
+end
 
 -- What removal r takes of wards (an enemy's, in list order), cast at caster level level: the
--- chance each ward goes, by index, and whether the invisible state goes.
-function M.taken(r,wards,level)
+-- chance each ward goes, by index, and whether the invisible state goes. chanceOf(w,at) (optional,
+-- M.belief) gives a dispel's chance at ward w; without it, its effect's own caster level does.
+function M.taken(r,wards,level,chanceOf)
     local chance={}
     local function take(i,p) chance[i]=math.max(chance[i] or 0,p) end
     local kinds=list(r.kinds)
     if kinds.dispel and type(r.dispel)=='table' then
         local at=r.dispel.mode=='fixed' and r.dispel.level or level
         for i,w in ipairs(wards) do
-            if type(w)=='table' and w.dispellable then take(i,r.dispel.mode=='always' and 1 or M.dispelChance(at,w.level)) end
+            if type(w)=='table' and w.dispellable then
+                local p
+                if r.dispel.mode=='always' then p=1
+                elseif chanceOf then p=chanceOf(w,at)
+                else p=M.dispelChance(at,w.level) end
+                take(i,p)
+            end
         end
     end
     -- Type 0 (none) marks no spell.
@@ -305,9 +457,10 @@ function M.freed(e,wards,chance,r)
     return p,harm.DISABLE.charm*span*(0.5+0.5*targeting.health(e))
 end
 
--- The worth of a removal spell on enemy e once it lands, r rounds before the horizon ends, and the
--- reason when it is none. It can be below zero: then the removal frees e of more than it opens.
-function M.on(input,spell,e,r)
+-- The worth of a removal spell on enemy e once it lands, r rounds before the horizon ends, the
+-- reason when it is none, and the chance it lands. It can be below zero: then the removal frees e
+-- of more than it opens. area: the spell is cast as an area (a dispel's chance, M.belief).
+function M.on(input,spell,e,r,area)
     local mind=input.mind
     local killBonus=number(mind.killBonus) and mind.killBonus or 0
     local roles,key=spells.view(spell,targeting.holds(e))
@@ -322,7 +475,7 @@ function M.on(input,spell,e,r)
     if kinds.destroy or (kinds.summons and summoned(e)) then return land*(targeting.health(e)+killBonus) end
     if r<=0 then return 0,'no-time' end
     local wards=type(e.wards)=='table' and e.wards or {}
-    local chance,purge=M.taken(role,wards,input.frame.self.level)
+    local chance,purge=M.taken(role,wards,input.frame.self.level,M.belief(input,e,area))
     local gone,n,sum=nil,0,0
     for i,p in pairs(chance) do
         if p>0 then gone=gone or {};gone[i]=true;n=n+1;sum=sum+p end
@@ -366,7 +519,7 @@ function M.on(input,spell,e,r)
     end
     worth=worth*land
     if worth==0 then return 0,'no-worth' end
-    return worth,worth<0 and 'frees' or nil
+    return worth,worth<0 and 'frees' or nil,land
 end
 
 -- Seconds the caster walks before it can cast spell at p (a creature or a point): none in range,
@@ -437,7 +590,9 @@ end
 
 -- Every removal the caster can cast now, best aim per spell: {resref, kind='removal', mode, worth,
 -- cost, score, hits (the enemies it opens), slack=0, speed, and target, point or self; walk, the
--- seconds of the walk into range, for an aim beyond it}. An area
+-- seconds of the walk into range, for an aim beyond it; for a dispel that rolls, at (the level it
+-- works at), lands (by enemy id among hits, the chance it lands), which M.learn takes, and the
+-- insight it was weighed with}. An area
 -- counts every enemy in it, also those it would free. attack (optional) names the spells
 -- combat-intent/choice.lua weighs as attacks, with their removal (left out here). rejected
 -- (optional) counts why ready removal spells gave none.
@@ -462,7 +617,7 @@ function M.options(input,rejected,attack)
                 local a=type(spell.area)=='table' and spell.area or nil
                 local best,reason
                 for _,aim in ipairs(aims(input,spell)) do
-                    local worth,hits,blocked=0,{},false
+                    local worth,hits,lands,blocked=0,{},{},false
                     if a and (not aim.enemy or role.who.area) then
                         local center=aim.point
                         if a.filter~='enemies' then
@@ -476,20 +631,21 @@ function M.options(input,rejected,attack)
                         if not blocked then
                             for _,e in ipairs(list(frame.enemies)) do
                                 if targeting.alive(e) and targeting.distance(center,e)<=a.radius then
-                                    local w,no=M.on(input,spell,e,r)
+                                    local w,no,land=M.on(input,spell,e,r,true)
                                     if w>0 then w=w*orders.favour(input,e) end
                                     worth=worth+w
-                                    if w>0 then hits[#hits+1]=e.id else reason=reason or no end
+                                    if w>0 then hits[#hits+1]=e.id;lands[e.id]=land else reason=reason or no end
                                 end
                             end
                         else reason=reason or 'ally-in-area' end
                     elseif aim.enemy then
-                        local w,no=M.on(input,spell,aim.enemy,r)
-                        if w>0 then worth=w*orders.favour(input,aim.enemy);hits[1]=aim.enemy.id else reason=reason or no end
+                        local w,no,land=M.on(input,spell,aim.enemy,r)
+                        if w>0 then worth=w*orders.favour(input,aim.enemy);hits[1]=aim.enemy.id;lands[aim.enemy.id]=land
+                        else reason=reason or no end
                     end
                     -- A walk into range comes first and lowers the worth (combat-intent/choice.lua).
                     if aim.walk then worth=worth*weapons.paced(aim.walk) end
-                    if worth>0 and #hits>0 and (not best or worth>best.worth) then best={aim=aim,worth=worth,hits=hits} end
+                    if worth>0 and #hits>0 and (not best or worth>best.worth) then best={aim=aim,worth=worth,hits=hits,lands=lands} end
                 end
                 if not best then reject(reason or 'out-of-reach')
                 else
@@ -501,6 +657,8 @@ function M.options(input,rejected,attack)
                     local value=best.worth*through
                     local option={resref=row.resref,kind='removal',worth=value,cost=cost,score=value-cost,hits=best.hits,
                         slack=0,speed=number(spell.speed) and spell.speed or 0,release=spell.release or nil,walk=best.aim.walk}
+                    option.at=M.dispelAt(role,caster.level)
+                    if option.at then option.lands=best.lands;option.insight=M.insight(input) end
                     local aim=best.aim
                     if aim.self then option.self=true;option.mode='self-area'
                     elseif aim.enemy then option.target=aim.enemy.id;option.mode='creature'

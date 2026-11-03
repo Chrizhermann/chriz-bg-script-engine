@@ -211,8 +211,20 @@ other side of combat-intent/defence.lua:
   on an enemy for the time it still has; its other effects count neither way then. A tactic by wit.
 - **Chance:** a dispel takes each effect as likely as the engine's rule makes it (49% at the
   effect's caster level, 5% more a level above, 10% less a level below, none from five levels
-  below, 99% at most); the removal lands as likely as magic resistance lets it (only when its
-  effects can be resisted), the saving throw and its own chance.
+  below, 99% at most; IESDP, opcode 58); the removal lands as likely as magic resistance lets it
+  (only when its effects can be resisted), the saving throw and its own chance.
+- **Insight** (since 2026-11-03; Christopher: knowing it 100% would be dumb, "Außer vielleicht ein
+  Irenicus oder so"): the effect's caster level in that rule is what the caster believes, by wit,
+  not the engine's number. A clever caster guesses whoever cast the protection: the enemy itself
+  when it casts spells, else the strongest caster on its side in view, and at least what a spell
+  of that level takes (a sixth-level protection is the work of level 11 or more). A normal one
+  takes the enemy's own level and is less sure (a spread of 4 levels instead of 2). A dull one
+  counts the base 49%, as if the levels were equal. What the group has seen dispels do to the same
+  spell's effects on that enemy narrows the guess (effects that stayed make a higher level likelier,
+  effects that went a lower one; a normal caster takes in half), and an area dispel is worth one
+  try at enemies no dispel has been tried at: until then each of their effects counts at least 49%
+  ("generell ein mal zu casten, damit es AOE auf mehrere weg ist"). Orders `insight='exact'` give a
+  special boss the engine's numbers; 'estimate', 'rough' and 'none' set the others by hand.
 - **What it takes** (IESDP): a dispel each effect that can be dispelled; Breach's kind (opcodes
   220, 221) every effect of each spell or item with a matching effect, up to the power level, but
   those that last after death; Secret Word's kind (229, 230) the matching effects of the first
@@ -234,7 +246,11 @@ other side of combat-intent/defence.lua:
   active effects (`sense.wards`: opcode, parameter 2, source, school, secondary type, power,
   caster level, dispellable, timed, item, lasting after death, seconds left) and classifies each
   once by its fields. A removal is judged when it ends: did an enemy it was for lose effects,
-  skins, images or its invisibility, or vanish (`strip` rows, counts `stripped`, `unstripped`).
+  skins, images or its invisibility, or vanish (`strip` rows, counts `stripped`, `unstripped`). A
+  dispel that rolls also teaches the group, per enemy and spell, the share of the effects a dispel
+  can take that stayed and went (`removal.learn`; when none went, only as likely as the dispel got
+  through magic resistance), for this session only; the `choice` row tells the level it works at
+  (`at`) and the insight, the `strip` row how many enemies taught (`learned`).
 - **SCS keeps no rounds any more.** With removal done, the profile switch `keepScsSpells` and its
   fitting rule are gone (DEFENCE-01); SCS's scripts never raise, so nothing is left to keep.
 

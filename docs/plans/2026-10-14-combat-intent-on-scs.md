@@ -952,7 +952,9 @@ Christopher's answers of 2026-11-03:
 - **Dispel Magic and Remove Magic:** a clever caster estimates from what it sees (the foe's level,
   class, how strong its protections look) whether it out-levels the foe; never knowing for certain,
   except perhaps a special boss such as Irenicus. An area dispel is worth casting once anyway, as it
-  strips several foes.
+  strips several foes. Built the same day (SUPPORT-01, "Insight"): clever, normal and dull guess
+  differently, the group learns from what its dispels left, an area dispel tries once at each foe,
+  and orders `insight='exact'` give a boss the true levels.
 - **Boss fights** start in early BG1 and go through all of them in story order.
 
 ## To design with Christopher

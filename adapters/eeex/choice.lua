@@ -84,7 +84,10 @@
 -- Protection removal (D3d): when a ready spell removes something from enemies, the choice also gets
 -- each enemy's active effects (sense.wards), each classified on its own and cached by its fields. A
 -- removal is cast at an enemy, a point or on the caster; once it ends it is judged by whether an
--- enemy it was for lost effects, skins, images or its invisibility, or is gone.
+-- enemy it was for lost effects, skins, images or its invisibility, or is gone. A dispel that rolls
+-- teaches the group (combat-intent/removal.lua, M.learn): for each enemy it was for, how many of each
+-- spell's effects a dispel can take stayed and went, kept by object id for this session only
+-- (dispels; a load forgets them), and the choice weighs later dispels at that enemy with it.
 --
 -- Danger zones (D3e): the choice also gets the zones in the caster's area (sense.zones, read once a
 -- tick for each area), each classified once by what one explosion delivers, with who cast it and
@@ -205,6 +208,7 @@ local summons=require('combat-intent.summons')
 local zones=require('combat-intent.zones')
 local mind=require('combat-intent.mind')
 local orders=require('combat-intent.orders')
+local removal=require('combat-intent.removal')
 local search=require('combat-intent.search')
 local backstab=require('combat-intent.backstab')
 local prep=require('combat-intent.prep')
@@ -502,6 +506,8 @@ function M.new(g,options)
     -- stays and insideOf: what the group has seen its enemies do in zones (look); lookedAt: the
     -- tick each area was last looked at.
     local stays,stayCount,insideOf,insideCount,lookedAt={},0,{},0,{}
+    -- dispels: what the group has seen dispels do at each enemy, by object id (removal.learn).
+    local dispels,dispelCount={},0
     -- SCS's preparation blocks the engine held back, by creature, kind and spell, for one 'prep' row each.
     local prepHeld,prepHeldCount={},0
     -- The creatures SCS's vanishing exits asked to leave and the engine kept, for one 'stay' row each.
@@ -683,11 +689,19 @@ function M.new(g,options)
         return false
     end
     -- What shows of a creature's protections: the count of its active effects, its skins, images
-    -- and state.
+    -- and state, and the effects a dispel can take, counted by the spell or item they come from
+    -- (sources).
     local function shown(object,tick)
         local ok,list=pcall(sense.wards,g,object,tick,none)
         local actor=sense.actor(g,object)
-        return {effects=ok and #list or nil,skins=actor.skins,mirror=actor.mirror,state=actor.state}
+        local sources
+        if ok then
+            sources={}
+            for _,w in ipairs(list) do
+                if w.dispellable and type(w.source)=='string' and w.source~='' then sources[w.source]=(sources[w.source] or 0)+1 end
+            end
+        end
+        return {effects=ok and #list or nil,skins=actor.skins,mirror=actor.mirror,state=actor.state,sources=sources}
     end
     -- An item's first three abilities, classified once.
     local function item(resref)
@@ -944,7 +958,9 @@ function M.new(g,options)
         end
         if a.kind=='removal' then
             -- An enemy it was for that lost effects, skins, images or its invisibility, or is gone.
-            local took=0
+            -- A dispel that rolls teaches the group what stayed of each enemy's spells (learned:
+            -- the enemies it was judged on).
+            local took,learned=0,0
             local enemies=type(a.hits)=='table' and a.hits or {}
             for _,id in ipairs(enemies) do
                 local before=type(a.before)=='table' and a.before[id]
@@ -956,11 +972,21 @@ function M.new(g,options)
                         if (now.effects and before.effects and now.effects<before.effects) or (now.skins or 0)<(before.skins or 0)
                             or (now.mirror or 0)<(before.mirror or 0) or (targeting.has(before.state,UNSEEN) and
                             not targeting.has(now.state,UNSEEN)) then took=took+1 end
+                        if a.at and before.sources and now.sources then
+                            if not dispels[id] then
+                                if dispelCount>=M.cacheLimit then dispels,dispelCount={},0 end
+                                dispelCount=dispelCount+1
+                            end
+                            dispels[id]=removal.learn(dispels[id],before.sources,now.sources,a.at,
+                                type(a.lands)=='table' and a.lands[id] or nil)
+                            learned=learned+1
+                        end
                     end
                 end
             end
             if took>0 then counts.stripped=counts.stripped+1 else counts.unstripped=counts.unstripped+1 end
-            record({kind='strip',tick=a.ended,member=a.caster,spell=a.resref,mode=a.mode,enemies=#enemies,took=took})
+            record({kind='strip',tick=a.ended,member=a.caster,spell=a.resref,mode=a.mode,enemies=#enemies,took=took,
+                at=a.at,learned=a.at and learned or nil})
             return
         end
         if M.CARE[a.kind] then
@@ -1191,6 +1217,12 @@ function M.new(g,options)
         end
         s[what]=s[what]+n
         if what=='stay' then counts.stayed=counts.stayed+n else counts.left=counts.left+n end
+    end
+    -- What the group has seen, for a decision's input: its enemies in zones (stays) and dispels at
+    -- them (dispels).
+    local function lore(input)
+        input.stays,input.dispels=stays,dispels
+        return input
     end
     -- Forgets the zones of area that are gone (not in present).
     local function forget(area,present)
@@ -1802,9 +1834,10 @@ function M.new(g,options)
         local holder,left=timeStop()
         local input={tick=tick,family=family,frame=frame,spells=rows,items=carried,lastDefence=lastDefence[id],
             plan=plan,memory=memory[id] or {},mind=mindFor(sprite,family),rng=rng,
-            creatures=summoned(rows),stays=stays,orders=orderBook[text(sprite.m_resref:get())],
+            creatures=summoned(rows),orders=orderBook[text(sprite.m_resref:get())],
             teleports=search.teleports(rows),jumped=seeker:jumped(id),kited=kited[id],tables=(sense.tables(g)),
             returning=returning,fight=fight}
+        lore(input)
         -- The zones in the area, with what they weigh about the caster itself.
         local raw=zoneList(sprite,tick)
         local seen={}
@@ -1893,7 +1926,8 @@ function M.new(g,options)
             rest=d.rest,slots=input.slots,finish=d.finish,aura=frame.self.aura~=0 and frame.self.aura or nil,
             inZones=zoneView(input,d),lasting=d.lasting,wit=input.mind.wit,walk=d.walk,interrupt=d.interrupt,
             ordered=d.ordered,slot=d.slot,backstab=d.backstab,opening=d.opening,ready=d.ready,
-            calm=d.ready and d.calm or nil,fight=fight and {#fight.allies+1,#fight.enemies} or nil})
+            calm=d.ready and d.calm or nil,fight=fight and {#fight.allies+1,#fight.enemies} or nil,
+            insight=d.insight,at=d.at})
         -- A disable claims its targets in the group at once, so that another member deciding
         -- before this cast starts leaves them alone, and a debuff the enemies it weakens for its
         -- spell; any other decision gives earlier claims back.
@@ -1946,7 +1980,8 @@ function M.new(g,options)
             use=d.use,before=before,count=d.count,creatures=d.creatures,monsters=d.monsters,known=seen,cover=cover,
             walk=d.walk,melee=d.kind=='teleport' and d.melee or nil,innate=d.kind=='teleport' and d.innate or nil,
             slot=d.kind=='weapon' and d.slot or nil,abilityNum=d.kind=='weapon' and d.abilityNum or nil,
-            backstab=d.kind=='weapon' and d.backstab or nil}
+            backstab=d.kind=='weapon' and d.backstab or nil,at=d.kind=='removal' and d.at or nil,
+            lands=d.kind=='removal' and d.lands or nil}
     end
     -- From the gate, each time a hooked script asks: nil (the creature's script has the round),
     -- {hold=true,own=true} while the engine's queued cast has not started or its own action runs,
@@ -2085,7 +2120,8 @@ function M.new(g,options)
             pending[object.m_id]={caster=object.m_id,resref=decision.spell,kind=decision.kind,mode=decision.mode,
                 target=decision.target,point=decision.point,hits=decision.hits,tick=tick,hp=hp,
                 castTicks=decision.castTicks,sources=decision.sources,expected=decision.expected,before=decision.before,
-                count=decision.count,creatures=decision.creatures,monsters=decision.monsters,known=known,walk=decision.walk}
+                count=decision.count,creatures=decision.creatures,monsters=decision.monsters,known=known,walk=decision.walk,
+                at=decision.at,lands=decision.lands}
         end
         counts.performed=counts.performed+1
         round(object,tick,decision.cover)
@@ -2372,6 +2408,7 @@ function M.new(g,options)
         lastDefence,known,stopCasts,strikes={},{},{},{}
         moves,zoneRead,zoneSpells,zoneSpellCount,zoneBroken={},nil,{},0,false
         stays,stayCount,insideOf,insideCount,lookedAt={},0,{},0,{}
+        dispels,dispelCount={},0
         minds,mindCount,hurts,hurtCount,pained={},0,{},0,{}
         waits={}
         prepHeld,prepHeldCount={},0
@@ -2396,7 +2433,8 @@ function M.new(g,options)
             stealth=hider:inspect(),moving=(function()
                 local n=0;for _ in pairs(moves) do n=n+1 end;return n end)(),waiting=(function()
                 local n=0;for _,w in pairs(waits) do if not w.over then n=n+1 end end;return n end)(),stays=(function()
-                local c={};for id,s in pairs(stays) do c[id]={stay=s.stay,left=s.left} end;return c end)()}
+                local c={};for id,s in pairs(stays) do c[id]={stay=s.stay,left=s.left} end;return c end)(),dispels=(function()
+                local c={};for id,b in pairs(dispels) do c[id]={tried=b.tried,sources=b.sources} end;return c end)()}
     end
     return api
 end
