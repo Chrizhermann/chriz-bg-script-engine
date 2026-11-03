@@ -334,6 +334,11 @@ function M.install(g,options)
     g.BGSE_TalkAct=function(object)
         pcall(function() if choice then choice:talkAct(object.m_id) end end)
     end
+    -- A designed creature's cutscene brings its companion now (choice:companion; Greywolf's archer). The gate's
+    -- switch off or any error brings nobody: the encounter stays as the game has it.
+    g.BGSE_Companion=function(object)
+        pcall(function() if choice and gate:on()==true then choice:companion(object.m_id) end end)
+    end
     -- SCS's preparation ran for the creature (choice:prepped logs it for a creature the engine drives).
     g.BGSE_Prepped=function(object,family,script,kind,cast,spent)
         pcall(function()

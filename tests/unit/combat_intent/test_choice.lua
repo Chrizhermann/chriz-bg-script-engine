@@ -1070,6 +1070,12 @@ do
     assert(select(2,orders.check({opener={{watch=0}}}))=='opener' and select(2,orders.check({opener={{watch=13}}}))=='opener')
     assert(select(2,orders.check({opener={{watch=4,cast='X'}}}))=='opener' and select(2,orders.check({opener={'TOOLONGNAME'}}))=='opener')
     assert(select(2,orders.check({opener={{}}}))=='opener' and select(2,orders.check({opener={'SPPR113'},openerFrom=6}))=='openerFrom')
+    -- A companion (Greywolf's archer): a weak and a strong creature file, and the difficulty the strong one
+    -- comes from.
+    assert(orders.check({companion={weak='BGSEKES1',strong='BGSEKES2',strongFrom=4}}))
+    assert(select(2,orders.check({companion={weak='BGSEKES1',strongFrom=4}}))=='companion')
+    assert(select(2,orders.check({companion={weak='BGSEKES1',strong='BGSEKES2',strongFrom=0}}))=='companion')
+    assert(select(2,orders.check({companion={weak='BGSEKES1',strong='BGSEKES2',strongFrom=4,from='X'}}))=='companion')
 end
 groups=groups+1
 

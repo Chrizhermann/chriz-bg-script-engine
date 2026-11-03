@@ -42,20 +42,22 @@ normally.
 | preparation before a talk whose script many creatures share (the game's `INITDLG`) | `bgse/encounters.tpa`, plus `talkPrep` in `encounters.lua` | `talk = ~INITDLG>BGSEKARL~`: the creature gets its own copy, whose talk waits while it prepares |
 | preparation in a cutscene, in sight of the party | `bgse/encounters.tpa` | `cutscene = ~SILKECUT~ prepare = ~POTN11 SPWI212~`: before its wait it drinks what it carries and casts what it has memorized (on every difficulty: such cutscenes check no triggers) |
 | a new line in a dialogue | `bgse/encounters.tpa` | `LAF bgse_encounter_line` with `dlg`, `after` (an action the state's transition does), `state` (a label) and `line`: the line follows that state and takes its transition over |
-
-Not built yet, it comes with its encounter (plan step 6) and gets its row here then: new creatures (Kestrel).
+| a new creature | `bgse/encounters.tpa` | `LAF bgse_encounter_new` with `chassis` (a creature of the game that lends body, voice and its other effects), `cre`, `name`, `level`, `hp`, `thac0`, scores, `script`, `default` (the first script this game has), `dv`, `items = ~ARMOR:LEAT01 WEAPON1:BOW05 QUIVER1:AROW01:40~`, `profs = ~105:2 91:1~` (proficiency number from STATS.IDS, stars); its saving throws come from the game's table for its class at its level; `RET bgse_born` |
+| a line in a cutscene | `bgse/encounters.tpa` | `LAF bgse_encounter_cutline` with `cutscene`, `who` (the `CutSceneId` of the block), `before` (the action it goes before) and `line` |
+| a companion who comes with the creature, by difficulty | `bgse/encounters.tpa`, plus `companion` in `encounters.lua` | two creatures with `bgse_encounter_new`, a cutscene line `EEex_LuaAction("if BGSE_Companion then BGSE_Companion(EEex_LuaAction_Object) end")` with `bgse_encounter_cutline`, and `companion={weak=…, strong=…, strongFrom=4}` |
 
 ## Tools
 
 - `python -I tools/scout.py <lab game folder> NEIRA [KARLAT ...] [--where]`: who a creature is, its scores,
-  its memorized spells and items by name, SCS's random items with their odds, scripts, dialog, effects;
-  `--where` adds the areas it stands in and the scripts and dialogs that name it. Read-only.
+  saving throws, its memorized spells and items by name, SCS's random items with their odds, scripts, dialog,
+  effects (weapon proficiencies by name); `--where` adds the areas it stands in and the scripts and dialogs that
+  name it. Read-only.
 - Labs (read-only for scouting): the no-SR lab `C:\Users\chris\Games\BGSE-Lab\eet-nosr-2\game`, the SR lab
   `C:\Users\chris\Games\BGSE-Lab\scs-reference\game`. Never Christopher's own game.
 - Scripts and dialogs: decompile a copy with WeiDU into a scratch folder (as `tools/hook_agree.py` does);
   never run WeiDU in a game folder outside a disposable lab.
 
-## Spells and potions used so far
+## Resources used so far
 
 Original game resources; names as the no-SR lab shows them.
 
@@ -65,6 +67,9 @@ Original game resources; names as the no-SR lab shows them.
 | priest 2 | `SPPR201` Aid, `SPPR208` Hold Person, `SPPR211` Silence, 15' Radius, `SPPR213` Spiritual Hammer, `SPPR214` Draw Upon Holy Might |
 | priest 3 | `SPPR310` Miscast Magic, `SPPR314` Unholy Blight, `SPPR316` Prayer |
 | potions | `POTN08` Healing, `POTN52` Extra Healing, `POTN09` Heroism, `POTN10` Invisibility, `POTN11` Invulnerability, `POTN12` Stone Giant Strength, `POTN14` Oil of Speed, `POTN35` Magic Shielding |
+| archer gear | `LEAT01` Leather Armor, `LEAT04` Studded Leather Armor, `BOW05` Shortbow, `BOW03` Longbow, `BOW01` Composite Longbow, `SW1H07` Short Sword, `AROW01` Arrow, `AROW08` Arrow of Fire, `AROW09` Arrow of Ice, `AROW10` Arrow of Piercing +1 |
+| weapon proficiencies (STATS.IDS) | 90 long sword, 91 short sword, 104 long bow, 105 short bow, 114 two-weapon style |
+| chassis | `HUNTER` "Ted", a level-3 archer; `BAERIN`, a level-6 archer (Kestrel's two files) |
 
 SCS's undroppable copies of potions are `DW#PTNxx`; its random items `DW#RNDnn` are drawn when the game
 creates the creature, so a playthrough may differ (scout shows the odds).
@@ -93,3 +98,12 @@ creates the creature, so a playthrough may differ (scout shows the odds).
 - A label in a `.d` file lives only while that file compiles; a second `.d` names the state by its number.
   WeiDU leaves strings it added to the TLK after an uninstall (unused), so tests compare the old strings,
   not the whole file.
+- A chassis brings its own weapon proficiencies (opcode 233 effects) and saving throws. Give a new creature
+  `profs` for the weapons it carries (Kestrel's first draft had a Shortbow without the skill); its saving
+  throws come from the game's table by themselves.
+- In WeiDU a variable as a number argument is written `(charges)`, not `#charges`; an optional regex group
+  leaves its `MATCHn` unset, so match the rest with `\(.*\)` and read it apart.
+- Outside functions WeiDU's variables are global: a routine's `RET` name must not be one the installer
+  already counts with (Kestrel's routine first returned `bgse_made`, and the gift line then said 0).
+- A check on real files in the synthetic game needs every table the routine reads copied in too (such as
+  `SAVEWAR.2DA`), or the routine falls back and only warns.

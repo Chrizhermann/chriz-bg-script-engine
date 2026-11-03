@@ -52,6 +52,10 @@
 -- worth making (allowed, and worth more than it costs) is taken, and the steps before it are passed
 -- over; a step not worth making now waits. The adapter keeps which step comes next (input.opener), for
 -- at most openerSeconds from the creature's first decision in sight of an enemy.
+--
+-- companion names the creature that comes with this one when its cutscene asks (Christopher, 2026-11-04,
+-- for Greywolf's archer): {weak=file, strong=file, strongFrom=difficulty 1 to 5}, the strong one from that
+-- difficulty up, the weak one below (adapters/eeex/choice.lua, api:companion).
 local targeting=require('combat-intent.targeting')
 local M={}
 M.bonus=1
@@ -124,6 +128,9 @@ function M.check(o)
             for i,s in pairs(v) do if type(i)~='number' or not step(s) then return false,k end end
         elseif k=='talkFrom' or k=='openerFrom' then
             if not level(v) then return false,k end
+        elseif k=='companion' then
+            if type(v)~='table' or not resref(v.weak) or not resref(v.strong) or not level(v.strongFrom) then return false,k end
+            for f in pairs(v) do if f~='weak' and f~='strong' and f~='strongFrom' then return false,k end end
         else return false,tostring(k) end
     end
     return true

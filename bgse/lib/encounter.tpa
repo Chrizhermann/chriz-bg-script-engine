@@ -398,12 +398,14 @@ BEGIN
   END
 END
 
-// The preparation lines (actions, one an indented line) before the first wait of the block of the cutscene in
-// the patch buffer whose response names who in CutSceneId, or after that line in a block without a wait. A
-// script that fails to decompile, patch or compile, or has no such block, is left exactly as it was (bgse_cut 0).
+// Lines (actions, one an indented line each) before the first action named before (a Wait by default) in the block
+// of the cutscene in the patch buffer whose response names who in CutSceneId, or after that CutSceneId line in a
+// block without such an action. A script that fails to decompile, patch or compile, or has no such block, is left
+// exactly as it was (bgse_cut 0).
 DEFINE_PATCH_FUNCTION bgse_cut_prep_bcs
   STR_VAR who = ~~
           actions = ~~
+          before = ~Wait(~
   RET bgse_cut
 BEGIN
   SET bgse_cut = 0
@@ -419,10 +421,10 @@ BEGIN
       SET at = INDEX_BUFFER (CASE_INSENSITIVE EXACT_MATCH ~CutSceneId("%who%")~)
       PATCH_IF (at >= 0) BEGIN
         SET end = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~%LNL%END%LNL%~ at)
-        SET wait = INDEX_BUFFER (CASE_SENSITIVE ~^    Wait(~ at)
+        SET wait = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~%LNL%    %before%~ at)
         PATCH_IF (end >= 0) BEGIN
           PATCH_IF (wait >= 0) AND (wait < end) BEGIN
-            SET into = wait
+            SET into = wait + STRING_LENGTH ~%LNL%~
           END ELSE BEGIN
             SET into = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~%LNL%~ at) + 1
           END
@@ -443,6 +445,233 @@ BEGIN
     DELETE_BYTES 0 BUFFER_LENGTH
     INSERT_BYTES 0 (STRING_LENGTH ~%bcs%~)
     WRITE_ASCIIE 0 ~%bcs%~
+  END
+END
+
+// A line of the engine's in a cutscene (line, an action; such as ~EEex_LuaAction("...")~): in the block for who
+// (CutSceneId), before its first action named before. bgse_put is 1 when the cutscene changed.
+DEFINE_ACTION_FUNCTION bgse_encounter_cutline
+  STR_VAR cutscene = ~~
+          who = ~~
+          before = ~~
+          line = ~~
+  RET bgse_put
+BEGIN
+  OUTER_SET bgse_put = 0
+  ACTION_IF (STRING_LENGTH ~%cutscene%~ > 0) AND (FILE_EXISTS_IN_GAME ~%cutscene%.bcs~) BEGIN
+    OUTER_TEXT_SPRINT actions ~    %line%%LNL%~
+    OUTER_SET bgse_cut = 0
+    COPY_EXISTING ~%cutscene%.bcs~ ~override~
+      LPF bgse_cut_prep_bcs STR_VAR who = EVAL ~%who%~ actions = EVAL ~%actions%~ before = EVAL ~%before%~
+        RET bgse_cut END
+    BUT_ONLY_IF_IT_CHANGES
+    OUTER_SET bgse_put = bgse_cut
+    ACTION_IF (bgse_put = 0) BEGIN
+      PRINT ~BGSE encounter: %cutscene% has no block for %who%, its line is left out~
+    END
+  END ELSE BEGIN
+    PRINT ~BGSE encounter: this game lacks %cutscene%.bcs, its line is left out~
+  END
+END
+
+// A new creature a designed encounter brings (Christopher designs each one; Kestrel, Greywolf's archer,
+// 2026-11-04): a copy of chassis, a creature of the game that gives it its body, voice and own effects, set as
+// the entry says. Its name (a new string), level, hit points, THAC0, and the ability scores given (above 0);
+// the saving throws of its class at its level, from the game's table for the class (SAVEWAR.2DA for warriors,
+// SAVEWIZ, SAVEPRS, SAVEROG, SAVEMONK; a multiclass chassis keeps its own); neutral and of alignment
+// (ALIGNMEN.IDS); its own script in the override slot and, as its default script, the
+// first of default this game has; no dialog; death variable dv; only the items of items, as
+// ~SLOT:RESREF[:charges]~ entries (armor, shield and weapons equipped); and, when profs names them, only these
+// weapon proficiencies, as ~PROFICIENCY:stars~ entries (WEAPPROF.IDS numbers, such as ~105:2~ for two stars in
+// the short bow), in place of the chassis's own. A chassis this game lacks, a name another mod has, and an item
+// this game lacks are left out, with a warning. bgse_born is 1 when the creature was made.
+DEFINE_ACTION_FUNCTION bgse_encounter_new
+  INT_VAR level = 1
+          hp = 1
+          thac0 = 20
+          str = 0
+          int = 0
+          wis = 0
+          dex = 0
+          con = 0
+          cha = 0
+          alignment = 0x22
+  STR_VAR chassis = ~~
+          cre = ~~
+          name = ~~
+          script = ~~
+          default = ~~
+          dv = ~~
+          items = ~~
+          profs = ~~
+  RET bgse_born
+BEGIN
+  OUTER_SET bgse_born = 0
+  OUTER_TEXT_SPRINT fight ~~
+  OUTER_PATCH ~%default%~ BEGIN
+    REPLACE_EVALUATE CASE_INSENSITIVE ~[A-Za-z0-9_#-]+~ BEGIN
+      PATCH_IF (STRING_LENGTH ~%fight%~ = 0) AND (FILE_EXISTS_IN_GAME ~%MATCH0%.bcs~) BEGIN
+        TEXT_SPRINT fight ~%MATCH0%~
+      END
+    END ~%MATCH0%~
+  END
+  ACTION_IF NOT (FILE_EXISTS_IN_GAME ~%chassis%.cre~) BEGIN
+    PRINT ~BGSE encounter: this game lacks %chassis%.cre, so %cre%.cre is not made~
+  END ELSE ACTION_IF (FILE_EXISTS_IN_GAME ~%cre%.cre~) BEGIN
+    PRINT ~BGSE encounter: another mod has %cre%.cre, so it is not made~
+  END ELSE BEGIN
+    COPY_EXISTING ~%chassis%.cre~ ~override/%cre%.cre~
+      SAY_EVALUATED 0x08 ~%name%~
+      SAY_EVALUATED 0x0c ~%name%~
+      WRITE_SHORT 0x24 hp
+      WRITE_SHORT 0x26 hp
+      WRITE_BYTE 0x52 thac0
+      WRITE_BYTE 0x234 level
+      // Its saving throws are those of its class at its level, from the game's own table for the class, so that
+      // it inherits no chassis's better or worse ones.
+      READ_BYTE 0x273 class
+      TEXT_SPRINT table ~~
+      PATCH_MATCH class WITH
+        2 6 12 BEGIN TEXT_SPRINT table ~savewar~ END
+        1 19 BEGIN TEXT_SPRINT table ~savewiz~ END
+        3 11 21 BEGIN TEXT_SPRINT table ~saveprs~ END
+        4 5 BEGIN TEXT_SPRINT table ~saverog~ END
+        20 BEGIN TEXT_SPRINT table ~savemonk~ END
+        DEFAULT
+      END
+      SET saves = 0
+      PATCH_IF (STRING_LENGTH ~%table%~ > 0) AND (FILE_EXISTS_IN_GAME ~%table%.2da~) BEGIN
+        INNER_PATCH_FILE ~%table%.2da~ BEGIN
+          // Only rows that reach the level's column; the column of level 1 follows the row's name.
+          READ_2DA_ENTRIES_NOW bgse_save_rows (level + 1)
+          FOR (r = 0; r < bgse_save_rows; r += 1) BEGIN
+            READ_2DA_ENTRY_FORMER bgse_save_rows r 0 save_row
+            READ_2DA_ENTRY_FORMER bgse_save_rows r level save_value
+            PATCH_IF (IS_AN_INT ~%save_value%~) BEGIN
+              PATCH_IF (~%save_row%~ STRING_EQUAL_CASE ~DEATH~) BEGIN
+                SET save_death = save_value
+                SET saves = saves BOR 1
+              END
+              PATCH_IF (~%save_row%~ STRING_EQUAL_CASE ~WANDS~) BEGIN
+                SET save_wands = save_value
+                SET saves = saves BOR 2
+              END
+              PATCH_IF (~%save_row%~ STRING_EQUAL_CASE ~POLY~) BEGIN
+                SET save_poly = save_value
+                SET saves = saves BOR 4
+              END
+              PATCH_IF (~%save_row%~ STRING_EQUAL_CASE ~BREATH~) BEGIN
+                SET save_breath = save_value
+                SET saves = saves BOR 8
+              END
+              PATCH_IF (~%save_row%~ STRING_EQUAL_CASE ~SPELL~) BEGIN
+                SET save_spell = save_value
+                SET saves = saves BOR 16
+              END
+            END
+          END
+        END
+      END
+      PATCH_IF (saves = 31) BEGIN
+        WRITE_BYTE 0x54 save_death
+        WRITE_BYTE 0x55 save_wands
+        WRITE_BYTE 0x56 save_poly
+        WRITE_BYTE 0x57 save_breath
+        WRITE_BYTE 0x58 save_spell
+      END ELSE BEGIN
+        PATCH_PRINT ~BGSE encounter: %cre%.cre keeps the saving throws of %chassis%.cre: this game has no table for its class at level %level%~
+      END
+      FOR (o = 0x238; o <= 0x23e; o += 1) BEGIN
+        SET v = 0
+        PATCH_IF (o = 0x238) BEGIN SET v = str END
+        PATCH_IF (o = 0x23a) BEGIN SET v = int END
+        PATCH_IF (o = 0x23b) BEGIN SET v = wis END
+        PATCH_IF (o = 0x23c) BEGIN SET v = dex END
+        PATCH_IF (o = 0x23d) BEGIN SET v = con END
+        PATCH_IF (o = 0x23e) BEGIN SET v = cha END
+        PATCH_IF (v > 0) AND (v <= 25) BEGIN
+          WRITE_BYTE o v
+        END
+      END
+      WRITE_BYTE 0x270 128
+      WRITE_BYTE 0x27b alignment
+      WRITE_ASCIIE 0x248 ~%script%~ #8
+      WRITE_ASCII 0x250 ~~ #8
+      WRITE_ASCII 0x258 ~~ #8
+      WRITE_ASCII 0x260 ~~ #8
+      WRITE_ASCIIE 0x268 ~%fight%~ #8
+      WRITE_ASCIIE 0x280 ~%dv%~ #32
+      WRITE_ASCII 0x2cc ~~ #8
+      REMOVE_CRE_ITEMS
+      INNER_PATCH_SAVE list ~%items%~ BEGIN
+        REPLACE_TEXTUALLY ~[ %TAB%%LNL%%MNL%]+~ ~|~
+      END
+      TEXT_SPRINT list ~|%list%|~
+      SET pos = 1
+      WHILE (pos < STRING_LENGTH ~%list%~) BEGIN
+        INNER_PATCH ~%list%~ BEGIN
+          SET to = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~|~ pos)
+          READ_ASCII pos entry (to - pos)
+        END
+        SET pos = to + 1
+        TEXT_SPRINT slot ~~
+        TEXT_SPRINT res ~~
+        SET charges = 0
+        TEXT_SPRINT rest ~~
+        INNER_PATCH ~%entry%~ BEGIN
+          REPLACE_EVALUATE CASE_INSENSITIVE ~^\([A-Z0-9]+\):\([A-Za-z0-9_#-]+\)\(.*\)$~ BEGIN
+            TEXT_SPRINT slot ~%MATCH1%~
+            TEXT_SPRINT res ~%MATCH2%~
+            TEXT_SPRINT rest ~%MATCH3%~
+          END ~%MATCH0%~
+        END
+        // The charges, when the entry gives them (~QUIVER1:AROW01:40~).
+        INNER_PATCH ~%rest%~ BEGIN
+          REPLACE_EVALUATE ~^:\([0-9]+\)$~ BEGIN
+            SET charges = MATCH1
+          END ~%MATCH0%~
+        END
+        TO_UPPER slot
+        PATCH_IF (STRING_LENGTH ~%res%~ > 0) BEGIN
+          PATCH_IF NOT (FILE_EXISTS_IN_GAME ~%res%.itm~) BEGIN
+            PATCH_PRINT ~BGSE encounter: %cre%.cre does not get %res%: this game lacks it~
+          END ELSE PATCH_IF (~%slot%~ STRING_EQUAL ~ARMOR~) OR (~%slot%~ STRING_EQUAL ~SHIELD~)
+              OR (~%slot%~ STRING_EQUAL ~WEAPON1~) BEGIN
+            ADD_CRE_ITEM ~%res%~ (charges) #0 #0 ~IDENTIFIED~ ~%slot%~ EQUIP
+          END ELSE BEGIN
+            ADD_CRE_ITEM ~%res%~ (charges) #0 #0 ~IDENTIFIED~ ~%slot%~
+          END
+        END
+      END
+      // Its weapon proficiencies (opcode 233, permanent, on itself) in place of the chassis's.
+      PATCH_IF (STRING_LENGTH ~%profs%~ > 0) BEGIN
+        LPF DELETE_CRE_EFFECT INT_VAR opcode_to_delete = 233 END
+        INNER_PATCH_SAVE plist ~%profs%~ BEGIN
+          REPLACE_TEXTUALLY ~[ %TAB%%LNL%%MNL%]+~ ~|~
+        END
+        TEXT_SPRINT plist ~|%plist%|~
+        SET pos = 1
+        WHILE (pos < STRING_LENGTH ~%plist%~) BEGIN
+          INNER_PATCH ~%plist%~ BEGIN
+            SET to = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~|~ pos)
+            READ_ASCII pos entry (to - pos)
+          END
+          SET pos = to + 1
+          SET prof = 0
+          SET stars = 0
+          INNER_PATCH ~%entry%~ BEGIN
+            REPLACE_EVALUATE ~^\([0-9]+\):\([0-9]+\)$~ BEGIN
+              SET prof = MATCH1
+              SET stars = MATCH2
+            END ~%MATCH0%~
+          END
+          PATCH_IF (prof > 0) AND (stars > 0) BEGIN
+            LPF ADD_CRE_EFFECT INT_VAR opcode = 233 target = 1 timing = 9 parameter1 = stars parameter2 = prof END
+          END
+        END
+      END
+    BUT_ONLY_IF_IT_CHANGES
+    OUTER_SET bgse_born = 1
   END
 END
 

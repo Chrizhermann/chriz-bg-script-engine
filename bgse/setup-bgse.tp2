@@ -207,6 +207,7 @@ END
 // and items, one entry each (bgse/encounters.tpa, bgse/lib/encounter.tpa).
 OUTER_SET bgse_designed = 0
 OUTER_SET bgse_lines = 0
+OUTER_SET bgse_new = 0
 INCLUDE ~bgse/encounters.tpa~
 // The engine reads which scripts carry the hook, to tell a creature's hooked scripts from
 // others in its script slots (adapters/eeex/hook.lua).
@@ -225,4 +226,4 @@ PRINT ~BGSE prep: %bgse_prepared% SCS preparation blocks (prebuffs, contingencie
 PRINT ~BGSE stay: %bgse_kept% SCS vanishing exits yield while the engine keeps the creature in the fight.~
 PRINT ~BGSE stay: %bgse_stayed% vanishing exits in the game's own scripts yield while the engine keeps the creature in the fight.~
 PRINT ~BGSE talk: %bgse_talked% SCS talk-on-sight blocks wait while the engine prepares the creature.~
-PRINT ~BGSE encounter: %bgse_designed% designed creatures changed, %bgse_lines% lines added to dialogues.~
+PRINT ~BGSE encounter: %bgse_designed% designed creatures changed, %bgse_lines% lines added to dialogues, %bgse_new% new creatures made.~

@@ -170,6 +170,12 @@ Built for Agreed point 1 (`combat-intent/orders.lua`, `combat-intent/choice.lua`
   it starts is tried again. The opener ends after its last step or 30 seconds after the creature's first
   decision with an enemy in sight (`orders.openerSeconds`), and a load starts it anew. The choice row
   logs `openerStep` and `how` `opener-step` or `opener-watch`; an `opener` row says when a step was taken.
+- **Companions** (2026-11-04, for Greywolf's archer Kestrel; Christopher: very weak on Core and below,
+  clearly stronger above): `companion={weak=…, strong=…, strongFrom=4}` names two creature files the
+  installer made (BOSS-01). When the creature's cutscene asks (`BGSE_Companion`, a line the installer puts
+  into it), the engine creates the strong one at the creature's place from the difficulty `strongFrom` up,
+  otherwise the weak one; once a creature, and only a file this game has. Without the engine, or with it
+  switched off, nobody comes and the fight is as the game has it. A `companion` row says which came.
 - **Interrupting.** Damage that lands while an enemy casts breaks its spell, and the spell slot
   stays spent (ACT-03, batch H5). Each enemy in a cast that damage can break (Spell, SpellPoint
   and their NoDec forms; forced casts cannot be broken) carries its spell, read at the enemy's

@@ -105,6 +105,7 @@ TRIGGER = """IDS V1.0
 0x4017 NumTimesTalkedTo(I:Num*)
 0x4018 NumTimesTalkedToGT(I:Num*)
 0x4019 AttackedBy(O:Object*,I:Style*AStyles)
+0x401A Exists(O:Object*)
 0x4089 OR(I:OrCount*)
 """
 ACTION = """IDS V1.0
@@ -154,6 +155,8 @@ ACTION = """IDS V1.0
 43 MoveToPoint(P:Point*)
 44 ClearAllActions()
 45 StartCutSceneEx(S:Cutscene*,I:CheckTriggers*Boolean)
+46 JumpToPoint(P:Target*)
+47 EscapeArea()
 """
 IDS = {
     'OBJECT': ('IDS V1.0\n0 Nothing\n1 Myself\n12 NearestEnemyOf\n18 LastSeenBy\n20 LastHeardBy\n21 Player1\n22 Player2\n'
@@ -775,10 +778,10 @@ def test_a_designed_creature_gets_its_scores_book_and_items(tmp_path: Path, vari
     installed = _snapshot(tmp_path)
     if variant == 'absent':
         assert 'BGSE encounter: neira.cre is not in this game, left out' in output, output
-        assert 'BGSE encounter: 0 designed creatures changed, 0 lines added to dialogues.' in output, output
+        assert 'BGSE encounter: 0 designed creatures changed, 0 lines added to dialogues, 0 new creatures made.' in output, output
         assert 'override/neira.cre' not in installed
     else:
-        assert 'BGSE encounter: 1 designed creatures changed, 0 lines added to dialogues.' in output, output
+        assert 'BGSE encounter: 1 designed creatures changed, 0 lines added to dialogues, 0 new creatures made.' in output, output
         new = installed['override/neira.cre']
         assert new[0x23B] == (17 if variant == 'strong' else 15)
         assert new[0x238:0x23B] == before['override/neira.cre'][0x238:0x23B]
@@ -839,14 +842,14 @@ def test_a_designed_creature_gets_its_own_talk_script(tmp_path: Path, variant: s
     assert installed['override/b-hktalk.cre'] == before['override/b-hktalk.cre']
     karlat, old = installed['override/karlat.cre'], before['override/karlat.cre']
     if variant == 'plain':
-        assert 'BGSE encounter: 1 designed creatures changed, 0 lines added to dialogues.' in output, output
+        assert 'BGSE encounter: 1 designed creatures changed, 0 lines added to dialogues, 0 new creatures made.' in output, output
         assert karlat[0x248:0x250] == b'BGSEKARL' and karlat[:0x248] + karlat[0x250:] == old[:0x248] + old[0x250:]
         assert _decompile(tmp_path, ['BGSEKARL'])['BGSEKARL'] == hook_rule.patch_talk(source, 'BGSEKARL', own=True)[0]
     else:
         message = ('karlat.cre has no script INITDLG, its talk stays as it is' if variant == 'elsewhere'
                    else 'karlat.cre keeps INITDLG: another mod has BGSEKARL.bcs')
         assert f'BGSE encounter: {message}' in output, output
-        assert 'BGSE encounter: 0 designed creatures changed, 0 lines added to dialogues.' in output, output
+        assert 'BGSE encounter: 0 designed creatures changed, 0 lines added to dialogues, 0 new creatures made.' in output, output
         assert karlat == old
         assert installed.get('override/bgsekarl.bcs') == before.get('override/bgsekarl.bcs')
     _install(tmp_path, '--force-uninstall-list', '0')
@@ -937,14 +940,14 @@ def test_silke_prepares_in_her_cutscene_and_garrick_warns_of_her_songs(tmp_path:
     dialogue = _decompile_dlg(tmp_path, 'GARRIC')
     line = 'And when she sings, folks forget their own minds. Best stay on her good side!'
     if variant == 'plain':
-        assert ('BGSE encounter: 1 designed creatures changed, 1 lines added to dialogues.') in output, output
+        assert ('BGSE encounter: 1 designed creatures changed, 1 lines added to dialogues, 0 new creatures made.') in output, output
         state2 = dialogue[dialogue.index('BEGIN 2'):]
         assert 'IF ~~ THEN GOTO 3\nEND' in state2, dialogue
         state3 = dialogue[dialogue.index('BEGIN 3'):]
         assert line in state3 and 'StartCutSceneEx("Garrcut",FALSE)' in state3 and 'EXIT' in state3, dialogue
         assert dialogue.count('StartCutSceneEx(') == 1, dialogue
     else:
-        assert 'BGSE encounter: 1 designed creatures changed, 0 lines added to dialogues.' in output, output
+        assert 'BGSE encounter: 1 designed creatures changed, 0 lines added to dialogues, 0 new creatures made.' in output, output
         assert 'silke.cre neither carries SPWI212 nor has it memorized' in output, output
         assert 'garric.dlg has 0 states that do StartCutSceneEx("Garrcut"' in output, output
         assert installed['override/garric.dlg'] == before['override/garric.dlg'] and line not in dialogue
@@ -952,3 +955,120 @@ def test_silke_prepares_in_her_cutscene_and_garrick_warns_of_her_songs(tmp_path:
     assert _snapshot(tmp_path) == before
     count = struct.unpack_from('<I', before_tlk, 0x0A)[0]
     assert [_tlk_text(tlk.read_bytes(), i) for i in range(count)] == [_tlk_text(before_tlk, i) for i in range(count)]
+
+
+# Greywolf's cutscene as the game has it (PRISMCUT: he jumps in, walks up and starts the talk).
+PRISMCUT = """IF
+  True()
+THEN
+  RESPONSE #100
+    CutSceneId("Greywolf")
+    Wait(5)
+    JumpToPoint([1267.2579])
+    MoveToPoint([785.2742])
+    Wait(1)
+    StartDialogNoSet(Player1)
+END
+
+IF
+  True()
+THEN
+  RESPONSE #100
+    CutSceneId("Prism")
+    Wait(1)
+END
+"""
+KESTRELS = {'bgsekes1': (3, 17, 18, 16, {1: 'LEAT01', 9: 'BOW05', 10: 'SW1H07', 13: 'AROW01'}, {13: 40},
+                         {(105, 2), (91, 1)}),
+            'bgsekes2': (6, 44, 15, 18, {1: 'LEAT04', 9: 'BOW01', 10: 'SW1H07', 13: 'AROW10', 14: 'AROW09', 15: 'AROW08',
+                                         16: 'AROW01'}, {13: 10, 14: 10, 15: 10, 16: 20}, {(104, 4), (91, 2)})}
+# A warriors' saving throw table in the game's layout, its rows out of order and each value its own (tens: the
+# save, ones: the level), so that a wrong row or column shows; 'short' ends at level 4.
+SAVEWAR = ('2DA    V1.0\n0\n       1  2  3  4  5  6\n' + ''.join(
+    f'{row:<7}' + ' '.join(str(10 * tens + level) for level in range(1, 7)) + '\n'
+    for row, tens in (('SPELL', 5), ('DEATH', 1), ('BREATH', 4), ('WANDS', 2), ('POLY', 3))))
+CHASSIS_SAVES = bytes([2, 3, 4, 5, 6])
+
+
+def _proficiencies(data: bytes):
+    """A creature's own weapon proficiencies (opcode 233 effects, version 1): {(proficiency, stars)}."""
+    at, count = struct.unpack_from('<II', data, 0x2C4)
+    assert data[0x33] == 0
+    found = set()
+    for i in range(count):
+        opcode, _, _, stars, prof = struct.unpack_from('<HBBiI', data, at + 48 * i)
+        if opcode == 233:
+            found.add((prof, stars))
+    return found
+
+
+@pytest.mark.parametrize('variant', ['plain', 'short', 'bare'])
+def test_greywolf_brings_kestrel(tmp_path: Path, variant: str) -> None:
+    # Greywolf's entry (bgse/encounters.tpa): two Kestrels made from the game's archers HUNTER and BAERIN, set as the
+    # entry says (level, hit points, THAC0, dexterity, a warrior's saving throws at his level, neutral, his own
+    # script over SCS's ranged one, no dialog, his death variable, only his own items and weapon proficiencies),
+    # his script compiled, and in PRISMCUT, as Greywolf arrives, the line that has the engine bring the Kestrel the
+    # difficulty calls for. 'short': the game's table of warriors' saving throws ends below level 6, so the seasoned
+    # Kestrel keeps his chassis's, with a warning. 'bare': a game without those archers makes neither, compiles
+    # nothing and leaves the cutscene as it is.
+    _fake_game(tmp_path)
+    (tmp_path / 'fixture/b-hkpcut.baf').write_text(PRISMCUT, encoding='ascii')
+    (tmp_path / 'fixture/extra.tp2').write_text(
+        'BACKUP ~fixture/backup-extra~\nAUTHOR ~BGSE test~\nBEGIN ~Greywolf~\nCOMPILE ~fixture/b-hkpcut.baf~\n',
+        encoding='ascii')
+    _run(tmp_path, 'fixture/extra.tp2', '--force-install-list', '0')
+    compiled = next(p for p in (tmp_path / 'override').iterdir() if p.name.lower() == 'b-hkpcut.bcs').read_bytes()
+    (tmp_path / 'override/PRISMCUT.BCS').write_bytes(compiled)
+    (tmp_path / 'override/DW1RANGE.BCS').write_bytes(compiled)
+    for item in ('LEAT01', 'BOW05', 'SW1H07', 'AROW01', 'LEAT04', 'BOW01', 'AROW10', 'AROW09', 'AROW08'):
+        (tmp_path / f'override/{item}.ITM').write_bytes(b'ITM V1  ' + bytes(0x72 - 8))
+    if variant != 'bare':
+        # The chassis trained in other weapons (two stars in the long sword) than the entry gives Kestrel, with
+        # saving throws of their own.
+        for chassis in ('HUNTER', 'BAERIN'):
+            data = bytearray(_cre(['DW#GPSHT', '', '', '', 'DW1RANGE'], [], 2, (5, 0, 0)))
+            data[0x54:0x59] = CHASSIS_SAVES
+            struct.pack_into('<II', data, 0x2C4, len(data), 1)
+            data += struct.pack('<HBBiIBBI', 233, 1, 0, 2, 90, 9, 0, 0).ljust(48, b'\0')
+            (tmp_path / f'override/{chassis}.CRE').write_bytes(bytes(data))
+        table = SAVEWAR if variant == 'plain' else re.sub(r' (?:\d5|\d6|5|6)(?= |\n|$)', '', SAVEWAR)
+        (tmp_path / 'override/SAVEWAR.2DA').write_text(table, encoding='ascii')
+    tlk = tmp_path / 'lang/en_us/dialog.tlk'
+    before = _snapshot(tmp_path)
+    output = _install(tmp_path, '--force-install-list', '0')
+    assert 'SUCCESSFULLY INSTALLED' in output, output
+    installed = _snapshot(tmp_path)
+    cut = re.sub(r' *//[^\n]*', '', _decompile(tmp_path, ['PRISMCUT'])['PRISMCUT'])
+    line = 'EEex_LuaAction("if BGSE_Companion then BGSE_Companion(EEex_LuaAction_Object) end")'
+    if variant == 'bare':
+        assert 'this game lacks hunter.cre, so bgsekes1.cre is not made' in output, output
+        assert 'BGSE encounter: 0 designed creatures changed, 0 lines added to dialogues, 0 new creatures made.' in output
+        assert not any(name.startswith(('override/bgsekes', 'override/bgsekest')) for name in installed)
+        assert installed['override/prismcut.bcs'] == before['override/prismcut.bcs'] and line not in cut
+    else:
+        assert 'BGSE encounter: 1 designed creatures changed, 0 lines added to dialogues, 2 new creatures made.' in output
+        assert ('    JumpToPoint([1267.2579])\n    ' + line + '\n    MoveToPoint([785.2742])\n') in cut, cut
+        assert cut.count('EEex_LuaAction(') == 1, cut
+        kept = 'BGSE encounter: bgsekes2.cre keeps the saving throws of baerin.cre: this game has no table for its class at level 6'
+        assert (kept in output) == (variant == 'short'), output
+        assert 'bgsekes1.cre keeps the saving throws' not in output, output
+        for name, (level, hp, thac0, dex, items, charges, profs) in KESTRELS.items():
+            assert _proficiencies(installed[f'override/{name}.cre']) == profs, name
+            data = installed[f'override/{name}.cre']
+            saves = CHASSIS_SAVES if variant == 'short' and level == 6 else bytes(10 * t + level for t in range(1, 6))
+            assert data[0x54:0x59] == saves, (name, list(data[0x54:0x59]))
+            assert (data[0x234], struct.unpack_from('<hh', data, 0x24), data[0x52], data[0x23C]) == (level, (hp, hp), thac0, dex)
+            assert (data[0x270], data[0x27B]) == (128, 0x22)
+            scripts = [data[o:o + 8].rstrip(b'\0') for o in range(0x248, 0x270, 8)]
+            assert scripts == [b'BGSEKEST', b'', b'', b'', b'DW1RANGE'], scripts
+            assert data[0x280:0x2A0].rstrip(b'\0') == b'Kestrel' and data[0x2CC:0x2D4].rstrip(b'\0') == b''
+            assert _tlk_text(tlk.read_bytes(), struct.unpack_from('<I', data, 0x08)[0]) == 'Kestrel'
+            assert _items_of(data) == items, (name, _items_of(data))
+            slot_at, item_at, _ = struct.unpack_from('<III', data, 0x2B8)
+            words = struct.unpack_from('<40H', data, slot_at)
+            for slot, count in charges.items():
+                assert struct.unpack_from('<H', data, item_at + 20 * words[slot] + 10)[0] == count, (name, slot)
+        script = _decompile(tmp_path, ['BGSEKEST'])['BGSEKEST']
+        assert 'Allegiance("Greywolf",ENEMY)' in script and 'EscapeArea()' in script and 'MoveToObject("Greywolf")' in script
+    _install(tmp_path, '--force-uninstall-list', '0')
+    assert _snapshot(tmp_path) == before

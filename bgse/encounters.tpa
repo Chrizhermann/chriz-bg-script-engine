@@ -1,7 +1,7 @@
 // The designed encounters: what each fight's design changes in its creatures, one entry each, in story
-// order (bgse/lib/encounter.tpa: bgse_encounter). The design is
-// docs/research/BOSS-01-bg1-early-encounters.md; the engine's side of it is combat-intent/encounters.lua.
-// Each entry adds what it changed to bgse_designed.
+// order (bgse/lib/encounter.tpa). The design is docs/research/BOSS-01-bg1-early-encounters.md; the engine's
+// side of it is combat-intent/encounters.lua. Each entry adds what it changed to bgse_designed, its dialogue
+// lines to bgse_lines and the creatures it makes to bgse_new.
 
 // 2. Silke, Beregost (Christopher, 2026-11-03 and 2026-11-04): she plans the ambush herself, so when her
 // "thugs" arrive she drinks her Potion of Invulnerability and casts Mirror Image in sight of the party,
@@ -37,3 +37,43 @@ LAF bgse_encounter INT_VAR wis = 15
           carries = ~POTN10~
   RET bgse_changed END
 OUTER_SET bgse_designed += bgse_changed
+
+// 5. Greywolf, Prism's quest, Nashkel Mines (Christopher, 2026-11-04): an archer comes in with him, Kestrel.
+// Two creature files: on Core and below a young apprentice (level 3, a shortbow he is trained in and plain
+// arrows), above Core a seasoned partner (level 6, a composite longbow he has mastered and the kinds of special
+// arrows Greywolf carries); both to tune in the lab. The engine creates the one the difficulty calls for in
+// Greywolf's cutscene, as he arrives (BGSE_Companion, combat-intent/encounters.lua); without the engine the
+// fight stays as the game has it.
+LAF bgse_encounter_new INT_VAR level = 3 hp = 17 thac0 = 18 dex = 16
+  STR_VAR chassis = ~hunter~
+          cre = ~bgsekes1~
+          name = ~Kestrel~
+          script = ~BGSEKEST~
+          default = ~DW1RANGE WTARSGT~
+          dv = ~Kestrel~
+          items = ~ARMOR:LEAT01 WEAPON1:BOW05 WEAPON2:SW1H07 QUIVER1:AROW01:40~
+          profs = ~105:2 91:1~
+  RET bgse_born END
+OUTER_SET bgse_kestrels = bgse_born
+LAF bgse_encounter_new INT_VAR level = 6 hp = 44 thac0 = 15 dex = 18
+  STR_VAR chassis = ~baerin~
+          cre = ~bgsekes2~
+          name = ~Kestrel~
+          script = ~BGSEKEST~
+          default = ~DW1RANGE WTARSGT~
+          dv = ~Kestrel~
+          items = ~ARMOR:LEAT04 WEAPON1:BOW01 WEAPON2:SW1H07 QUIVER1:AROW10:10 QUIVER2:AROW09:10 QUIVER3:AROW08:10 QUIVER4:AROW01:20~
+          profs = ~104:4 91:2~
+  RET bgse_born END
+OUTER_SET bgse_kestrels += bgse_born
+OUTER_SET bgse_new += bgse_kestrels
+ACTION_IF (bgse_kestrels > 0) BEGIN
+  COMPILE ~bgse/scripts/bgsekest.baf~
+  LAF bgse_encounter_cutline
+    STR_VAR cutscene = ~PRISMCUT~
+            who = ~Greywolf~
+            before = ~MoveToPoint(~
+            line = ~EEex_LuaAction("if BGSE_Companion then BGSE_Companion(EEex_LuaAction_Object) end")~
+    RET bgse_put END
+  OUTER_SET bgse_designed += bgse_put
+END

@@ -150,8 +150,12 @@ def scout(game, tlk, resref, where=False):
     words = struct.unpack_from('<40H', data, slot_at) if slot_at + 80 <= len(data) else (0xFFFF,) * 40
     rows = random_rows(game)
     lines = []
-    for slot, word in enumerate(words[:38]):
-        if word >= item_count or item_at + 20 * word + 20 > len(data):
+    # Each item by its slot, then those no slot names (carried, but out of view in the inventory).
+    placed = [(SLOTS[slot], word) for slot, word in enumerate(words[:38]) if word < item_count]
+    taken = {word for _, word in placed}
+    placed += [('no slot', word) for word in range(item_count) if word not in taken]
+    for label, word in placed:
+        if item_at + 20 * word + 20 > len(data):
             continue
         o = item_at + 20 * word
         item = _resref(data[o:o + 8])
@@ -160,13 +164,14 @@ def scout(game, tlk, resref, where=False):
         notes = [f'charges {"/".join(map(str, charges))}'] if any(charges) else []
         if flags & 8:
             notes.append('undroppable')
-        lines.append(f'    {SLOTS[slot]}: {item} "{item_name(game, tlk, item)}"{" (" + ", ".join(notes) + ")" if notes else ""}')
+        lines.append(f'    {label}: {item} "{item_name(game, tlk, item)}"{" (" + ", ".join(notes) + ")" if notes else ""}')
         if item in rows:
             lines.append(f'      a random item, drawn when the game creates the creature: {"; ".join(_draw(game, tlk, rows[item]))}')
     out.append('  items:' if lines else '  items: none')
     out += lines
     fx_at, fx_count = struct.unpack_from('<II', data, 0x2C4)
     wide = data[0x33] == 1
+    stats = _ids(game, 'STATS')
     effects = []
     for i in range(fx_count):
         o = fx_at + (264 if wide else 48) * i
@@ -178,7 +183,9 @@ def scout(game, tlk, resref, where=False):
             res = _resref(data[o + 0x14:o + 0x1C])
         else:
             break
-        effects.append(f'op{opcode} {p1}/{p2}{" " + res if res else ""}')
+        # A weapon proficiency (opcode 233) is named: parameter 1 its stars, parameter 2 the proficiency.
+        named = f' ({stats[p2]})' if opcode == 233 and p2 in stats else ''
+        effects.append(f'op{opcode} {p1}/{p2}{named}{" " + res if res else ""}')
     out.append(f'  its own effects: {", ".join(effects) or "none"}')
     if where:
         out += [f'  {line}' for line in places(game, resref)]

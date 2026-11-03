@@ -7,14 +7,15 @@ local orders=require('combat-intent.orders')
 local groups=0
 
 -- 1. Each entry is a creature file of at most eight characters in capitals and passes the orders'
--- check; Tarnesh, Karlat and Neira have the light preference for the protagonist, never "always".
+-- check; Tarnesh, Karlat and Neira have the light preference for the protagonist, never "always"; Greywolf
+-- has none.
 local count=0
 for resref,o in pairs(encounters.ORDERS) do
     assert(type(resref)=='string' and #resref>0 and #resref<=8 and resref==resref:upper(),resref)
     assert(orders.check(o),resref)
     count=count+1
 end
-assert(count==3)
+assert(count==4)
 for _,resref in ipairs({'TARNES','KARLAT','NEIRA'}) do
     local o=encounters.ORDERS[resref]
     assert(o.target=='protagonist' and o.bonus==encounters.LIGHT and not o.always,resref)
@@ -70,6 +71,11 @@ assert(neira.opener[1]=='POTN10' and neira.talkPrep[1].cast=='SPPR201')
 -- Karlat (sheet 3): from Hard his best buff potion before he speaks.
 local karlat=encounters.ORDERS.KARLAT
 assert(#karlat.talkPrep==1 and karlat.talkPrep[1]=='buff-potion' and karlat.talkFrom==4 and karlat.opener==nil)
+-- Greywolf (sheet 5): his archer Kestrel comes with him, the seasoned one from Hard, the apprentice below; no
+-- orders of his own besides.
+local greywolf=encounters.ORDERS.GREYWO
+assert(greywolf.companion.weak=='BGSEKES1' and greywolf.companion.strong=='BGSEKES2' and greywolf.companion.strongFrom==4)
+assert(greywolf.target==nil and greywolf.opener==nil and greywolf.talkPrep==nil)
 groups=groups+1
 
 return groups

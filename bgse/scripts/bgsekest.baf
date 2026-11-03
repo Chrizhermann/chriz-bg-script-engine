@@ -1,0 +1,28 @@
+// Kestrel, Greywolf's archer (Christopher, 2026-11-04; docs/research/BOSS-01-bg1-early-encounters.md, sheet 5):
+// he keeps near Greywolf while Greywolf talks, turns hostile when Greywolf does, and leaves when Greywolf leaves.
+// In the fight the engine drives him through his default script, as every creature.
+IF
+  Allegiance("Greywolf",ENEMY)
+  Allegiance(Myself,NEUTRAL)
+THEN
+  RESPONSE #100
+    Enemy()
+END
+
+IF
+  Allegiance(Myself,NEUTRAL)
+  OR(2)
+    !Exists("Greywolf")
+    Global("GreywolfCharmed","BG5400",1)
+THEN
+  RESPONSE #100
+    EscapeArea()
+END
+
+IF
+  Allegiance(Myself,NEUTRAL)
+  !Range("Greywolf",6)
+THEN
+  RESPONSE #100
+    MoveToObject("Greywolf")
+END

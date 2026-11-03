@@ -88,6 +88,14 @@ Python/WeiDU agreement check on both labs.
   triggers, so this holds on every difficulty (BOSS-01). Garrick's line comes from a second kind of entry,
   `bgse_encounter_line`, which finds the state by what it does. Checked on the real lab files: both go in
   where planned, and uninstall restores them.
+- Step 6, Greywolf and Kestrel (2026-11-04): a third kind of entry, `bgse_encounter_new`, makes Kestrel's two
+  creature files from two archers of the game (level, hit points, THAC0, scores, items, weapon proficiencies,
+  and a fighter's saving throws at his level from the game's table); `bgse_encounter_cutline` puts a line into
+  Greywolf's cutscene, as he appears, that asks the engine for his companion; the new order `companion` has
+  the engine create the apprentice on Core and below, the partner from Hard (FIGHT-01, Companions). Kestrel's
+  own script keeps him with Greywolf, hostile with him, gone when Greywolf leaves or is charmed. Checked on
+  the real lab files: both creatures as planned, the line in place, his script compiled, and uninstall
+  restores the folder. Not the Prism dialogue, as planned first: the cutscene is where Greywolf appears.
 - Encounter tooling (2026-11-04, Christopher: build each encounter faster than the last): the guide
   [docs/ENCOUNTERS.md](../ENCOUNTERS.md) with a checklist, where each decision goes and the pitfalls so far,
   and `tools/scout.py`, which shows everything about a creature in one command.

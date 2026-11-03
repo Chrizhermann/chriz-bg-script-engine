@@ -4173,4 +4173,49 @@ assert(c:inspect().counts.errors==0,c:inspect().lastError)
 end)()
 groups=groups+1
 
+-- 52. A designed creature's companion (orders.companion; Greywolf's archer): its cutscene asks
+-- (BGSE_Companion) and the companion is created at once at its place, the strong one from
+-- orders.companion.strongFrom's difficulty up, the weak one below; once a creature, with a 'companion' row. A
+-- companion this game lacks, a creature without one, and the gate's switch off bring nobody.
+;(function()
+local w=world()
+w.EngineGlobals.g_pBaldurChitin.m_pObjectGame.m_options={m_nDifficultyLevel=4}
+w.instant={}
+w.EEex_Action_ExecuteResponseStringOnAIBaseInstantly=function(text,o) w.instant[#w.instant+1]={id=o.m_id,text=text} end
+local creatures={BGSEKES1={kind='CRE'},BGSEKES2={kind='CRE'}}
+local readerC={problems={},idsName=reader.idsName,lookup=reader.lookup,get=function(kind,resref)
+    if kind=='CRE' then return creatures[resref] end
+    return reader.get(kind,resref)
+end}
+local d=directors.new(w,{reader=readerC})
+local company={weak='BGSEKES1',strong='BGSEKES2',strongFrom=4}
+local c=choices.new(w,{reader=readerC,director=d,seed=96,orders={TEST1={companion=company},TEST2={companion=company},
+    TEST3={companion={weak='BGSEGONE',strong='BGSEGONE',strongFrom=4}}}})
+local list={}
+c:setSink(function(row) list[#list+1]=row end)
+local r=runtime.install(w,{director=d,choice=c,version='test'})
+local g1=w.add(sprite(1,0,0,128))
+w.BGSE_Companion(g1)
+assert(#w.instant==1 and w.instant[1].id==1 and w.instant[1].text=='CreateCreatureObject("BGSEKES2",Myself,0,0,0)')
+local row=list[#list]
+assert(row.kind=='companion' and row.member==1 and row.resref=='TEST1' and row.companion=='BGSEKES2' and row.difficulty==4)
+-- Once a creature.
+w.BGSE_Companion(g1)
+assert(#w.instant==1 and c:inspect().counts.companions==1)
+-- Below that difficulty the weak one.
+w.EngineGlobals.g_pBaldurChitin.m_pObjectGame.m_options.m_nDifficultyLevel=3
+local g2=w.add(sprite(2,0,0,128))
+w.BGSE_Companion(g2)
+assert(#w.instant==2 and w.instant[2].text=='CreateCreatureObject("BGSEKES1",Myself,0,0,0)')
+-- Nobody: a companion this game lacks, a creature without one, the gate off.
+w.BGSE_Companion(w.add(sprite(3,0,0,128)))
+w.BGSE_Companion(w.add(sprite(4,0,0,128)))
+r.setEnabled(false)
+c:invalidate()
+w.BGSE_Companion(g1)
+r.setEnabled(true)
+assert(#w.instant==2 and c:inspect().counts.companions==2 and c:inspect().counts.errors==0,c:inspect().lastError)
+end)()
+groups=groups+1
+
 return groups

@@ -401,8 +401,29 @@ mage companion.
   low difficulties he is Greywolf's young apprentice, above Core his seasoned partner (a ranger with
   the Archer kit would suit, to tune in the lab).
 
+**Built (2026-11-04):**
+- Two creature files for Kestrel, made by the installer from two archers of the game (copies of `HUNTER`,
+  "Ted", and `BAERIN`, for their bodies and voices); everything other mods gave those archers stays,
+  except what is set here:
+  - Core and below, `BGSEKES1`, the apprentice: a level-3 fighter, 17 hit points, THAC0 18, DEX 16;
+    Leather Armor, a Shortbow (two stars) with 40 plain arrows, a Short Sword (one star).
+  - Above Core, `BGSEKES2`, the partner: a level-6 fighter, 44 hit points, THAC0 15, DEX 18; Studded
+    Leather Armor, a Composite Longbow (four stars, as many as a fighter can have at level 6) with ten
+    each of Greywolf's arrow kinds (Piercing +1, Ice, Fire) and 20 plain ones, a Short Sword (two stars).
+  - Both: a fighter's saving throws at his level, from the game's table (Baerin's own are better);
+    neutral, his own script above SCS's archer script `DW1RANGE` (the game's `WTARSGT` without SCS); no
+    dialog; death variable `Kestrel`.
+- He comes in Greywolf's cutscene, right as Greywolf appears: the engine creates the Kestrel the
+  difficulty calls for at Greywolf's side (FIGHT-01, Companions). His script keeps him near Greywolf,
+  makes him hostile when Greywolf turns hostile, and has him leave when Greywolf is gone or charmed while
+  Kestrel is still neutral.
+- Without the engine (no EEex, or switched off), no Kestrel comes and the fight is as the game has it.
+- His colours are still the archers' own; Greywolf's greys and browns come with the lab tuning.
+
 **Lab checks (later):** a level 2 to 4 party at Core and at Insane, several runs for his potions; the
-three choices of the talk.
+three choices of the talk. For Kestrel: that he walks in with Greywolf in the cutscene (he appears where
+Greywolf appears and follows once scripts run), stays back and shoots casters, turns hostile with
+Greywolf, and leaves in the standing-aside and charmed endings.
 
 ## Later: Nimbul (Nashkel, chapter 3), facts gathered so far
 

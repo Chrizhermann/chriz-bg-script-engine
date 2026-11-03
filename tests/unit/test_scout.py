@@ -25,8 +25,8 @@ def _named(signature: bytes, at: int, name: int) -> bytes:
 
 
 def _cre() -> bytes:
-    """A level-5 cleric, name 1, WIS 14, one priest spell memorized and one known only, a club and a
-    random item in the first pack slot, one effect."""
+    """A level-5 cleric, name 1, WIS 14, one priest spell memorized and one known only, a club, a random
+    item in the first pack slot and a helmet no slot names, one star in clubs."""
     head = bytearray(0x2D4)
     head[:8] = b'CRE V1.0'
     struct.pack_into('<II', head, 0x08, 1, 1)
@@ -44,14 +44,15 @@ def _cre() -> bytes:
     words = [0xFFFF] * 38 + [0, 0]
     words[9], words[21] = 0, 1
     slots = struct.pack('<40H', *words)
-    items = b'BLUN01\0\0' + struct.pack('<HHHHI', 0, 0, 0, 0, 0) + b'DW#RND02' + struct.pack('<HHHHI', 0, 0, 0, 0, 8)
+    items = (b'BLUN01\0\0' + struct.pack('<HHHHI', 0, 0, 0, 0, 0) + b'DW#RND02' + struct.pack('<HHHHI', 0, 0, 0, 0, 8) +
+             b'HELM01\0\0' + struct.pack('<HHHHI', 0, 0, 0, 0, 0))
     effect = struct.pack('<HBBii', 233, 1, 0, 1, 115).ljust(48, b'\0')
     at = 0x2D4
     struct.pack_into('<II', head, 0x2A0, at, 2)
     struct.pack_into('<II', head, 0x2A8, at + len(known), 1)
     struct.pack_into('<II', head, 0x2B0, at + len(known) + len(info), 1)
     end = at + len(known) + len(info) + len(memorized)
-    struct.pack_into('<III', head, 0x2B8, end, end + len(slots), 2)
+    struct.pack_into('<III', head, 0x2B8, end, end + len(slots), 3)
     struct.pack_into('<II', head, 0x2C4, end + len(slots) + len(items), 1)
     return bytes(head) + known + info + memorized + slots + items + effect
 
@@ -77,6 +78,7 @@ def _game(root: Path) -> None:
              'BLUN01.ITM': _named(b'ITM V1  ', 0x0C, 4), 'DW#PTN08.ITM': _named(b'ITM V1  ', 0x0C, 5),
              'BG4801.ARE': _area('NEIRA'), 'TALK.BCS': b'SC\nCR\nCO\nTR\nOB\n"NEIRA"\n',
              'CLASS.IDS': b'IDS V1.0\n3 CLERIC\n', 'RACE.IDS': b'IDS V1.0\n1 HUMAN\n',
+             'STATS.IDS': b'IDS V1.0\n115 PROFICIENCYCLUB\n',
              'RNDTRES.2DA': (b'2DA V1.0\n*\n   1 2 3 4 5 6 7\ndw#rnd02 dw#ptn08 dw#ptn08 DW#BLANK DW#BLANK dw#ptn08*2 '
                              b'dw#ptn52 * *\n')}
     for name, data in files.items():
@@ -98,7 +100,8 @@ def test_scout_tells_who_a_creature_is_and_what_it_carries(tmp_path: Path) -> No
     assert '    pack 1: DW#RND02 "(not in this game)" (undroppable)' in lines
     assert ('      a random item, drawn when the game creates the creature: 2/6 DW#PTN08 "Potion of Healing"; '
             '2/6 nothing; 1/6 2x DW#PTN08 "Potion of Healing"; 1/6 DW#PTN52 "(not in this game)"') in lines
-    assert '  its own effects: op233 1/115' in lines
+    assert lines.index('    no slot: HELM01 "(not in this game)"') > lines.index('    pack 1: DW#RND02 "(not in this game)" (undroppable)')
+    assert '  its own effects: op233 1/115 (PROFICIENCYCLUB)' in lines
     assert '  stands in BG4801 as "Neira" at (410.300); area script BG4801' in lines
     assert '  named in BCS: TALK' in lines
 

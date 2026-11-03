@@ -5680,6 +5680,10 @@ factories["combat-intent.orders"]=function(require)
 -- worth making (allowed, and worth more than it costs) is taken, and the steps before it are passed
 -- over; a step not worth making now waits. The adapter keeps which step comes next (input.opener), for
 -- at most openerSeconds from the creature's first decision in sight of an enemy.
+--
+-- companion names the creature that comes with this one when its cutscene asks (Christopher, 2026-11-04,
+-- for Greywolf's archer): {weak=file, strong=file, strongFrom=difficulty 1 to 5}, the strong one from that
+-- difficulty up, the weak one below (adapters/eeex/choice.lua, api:companion).
 local targeting=require('combat-intent.targeting')
 local M={}
 M.bonus=1
@@ -5752,6 +5756,9 @@ function M.check(o)
             for i,s in pairs(v) do if type(i)~='number' or not step(s) then return false,k end end
         elseif k=='talkFrom' or k=='openerFrom' then
             if not level(v) then return false,k end
+        elseif k=='companion' then
+            if type(v)~='table' or not resref(v.weak) or not resref(v.strong) or not level(v.strongFrom) then return false,k end
+            for f in pairs(v) do if f~='weak' and f~='strong' and f~='strongFrom' then return false,k end end
         else return false,tostring(k) end
     end
     return true
@@ -5896,6 +5903,10 @@ M.ORDERS={
     NEIRA={target='protagonist',bonus=M.LIGHT,
         talkPrep={{cast='SPPR201',spend='SPPR201'},{cast='SPPR117',spend='SPPR117'}},talkFrom=4,
         opener={'POTN10',{watch=4},{'SPPR113','SPPR208'},'SPPR208'},openerFrom=4},
+    -- Greywolf, Prism's quest (2026-11-04): his archer Kestrel comes in with him, very weak on Core and
+    -- below (a young apprentice), clearly stronger above (a seasoned partner); both creature files come from
+    -- the installer (bgse/encounters.tpa). Greywolf himself stays as SCS has him.
+    GREYWO={companion={weak='BGSEKES1',strong='BGSEKES2',strongFrom=4}},
 }
 
 local function copy(v)
@@ -13708,7 +13719,9 @@ function M.new(g,options)
     local talks,talkCount={},0
     -- Each creature's opener in its fight (orders.opener): the step it takes next and the tick it began.
     local openings,openingCount={},0
-    local counts={openerSteps=0,talkHolds=0,talkExtras=0,preps=0,prepHolds=0,kept=0,cut=0,waits=0,marked=0,escapes=0,escaped=0,unescaped=0,zoneFailures=0,stayed=0,left=0,pains=0,witFailures=0,decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
+    -- The creatures whose companion (orders.companion) came, by object id.
+    local companions,companionCount={},0
+    local counts={companions=0,openerSteps=0,talkHolds=0,talkExtras=0,preps=0,prepHolds=0,kept=0,cut=0,waits=0,marked=0,escapes=0,escaped=0,unescaped=0,zoneFailures=0,stayed=0,left=0,pains=0,witFailures=0,decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
         hits=0,misses=0,errors=0,holds=0,frozen=0,marks=0,markFailures=0,defences=0,guarded=0,unguarded=0,
         guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0,arms=0,attacks=0,attackHits=0,
         weaponFailures=0,releases=0,heals=0,cures=0,potions=0,cared=0,uncared=0,summons=0,conjured=0,
@@ -15679,6 +15692,32 @@ function M.new(g,options)
         end)
         if not ok then failed('talk-act',err) end
     end
+    -- A designed creature's companion (orders.companion, combat-intent/encounters.lua; Christopher, 2026-11-04:
+    -- Greywolf's archer, very weak on Core and below, clearly stronger above): its cutscene asks (BGSE_Companion),
+    -- and the companion is created at the creature's place, the strong one from orders.companion.strongFrom's
+    -- difficulty up, else the weak one; once a creature, and only one this game has. A 'companion' row says
+    -- which.
+    function api:companion(id)
+        if not (enabled and not missing) then return end
+        local ok,err=pcall(function()
+            local sprite=get(id)
+            if not sprite or companions[id] then return end
+            local resref=text(sprite.m_resref:get())
+            local own=orderBook[resref]
+            local c=type(own)=='table' and own.companion or nil
+            if type(c)~='table' then return end
+            local level=difficulty()
+            local pick=(type(c.strongFrom)=='number' and (level or 0)>=c.strongFrom) and c.strong or c.weak
+            local run=rawget(g,'EEex_Action_ExecuteResponseStringOnAIBaseInstantly')
+            if type(pick)~='string' or type(run)~='function' or not reader.get('CRE',pick:upper()) then return end
+            if companionCount>=M.cacheLimit then companions,companionCount={},0 end
+            companions[id]=true;companionCount=companionCount+1
+            run(('CreateCreatureObject("%s",Myself,0,0,0)'):format(pick:upper()),sprite)
+            counts.companions=counts.companions+1
+            record({kind='companion',tick=now(),member=id,resref=resref,companion=pick:upper(),difficulty=level})
+        end)
+        if not ok then failed('companion',err) end
+    end
     -- Whether the engine weighs danger zones for creature id of family now (BGSE_Zones: SCS's own
     -- cloud blocks stand aside meanwhile): not for a creature off the engine's
     -- side, and with no enemy in sight only when the engine has a way out of a zone that hurts it.
@@ -15750,6 +15789,7 @@ function M.new(g,options)
         kept,keptCount={},0
         talks,talkCount={},0
         openings,openingCount={},0
+        companions,companionCount={},0
         outside,outsideCount={},0
         seeker:invalidate()
         hider:invalidate()
@@ -16113,6 +16153,11 @@ function M.install(g,options)
     end
     g.BGSE_TalkAct=function(object)
         pcall(function() if choice then choice:talkAct(object.m_id) end end)
+    end
+    -- A designed creature's cutscene brings its companion now (choice:companion; Greywolf's archer). The gate's
+    -- switch off or any error brings nobody: the encounter stays as the game has it.
+    g.BGSE_Companion=function(object)
+        pcall(function() if choice and gate:on()==true then choice:companion(object.m_id) end end)
     end
     -- SCS's preparation ran for the creature (choice:prepped logs it for a creature the engine drives).
     g.BGSE_Prepped=function(object,family,script,kind,cast,spent)

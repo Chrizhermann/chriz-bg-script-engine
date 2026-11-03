@@ -28,6 +28,10 @@ M.ORDERS={
     NEIRA={target='protagonist',bonus=M.LIGHT,
         talkPrep={{cast='SPPR201',spend='SPPR201'},{cast='SPPR117',spend='SPPR117'}},talkFrom=4,
         opener={'POTN10',{watch=4},{'SPPR113','SPPR208'},'SPPR208'},openerFrom=4},
+    -- Greywolf, Prism's quest (2026-11-04): his archer Kestrel comes in with him, very weak on Core and
+    -- below (a young apprentice), clearly stronger above (a seasoned partner); both creature files come from
+    -- the installer (bgse/encounters.tpa). Greywolf himself stays as SCS has him.
+    GREYWO={companion={weak='BGSEKES1',strong='BGSEKES2',strongFrom=4}},
 }
 
 local function copy(v)
