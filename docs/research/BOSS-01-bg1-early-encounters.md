@@ -362,7 +362,11 @@ mage companion.
   leaves (standing aside, charmed Greywolf).
 - In the fight Greywolf ties up the front while the archer shoots the casters; the engine's archer
   play (bow or sword by worth, stepping back by wit) does the rest.
-- A name and perhaps a line of their own, written with Christopher.
+- Name and look, left to Claude by Christopher (2026-11-04: a male human, a typical Forgotten Realms
+  name, one short word or a nickname): **Kestrel**, a falcon's name beside the wolf's. Leather armor
+  and a bow, in Greywolf's greys and browns. The name appears nowhere else in the game's text. On the
+  low difficulties he is Greywolf's young apprentice, above Core his seasoned partner (a ranger with
+  the Archer kit would suit, to tune in the lab).
 
 **Lab checks (later):** a level 2 to 4 party at Core and at Insane, several runs for his potions; the
 three choices of the talk.
