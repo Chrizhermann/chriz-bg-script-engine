@@ -960,6 +960,36 @@ Christopher's answers of 2026-11-03:
   and lab-tested together; small encounters stay simple; balance at average hit points without
   double damage (BOSS-01, which also holds the fight sheets; Tarnesh first).
 
+Christopher's spell-mod decisions of 2026-11-04 that the engine must handle, passed on by the spell-mod
+session ("extrem wichtig"; design only, nothing built yet, values may change; live decision page
+<https://claude.ai/artifact/Wcd7apwRifKLPrANajWvU4>). They belong to the step on layered protections
+after the five encounters:
+- **Dispelling Screen replaces Spell Immunity** and takes its slot, so scrolls and enemy mages get it (SR's
+  values for now: wizard 5, Abjuration, 5 turns; the caster and allies nearby). It absorbs one Dispel
+  Magic or Breach and is gone; Pierce Shield and Spellstrike strip it without being absorbed. The engine
+  counts the first Dispel Magic or Breach at a screened foe as spent on the screen, weighs taking the
+  screen down first (Pierce Shield, Spellstrike, a cheap first dispel) and reads the screen from the
+  foe's effects, as it reads every protection.
+- **Enemy dispel sequencers rarely or never** ("nicht zu oft oder überhaupt"): a Sequencer or Contingency
+  full of Dispel Magic or Remove Magic gets little or no worth. Banning those spells from sequencers stays
+  only a fallback.
+- **Entropy Shield** (Icewind Dale priest 6, coming with the IWD spells): the AI must be able and clever
+  enough to break it; more ways to break it may come.
+- **The protagonist petrified or imprisoned:** the spell mod builds its own effects (no opcode 134 or
+  211). Once they exist, enemies may use petrification and imprisonment on him. A creature under that
+  petrification stays a valid target with low priority ("quasi ausgeschaltet"): the statue is tough and
+  can die. Game over only when he is alone or no cure is reachable.
+- **Wizard 4 to 6 changes that touch the AI:** Oracle (SR's: dispels enemy illusions of every level near
+  the caster, about 30'), True Sight with casting time 6, SCS's Lower Resistance, Power Word Silence as
+  Enchantment, Death Spell and Death Fog still kill summons, Disintegrate save-or-die (Death Ward
+  protects), Chain Lightning with a save against spells, Cone of Cold and Sunfire with a save against
+  breath, the Conjure Elementals' control check, Spirit Armor replaced by a new cast, Polymorph Self and
+  Shapechange like SCS's, Web and every cloud as Conjuration. The engine reads all of this from the spell
+  files at run time; nothing is hard-coded.
+- Ideas, not decided: the screen lingering about a second after its first absorb and eating every dispel
+  in that window (bursts fail, layered breaching works; under the True Time Stop the window lasts the
+  whole stop); an optional Time Stop component without hostile actions; most IWD spells in the spell mod.
+
 ## To design with Christopher
 
 Short decisions for the first release, answered by Christopher on 2026-10-14:
