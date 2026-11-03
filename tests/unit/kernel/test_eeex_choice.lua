@@ -631,14 +631,20 @@ assert(root7.inspect().choice.counts.defences==1 and root7.inspect().choice.guar
 g7.listeners.started[1](mage,action(31,'TESTSTON',1))
 mage.m_curAction=action(31,'TESTSTON',1)
 assert(mage.locals.castspell==190)
--- The cast ends; the mage carries its skins. It has no weapon, so it waits while its casting aura
--- runs.
+-- The cast ends; the mage carries its skins. It has no weapon, so while its casting aura runs it
+-- steps away from the two swordsmen (E7: what they would take from it meanwhile, its skins first).
 g7.ticks=110
 mage.m_curAction={m_actionID=0};mage.castTimer=10
 mage.m_timedEffectList={{m_effectId=218,m_durationType=4096,m_duration=110+9000,m_effectAmount=8,m_dWFlags=0,
     m_res=str(''),m_sourceRes=str('TESTSTON')}}
 mage.stats[88]=8
-assert(g7.BGSE_Claim(mage,'mage','s1')==true and last7('wait',1).reason=='aura')
+assert(g7.BGSE_Claim(mage,'mage','s1')==true and last7('choice',1).how=='kite' and last7('choice',1).spell=='KITE')
+g7.BGSE_Act(mage)
+-- The kite row names the bolt it keeps safe for after the aura; behind eight skins no hit breaks it,
+-- here or after the step.
+d7=last7('kite',1)
+assert(d7 and d7.cast=='TESTBOLT' and d7.breaks.here==0 and d7.breaks.after==0 and last7('choice',1).breaks.here==0)
+assert(g7.queued[#g7.queued].text:find('MoveToPoint')~=nil)
 g7.ticks=141;mage.castTimer=41
 assert(g7.BGSE_Claim(mage,'mage','s1')==true)
 local s7=root7.inspect().choice
@@ -3571,7 +3577,8 @@ first.m_typeAI.m_EnemyAlly=2
 w.ticks=105
 assert(w.BGSE_Claim(mage(3,1020),'mage','s1')==true and chosen(3).fight[1]==3 and chosen(3).fight[2]==3)
 w.ticks=120
-assert(w.BGSE_Claim(mage(4,1040),'mage','s1')==true and chosen(4).fight[1]==3 and chosen(4).fight[2]==4)
+-- (The fourth stands out of the swordsman's reach, or it would step away from him first, E7.)
+assert(w.BGSE_Claim(mage(4,980),'mage','s1')==true and chosen(4).fight[1]==3 and chosen(4).fight[2]==4)
 assert(c:inspect().counts.fightFailures==0)
 end)()
 groups=groups+1

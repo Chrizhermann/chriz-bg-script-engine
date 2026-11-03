@@ -383,9 +383,11 @@ i.frame.self.guard={stoneskins=8}
 assert(near(choice.slotShare(i),(8/3.8+40/38)/8))
 -- In decide the share comes along unless given (input.slots). A bolt worth 0.26 against fighters
 -- of 80 hit points stays below the minimum worth at full price (cast only as the best of nothing
--- else); with about a round to live and eight bolts ready the caster casts it as its best.
+-- else); with about a round to live and eight bolts ready the caster casts it as its best. (The
+-- caster stepped away from the two a moment ago, E7, so it casts now.)
 local function brutes(hp) return {brute(11,{hp=hp,maxHp=hp}),brute(12,{hp=hp,maxHp=hp})} end
 i=enemies(input({spells=bolts(1)}),brutes(80))
+i.kited=i.tick
 d,reason=choice.decide(i);assert(d.resref=='TESTBOLT' and reason=='weak')
 i.spells=bolts(8)
 d,reason=choice.decide(i)
@@ -750,6 +752,8 @@ do
     local mate={id=2,x=160,y=100,hp=60,maxHp=60,state=0,ac=5,attack={apr=2,thac0=10,damage=8,damageType=3}}
     t=enemies(input({spells={row('TESTFAER',faerie,1)}}),{enemy(11,{x=150,ac=5})})
     t.frame.allies={mate}
+    -- (The caster stepped away from the enemy a moment ago, E7, so it casts now.)
+    t.kited=t.tick
     o=choice.decide(t)
     assert(o.resref=='TESTFAER' and near(o.worth,2*8*0.1*3/50))
     mate.x=2000
@@ -760,8 +764,9 @@ do
     assert(near(choice.decide(t).worth,2*8*0.1*3/50))
     -- A normal creature draws once a decision whether it sees an opening, and only when a ready
     -- debuff makes one.
+    -- (The enemy stands beyond the step-away range, so that stepping away is nothing to notice.)
     t=enemies(input({spells={row('TESTMALI',malison,2),row('TESTHOLD',hold,2)},
-        mind=mind.withWit(mind.new(),{step='normal',danger=1})}),{enemy(11,{x=150,saves=tens})})
+        mind=mind.withWit(mind.new(),{step='normal',danger=1})}),{enemy(11,{x=250,saves=tens})})
     draws=0;t.rng=stub(400)
     assert(choice.notices(t)==true and draws==1)
     t.spells={row('TESTHOLD',hold,2)}
@@ -825,6 +830,8 @@ do
     -- meanwhile, a walk worth more than the attack instead of it.
     p.frame.self.weapon={item='TESTMACE',damage=4.5,damageType=2,apr=1,thac0=10,ranged=false,flags=0,enchantment=0}
     p.frame.enemies[2]=enemy(12,{x=150,hp=4,resist={fire=100}})
+    -- (The caster stepped away from enemy 12 a moment ago, E7, so it stays.)
+    p.kited=p.tick
     d,why=choice.decide(p)
     assert(why=='weapon' and d.target==12)
     p.frame.enemies[2].hp=50
@@ -852,7 +859,7 @@ do
     assert(select(2,choice.decide(p))=='weapon')
     p.mind.minValue=0.1
     assert(far.score>=p.mind.minValue and select(2,choice.decide(p))=='weapon')
-    p.mind=mind.new();p.frame.enemies[1].x=700
+    p.mind=mind.new();p.frame.enemies[1].x=700;p.kited=nil
     p.frame.self.weapon=nil;p.frame.enemies[2]=nil;p.frame.self.aura=4
     -- No walk worth making: one shorter than a cell of the search map (a tenth of a second of
     -- aura), and none toward an aim it cannot find.
@@ -1062,8 +1069,9 @@ do
     dear.opener={steps={'TESTHOLD'},next=1}
     d,why=choice.decide(dear)
     assert(why~='opener-step' and (d==nil or d.openerStep==nil))
+    -- (With an enemy close, the caster steps away while the aura runs, E7; no opener step either.)
     d,why=opened({'TESTHOLD'},1,{aura=60})
-    assert(why=='aura' and d.openerStep==nil)
+    assert(why=='kite' and d.openerStep==nil)
     -- The checks.
     assert(orders.check({opener={'POTN10',{watch=4},{'SPPR113','SPPR208'},'SPPR208'},openerFrom=4}))
     assert(select(2,orders.check({opener={}}))=='opener' and select(2,orders.check({opener='SPPR113'}))=='opener')

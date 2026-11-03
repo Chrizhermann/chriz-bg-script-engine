@@ -611,7 +611,7 @@ assert(choice.kite(i)==nil)
 i.frame.enemies={ogre}
 i.frame.self.weapon=edge(5)
 rejected={}
-assert(choice.kite(i,rejected)==nil and rejected['kite-no-missile']==1)
+assert(choice.kite(i,rejected)==nil and rejected['kite-no-ranged']==1)
 i.frame.self.weapon=BOW
 i.frame.self.rooted=true
 assert(choice.kite(i)==nil)
@@ -756,6 +756,83 @@ assert(near(o.worth,9/40+i.mind.killBonus) and near(o.expected[11],9))
 -- A minimum of 3 leaves 9 to take: one hit and the five skins, and no kill.
 i.frame.enemies={enemy(11,{x=150,hp=12,maxHp=40,skins=5,minHp=3})}
 assert(near(choice.weaponOptions(i)[1].worth,9/40*1/6))
+groups=groups+1
+
+-- 16. Casters step away from melee too (E7; Christopher, 2026-11-03: mages step away from melee
+-- foes now and then, by wit; SCS's mages do while they still have missile spells). A mage of 200
+-- hit points without a missile weapon; a fighter next to it that attacks it swings twice a round for
+-- 8 and hits 19 times in 20 (15.2 a round, little of its 200). Its best choice, a bolt of casting
+-- speed 3 (two seconds) worth 0.3, breaks where it stands when one of the 1.9*2/6 hits expected
+-- meanwhile lands. After the step (400 away, straight from the fighter) the fighter follows a second
+-- late at 100 a second and is back 4.86 seconds after the step began, 0.86 into the casting.
+i=input()
+i.frame.self.x,i.frame.self.y,i.frame.self.hp,i.frame.self.maxHp=1000,1000,200,200
+i.spells={row('TESTBOLT',bolt,3)}
+i.frame.enemies={foe(11,1050,{attack={apr=2,thac0=6,damage=8},actee=1})}
+local best={resref='TESTBOLT',kind='attack',mode='target',target=11,speed=3,worth=0.3,cost=0,score=0.3}
+o=choice.kite(i,nil,best)
+local here,after=1-math.exp(-1.9*2/6),1-math.exp(-1.9*(6-4.86)/6)
+assert(o and o.kind=='kite' and o.point.x==600 and o.point.y==1000 and o.cast=='TESTBOLT')
+assert(near(o.breaks.here,here) and near(o.breaks.after,after))
+assert(near(o.worth,i.mind.caution*15.2/200*4/6+0.3*(here-after)))
+-- A fighter that attacks someone else stays where it is: nothing breaks the bolt after the step. One
+-- at half the pace is back only after the casting ends.
+i.frame.enemies={foe(11,1050,{attack={apr=2,thac0=6,damage=8},actee=2})}
+o=choice.kite(i,nil,best)
+assert(near(o.breaks.after,0) and near(o.worth,i.mind.caution*15.2/200*4/6+0.3*here))
+i.frame.enemies={foe(11,1050,{attack={apr=2,thac0=6,damage=8},actee=1,speed=50})}
+assert(near(choice.kite(i,nil,best).breaks.after,0))
+-- Mirror Images take hits first: with one, 1.9*2/6 hits come to none that land.
+i.frame.self.mirror=1
+o=choice.kite(i,nil,best)
+assert(near(o.breaks.here,0) and near(o.worth,i.mind.caution*15.2/200*4/6))
+i.frame.self.mirror=0
+-- A fighter on its way, 80 off and not yet in reach, takes nothing from the mage where it stands, but
+-- it would break the bolt all the same: in reach 0.16 seconds on (for 1.84 of the casting's two), and
+-- back 5.16 seconds after the step began (0.84 into the casting).
+i.frame.enemies={foe(11,1080,{attack={apr=2,thac0=6,damage=8},actee=1})}
+o=choice.kite(i,nil,best)
+here,after=1-math.exp(-1.9*1.84/6),1-math.exp(-1.9*0.84/6)
+assert(o and near(o.breaks.here,here) and near(o.breaks.after,after) and near(o.worth,0.3*(here-after)))
+-- A normal mage draws once a decision whether it notices the step, and only with a melee enemy close.
+i.mind=mind.withWit(mind.new(),{step='normal',danger=1})
+draws=0;i.rng=stub(400)
+assert(choice.notices(i)==true and draws==1)
+i.frame.enemies={foe(11,1200,{attack={apr=2,thac0=6,damage=8},actee=1})}
+assert(choice.notices(i)==false and draws==1)
+i.rng=nil;i.mind=mind.new()
+i.frame.enemies={foe(11,1050,{attack={apr=2,thac0=6,damage=8},actee=1})}
+-- Only a cast that damage can break counts: not a potion, a weapon or a release (ForceSpellRES), and
+-- not one of no casting time. Without one and without a missile weapon, no step.
+for _,other in ipairs({{use=true},{item='TESTSWRD',kind='weapon'},{release=true},{speed=0}}) do
+    local o2={}
+    for k,v in pairs(best) do o2[k]=v end
+    for k,v in pairs(other) do o2[k]=v end
+    rejected={}
+    assert(choice.kite(i,rejected,o2)==nil and rejected['kite-no-ranged']==1)
+end
+rejected={}
+assert(choice.kite(i,rejected,nil)==nil and rejected['kite-no-ranged']==1)
+-- In the choice: a slow bolt (speed 9, six seconds) amid two fighters that attack someone else
+-- breaks almost surely where the mage stands (3.8 hits expected) and not at all after the step, so
+-- the step beats two thirds of the bolt's round although the hits it keeps off are few.
+local slow=classify(spl('TESTSLOW',3,{fx(12,{p2=8*65536,dice=6,sides=6})},{speed=9}))
+i.spells={row('TESTSLOW',slow,3)}
+i.frame.self.hp,i.frame.self.maxHp=400,400
+i.frame.enemies={foe(11,1050,{attack={apr=2,thac0=6,damage=8},actee=2}),foe(12,1050,{attack={apr=2,thac0=6,damage=8},actee=2})}
+local list
+d,why,list=choice.decide(i)
+assert(why=='kite' and d.cast=='TESTSLOW' and near(d.breaks.here,1-math.exp(-3.8)) and near(d.breaks.after,0))
+local cast
+for _,c in ipairs(list) do if c.resref=='TESTSLOW' then cast=c end end
+assert(cast and cast.score>0 and near(d.worth,i.mind.caution*30.4/400*4/6+cast.score*(1-math.exp(-3.8))))
+-- A dull mage never steps away; nor one that stepped away within 18 seconds: it casts.
+i.mind=mind.withWit(mind.new(),{step='dull',danger=1})
+rejected={}
+assert(choice.kite(i,rejected,cast)==nil and rejected['kite-unnoticed']==1 and choice.decide(i).resref=='TESTSLOW')
+i.mind=mind.new()
+i.kited=i.tick-17*15
+assert(choice.decide(i).resref=='TESTSLOW')
 groups=groups+1
 
 return groups

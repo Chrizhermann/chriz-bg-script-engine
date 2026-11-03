@@ -157,8 +157,9 @@
 -- An 'arms' row logs the weapon in hand whenever it changes, with what the game's tables give for
 -- its bonuses to hit and damage beside what the game reports (THAC0BONUSRIGHT, DAMAGEBONUSRIGHT),
 -- so that a lab can hold the two against each other. A step away is MoveToPoint to the first open
--- spot of its step and exits, held like a way out of a zone, with a 'kite' row; a 'kited' row logs
--- where it ended and how close the nearest enemy stands then.
+-- spot of its step and exits, held like a way out of a zone, with a 'kite' row (for a caster also the
+-- cast it keeps safer and the chances a melee hit breaks it here and after the step); a 'kited' row
+-- logs where it ended and how close the nearest enemy stands then.
 --
 -- Positioning in the casting pause (combat-intent/choice.lua, M.position): a walk toward where the
 -- next cast goes off is MoveToPoint to the nearest open spot by its point, held while the creature
@@ -1940,11 +1941,12 @@ function M.new(g,options)
             counts.claims=counts.claims+1
             record({kind='choice',tick=tick,member=id,family=family,spell=d.resref,castKind=d.kind,mode=d.mode,point=d.point,
                 score=d.score,worth=d.worth,walk=d.walk,how=why,top=top,wit=input.mind.wit,target=d.target,
-                backstab=d.backstab,slot=d.slot,cast=d.cast,toward=d.toward,aura=frame.self.aura~=0 and frame.self.aura or nil})
+                backstab=d.backstab,slot=d.slot,cast=d.cast,toward=d.toward,breaks=d.breaks,
+                aura=frame.self.aura~=0 and frame.self.aura or nil})
             if director then director:release(id,tick) end
             return {own=true,response=response,spell=d.resref,kind=d.kind,mode=d.mode,point=d.point,exits=d.exits,
                 walk=d.walk,hits={},target=d.target,backstab=d.backstab,slot=d.slot,abilityNum=d.abilityNum,
-                cast=d.cast,toward=d.toward}
+                cast=d.cast,toward=d.toward,breaks=d.breaks}
         end
         local response=M.response(d)
         if not response then return decline('bad-response') end
@@ -2117,8 +2119,8 @@ function M.new(g,options)
             record({kind=kite and 'kite' or flank and 'flank' or position and 'position' or 'move',tick=tick,
                 member=object.m_id,from={x=object.m_pos.x,y=object.m_pos.y},to=point,
                 target=flank and decision.target or nil,backstab=flank and decision.backstab or nil,
-                slot=flank and decision.slot or nil,cast=position and decision.cast or nil,
-                toward=position and decision.toward or nil})
+                slot=flank and decision.slot or nil,cast=(position or kite) and decision.cast or nil,
+                toward=position and decision.toward or nil,breaks=kite and decision.breaks or nil})
         elseif decision.kind=='search' or decision.kind=='return' or decision.kind=='guard' then
             -- A search walk, a guard's walk to its place by a foe out of play or the way back: to the
             -- nearest open spot (no zones to keep out of).

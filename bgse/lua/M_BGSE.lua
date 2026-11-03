@@ -7280,7 +7280,12 @@ factories["combat-intent.choice"]=function(require)
 -- missile weapon it can shoot steps away from the melee enemies close to it, worth the hits it keeps
 -- off for the seconds of the step (its caution weighs them), when that beats the part of a round of
 -- its best attack the step costs. A tactic (M.tactical): a clever creature always, a normal one when
--- it notices, a dull one never.
+-- it notices, a dull one never. Casters too (Christopher, 2026-11-03: mages step away from melee
+-- foes now and then, by wit; SCS's mages step away from a melee foe close by while they still have
+-- missile spells): a creature with a spell ready steps away as well, and when its best choice is a
+-- cast that damage can break, the step is also worth that cast by how much less likely a melee hit
+-- breaks it after the step than where it stands. A melee enemy that attacks the creature follows it,
+-- a moment late (M.react); the others stay where they are.
 --
 -- Backstabs (F2d; SCS's thieves drink invisibility when they see an enemy, then stab the weakest
 -- close enemy without Mirror Images or Stoneskin, [src] genai/ssl/backstab.ssl, dw#wtacor.ssl,
@@ -7905,10 +7910,50 @@ local function pressing(input)
     end
     return out
 end
+-- Whether the caster has a spell ready to cast (a casting kind of creature, for kiting).
+local function spelling(input)
+    for _,row in ipairs(type(input.spells)=='table' and input.spells or {}) do
+        if type(row)=='table' and number(row.ready) and row.ready>0 and row.usable and type(row.spell)=='table' then return true end
+    end
+    return false
+end
 -- Whether kiting is there to notice (M.kite): a melee enemy stands close and the caster has a
--- missile weapon to shoot with.
+-- missile weapon to shoot with or a spell ready.
 local function kiting(input)
-    return input.mind.weapons==true and #pressing(input)>0 and shooting(input)
+    return input.mind.weapons==true and #pressing(input)>0 and (shooting(input) or spelling(input))
+end
+-- Whether damage can break option o as it is cast: a spell or ability with a casting time, cast
+-- where the caster stands; not a potion or other item, a weapon, a strike, a walk or a release
+-- (SCS's sequencers and triggers go off by ForceSpellRES, which nothing breaks).
+local function breakable(o)
+    return type(o)=='table' and number(o.speed) and o.speed>0 and not o.use and not o.item and not o.release and
+        o.kind~='weapon' and o.kind~='strike' and number(o.score) and o.score>0
+end
+-- The melee hits expected to land on the caster during a cast of cast seconds that begins start
+-- seconds from now at spot: a melee enemy within reach of spot hits from the beginning; one whose
+-- action aims at the caster walks to it from where it stands, late seconds late (when the caster
+-- steps away, M.react), at its own speed; the others stay where they are. Less the hits its Mirror
+-- Images and Stoneskin skins take first.
+local function meleeHits(input,spot,start,cast,late)
+    local frame=input.frame
+    local caster=frame.self
+    local n=0
+    for _,o in ipairs(frame.enemies) do
+        if type(o)=='table' and targeting.alive(o) and not targeting.disabled(o) then
+            local a=threat.attack(o)
+            local d=targeting.distance(o,spot)
+            local at
+            if a.ranged or d==math.huge then at=nil
+            elseif d<=threat.reach then at=0
+            elseif o.actee==caster.id then at=late+(d-threat.reach)/weapons.speed(o) end
+            if at then
+                n=n+a.apr*threat.hitChance(a.thac0,caster.ac)*math.max(0,start+cast-math.max(start,at))/M.ROUND
+            end
+        end
+    end
+    local absorbed=(number(caster.mirror) and caster.mirror>0 and caster.mirror or 0)+
+        (number(caster.skins) and caster.skins>0 and caster.skins or 0)
+    return math.max(0,n-absorbed)
 end
 -- Whether a backstab is there to notice (M.flankOptions, M.hideOpening): the caster can backstab
 -- with a weapon it carries and sees an enemy it could stab, and it is hidden (going behind) or not
@@ -8639,12 +8684,16 @@ end
 -- adapter walks to the first open one). Worth: the hit points a round the melee weapons take from
 -- the caster where it stands less where the step ends (weapons.meleeAt), as a share of its own,
 -- times caution, for the seconds of the step (a round at most), and what walking there is worth in
--- the zones (zones.delta). None for a creature that cannot walk, is invisible, holds a touch
--- charge, is in its own Time Stop or under Improved Alacrity, has no missile weapon to shoot an
--- enemy with (shooting), does not see the tactic (M.tactical), or stepped away within kiteGap
--- seconds (input.kited, by input.tick). rejected (a table, optional) counts why there is none:
--- 'kite-' and the reason.
-function M.kite(input,rejected)
+-- the zones (zones.delta). When best, the creature's best choice, is a cast that damage can break
+-- (breakable), the step is worth that cast's score besides, times how much less likely a melee hit
+-- breaks it (meleeHits: one hit or more lands while it casts) once the step is over than where it
+-- stands, the casting beginning when its casting aura frees. None for a creature that cannot walk,
+-- is invisible, holds a touch charge, is in its own Time Stop or under Improved Alacrity, has
+-- neither a missile weapon to shoot an enemy with (shooting) nor such a cast as its best choice,
+-- does not see the tactic (M.tactical), or stepped away within kiteGap seconds (input.kited, by
+-- input.tick). The option names the cast (cast) and the chances it breaks here and after the step
+-- (breaks). rejected (a table, optional) counts why there is none: 'kite-' and the reason.
+function M.kite(input,rejected,best)
     local function reject(why) if rejected then rejected['kite-'..why]=(rejected['kite-'..why] or 0)+1 end end
     local frame=input.frame
     local caster=frame.self
@@ -8653,13 +8702,17 @@ function M.kite(input,rejected)
         targeting.has(caster.state,UNSEEN) or type(caster.charge)=='table' or weaponsOut(input) then return nil end
     local close=pressing(input)
     if #close==0 then return nil end
-    if not shooting(input) then reject('no-missile');return nil end
+    local cast=breakable(best) and best or nil
+    if not cast and not shooting(input) then reject('no-ranged');return nil end
     if not M.tactical(input) then reject('unnoticed');return nil end
     if number(input.kited) and not (number(input.tick) and input.tick-input.kited>=M.kiteGap*M.ticksPerSecond) then
         reject('recent');return nil
     end
     local here=weapons.meleeAt(frame,caster)
-    if here<=0 then reject('no-harm');return nil end
+    local seconds=cast and cast.speed*zones.speedSeconds or 0
+    local start=number(caster.aura) and caster.aura>0 and caster.aura or 0
+    local brokenHere=cast and 1-math.exp(-meleeHits(input,caster,start,seconds,0)) or 0
+    if here<=0 and brokenHere<=0 then reject('no-harm');return nil end
     local far=(number(caster.speed) and caster.speed>0 and caster.speed or zones.walkSpeed)*M.kiteSeconds
     local ax,ay=0,0
     for _,o in ipairs(close) do
@@ -8683,7 +8736,12 @@ function M.kite(input,rejected)
                 if type(o)=='table' and targeting.alive(o) then nearest=math.min(nearest,targeting.distance(o,p)) end
             end
             local worth=input.mind.caution*(here-weapons.meleeAt(frame,p))/maxHp*share+zones.delta(input,p)
-            steps[#steps+1]={point=p,worth=worth,nearest=nearest}
+            local broken=0
+            if cast then
+                broken=1-math.exp(-meleeHits(input,p,math.max(M.kiteSeconds,start),seconds,M.react))
+                worth=worth+cast.score*(brokenHere-broken)
+            end
+            steps[#steps+1]={point=p,worth=worth,nearest=nearest,broken=broken}
         end
     end
     table.sort(steps,function(a,b)
@@ -8692,12 +8750,13 @@ function M.kite(input,rejected)
         if a.point.x~=b.point.x then return a.point.x<b.point.x end
         return a.point.y<b.point.y
     end)
-    local best=steps[1]
-    if not best or best.worth<=0 then reject('no-worth');return nil end
+    local step=steps[1]
+    if not step or step.worth<=0 then reject('no-worth');return nil end
     local exits={}
     for i=2,math.min(#steps,5) do if steps[i].worth>0 then exits[#exits+1]=steps[i].point end end
-    return {resref='KITE',kind='kite',mode='point',point=best.point,worth=best.worth,cost=0,score=best.worth,hits={},
-        slack=0,speed=0,walk=M.kiteSeconds,exits=exits}
+    return {resref='KITE',kind='kite',mode='point',point=step.point,worth=step.worth,cost=0,score=step.worth,hits={},
+        slack=0,speed=0,walk=M.kiteSeconds,exits=exits,cast=cast and cast.resref or nil,
+        breaks=cast and {here=brokenHere,after=step.broken} or nil}
 end
 
 -- Positioning (see the top): while the casting aura runs (aura: its seconds left), a walk toward
@@ -8983,12 +9042,16 @@ local function pick(input)
     -- than that cost.
     local value=swing and (mind.alwaysAttack and swing.worth or swing.score) or 0
     local swinging=swing~=nil and value>0
-    -- A step away from the melee enemies close by comes first when what it keeps off beats the part
-    -- of a round of the best attack or cast that its seconds take; also while the aura runs.
-    local kite=mind.weapons and M.kite(input,rejected)
+    -- A step away from the melee enemies close by comes first when what it keeps off beats what its
+    -- seconds give up: the part of a round of the best attack they take, and of the best cast the
+    -- part past the casting aura, which the cast waits for anyway (SCS's mages step away while their
+    -- casting pause runs, [src] mage/ssl/meleeblocks/standard_mage.ssl).
+    local kite=mind.weapons and M.kite(input,rejected,options[1])
     if kite then
         local best=options[1] and number(options[1].score) and math.max(0,options[1].score) or 0
-        if kite.score>math.max(value,best)*math.min(1,M.kiteSeconds/M.ROUND) then
+        local share=math.min(1,M.kiteSeconds/M.ROUND)
+        local held=busy and math.max(0,math.min(M.ROUND,M.kiteSeconds)-aura)/M.ROUND or share
+        if kite.score>math.max(value*share,best*held) then
             local list=all()
             table.insert(list,1,kite)
             return kite,'kite',list
@@ -13355,8 +13418,9 @@ factories["adapters.eeex.choice"]=function(require)
 -- An 'arms' row logs the weapon in hand whenever it changes, with what the game's tables give for
 -- its bonuses to hit and damage beside what the game reports (THAC0BONUSRIGHT, DAMAGEBONUSRIGHT),
 -- so that a lab can hold the two against each other. A step away is MoveToPoint to the first open
--- spot of its step and exits, held like a way out of a zone, with a 'kite' row; a 'kited' row logs
--- where it ended and how close the nearest enemy stands then.
+-- spot of its step and exits, held like a way out of a zone, with a 'kite' row (for a caster also the
+-- cast it keeps safer and the chances a melee hit breaks it here and after the step); a 'kited' row
+-- logs where it ended and how close the nearest enemy stands then.
 --
 -- Positioning in the casting pause (combat-intent/choice.lua, M.position): a walk toward where the
 -- next cast goes off is MoveToPoint to the nearest open spot by its point, held while the creature
@@ -15138,11 +15202,12 @@ function M.new(g,options)
             counts.claims=counts.claims+1
             record({kind='choice',tick=tick,member=id,family=family,spell=d.resref,castKind=d.kind,mode=d.mode,point=d.point,
                 score=d.score,worth=d.worth,walk=d.walk,how=why,top=top,wit=input.mind.wit,target=d.target,
-                backstab=d.backstab,slot=d.slot,cast=d.cast,toward=d.toward,aura=frame.self.aura~=0 and frame.self.aura or nil})
+                backstab=d.backstab,slot=d.slot,cast=d.cast,toward=d.toward,breaks=d.breaks,
+                aura=frame.self.aura~=0 and frame.self.aura or nil})
             if director then director:release(id,tick) end
             return {own=true,response=response,spell=d.resref,kind=d.kind,mode=d.mode,point=d.point,exits=d.exits,
                 walk=d.walk,hits={},target=d.target,backstab=d.backstab,slot=d.slot,abilityNum=d.abilityNum,
-                cast=d.cast,toward=d.toward}
+                cast=d.cast,toward=d.toward,breaks=d.breaks}
         end
         local response=M.response(d)
         if not response then return decline('bad-response') end
@@ -15315,8 +15380,8 @@ function M.new(g,options)
             record({kind=kite and 'kite' or flank and 'flank' or position and 'position' or 'move',tick=tick,
                 member=object.m_id,from={x=object.m_pos.x,y=object.m_pos.y},to=point,
                 target=flank and decision.target or nil,backstab=flank and decision.backstab or nil,
-                slot=flank and decision.slot or nil,cast=position and decision.cast or nil,
-                toward=position and decision.toward or nil})
+                slot=flank and decision.slot or nil,cast=(position or kite) and decision.cast or nil,
+                toward=position and decision.toward or nil,breaks=kite and decision.breaks or nil})
         elseif decision.kind=='search' or decision.kind=='return' or decision.kind=='guard' then
             -- A search walk, a guard's walk to its place by a foe out of play or the way back: to the
             -- nearest open spot (no zones to keep out of).

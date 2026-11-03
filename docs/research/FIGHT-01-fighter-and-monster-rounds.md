@@ -609,6 +609,26 @@ most damaging melee weapon and fights (`dw#wtacor.ssl`, `EquipMostDamagingMelee`
   one when it notices (a melee enemy close by counts toward noticing), a dull one never. In the
   tests an ogre that would take 57 of the archer's 60 hit points a round makes it step away (worth
   0.63 against the bow's 0.06 for those seconds); a weak enemy does not.
+- **Casters step away too** (E7, 2026-11-04; Christopher, 2026-11-03: mages step away from melee foes
+  now and then, by wit; SCS's mages run from a foe within 8 for four seconds while their casting pause
+  runs and they still have spells, [src] mage/ssl/meleeblocks/standard_mage.ssl, credit DavidW). A
+  creature whose best choice is a cast that damage can break (a spell or ability with a casting time;
+  not a potion or other item, a weapon, a strike or a release) kites as an archer does, without a
+  missile weapon. The step is also worth that cast's score times how much less likely a melee hit
+  breaks it once the step is over than where it stands: the chance one hit or more lands while it casts
+  (Mirror Images and Stoneskin take hits first), the casting starting when the casting aura frees. A
+  melee enemy that attacks the creature follows it a second late (`react`) at its own speed; the others
+  stay where they are. While the casting aura runs a step gives up only the part of the best cast past
+  the aura (the cast waits for the aura anyway) and the part of a round of a weapon attack, so casters
+  step away in their casting pause as SCS's do. Not again within 18 seconds; clever always, normal when
+  they notice, dull never. In the tests a mage of 200 hit points beside a fighter that attacks it (1.9
+  hits a round) would lose its two-second bolt 47 times in 100 where it stands and 30 after the step (the
+  fighter is back 0.86 seconds into the casting); against a slow bolt (six seconds) amid two fighters
+  that attack someone else, 98 times in 100 and never after the step, so it steps away although the hits
+  it keeps off are few. A `kite` row of a caster names the cast (`cast`) and the chances (`breaks`, here
+  and after). To see in the lab: whether casters step away too often or too seldom (SCS's mages: every
+  pause, from 8 away; ours from 6, at most every 18 seconds), and whether the party's fighters follow as
+  the model says.
 - **In game** (`adapters/eeex/choice.lua`): a weapon not in hand is `SelectWeaponAbility(slot,
   ability)` before `AttackOneRound`, held as any weapon attack; the `swing` row names the slot and
   `switches` counts them. An `arms` row logs the weapon in hand whenever it changes, with the
@@ -619,7 +639,8 @@ most damaging melee weapon and fights (`dw#wtacor.ssl`, `EquipMostDamagingMelee`
   count them.
 
 Tests: `arsenal` (5 groups, probe F's numbers), weapons groups 12 and 13, the choice adapter's group
-35, 37 mutations checked.
+35, 37 mutations checked. Casters (E7): weapons group 16, the choice adapter's group 16 (a mage behind
+Stoneskin steps away in its casting pause), 21 mutations checked.
 
 To see in a lab: how long `SelectWeaponAbility` takes and that it takes up a launcher with its
 ammunition, and whether a queued one can hang (one queued on the protagonist did once, on

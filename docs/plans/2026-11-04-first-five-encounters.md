@@ -96,6 +96,12 @@ Python/WeiDU agreement check on both labs.
   own script keeps him with Greywolf, hostile with him, gone when Greywolf leaves or is charmed. Checked on
   the real lab files: both creatures as planned, the line in place, his script compiled, and uninstall
   restores the folder. Not the Prism dialogue, as planned first: the cutscene is where Greywolf appears.
+- Step 7, casters step away from melee (2026-11-04): the archers' step away (FIGHT-01, kiting) now serves
+  every creature whose best choice is a cast that damage can break, and it also counts how much less
+  likely a melee hit breaks that cast after the step; in the casting pause a step costs only what runs
+  past the pause, so casters step away then, as SCS's mages do. By wit, at most every 18 seconds
+  (FIGHT-01, Casters step away too). To see in the lab with the five encounters: Tarnesh and Neira
+  against fighters.
 - Encounter tooling (2026-11-04, Christopher: build each encounter faster than the last): the guide
   [docs/ENCOUNTERS.md](../ENCOUNTERS.md) with a checklist, where each decision goes and the pitfalls so far,
   and `tools/scout.py`, which shows everything about a creature in one command.

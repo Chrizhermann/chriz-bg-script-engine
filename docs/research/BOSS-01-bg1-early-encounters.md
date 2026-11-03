@@ -103,6 +103,9 @@ with 20 or more saves against it.
   difficulty rules for what is precast).
 - Magic Missile aimed at Mirror Images: fine, but a detail, later.
 - Mages step away from melee foes now and then: wanted; build it by wit, then watch it in the lab.
+  Built 2026-11-04 for every caster (FIGHT-01, Casters step away too): a step of four seconds when it
+  keeps more off than it costs, also because a fighter next to the caster would likely break its next
+  spell; mostly in its casting pause, at most every 18 seconds, clever always, dull never.
 - Balance: with SCS, a lone level-1 protagonist who walks into the inn nearly always dies, while a
   full party finds him easy. He should be a small challenge, not a wall at the very start. Lab checks:
   a lone level-1 protagonist, two level-1 characters and a full level-1 to 2 party, at average hit

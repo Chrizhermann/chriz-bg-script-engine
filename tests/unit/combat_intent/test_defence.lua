@@ -379,6 +379,10 @@ i=input({fighter(11,130),fighter(12,135)},list)
 local pick,why=choice.decide(i)
 assert(pick.resref=='TESTPFMW' and pick.kind=='defence' and why=='best')
 i=input({fighter(11,130),fighter(12,135)},{row('TESTSTON',stoneskin,4),row('TESTBOLT',bolt,3)})
+-- (The two would take 38 of its 40 hit points this round: without a step away a moment ago, E7, it
+-- steps away first.)
+assert(choice.decide(i).kind=='kite')
+i.kited=i.tick
 assert(choice.decide(i).resref=='TESTSTON')
 i=input({fighter(11,130,{held=1}),fighter(12,135,{held=1})},list)
 pick=choice.decide(i)
