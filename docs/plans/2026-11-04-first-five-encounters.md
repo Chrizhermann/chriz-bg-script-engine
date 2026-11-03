@@ -102,6 +102,23 @@ Python/WeiDU agreement check on both labs.
   past the pause, so casters step away then, as SCS's mages do. By wit, at most every 18 seconds
   (FIGHT-01, Casters step away too). To see in the lab with the five encounters: Tarnesh and Neira
   against fighters.
+- Step 8, the lab (started 2026-11-04): the BG1 encounters need a lab of their own, in the no-SR lab
+  (`BGSE-Lab/eet-nosr-2`), with its tooling in `.work/stepEnc-lab/` (adapted from batch J):
+  - A QA variant of the lab's own UI.MENU, made by `qa_menu.py`: the buttons the lab glue presses
+    get names (load, save, the dialogue's button) and the menus the game stops in poll the remote
+    console; the script reproduces the SR lab's QA menu exactly.
+  - A BG1 starting point: the test save at the prologue's start that the lab tooling made in the SR
+    lab (2026-10-04; one level-1 fighter, "BGSE Lab Test", in Candlekeep), copied into the lab profile
+    while the lab runs and moved out again afterwards.
+  - The lab steps a dialogue as a player would (the first reply each time) through the dialogue's own
+    button in the game's confirm mode.
+  - First a probe (Tarnesh: the trip to the Friendly Arm Inn, the talk on sight, the stepped
+    dialogue, the fight), then the batch: four parties from the BG1 companions (the PC alone, with
+    Imoen, a level 1 to 2 party, a level 2 to 4 party), the five encounters' own ways in (talk on
+    sight for Tarnesh, Karlat and Neira; Garrick's offer and Silke's cutscene; Prism's talk and
+    Greywolf's cutscene with Kestrel), Core and Insane, engine against SCS.
+  - Labs run only while the PC is free (Christopher's rule for background labs); a waiter tries every
+    few minutes.
 - Encounter tooling (2026-11-04, Christopher: build each encounter faster than the last): the guide
   [docs/ENCOUNTERS.md](../ENCOUNTERS.md) with a checklist, where each decision goes and the pitfalls so far,
   and `tools/scout.py`, which shows everything about a creature in one command.
