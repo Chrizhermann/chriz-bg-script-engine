@@ -51,9 +51,12 @@ proposals). For early BG1 tuning that means, among others:
 - Dispel Magic (everyone in the area) and Remove Magic (enemies only) stay apart as in vanilla; Spell
   Immunity stays vanilla for now and there is no shield against Dispel or Breach yet.
 
-The new no-SR lab (`BGSE-Lab/eet-nosr`, CEBG's recommended choice without Spell Revisions and without
-maximum hit points, installed 2026-11-03) has vanilla spells plus SCS's spell changes; tuning
-re-checks what the spell mod changes once it is built.
+The new no-SR lab (`BGSE-Lab/eet-nosr-2`, CEBG's recommended choice without Spell Revisions and
+without maximum hit points, installing since 2026-11-03) has vanilla spells plus SCS's spell changes;
+tuning re-checks what the spell mod changes once it is built. The first attempt (`eet-nosr`) stopped
+at BG Rebalance 0.8.9's Flail of the Ages component (302), which does not yet handle SCS's own
+Slow and Haste spells without Spell Revisions; the installer session fixes it, and until then the lab
+runs without that component (the flail keeps SCS's version).
 
 ## 1. Tarnesh (Friendly Arm Inn)
 
