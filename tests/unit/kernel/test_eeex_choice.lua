@@ -117,7 +117,10 @@ local function weapon(resref,fields,ability)
     for k,v in pairs(fields or {}) do r[k]=v end
     return r
 end
-local ITEMS={TESTPOTN=POTION,TESTSWRD=weapon('TESTSWRD'),
+-- A potion that strengthens its drinker (STR +2 for a turn), a buff for itself.
+local HERO={kind='ITM',resref='TESTHERO',flags=0,abilities={{form=3,flags=0,location=3,target=5,range=1,speed=0,
+    projectile=1,effects={fx(44,{p1=2,target=1,duration=60})}}}}
+local ITEMS={TESTPOTN=POTION,TESTHERO=HERO,TESTSWRD=weapon('TESTSWRD'),
     TESTBOW=weapon('TESTBOW',{flags=0,itemType=15},{attackType=4,dice=0,sides=0,range=100}),
     TESTARRW=weapon('TESTARRW',{flags=0,enchantment=1},{attackType=2,dice=1,sides=6,damageBonus=1,launcher=1})}
 -- The names the game's IDS files give the creature values the tests use (wit's race groups).
@@ -4037,6 +4040,59 @@ assert(w.BGSE_TalkHold(u,'','dw#shdlg')==false and talks()[#talks()].phase=='tim
 -- A load forgets: the creature prepares again on its next ask (SCS's own blocks spend what was cast).
 c:invalidate()
 assert(w.BGSE_TalkHold(t,'','dw#shdlg')==true and c:inspect().counts.errors==0)
+end)()
+groups=groups+1
+
+-- 50. Talk on sight, the designer's extras (orders.talkPrep): from orders.talkFrom's difficulty up, the
+-- talk keeps waiting after SCS's pass (its switch back) until the engine's block fired once
+-- (BGSE_TalkExtras) and its response queued the instant copy of a spell the creature has ready, with that
+-- spell spent, and its buff potion (BGSE_TalkAct); then while the creature is busy. With nothing it can
+-- carry out, or below that difficulty, the talk goes after SCS's pass.
+;(function()
+local w=world()
+w.EngineGlobals.g_pBaldurChitin.m_pObjectGame.m_options={m_nDifficultyLevel=5}
+local d=directors.new(w,{reader=reader})
+local orders={TEST7={talkPrep={{cast='TESTCOPY',spend='TESTBOLT'},'buff-potion'},talkFrom=4},
+    TEST8={talkPrep={{cast='TESTCOPY',spend='TESTBALL'}}}}
+local c=choices.new(w,{reader=reader,director=d,seed=94,orders=orders})
+local list={}
+c:setSink(function(row) list[#list+1]=row end)
+runtime.install(w,{director=d,choice=c,version='test'})
+local function talks() local out={};for _,row in ipairs(list) do if row.kind=='talk' then out[#out+1]=row end end;return out end
+local t=w.add(sprite(7,0,0,128))
+t.m_queuedActions={m_nCount=0}
+learn(t,2,'TESTBOLT',1)
+t.items[18]={cResRef=str('TESTHERO'),m_useCount1=1}
+w.ticks=300
+assert(w.BGSE_TalkExtras(t,'','dw#shdlg')==false)
+assert(w.BGSE_TalkHold(t,'','dw#shdlg')==true and t.locals.OFFSCREENPREP==1 and talks()[1].extras==true)
+w.ticks=303
+assert(w.BGSE_TalkHold(t,'','dw#shdlg')==true and t.locals.OFFSCREENPREP==0)
+assert(w.BGSE_TalkExtras(t,'','dw#shdlg')==true and w.BGSE_TalkExtras(t,'','dw#shdlg')==false)
+local before=#w.queued
+w.BGSE_TalkAct(t)
+local lines={}
+for i=before+1,#w.queued do lines[#lines+1]=w.queued[i].text end
+assert(table.concat(lines,'|')=='ReallyForceSpellRES("TESTCOPY",Myself)|RemoveSpellRES("TESTBOLT")|UseItem("TESTHERO",Myself)',
+    table.concat(lines,'|'))
+assert(talks()[2].phase=='extras' and c:inspect().counts.talkExtras==3)
+t.m_queuedActions.m_nCount=3
+w.ticks=306
+assert(w.BGSE_TalkHold(t,'','dw#shdlg')==true)
+t.m_queuedActions.m_nCount=0
+w.ticks=320
+assert(w.BGSE_TalkHold(t,'','dw#shdlg')==false and talks()[#talks()].phase=='done')
+-- Nothing it can carry out (its spell is not in its book): the talk goes after SCS's pass.
+local u=w.add(sprite(8,0,0,128))
+u.m_queuedActions={m_nCount=0}
+assert(w.BGSE_TalkHold(u,'','dw#shdlg')==true)
+assert(w.BGSE_TalkHold(u,'','dw#shdlg')==false and w.BGSE_TalkExtras(u,'','dw#shdlg')==false)
+-- Below talkFrom's difficulty the creature adds nothing.
+w.EngineGlobals.g_pBaldurChitin.m_pObjectGame.m_options.m_nDifficultyLevel=3
+c:invalidate()
+assert(w.BGSE_TalkHold(t,'','dw#shdlg')==true and talks()[#talks()].extras==false)
+assert(w.BGSE_TalkHold(t,'','dw#shdlg')==false)
+assert(c:inspect().counts.errors==0)
 end)()
 groups=groups+1
 

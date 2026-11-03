@@ -58,3 +58,9 @@ Python/WeiDU agreement check on both labs.
   preparation (`combat-intent/talk.lua`). Still to come with steps 3 and 4: the designer's extras
   (potions, our own instant copies), and Karlat's own talk script, which is the game's `INITDLG`.
   To check in the lab: that SCS's prebuffs run in the held pass and the talk starts after.
+- Step 2, the designer's extras (2026-11-04): orders `talkPrep` (a list of `'buff-potion'` or
+  `{cast=…, spend=…}`) and `talkFrom` (lowest difficulty, 1 to 5). The installer puts one block of the
+  engine's before the first talk block; after SCS's preparation it fires once and queues the extras
+  (`UseItem` of the best buff potion the creature carries; `ReallyForceSpellRES` of our instant copy
+  and `RemoveSpellRES` of the memorized spell, only while that spell is ready). The talk waits until
+  they ran, at most 120 ticks in all. WeiDU and Python agree on both EET labs.

@@ -834,6 +834,12 @@ BEGIN
             SET bgse_talks += 1
           END
         END
+        // Before the first block goes the engine's own, which queues what the fight's designer adds to the
+        // creature's preparation (tools/hook_rule.py: talk_extras_block).
+        TEXT_SPRINT extras_block ~IF%LNL%  See([PC])%LNL%  NumTimesTalkedTo(0)%LNL%  EEex_LuaTrigger("return BGSE_TalkExtras and BGSE_TalkExtras(EEex_LuaTrigger_Object,'','%bgse_script%') or false")%LNL%THEN%LNL%  RESPONSE #100%LNL%    EEex_LuaAction("if BGSE_TalkAct then BGSE_TalkAct(EEex_LuaAction_Object) end")%LNL%END%LNL%%LNL%~
+        SET first = INDEX_BUFFER (CASE_SENSITIVE ~^IF%LNL%~)
+        INSERT_BYTES first (STRING_LENGTH ~%extras_block%~)
+        WRITE_ASCIIE first ~%extras_block%~
       END
     END
   END

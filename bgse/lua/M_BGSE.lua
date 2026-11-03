@@ -5667,6 +5667,11 @@ factories["combat-intent.orders"]=function(require)
 -- (combat-intent/removal.lua): 'exact' reads the caster levels of their effects, for a special boss
 -- (Christopher, 2026-11-03: "Außer vielleicht ein Irenicus oder so"); 'estimate', 'rough' and
 -- 'none' as a clever, a normal and a dull creature judge them.
+--
+-- talkPrep says what a talk-on-sight creature adds to its preparation before it speaks
+-- (combat-intent/talk.lua), from the game's difficulty talkFrom (1 to 5, default 1) up: an instant
+-- copy of a spell it has ready, {cast=copy, spend=spell}, which spends that spell; or 'buff-potion',
+-- its best potion that strengthens or protects it.
 local targeting=require('combat-intent.targeting')
 local M={}
 M.bonus=1
@@ -5681,6 +5686,15 @@ local function selector(v)
     local w=v:lower()
     return w=='protagonist' or w:match('^player[1-6]$')~=nil or (#v<=8 and v:match('^[%w#_%-]+$')~=nil)
 end
+local function resref(v) return type(v)=='string' and #v>0 and #v<=8 and v:match('^[%w#_%-]+$')~=nil end
+-- One thing a talk-on-sight creature adds before it speaks (talkPrep).
+local function extra(v)
+    if v=='buff-potion' then return true end
+    if type(v)~='table' then return false end
+    for k in pairs(v) do if k~='cast' and k~='spend' then return false end end
+    return resref(v.cast) and resref(v.spend)
+end
+local function level(v) return number(v) and v>=1 and v<=5 and v==math.floor(v) end
 
 -- Whether o is a creature's orders as the adapter takes them, else false and the bad field.
 function M.check(o)
@@ -5706,6 +5720,11 @@ function M.check(o)
             end
         elseif k=='bonus' then
             if not number(v) or v<0 or v>100 then return false,'bonus' end
+        elseif k=='talkPrep' then
+            if type(v)~='table' or #v==0 then return false,k end
+            for i,e in pairs(v) do if type(i)~='number' or not extra(e) then return false,k end end
+        elseif k=='talkFrom' then
+            if not level(v) then return false,k end
         else return false,tostring(k) end
     end
     return true
@@ -10619,41 +10638,76 @@ end
 factories["combat-intent.talk"]=function(require)
 -- Talk on sight (Christopher, 2026-11-03: a creature that speaks to the party as soon as it sees it
 -- prepares when it sees the party, and the talk comes right after, so it cannot be caught
--- unprepared). The installer holds SCS's talk-on-sight blocks while BGSE_TalkHold says so
--- (bgse/lib/hook.tpa, tools/hook_rule.py: patch_talk). On the first ask the engine starts the
--- creature's preparation: it turns on SCS's own switch for preparing out of sight (offscreenprep,
--- so SCS's prebuffs run with SCS's difficulty rules in the scripts below while the talk waits) and
--- queues what the fight's designer adds (combat-intent/encounters.lua). The talk waits at least one
--- script pass, for SCS's preparation to run, then until the creature is idle, at most TIMEOUT ticks.
--- Plain values only; nothing here touches the engine.
+-- unprepared). The installer holds SCS's talk-on-sight blocks while BGSE_TalkHold says so and puts a
+-- block of the engine's before them, which fires when BGSE_TalkExtras says so (bgse/lib/hook.tpa,
+-- tools/hook_rule.py: patch_talk).
+--
+-- On the first ask the engine starts the creature's preparation: it turns on SCS's own switch for
+-- preparing out of sight (offscreenprep), so SCS's prebuffs run in the scripts below the talk with
+-- SCS's difficulty rules while the talk waits that script pass. On the next ask the switch goes back
+-- to what it was, so SCS's free precasts do not fire again on every pass. Then, when the fight's
+-- designer adds something for the creature (combat-intent/encounters.lua: a potion, instant copies
+-- of spells it has memorized), the engine's own block fires once and queues it: a block of its own,
+-- so that no later block of SCS's replaces those actions. The talk waits while the creature is busy,
+-- at most TIMEOUT ticks. Plain values only; nothing here touches the engine.
 local M={}
 -- The longest a talk waits for the preparation, in game ticks (15 a second): it never stays stuck.
-M.TIMEOUT=90
+M.TIMEOUT=120
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
 
+local function copy(state,changes)
+    local s={}
+    for k,v in pairs(state) do s[k]=v end
+    for k,v in pairs(changes) do s[k]=v end
+    return s
+end
+
 -- One ask of BGSE_TalkHold for a creature: state is what the last ask left (nil before the first),
--- facts {tick, on (the engine on), busy (the creature has an action running or queued)}. Returns
--- whether the talk waits now, the state to keep and what happened: 'start' (the preparation begins
--- now: the adapter sets offscreenprep and queues the designer's extras), 'wait', 'done', 'timeout'
--- or 'off' (the engine is off: the talk goes on as before, and nothing is kept).
+-- facts {tick, on (the engine on), busy (an action running or queued), extras (the designer adds
+-- something for it now)}. Returns whether the talk waits now, the state to keep, what happened
+-- ('start': the adapter turns on offscreenprep; 'wait', 'done', 'timeout'; 'off': the engine is off,
+-- the talk goes on as before and nothing is kept) and whether the switch goes back now (the first ask
+-- after the start).
 function M.step(state,facts)
     facts=type(facts)=='table' and facts or {}
-    if facts.on~=true then return false,state,'off' end
+    if facts.on~=true then return false,state,'off',false end
     local tick=number(facts.tick) and facts.tick or 0
     if type(state)~='table' then
-        return true,{phase='preparing',since=tick,passes=0},'start'
+        return true,{phase='preparing',since=tick,passes=0},'start',false
     end
-    if state.phase~='preparing' then return false,state,nil end
+    if state.phase~='preparing' and state.phase~='extras' then return false,state,nil,false end
     local passes=(number(state.passes) and state.passes or 0)+1
     local since=number(state.since) and state.since or tick
+    local restore=state.phase=='preparing' and passes==1
     if tick-since>=M.TIMEOUT or tick<since then
-        return false,{phase='done',since=since,passes=passes},'timeout'
+        return false,copy(state,{phase='done',since=since,passes=passes}),'timeout',restore
     end
-    if facts.busy==true then
-        return true,{phase='preparing',since=since,passes=passes},'wait'
+    if state.phase=='preparing' then
+        if facts.busy==true then
+            return true,copy(state,{since=since,passes=passes}),'wait',restore
+        end
+        if facts.extras==true then
+            return true,copy(state,{phase='extras',since=since,passes=passes}),'wait',restore
+        end
+        return false,copy(state,{phase='done',since=since,passes=passes}),'done',restore
     end
-    return false,{phase='done',since=since,passes=passes},'done'
+    -- The designer's extras: the talk waits until the engine's block queued them and they ran.
+    if state.queued~=true or facts.busy==true then
+        return true,copy(state,{since=since,passes=passes}),'wait',false
+    end
+    return false,copy(state,{phase='done',since=since,passes=passes}),'done',false
+end
+
+-- One ask of BGSE_TalkExtras (the engine's block before the talk): whether that block fires now and
+-- queues the designer's extras, once, after SCS's preparation had its pass; the state to keep, and
+-- 'queue' when it fires.
+function M.extras(state,facts)
+    facts=type(facts)=='table' and facts or {}
+    if facts.on~=true or type(state)~='table' or state.phase~='extras' or state.queued==true then
+        return false,state,nil
+    end
+    return true,copy(state,{queued=true}),'queue'
 end
 return M
 end
@@ -13579,7 +13633,7 @@ function M.new(g,options)
     local kept,keptCount={},0
     -- Each talk-on-sight creature's preparation before its talk (combat-intent/talk.lua), by object id.
     local talks,talkCount={},0
-    local counts={talkHolds=0,preps=0,prepHolds=0,kept=0,cut=0,waits=0,marked=0,escapes=0,escaped=0,unescaped=0,zoneFailures=0,stayed=0,left=0,pains=0,witFailures=0,decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
+    local counts={talkHolds=0,talkExtras=0,preps=0,prepHolds=0,kept=0,cut=0,waits=0,marked=0,escapes=0,escaped=0,unescaped=0,zoneFailures=0,stayed=0,left=0,pains=0,witFailures=0,decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
         hits=0,misses=0,errors=0,holds=0,frozen=0,marks=0,markFailures=0,defences=0,guarded=0,unguarded=0,
         guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0,arms=0,attacks=0,attackHits=0,
         weaponFailures=0,releases=0,heals=0,cures=0,potions=0,cared=0,uncared=0,summons=0,conjured=0,
@@ -15411,11 +15465,49 @@ function M.new(g,options)
         failed('stay',result)
         return false
     end
+    -- Talk on sight, the designer's extras (orders.talkPrep, combat-intent/encounters.lua): the actions
+    -- that carry out what the creature adds before it speaks, one a line, once the game's difficulty is
+    -- orders.talkFrom or more. A cast: the instant copy (cast) of a spell it has ready (spend), and the
+    -- spell spent; 'buff-potion': the first potion it carries that strengthens or protects itself.
+    local function extrasFor(sprite)
+        local own=orderBook[text(sprite.m_resref:get())]
+        if type(own)~='table' or type(own.talkPrep)~='table' then return {} end
+        local level=difficulty()
+        if type(own.talkFrom)=='number' and (level or 0)<own.talkFrom then return {} end
+        local rows,carried=book(sprite)
+        local out={}
+        for _,e in ipairs(own.talkPrep) do
+            if e=='buff-potion' then
+                local found
+                for _,c in ipairs(type(carried)=='table' and carried or {}) do
+                    for _,a in ipairs(c.abilities) do
+                        local r=type(a.effect)=='table' and type(a.effect.roles)=='table' and a.effect.roles or {}
+                        for _,role in ipairs({r.buff,r.protection}) do
+                            if type(role)=='table' and type(role.who)=='table' and role.who.self then found=found or c.resref end
+                        end
+                    end
+                    if found then break end
+                end
+                if found then out[#out+1]=('UseItem("%s",Myself)'):format(found) end
+            elseif type(e)=='table' then
+                for _,row in ipairs(type(rows)=='table' and rows or {}) do
+                    if row.resref==e.spend:upper() and type(row.ready)=='number' and row.ready>0 then
+                        out[#out+1]=('ReallyForceSpellRES("%s",Myself)'):format(e.cast:upper())
+                        out[#out+1]=('RemoveSpellRES("%s")'):format(e.spend:upper())
+                        break
+                    end
+                end
+            end
+        end
+        return out
+    end
     -- Talk on sight (BGSE_TalkHold, combat-intent/talk.lua): whether creature id's talk waits now while
     -- it prepares. On the first ask SCS's switch for preparing out of sight goes on (M.offscreen), so
-    -- its prebuffs run in its scripts below the talk with SCS's difficulty rules; the talk waits that
-    -- pass, then while the creature is busy, at most talk.TIMEOUT ticks. A 'talk' row when it starts
-    -- and when it ends. With the choice off, or on any error, the talk goes on as before.
+    -- its prebuffs run in its scripts below the talk with SCS's difficulty rules; on the next ask it goes
+    -- back to what it was. When the designer adds something for the creature, the talk keeps waiting
+    -- until the engine's block queued it (api:talkExtras, api:talkAct) and it ran; at most talk.TIMEOUT
+    -- ticks. A 'talk' row when it starts and when it ends. With the choice off, or on any error, the
+    -- talk goes on as before.
     function api:talkHold(id)
         if not (enabled and not missing) then return false end
         local ok,result=pcall(function()
@@ -15425,26 +15517,58 @@ function M.new(g,options)
             local queued=sprite.m_queuedActions
             local busy=sprite.m_curAction.m_actionID~=0 or (queued~=nil and queued.m_nCount>0)
             local had=talks[id]
-            local wait,state,event=talk.step(had,{tick=tick,on=true,busy=busy})
+            local wait,state,event,restore=talk.step(had,{tick=tick,on=true,busy=busy,
+                extras=type(had)=='table' and had.extras==true})
             if not had then
                 if talkCount>=M.cacheLimit then talks,talkCount={},0 end
                 talkCount=talkCount+1
             end
-            talks[id]=state
             local resref=text(sprite.m_resref:get())
             if event=='start' then
+                state.prior=g.EEex_Sprite_GetLocalInt(sprite,M.offscreen)
+                state.extras=#extrasFor(sprite)>0
                 g.EEex_Sprite_SetLocalInt(sprite,M.offscreen,1)
                 counts.talkHolds=counts.talkHolds+1
-                record({kind='talk',tick=tick,member=id,resref=resref,phase='start'})
-            elseif event=='done' or event=='timeout' then
+                record({kind='talk',tick=tick,member=id,resref=resref,phase='start',extras=state.extras})
+            end
+            if restore then g.EEex_Sprite_SetLocalInt(sprite,M.offscreen,type(state.prior)=='number' and state.prior or 0) end
+            if event=='done' or event=='timeout' then
                 record({kind='talk',tick=tick,member=id,resref=resref,phase=event,passes=state.passes,
                     ticks=tick-state.since})
             end
+            talks[id]=state
             return wait
         end)
         if ok then return result==true end
         failed('talk',result)
         return false
+    end
+    -- Whether the engine's block before the talk fires now for creature id (BGSE_TalkExtras): once, when
+    -- the designer adds something and SCS's preparation had its pass.
+    function api:talkExtras(id)
+        if not (enabled and not missing) then return false end
+        local ok,result=pcall(function()
+            local fire,state=talk.extras(talks[id],{on=true})
+            if fire then talks[id]=state end
+            return fire
+        end)
+        if ok then return result==true end
+        failed('talk-extras',result)
+        return false
+    end
+    -- The engine's block before the talk runs (BGSE_TalkAct): queue what the designer adds for creature
+    -- id, after this action, so that no later block replaces it. An 'extras' row says what.
+    function api:talkAct(id)
+        local ok,err=pcall(function()
+            local sprite=get(id)
+            if not sprite then return end
+            local list=extrasFor(sprite)
+            for _,line in ipairs(list) do g.EEex_Action_QueueResponseStringOnAIBase(line,sprite) end
+            counts.talkExtras=counts.talkExtras+#list
+            record({kind='talk',tick=now(),member=id,resref=text(sprite.m_resref:get()),phase='extras',
+                actions=table.concat(list,' ')})
+        end)
+        if not ok then failed('talk-act',err) end
     end
     -- Whether the engine weighs danger zones for creature id of family now (BGSE_Zones: SCS's own
     -- cloud blocks stand aside meanwhile): not for a creature off the engine's
@@ -15867,6 +15991,18 @@ function M.install(g,options)
             return choice~=nil and gate:on()==true and choice:talkHold(object.m_id)==true
         end)
         return ok and result==true
+    end
+    -- True once for a talk-on-sight creature whose preparation the fight's designer adds to, after SCS's
+    -- had its pass (choice:talkExtras): the engine's block before the talk fires, and its response
+    -- (BGSE_TalkAct) queues those actions. The gate's switch off or any error is false.
+    g.BGSE_TalkExtras=function(object,family,script)
+        local ok,result=pcall(function()
+            return choice~=nil and gate:on()==true and choice:talkExtras(object.m_id)==true
+        end)
+        return ok and result==true
+    end
+    g.BGSE_TalkAct=function(object)
+        pcall(function() if choice then choice:talkAct(object.m_id) end end)
     end
     -- SCS's preparation ran for the creature (choice:prepped logs it for a creature the engine drives).
     g.BGSE_Prepped=function(object,family,script,kind,cast,spent)

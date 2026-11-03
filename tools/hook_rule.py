@@ -295,6 +295,17 @@ def talk_guard(family, script):
             f"'{family}','{script}') or false\")")
 
 
+def talk_extras_block(script):
+    """The engine's block before SCS's talk on sight: it fires once when the fight's designer adds something to the
+    creature's preparation (BGSE_TalkExtras), and its response queues that (BGSE_TalkAct), so that no later block of
+    SCS's replaces those actions."""
+    return ('IF\n  See([PC])\n  NumTimesTalkedTo(0)\n'
+            '  EEex_LuaTrigger("return BGSE_TalkExtras and BGSE_TalkExtras(EEex_LuaTrigger_Object,'
+            f"'','{script}') or false\")\n"
+            'THEN\n  RESPONSE #100\n'
+            '    EEex_LuaAction("if BGSE_TalkAct then BGSE_TalkAct(EEex_LuaAction_Object) end")\nEND\n\n')
+
+
 def prep_notice(family, script, kind, cast, spent):
     return ('EEex_LuaAction("if BGSE_Prepped then BGSE_Prepped(EEex_LuaAction_Object,'
             f"'{family}','{script}','{kind}','{cast}','{spent}') end\")")
@@ -845,21 +856,23 @@ def patch_talk(text, script):
     castspell round timer, and every block a talk on sight (is_talk). SCS gives it to the creatures that speak to the
     party on sight and then fight (dw#shdlg); Christopher, 2026-11-03: such a creature prepares when it sees the party,
     and the talk comes right after. Each block gets BGSE_TalkHold's condition with no family: last, first when its
-    triggers end in an OR group that lacks members (aside). A scripted encounter whose script does more (SCS's
-    Icharyd and his storm) is designed one by one and stays as it is; so do a script patched before (BGSE_TalkHold in
-    it) and one whose name cannot go into Lua text."""
+    triggers end in an OR group that lacks members (aside); before the first goes the engine's block that queues what
+    the fight's designer adds (talk_extras_block). A scripted encounter whose script does more (SCS's Icharyd and his
+    storm) is designed one by one and stays as it is; so do a script patched before (BGSE_TalkHold in it) and one
+    whose name cannot go into Lua text."""
     text = text.replace('\r', '')
     script = script.lower()
     if 'DMWW_' not in text or 'castspell' in text or 'BGSE_TalkHold' in text or any(c in script for c in '\'"\\'):
         return None, 0
     spans = blocks(text)
     talks = [i for i, (a, b) in enumerate(spans) if is_talk(text[a:b])]
-    if len(talks) != len(spans):
+    if not talks or len(talks) != len(spans):
         return None, 0
     for i in reversed(talks):
         a, b = spans[i]
         text = text[:a] + aside(text[a:b], [f'  !{talk_guard("", script)}']) + text[b:]
-    return (text if talks else None), len(talks)
+    first = spans[0][0]
+    return text[:first] + talk_extras_block(script) + text[first:], len(talks)
 
 
 def is_anchor(block):

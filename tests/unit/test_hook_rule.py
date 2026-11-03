@@ -1038,6 +1038,12 @@ def test_talks_on_sight_wait_while_the_engine_prepares_the_creature():
     for a, b in spans:
         assert patched.count(hook_rule.aside(source[a:b], [hold])) == 1
     assert 'IF\n' + hold + '\n  NumTimesTalkedTo(0)\n  See([PC])\n  OR(3)\n' in patched
+    # Before the first block, once: the engine's block that queues what the fight's designer adds.
+    extras = hook_rule.talk_extras_block('b-hktlk')
+    assert patched.startswith(extras) and patched.count('BGSE_TalkExtras(') == 1 and patched.count('BGSE_TalkAct(') == 1
+    assert ("  EEex_LuaTrigger(\"return BGSE_TalkExtras and BGSE_TalkExtras(EEex_LuaTrigger_Object,'','b-hktlk') or "
+            'false")\n') in extras
+    assert not hook_rule.is_talk(extras)
     mixed = text('B-HKTLX')
     assert [hook_rule.is_talk(mixed[a:b]) for a, b in hook_rule.blocks(mixed)] == [True, False, False, False]
     assert hook_rule.patch_talk(mixed, 'B-HKTLX') == (None, 0)

@@ -322,6 +322,18 @@ function M.install(g,options)
         end)
         return ok and result==true
     end
+    -- True once for a talk-on-sight creature whose preparation the fight's designer adds to, after SCS's
+    -- had its pass (choice:talkExtras): the engine's block before the talk fires, and its response
+    -- (BGSE_TalkAct) queues those actions. The gate's switch off or any error is false.
+    g.BGSE_TalkExtras=function(object,family,script)
+        local ok,result=pcall(function()
+            return choice~=nil and gate:on()==true and choice:talkExtras(object.m_id)==true
+        end)
+        return ok and result==true
+    end
+    g.BGSE_TalkAct=function(object)
+        pcall(function() if choice then choice:talkAct(object.m_id) end end)
+    end
     -- SCS's preparation ran for the creature (choice:prepped logs it for a creature the engine drives).
     g.BGSE_Prepped=function(object,family,script,kind,cast,spent)
         pcall(function()

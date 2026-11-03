@@ -39,6 +39,11 @@
 -- (combat-intent/removal.lua): 'exact' reads the caster levels of their effects, for a special boss
 -- (Christopher, 2026-11-03: "Außer vielleicht ein Irenicus oder so"); 'estimate', 'rough' and
 -- 'none' as a clever, a normal and a dull creature judge them.
+--
+-- talkPrep says what a talk-on-sight creature adds to its preparation before it speaks
+-- (combat-intent/talk.lua), from the game's difficulty talkFrom (1 to 5, default 1) up: an instant
+-- copy of a spell it has ready, {cast=copy, spend=spell}, which spends that spell; or 'buff-potion',
+-- its best potion that strengthens or protects it.
 local targeting=require('combat-intent.targeting')
 local M={}
 M.bonus=1
@@ -53,6 +58,15 @@ local function selector(v)
     local w=v:lower()
     return w=='protagonist' or w:match('^player[1-6]$')~=nil or (#v<=8 and v:match('^[%w#_%-]+$')~=nil)
 end
+local function resref(v) return type(v)=='string' and #v>0 and #v<=8 and v:match('^[%w#_%-]+$')~=nil end
+-- One thing a talk-on-sight creature adds before it speaks (talkPrep).
+local function extra(v)
+    if v=='buff-potion' then return true end
+    if type(v)~='table' then return false end
+    for k in pairs(v) do if k~='cast' and k~='spend' then return false end end
+    return resref(v.cast) and resref(v.spend)
+end
+local function level(v) return number(v) and v>=1 and v<=5 and v==math.floor(v) end
 
 -- Whether o is a creature's orders as the adapter takes them, else false and the bad field.
 function M.check(o)
@@ -78,6 +92,11 @@ function M.check(o)
             end
         elseif k=='bonus' then
             if not number(v) or v<0 or v>100 then return false,'bonus' end
+        elseif k=='talkPrep' then
+            if type(v)~='table' or #v==0 then return false,k end
+            for i,e in pairs(v) do if type(i)~='number' or not extra(e) then return false,k end end
+        elseif k=='talkFrom' then
+            if not level(v) then return false,k end
         else return false,tostring(k) end
     end
     return true

@@ -367,8 +367,16 @@ Python, and `tests/integration/test_hook_installer.py` checks they agree.
     at every override script with `DMWW_` and no `castspell`). On the first ask the engine turns on
     SCS's own switch for preparing out of sight (the local `offscreenprep`, which SCS's prebuff blocks
     accept instead of a visible enemy, with SCS's difficulty rules) and holds the talk for that script
-    pass, then while the creature is busy, at most 90 ticks (`combat-intent/talk.lua`,
-    `api:talkHold`); with the engine or the choice off, or on any error, the talk goes on as before.
+    pass; on the next ask the switch goes back to what it was, so SCS's free precasts do not fire on
+    every pass. The talk then waits while the creature is busy, at most 120 ticks
+    (`combat-intent/talk.lua`, `api:talkHold`); with the engine or the choice off, or on any error,
+    the talk goes on as before. Before the first talk block the installer adds one block of the
+    engine's (`talk_extras_block`, `bgse_talk_baf`): `See([PC])`, `NumTimesTalkedTo(0)` and
+    `BGSE_TalkExtras`, with a `BGSE_TalkAct` LuaAction. It fires once, after SCS's preparation had its
+    pass, when the fight's designer adds something for the creature (`talkPrep` in
+    `combat-intent/encounters.lua`, from `talkFrom` difficulty: the best buff potion it carries, or our
+    own instant copy of a spell it has memorized, with that slot spent), and queues it; a block of its
+    own, so that no later block of SCS's replaces those actions in the same pass.
     A scripted encounter whose script does more than talk (SCS's `DW#ICHAR`, Icharyd's storm) is
     designed one by one and stays as it is. Of the scripts with `DMWW_` and no `castspell` (84 in the
     no-SR EET lab, 88 in the SR lab, 52 in the BG2-only lab) only `DW#SHDLG` qualifies, with its two
