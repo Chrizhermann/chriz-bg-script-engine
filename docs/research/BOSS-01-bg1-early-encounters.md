@@ -134,24 +134,23 @@ Minor Sequencer when it is worth it.
 **Decided (Christopher, 2026-11-03):**
 - She is a popular, well-liked NPC; she should be dangerous, a fight people remember.
 - Strength: roughly that of SCS's Silke. How strong the party is at that point varies a lot.
-- Instant preparation when the fight starts: the potion and Mirror Image; on higher difficulty also
-  Minor Spell Deflection.
+- Instant preparation: the potion and Mirror Image.
 - Haste and the double Charm: yes.
 - It should be clear beforehand that she is dangerous, perhaps through a short line, for example
   one Garrick says first; the text is written with Christopher.
 - More ideas for a cooler encounter are welcome.
 
-**Open (suggestions to Christopher, 2026-11-03):**
-- Minor Spell Deflection is a third-level spell (`SPWI318`); her two third-level slots hold Haste and
-  Hold Person. Suggested: from Hard it takes Hold Person's slot (a real slot, so fair). Or a scroll
-  she reads while preparing.
-- Visible preparation as a warning: she drinks the potion and casts Mirror Image when the "thugs"
-  arrive. She plans an ambush herself, so she is ready, and the player sees a real caster before
-  choosing.
-- Garrick's line, a draft in his admiring voice: "And when she sings, folks forget their own minds.
-  Best stay on her good side!" It also announces the charms.
-- A spellbook drawn per run (plan, decision 13): her signature stays (the two charms, Mirror Image,
-  the potion), one or two slots change from run to run; two first-level slots are empty today.
+**Decided (Christopher, 2026-11-04):**
+- No Minor Spell Deflection. It is a third-level spell (`SPWI318`) and would have taken Hold
+  Person's slot or come from a scroll: "ach nein dann ist das egal".
+- Her preparation is visible: she drinks the potion and Mirror Image goes up when the "thugs"
+  arrive, before the party chooses. She plans the ambush herself, so she is ready, and the player
+  sees a real caster first ("jo").
+- Garrick's line as drafted, in his admiring voice; it also announces the charms ("jo"): "And when
+  she sings, folks forget their own minds. Best stay on her good side!"
+- Her spellbook is drawn per run (plan, decision 13): "geile IDee". Her signature stays (the two
+  charms, Mirror Image, the potion); one or two slots change from run to run (two first-level slots
+  are empty today). Which creatures and how much chance is designed when the first fights are built.
 
 **Lab checks (later):** the engine's Silke against SCS's with the same parties, at average hit points
 without double damage; the target is roughly SCS's strength, and she should feel dangerous.
@@ -198,13 +197,15 @@ in six or seven; Sleep does not touch him (level 5; Sleep reaches level 4 at mos
 Speed he swings twice a round. These are the original game's numbers; SCS adds only the script and
 the potions.
 
-**Open (suggestions to Christopher, 2026-11-04):**
-- A light preference for the protagonist, as for Tarnesh: he carries the bounty notice.
-- He prepares on sight: a bounty hunter who finds his mark drinks his battle potion before he
-  speaks, visibly. That follows the talk-on-sight rule decided for Tarnesh. In the half of the runs
-  without a battle potion nothing changes.
-- Otherwise simple and close to SCS: a small encounter.
-- Party strength: how strong is the party usually when it first enters the Red Sheaf?
+**Decided (Christopher, 2026-11-04):**
+- A light preference for the protagonist, as for Tarnesh, since he carries the bounty notice
+  ("hja").
+- He prepares on sight: a bounty hunter who finds his mark drinks his battle potion visibly, then
+  speaks at once ("solange er versucht sofort mit der Gruppe zu sprechen, ja. Ich fänd das geil").
+  In the half of the runs without a battle potion he just speaks.
+- Strength: the party is probably not strong yet when it first enters the Red Sheaf, and SCS's
+  Karlat is about right ("Ich denke SCS hatte da schon in etwa die richtige Idee").
+- Otherwise simple and close to SCS, as for every small encounter.
 
 **Lab checks (later):** the parties of Tarnesh's checks plus a level 2 to 3 party, at average hit
 points without double damage, and several runs, since his potions differ from run to run.

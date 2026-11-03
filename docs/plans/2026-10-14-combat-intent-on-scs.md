@@ -1113,10 +1113,12 @@ Decided on 2026-10-18, with the answers above:
     spellbook swaps are drawn per run and kept for that run.
     Christopher (2026-11-03): above all for named characters who are not the main ones ("Gerade
     für so nicht so krass named Charaktere, also nicht diese Hauptcharaktere"), per run and not
-    per installation; perhaps Silke (BOSS-01). Proposed, not decided: draw when the party first
-    meets the creature, from a number fixed at the start of the run, so that reloading draws
-    nothing new; each creature keeps a fixed core (its SCS identity) and only part of its book
-    varies, in real slots of the right level.
+    per installation. Silke is a candidate (BOSS-01; Christopher, 2026-11-04: "geile IDee").
+    Proposed, not decided: draw when the party first meets the creature, from a number fixed at
+    the start of the run, so that reloading draws nothing new; each creature keeps a fixed core
+    (its SCS identity) and only part of its book varies, in real slots of the right level. SCS's
+    random potions are already drawn per run: the game swaps SCS's placeholder items for potions
+    from its random treasure table when it creates the creature (Karlat, BOSS-01).
 14. **SCS's other components stay SCS's for now.** Item balancing and SCS's other tweaks
     outside the fight logic stay as SCS installs them; they may be reviewed one by one later.
     This is the plan's split (see "How it fits with SCS"): the engine replaces SCS's fight
