@@ -2,7 +2,8 @@
 
 Read this first. The current plan is
 [docs/plans/2026-10-14-combat-intent-on-scs.md](docs/plans/2026-10-14-combat-intent-on-scs.md).
-What we know about EEex, SCS and the lab is in [docs/learned.md](docs/learned.md).
+What we know about EEex, SCS and the lab is in [docs/learned.md](docs/learned.md). Building a designed
+encounter starts at [docs/ENCOUNTERS.md](docs/ENCOUNTERS.md).
 
 ## What this is
 
