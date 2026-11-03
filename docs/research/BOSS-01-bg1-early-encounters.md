@@ -155,3 +155,56 @@ Minor Sequencer when it is worth it.
 
 **Lab checks (later):** the engine's Silke against SCS's with the same parties, at average hit points
 without double damage; the target is roughly SCS's strength, and she should feel dangerous.
+
+## 3. Karlat (Beregost, Red Sheaf)
+
+Facts from the no-SR lab `eet-nosr-2`.
+
+**Who:** `KARLAT`, a level-5 dwarf fighter with 30 hit points, STR 17, DEX 17, CON 15, INT 11 (normal
+wit) and WIS 9, THAC0 15 and one attack a round. He carries a Battle Axe, Chain Mail and a Medium
+Shield, which with his dexterity gives armor class about 1. He also carries a bounty notice, the
+letter `SCRLKAR`: 350 gold for the head of "the foster child of Gorion". Scripts: the game's own
+talk script `INITDLG` above SCS's melee script `DW1MELGE`.
+
+He also gets random potions from SCS's potion component, through the game's random treasure table
+(`DW#RND01`, `DW#RND26`). The game draws them when it creates him, so each playthrough differs (not
+checked in the lab):
+- healing, droppable: a third of the time a Potion of Healing, a sixth two, a sixth a Potion of Extra
+  Healing, a third nothing;
+- a battle potion, undroppable: half the time nothing, otherwise a Potion of Hill Giant Strength,
+  Heroism, Defense or an Oil of Speed.
+
+**The story** (`KARLAT.DLG`): a bounty hunter who sits in the Red Sheaf in Beregost (`BG3357`) from
+the start of the game; no quest leads to him. He talks to the first party member he sees ("Not that
+it's anything personal, you understand"). All three answers end in his attack; he turns down a
+bribe ("I'd never take your panic money over a proven contract").
+
+**What SCS does** (`DW1MELGE`, from Core Rules with SCS's default setting): its potion rules need a
+visible enemy, so he drinks only after the talk, when he turns hostile:
+- Oil of Speed and Potion of Defense at once;
+- Heroism and Hill Giant Strength once a foe is close;
+- a Potion of Healing below three quarters of his hit points; he never drinks the Extra Healing.
+
+He first finishes off a party member within reach who is down to a fifth of their hit points and
+has no Mirror Image or Stoneskin: mages and thieves before bards, clerics and the rest. Otherwise he
+hits the nearest foe. He runs only while panicked (fear or broken morale).
+
+**The engine:** a fighter of normal wit. He drinks his best buff potion as the fight starts and his
+healing potions by worth (the Extra Healing too), picks targets by worth (focus or spread) and chases
+them.
+
+**For the balance talk:** a level-1 fighter hits armor class 1 only on about 18 or more, one swing
+in six or seven; Sleep does not touch him (level 5; Sleep reaches level 4 at most); with Oil of
+Speed he swings twice a round. These are the original game's numbers; SCS adds only the script and
+the potions.
+
+**Open (suggestions to Christopher, 2026-11-04):**
+- A light preference for the protagonist, as for Tarnesh: he carries the bounty notice.
+- He prepares on sight: a bounty hunter who finds his mark drinks his battle potion before he
+  speaks, visibly. That follows the talk-on-sight rule decided for Tarnesh. In the half of the runs
+  without a battle potion nothing changes.
+- Otherwise simple and close to SCS: a small encounter.
+- Party strength: how strong is the party usually when it first enters the Red Sheaf?
+
+**Lab checks (later):** the parties of Tarnesh's checks plus a level 2 to 3 party, at average hit
+points without double damage, and several runs, since his potions differ from run to run.
