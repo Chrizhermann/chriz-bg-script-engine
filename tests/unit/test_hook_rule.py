@@ -1053,3 +1053,26 @@ def test_talks_on_sight_wait_while_the_engine_prepares_the_creature():
                                 '    NoAction()\nEND\n', 'B-HKTLK') == (None, 0)
     assert hook_rule.patch_talk(source, "b-hk'tlk") == (None, 0)
     assert hook_rule.patch_talk(text('B-HKOWN'), 'B-HKOWN') == (None, 0)
+
+
+def test_a_designed_creatures_own_talk_script_holds_only_its_talk():
+    # Karlat's own copy of the game's INITDLG (bgse/encounters.tpa): no SCS marker, and a block besides the talk (an
+    # attack while neutral turns him hostile). With own=True only the talk block takes the hold, the other stays as
+    # it was, and the engine's block for the designer's extras goes first; without own the script is not SCS's and
+    # stays. A copy patched before, and one without a talk on sight, stay as they are.
+    source = text('B-HKIDL')
+    spans = hook_rule.blocks(source)
+    assert [hook_rule.is_talk(source[a:b]) for a, b in spans] == [False, True]
+    assert hook_rule.patch_talk(source, 'bgsekarl') == (None, 0)
+    patched, count = hook_rule.patch_talk(source, 'BGSEKARL', own=True)
+    assert count == 1
+    extras = hook_rule.talk_extras_block('bgsekarl')
+    assert patched.startswith(extras)
+    rest = patched[len(extras):]
+    first, second = (rest[a:b] for a, b in hook_rule.blocks(rest))
+    assert first == source[spans[0][0]:spans[0][1]]
+    assert second.endswith('  NumTimesTalkedTo(0)\n  !' + hook_rule.talk_guard('', 'bgsekarl') +
+                           '\nTHEN\n  RESPONSE #100\n    Dialog([PC])\nEND\n') or (
+        '  NumTimesTalkedTo(0)\n  !' + hook_rule.talk_guard('', 'bgsekarl') + '\nTHEN\n') in second, second
+    assert hook_rule.patch_talk(patched, 'bgsekarl', own=True) == (None, 0)
+    assert hook_rule.patch_talk(text('B-HKOWN'), 'bgsekarl', own=True) == (None, 0)

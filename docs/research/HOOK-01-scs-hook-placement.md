@@ -376,7 +376,11 @@ Python, and `tests/integration/test_hook_installer.py` checks they agree.
     pass, when the fight's designer adds something for the creature (`talkPrep` in
     `combat-intent/encounters.lua`, from `talkFrom` difficulty: the best buff potion it carries, or our
     own instant copy of a spell it has memorized, with that slot spent), and queues it; a block of its
-    own, so that no later block of SCS's replaces those actions in the same pass.
+    own, so that no later block of SCS's replaces those actions in the same pass. A designed creature
+    whose talk script many creatures share (Karlat's, the game's `INITDLG`) gets its own copy instead
+    (`bgse/encounters.tpa`, `talk = ~INITDLG>BGSEKARL~`): the same rule in its `own` mode
+    (`patch_talk(..., own=True)`, `bgse_talk_bcs` with `bgse_own`) needs no SCS marker and holds only the
+    copy's talk blocks, and the creature's script slot names the copy.
     A scripted encounter whose script does more than talk (SCS's `DW#ICHAR`, Icharyd's storm) is
     designed one by one and stays as it is. Of the scripts with `DMWW_` and no `castspell` (84 in the
     no-SR EET lab, 88 in the SR lab, 52 in the BG2-only lab) only `DW#SHDLG` qualifies, with its two

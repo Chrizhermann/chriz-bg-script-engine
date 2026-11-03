@@ -215,8 +215,14 @@ the potions.
   Karlat is about right ("Ich denke SCS hatte da schon in etwa die richtige Idee").
 - Otherwise simple and close to SCS, as for every small encounter.
 
+**Built (2026-11-04):** from Hard, when he sees the party, Karlat drinks his best battle potion (if the
+draw gave him one), then speaks. His talk script is the game's `INITDLG`, which many creatures share, so he
+gets his own copy (`BGSEKARL`, from `bgse/encounters.tpa`), and only his talk waits. Below Hard he talks at
+once and drinks in the fight, as SCS's Karlat does (every encounter's hard parts start at Hard).
+
 **Lab checks (later):** the parties of Tarnesh's checks plus a level 2 to 3 party, at average hit
-points without double damage, and several runs, since his potions differ from run to run.
+points without double damage, and several runs, since his potions differ from run to run; at Hard, that
+the drink comes before the talk and the talk right after.
 
 ## 4. Neira (Nashkel Inn)
 

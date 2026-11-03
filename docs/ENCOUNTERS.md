@@ -39,10 +39,10 @@ normally.
 | least ability scores | `bgse/encounters.tpa` | `INT_VAR wis = 15` (and `str int dex con cha`) |
 | a spellbook | `bgse/encounters.tpa` | `book = ~priest1=SPPR111,SPPR117 priest2=SPPR201 wizard3=SPWI304~`: those levels' memorized spells become these |
 | items to carry | `bgse/encounters.tpa` | `carries = ~POTN10~` (a free pack slot, unless it carries one) |
+| preparation before a talk whose script many creatures share (the game's `INITDLG`) | `bgse/encounters.tpa`, plus `talkPrep` in `encounters.lua` | `talk = ~INITDLG>BGSEKARL~`: the creature gets its own copy, whose talk waits while it prepares |
 
-Not built yet, each comes with its encounter (plan steps 4 to 6), and gets its row here then: own copies of
-talk scripts (Karlat's `INITDLG`), dialogue lines (Garrick), scripted moments such as Silke's thugs, and new
-creatures (Kestrel).
+Not built yet, each comes with its encounter (plan steps 5 and 6), and gets its row here then: dialogue lines
+(Garrick), scripted moments such as Silke's thugs, and new creatures (Kestrel).
 
 ## Tools
 
@@ -84,3 +84,6 @@ creates the creature, so a playthrough may differ (scout shows the odds).
   variable, and may put a level's spells in another order.
 - `decide` in `adapters/eeex/choice.lua` sits at Lua 5.1's limit of 60 upvalues: put new helpers it calls
   into a table (as `opener` is) instead of adding locals.
+- The installer tests' synthetic game numbers triggers and actions its own way. To check a real script
+  there, copy the lab's IDS files into it first (and drop the compiled fixtures), or the script decompiles
+  into the wrong commands.

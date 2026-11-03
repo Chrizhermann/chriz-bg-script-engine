@@ -775,9 +775,11 @@ END
 // and then fight), each block gets a condition that holds while BGSE_TalkHold says no, with no family: last, first
 // when its triggers end in an OR group that lacks members (bgse_aside). bgse_talks counts them. A scripted
 // encounter whose script does more (SCS's Icharyd and his storm), a script patched before (BGSE_TalkHold in it)
-// and one whose name cannot go into Lua text stay as they are. bgse_baf comes back without carriage returns, as
-// bgse_hook_baf gives it.
+// and one whose name cannot go into Lua text stay as they are. bgse_own 1: a designed creature's own copy of a talk
+// script (bgse/lib/encounter.tpa, such as Karlat's copy of the game's INITDLG): no SCS marker needed, and only its
+// talk blocks get the condition. bgse_baf comes back without carriage returns, as bgse_hook_baf gives it.
 DEFINE_PATCH_FUNCTION bgse_talk_baf
+  INT_VAR bgse_own = 0
   STR_VAR bgse_baf = ~~
           bgse_script = ~~
   RET bgse_talks bgse_baf
@@ -787,7 +789,8 @@ BEGIN
     PATCH_IF (INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~%MNL%~) >= 0) BEGIN
       REPLACE_TEXTUALLY CASE_SENSITIVE EXACT_MATCH ~%MNL%~ ~~
     END
-    PATCH_IF (INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~DMWW_~) >= 0) AND (INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~castspell~) < 0)
+    SET scs = ((INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~DMWW_~) >= 0) AND (INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~castspell~) < 0)) ? 1 : 0
+    PATCH_IF ((scs = 1) OR (bgse_own = 1))
         AND (INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~BGSE_TalkHold~) < 0)
         AND (INDEX (EXACT_MATCH ~'~ ~%bgse_script%~) < 0) AND (INDEX (EXACT_MATCH ~"~ ~%bgse_script%~) < 0)
         AND (INDEX (EXACT_MATCH ~\~ ~%bgse_script%~) < 0) BEGIN
@@ -815,7 +818,7 @@ BEGIN
           SET talking += bgse_talk
         END
       END
-      PATCH_IF (count > 0) AND (talking = count) BEGIN
+      PATCH_IF (talking > 0) AND ((talking = count) OR (bgse_own = 1)) BEGIN
         SET pos = 0
         WHILE (pos >= 0) BEGIN
           SET stop = 0 - 1
@@ -829,9 +832,15 @@ BEGIN
           PATCH_IF (stop < 0) BEGIN
             SET pos = 0 - 1
           END ELSE BEGIN
-            LPF bgse_aside INT_VAR bgse_from = start bgse_to = stop STR_VAR bgse_lines = EVAL ~%talk_line%~ END
-            SET pos = stop + STRING_LENGTH ~%LNL%%talk_line%~
-            SET bgse_talks += 1
+            READ_ASCII start block (stop - start)
+            LPF bgse_talk_block STR_VAR bgse_block = EVAL ~%block%~ RET bgse_talk END
+            PATCH_IF (bgse_talk = 1) BEGIN
+              LPF bgse_aside INT_VAR bgse_from = start bgse_to = stop STR_VAR bgse_lines = EVAL ~%talk_line%~ END
+              SET pos = stop + STRING_LENGTH ~%LNL%%talk_line%~
+              SET bgse_talks += 1
+            END ELSE BEGIN
+              SET pos = stop
+            END
           END
         END
         // Before the first block goes the engine's own, which queues what the fight's designer adds to the
@@ -845,9 +854,10 @@ BEGIN
   END
 END
 
-// SCS's talk on sight in the BCS in the patch buffer (bgse_talk_baf); bgse_script is its resref in lower case. A
-// script that fails to decompile, patch or compile is left exactly as it was (bgse_talks 0).
+// SCS's talk on sight in the BCS in the patch buffer (bgse_talk_baf); bgse_script is its resref in lower case,
+// bgse_own as there. A script that fails to decompile, patch or compile is left exactly as it was (bgse_talks 0).
 DEFINE_PATCH_FUNCTION bgse_talk_bcs
+  INT_VAR bgse_own = 0
   STR_VAR bgse_script = ~~
   RET bgse_talks
 BEGIN
@@ -857,7 +867,8 @@ BEGIN
     INNER_PATCH_SAVE baf ~%bcs%~ BEGIN
       DECOMPILE_BCS_TO_BAF
     END
-    LPF bgse_talk_baf STR_VAR bgse_baf = EVAL ~%baf%~ bgse_script = EVAL ~%bgse_script%~ RET bgse_talks bgse_baf END
+    LPF bgse_talk_baf INT_VAR bgse_own = bgse_own STR_VAR bgse_baf = EVAL ~%baf%~ bgse_script = EVAL ~%bgse_script%~
+      RET bgse_talks bgse_baf END
     PATCH_IF (bgse_talks > 0) BEGIN
       DELETE_BYTES 0 BUFFER_LENGTH
       INSERT_BYTES 0 (STRING_LENGTH ~%bgse_baf%~)

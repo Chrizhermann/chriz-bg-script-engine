@@ -103,6 +103,7 @@ TRIGGER = """IDS V1.0
 0x4016 HPLT(O:Object*,I:Hit Points*)
 0x4017 NumTimesTalkedTo(I:Num*)
 0x4018 NumTimesTalkedToGT(I:Num*)
+0x4019 AttackedBy(O:Object*,I:Style*AStyles)
 0x4089 OR(I:OrCount*)
 """
 ACTION = """IDS V1.0
@@ -149,7 +150,8 @@ ACTION = """IDS V1.0
 IDS = {
     'OBJECT': ('IDS V1.0\n0 Nothing\n1 Myself\n12 NearestEnemyOf\n18 LastSeenBy\n20 LastHeardBy\n21 Player1\n22 Player2\n'
                '40 NearestDoor\n'),
-    'EA': 'IDS V1.0\n0 ANYONE\n2 PC\n30 GOODCUTOFF\n255 ENEMY\n',
+    'EA': 'IDS V1.0\n0 ANYONE\n2 PC\n30 GOODCUTOFF\n128 NEUTRAL\n255 ENEMY\n',
+    'ASTYLES': 'IDS V1.0\n0 DEFAULT\n',
     'GENERAL': 'IDS V1.0\n0 ANYONE\n',
     'RACE': 'IDS V1.0\n0 ANYONE\n',
     'CLASS': 'IDS V1.0\n0 ANYONE\n',
@@ -800,5 +802,42 @@ def test_a_designed_creature_gets_its_scores_book_and_items(tmp_path: Path, vari
             assert installed[name] == before[name] or not name.endswith(('.spl', '.itm')), name
     _install(tmp_path, '--force-uninstall-list', '0', '--force-install-list', '0')
     assert _snapshot(tmp_path) == installed
+    _install(tmp_path, '--force-uninstall-list', '0')
+    assert _snapshot(tmp_path) == before
+
+
+@pytest.mark.parametrize('variant', ['plain', 'elsewhere', 'taken'])
+def test_a_designed_creature_gets_its_own_talk_script(tmp_path: Path, variant: str) -> None:
+    # Karlat's entry (bgse/encounters.tpa): his own copy of the game's INITDLG, BGSEKARL, whose talk waits while the
+    # engine prepares him as tools/hook_rule.py patches it (own=True); his slot names the copy, and INITDLG and every
+    # other creature that uses it stay as they were. 'elsewhere': a Karlat another mod gave other scripts keeps them
+    # and no copy is made. 'taken': another mod has a BGSEKARL already, which stays, and Karlat keeps INITDLG.
+    _fake_game(tmp_path)
+    compiled = next(p for p in (tmp_path / 'override').iterdir() if p.name.lower() == 'b-hkidl.bcs').read_bytes()
+    (tmp_path / 'override/INITDLG.BCS').write_bytes(compiled)
+    if variant == 'taken':
+        (tmp_path / 'override/BGSEKARL.BCS').write_bytes(compiled)
+    scripts = ['DW#OTHER', '', '', '', 'DW1MELGE'] if variant == 'elsewhere' else ['INITDLG', '', '', '', 'DW1MELGE']
+    (tmp_path / 'override/KARLAT.CRE').write_bytes(_cre(scripts, []))
+    (tmp_path / 'override/B-HKTALK.CRE').write_bytes(_cre(['INITDLG', '', '', '', ''], []))
+    before = _snapshot(tmp_path)
+    source = _decompile(tmp_path, ['INITDLG'])['INITDLG']
+    output = _install(tmp_path, '--force-install-list', '0')
+    assert 'SUCCESSFULLY INSTALLED' in output, output
+    installed = _snapshot(tmp_path)
+    assert installed['override/initdlg.bcs'] == before['override/initdlg.bcs']
+    assert installed['override/b-hktalk.cre'] == before['override/b-hktalk.cre']
+    karlat, old = installed['override/karlat.cre'], before['override/karlat.cre']
+    if variant == 'plain':
+        assert 'BGSE encounter: 1 designed creatures changed.' in output, output
+        assert karlat[0x248:0x250] == b'BGSEKARL' and karlat[:0x248] + karlat[0x250:] == old[:0x248] + old[0x250:]
+        assert _decompile(tmp_path, ['BGSEKARL'])['BGSEKARL'] == hook_rule.patch_talk(source, 'BGSEKARL', own=True)[0]
+    else:
+        message = ('karlat.cre has no script INITDLG, its talk stays as it is' if variant == 'elsewhere'
+                   else 'karlat.cre keeps INITDLG: another mod has BGSEKARL.bcs')
+        assert f'BGSE encounter: {message}' in output, output
+        assert 'BGSE encounter: 0 designed creatures changed.' in output, output
+        assert karlat == old
+        assert installed.get('override/bgsekarl.bcs') == before.get('override/bgsekarl.bcs')
     _install(tmp_path, '--force-uninstall-list', '0')
     assert _snapshot(tmp_path) == before

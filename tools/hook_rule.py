@@ -851,7 +851,7 @@ def is_talk(block):
     return bool(UNTALKED.search(trig) and SEES_PARTY.search(trig) and TALK_START.search(resp))
 
 
-def patch_talk(text, script):
+def patch_talk(text, script, own=False):
     """Return (patched text or None, number of talk blocks) for SCS's talk-on-sight script: SCS's DMWW_ marker, no
     castspell round timer, and every block a talk on sight (is_talk). SCS gives it to the creatures that speak to the
     party on sight and then fight (dw#shdlg); Christopher, 2026-11-03: such a creature prepares when it sees the party,
@@ -859,14 +859,17 @@ def patch_talk(text, script):
     triggers end in an OR group that lacks members (aside); before the first goes the engine's block that queues what
     the fight's designer adds (talk_extras_block). A scripted encounter whose script does more (SCS's Icharyd and his
     storm) is designed one by one and stays as it is; so do a script patched before (BGSE_TalkHold in it) and one
-    whose name cannot go into Lua text."""
+    whose name cannot go into Lua text. own: a designed creature's own copy of a talk script (bgse/encounters.tpa,
+    such as Karlat's copy of the game's INITDLG): no SCS marker needed, and only its talk blocks get the condition."""
     text = text.replace('\r', '')
     script = script.lower()
-    if 'DMWW_' not in text or 'castspell' in text or 'BGSE_TalkHold' in text or any(c in script for c in '\'"\\'):
+    if 'BGSE_TalkHold' in text or any(c in script for c in '\'"\\'):
+        return None, 0
+    if not own and ('DMWW_' not in text or 'castspell' in text):
         return None, 0
     spans = blocks(text)
     talks = [i for i, (a, b) in enumerate(spans) if is_talk(text[a:b])]
-    if not talks or len(talks) != len(spans):
+    if not talks or (not own and len(talks) != len(spans)):
         return None, 0
     for i in reversed(talks):
         a, b = spans[i]

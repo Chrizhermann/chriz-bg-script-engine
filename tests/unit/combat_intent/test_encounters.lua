@@ -67,6 +67,9 @@ assert(neira.opener[1]=='POTN10' and neira.opener[2].watch>0 and neira.opener[3]
 local mine=encounters.orders().NEIRA
 mine.opener[1]='POTN11';mine.talkPrep[1].cast='X'
 assert(neira.opener[1]=='POTN10' and neira.talkPrep[1].cast=='SPPR201')
+-- Karlat (sheet 3): from Hard his best buff potion before he speaks.
+local karlat=encounters.ORDERS.KARLAT
+assert(#karlat.talkPrep==1 and karlat.talkPrep[1]=='buff-potion' and karlat.talkFrom==4 and karlat.opener==nil)
 groups=groups+1
 
 return groups

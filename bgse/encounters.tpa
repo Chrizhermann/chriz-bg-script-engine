@@ -3,6 +3,14 @@
 // docs/research/BOSS-01-bg1-early-encounters.md; the engine's side of it is combat-intent/encounters.lua.
 // Each entry adds what it changed to bgse_designed.
 
+// 3. Karlat, Red Sheaf, Beregost (Christopher, 2026-11-04): his own copy of the game's talk script INITDLG,
+// which many creatures share, so that only his talk waits while he drinks his battle potion before he speaks.
+LAF bgse_encounter
+  STR_VAR cre = ~karlat~
+          talk = ~INITDLG>BGSEKARL~
+  RET bgse_changed END
+OUTER_SET bgse_designed += bgse_changed
+
 // 4. Neira, Nashkel Inn (Christopher, 2026-11-04): WIS 15, which gives her five, four and one priest
 // spells at level 5; her book (Remove Fear goes, no Draw Upon Holy Might); a Potion of Invisibility for her
 // opener.

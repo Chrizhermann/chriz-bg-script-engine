@@ -7,11 +7,16 @@
 // - book: the memorized spells of each spell level it names, as ~priest1=SPPR111,SPPR117 priest2=SPPR201~
 //   (priest or wizard, and the spell level): those of that level go and these come, each as often as it
 //   is named and known once; other levels, kinds and the innate abilities stay;
-// - carries: items it gets in a free pack slot unless it carries one already, as ~POTN10~.
+// - carries: items it gets in a free pack slot unless it carries one already, as ~POTN10~;
+// - talk: its own copy of a talk script many creatures share, as ~INITDLG>BGSEKARL~ (the script in its
+//   slots, and the copy's name): the copy's talk on sight waits while the engine prepares the creature
+//   (bgse/lib/hook.tpa: bgse_talk_bcs), as SCS's talk-on-sight scripts do, and the creature's slot names the
+//   copy, so no other creature's talk changes.
 // A spell this game lacks, or whose file says another kind or level than its place in the book, and an
 // item this game lacks, are left out with a warning; the rest of the entry still applies, and a book level
-// none of whose spells this game has stays as it is. A creature file that is missing or no CRE V1.0 file is
-// left out. bgse_changed is 1 when the creature changed.
+// none of whose spells this game has stays as it is. So does a talk the creature's slots do not name, a copy
+// name another mod has taken, and a script without a talk on sight. A creature file that is missing or no
+// CRE V1.0 file is left out. bgse_changed is 1 when the creature changed.
 DEFINE_ACTION_FUNCTION bgse_encounter
   INT_VAR str = 0
           int = 0
@@ -22,6 +27,7 @@ DEFINE_ACTION_FUNCTION bgse_encounter
   STR_VAR cre = ~~
           book = ~~
           carries = ~~
+          talk = ~~
   RET bgse_changed
 BEGIN
   OUTER_SET bgse_changed = 0
@@ -36,7 +42,8 @@ BEGIN
         LPF bgse_encounter_least INT_VAR str = str int = int wis = wis dex = dex con = con cha = cha RET bgse_raised END
         LPF bgse_encounter_book STR_VAR cre = EVAL ~%cre%~ book = EVAL ~%book%~ RET bgse_booked END
         LPF bgse_encounter_carries STR_VAR cre = EVAL ~%cre%~ carries = EVAL ~%carries%~ RET bgse_given END
-        SET bgse_changed = (bgse_raised + bgse_booked + bgse_given > 0) ? 1 : 0
+        LPF bgse_encounter_talk STR_VAR cre = EVAL ~%cre%~ talk = EVAL ~%talk%~ RET bgse_talked END
+        SET bgse_changed = (bgse_raised + bgse_booked + bgse_given + bgse_talked > 0) ? 1 : 0
       END ELSE BEGIN
         PATCH_PRINT ~BGSE encounter: %cre%.cre is no CRE V1.0 file, left as it is~
       END
@@ -236,6 +243,71 @@ BEGIN
     END
   END ELSE BEGIN
     PATCH_PRINT ~BGSE encounter: %cre%.cre keeps its %kind% level %level% spells: this game has none of the book's~
+  END
+END
+
+// The talk of bgse_encounter (talk, ~SOURCE>COPY~): the copy of SOURCE, its talk on sight held as SCS's are,
+// named COPY in the first of the creature's script slots that names SOURCE. bgse_talked is 1 when the slot
+// changed.
+DEFINE_PATCH_FUNCTION bgse_encounter_talk
+  STR_VAR cre = ~~
+          talk = ~~
+  RET bgse_talked
+BEGIN
+  SET bgse_talked = 0
+  PATCH_IF (STRING_LENGTH ~%talk%~ > 0) BEGIN
+    TEXT_SPRINT source ~~
+    TEXT_SPRINT copy ~~
+    INNER_PATCH ~%talk%~ BEGIN
+      REPLACE_EVALUATE CASE_INSENSITIVE ~^\([A-Za-z0-9_#-]+\)>\([A-Za-z0-9_#-]+\)$~ BEGIN
+        TEXT_SPRINT source ~%MATCH1%~
+        TEXT_SPRINT copy ~%MATCH2%~
+      END ~%MATCH0%~
+    END
+    TO_UPPER source
+    TO_UPPER copy
+    SET slot = 0 - 1
+    FOR (o = 0x248; o < 0x270; o += 8) BEGIN
+      READ_ASCII o script (8) NULL
+      PATCH_IF (slot < 0) AND (STRING_LENGTH ~%source%~ > 0) AND (~%script%~ STRING_EQUAL_CASE ~%source%~) BEGIN
+        SET slot = o
+      END
+    END
+    SET has_source = 0
+    SET has_copy = 0
+    PATCH_IF (STRING_LENGTH ~%source%~ > 0) AND (STRING_LENGTH ~%source%~ <= 8) AND (STRING_LENGTH ~%copy%~ > 0)
+        AND (STRING_LENGTH ~%copy%~ <= 8) BEGIN
+      PATCH_IF (FILE_EXISTS_IN_GAME ~%source%.bcs~) BEGIN
+        SET has_source = 1
+      END
+      PATCH_IF (FILE_EXISTS_IN_GAME ~%copy%.bcs~) BEGIN
+        SET has_copy = 1
+      END
+    END
+    PATCH_IF (STRING_LENGTH ~%source%~ = 0) OR (STRING_LENGTH ~%source%~ > 8) OR (STRING_LENGTH ~%copy%~ > 8) BEGIN
+      PATCH_PRINT ~BGSE encounter: %cre%.cre: "%talk%" names no script and copy, its talk stays as it is~
+    END ELSE PATCH_IF (slot < 0) BEGIN
+      PATCH_PRINT ~BGSE encounter: %cre%.cre has no script %source%, its talk stays as it is~
+    END ELSE PATCH_IF (has_source = 0) BEGIN
+      PATCH_PRINT ~BGSE encounter: %cre%.cre keeps %source%: this game lacks %source%.bcs~
+    END ELSE PATCH_IF (has_copy = 1) BEGIN
+      PATCH_PRINT ~BGSE encounter: %cre%.cre keeps %source%: another mod has %copy%.bcs~
+    END ELSE BEGIN
+      TEXT_SPRINT name ~%copy%~
+      TO_LOWER name
+      SET bgse_talks = 0
+      INNER_ACTION BEGIN
+        COPY_EXISTING ~%source%.bcs~ ~override/%copy%.bcs~
+          LPF bgse_talk_bcs INT_VAR bgse_own = 1 STR_VAR bgse_script = EVAL ~%name%~ RET bgse_talks END
+        BUT_ONLY_IF_IT_CHANGES
+      END
+      PATCH_IF (bgse_talks > 0) BEGIN
+        WRITE_ASCIIE slot ~%copy%~ #8
+        SET bgse_talked = 1
+      END ELSE BEGIN
+        PATCH_PRINT ~BGSE encounter: %cre%.cre keeps %source%: it has no talk on sight~
+      END
+    END
   END
 END
 

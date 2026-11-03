@@ -77,6 +77,11 @@ Python/WeiDU agreement check on both labs.
   - To check in the lab: the order around the talk, the potion right after it, that the watch feels
     right (4 seconds, to tune with Christopher), and how often she drinks the potion on Core, where she
     has no opener and drinks it only when it is worth it, as any creature would.
+- Step 4, Karlat (2026-11-04): from Hard he drinks his best buff potion before he speaks (`talkPrep`
+  `'buff-potion'`). His talk script, the game's `INITDLG`, is shared by many creatures, so the encounter
+  entry gives him his own copy (`talk = ~INITDLG>BGSEKARL~`) whose talk alone waits; the talk rule's `own`
+  mode holds only the talk blocks of such a copy (HOOK-01, rule 13). Checked on his real lab files with
+  the lab's IDS: the copy agrees with the Python rule, and uninstall restores him.
 - Encounter tooling (2026-11-04, Christopher: build each encounter faster than the last): the guide
   [docs/ENCOUNTERS.md](../ENCOUNTERS.md) with a checklist, where each decision goes and the pitfalls so far,
   and `tools/scout.py`, which shows everything about a creature in one command.
