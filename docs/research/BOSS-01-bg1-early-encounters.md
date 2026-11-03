@@ -346,14 +346,23 @@ worth, chasing foes who step away.
 **Earlier idea (Christopher, 2026-10-29):** Greywolf is alone; perhaps give him an archer, priest or
 mage companion.
 
-**Open (suggestions to Christopher, 2026-11-04), scaled by difficulty:**
-- A bow for Greywolf himself, so that his arrows matter: with a long bow (and a bow proficiency) he
-  shoots Ice and Fire arrows at casters from range and switches to his two swords in melee; at
-  normal wit he steps back to shoot now and then. It uses only arrows he already carries.
-- The companion from Hard, Core stays the lone Greywolf of SCS's strength: which kind, archer, priest
-  or mage?
-- He is already a hard fight for a chapter-2 party (level 7, 66 hit points, two trained swords;
-  Sleep does not touch him), so Core needs no more than the engine's play.
+**Decided (Christopher, 2026-11-04):**
+- Greywolf himself stays as SCS has him, a swordsman with two blades ("das Konzept von Grey Wolf
+  insgesamt mit dem, was SCS macht, auch ganz geil"); no bow for him. His potions: "Im Trank geben
+  finde ich nicht schlecht", read as: the engine may drink all of them (to confirm).
+- He gets a companion, an archer, which suits a mercenary who does simple jobs like bounty hunting.
+- The companion's strength follows the difficulty: very weak on Core and below, clearly stronger
+  above Core.
+
+**Suggested for the companion (to tune in the lab):**
+- Core and below: a young hired archer, level 2 to 3, short bow and plain arrows, few hit points;
+  above Core: a seasoned archer, level 5 to 6, long bow and Greywolf's own special arrows (Ice,
+  Fire, Piercing +1), which then explain why he carries arrows without a bow.
+- Arrives with him in the cutscene, keeps back, turns hostile when he does and leaves when he
+  leaves (standing aside, charmed Greywolf).
+- In the fight Greywolf ties up the front while the archer shoots the casters; the engine's archer
+  play (bow or sword by worth, stepping back by wit) does the rest.
+- A name and perhaps a line of their own, written with Christopher.
 
 **Lab checks (later):** a level 2 to 4 party at Core and at Insane, several runs for his potions; the
 three choices of the talk.
