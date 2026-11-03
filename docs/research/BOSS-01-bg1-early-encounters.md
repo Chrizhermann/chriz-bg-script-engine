@@ -304,8 +304,21 @@ level temporary hit points (at most 1d8 + 10), lasting a turn per level.
   Blight, or as a variant if her spellbook is drawn per run; later ideas: Chant or Prayer, a
   Sanctuary trick (slip away, drink, come back; needs engine work).
 
+**Built (2026-11-04):**
+- Her creature, from `bgse/encounters.tpa`: WIS 15, the book above and a Potion of Invisibility (`POTN10`)
+  in her pack; everything else of hers stays as other mods left it.
+- From Hard she casts her own Aid and Protection From Good at once when she sees the party, spending
+  them, before she speaks. Her own spells and not copies, so the party sees her prepare. SCS's own
+  preparation adds Armor of Faith and the hammer.
+- After the talk, from Hard, her opener: the potion, a watch of 4 seconds from invisibility, then Doom or
+  Hold Person, whichever is worth more, then Hold Person. Each step is checked like any decision; a step
+  not worth it is passed over.
+- Below Hard she has the same book and the potion, but no preparation before the talk and no opener: she
+  casts by worth and drinks the potion only when it is worth it, as any creature would.
+
 **Lab checks (later):** as for Karlat, at Core Rules and at Hard and Insane (her preparation starts at
-Hard), several runs for her potion.
+Hard), several runs for her potion. In particular, the order of talk and preparation, the potion right
+after the talk, whether 4 seconds of watching feels right, and how often she drinks the potion on Core.
 
 ## 5. Greywolf (Prism's quest, Nashkel Mines)
 

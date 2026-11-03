@@ -1,0 +1,300 @@
+// Designed encounters (docs/research/BOSS-01-bg1-early-encounters.md: Christopher designs each fight,
+// SCS is the blueprint, credit DavidW): what a fight's design changes in its creatures, one entry each in
+// bgse/encounters.tpa. The engine's side of the same design is combat-intent/encounters.lua.
+//
+// bgse_encounter changes one creature file (cre, without .cre), and only what its entry names:
+// - least ability scores (str, int, wis, dex, con, cha): raised to at least these, never lowered;
+// - book: the memorized spells of each spell level it names, as ~priest1=SPPR111,SPPR117 priest2=SPPR201~
+//   (priest or wizard, and the spell level): those of that level go and these come, each as often as it
+//   is named and known once; other levels, kinds and the innate abilities stay;
+// - carries: items it gets in a free pack slot unless it carries one already, as ~POTN10~.
+// A spell this game lacks, or whose file says another kind or level than its place in the book, and an
+// item this game lacks, are left out with a warning; the rest of the entry still applies, and a book level
+// none of whose spells this game has stays as it is. A creature file that is missing or no CRE V1.0 file is
+// left out. bgse_changed is 1 when the creature changed.
+DEFINE_ACTION_FUNCTION bgse_encounter
+  INT_VAR str = 0
+          int = 0
+          wis = 0
+          dex = 0
+          con = 0
+          cha = 0
+  STR_VAR cre = ~~
+          book = ~~
+          carries = ~~
+  RET bgse_changed
+BEGIN
+  OUTER_SET bgse_changed = 0
+  ACTION_IF (STRING_LENGTH ~%cre%~ > 0) AND (FILE_EXISTS_IN_GAME ~%cre%.cre~) BEGIN
+    COPY_EXISTING ~%cre%.cre~ ~override~
+      SET bgse_changed = 0
+      TEXT_SPRINT signature ~~
+      PATCH_IF (BUFFER_LENGTH >= 0x2d4) BEGIN
+        READ_ASCII 0 signature (8)
+      END
+      PATCH_IF (~%signature%~ STRING_EQUAL ~CRE V1.0~) BEGIN
+        LPF bgse_encounter_least INT_VAR str = str int = int wis = wis dex = dex con = con cha = cha RET bgse_raised END
+        LPF bgse_encounter_book STR_VAR cre = EVAL ~%cre%~ book = EVAL ~%book%~ RET bgse_booked END
+        LPF bgse_encounter_carries STR_VAR cre = EVAL ~%cre%~ carries = EVAL ~%carries%~ RET bgse_given END
+        SET bgse_changed = (bgse_raised + bgse_booked + bgse_given > 0) ? 1 : 0
+      END ELSE BEGIN
+        PATCH_PRINT ~BGSE encounter: %cre%.cre is no CRE V1.0 file, left as it is~
+      END
+    BUT_ONLY_IF_IT_CHANGES
+  END ELSE BEGIN
+    PRINT ~BGSE encounter: %cre%.cre is not in this game, left out~
+  END
+END
+
+// The least ability scores of bgse_encounter: each score below its least is raised to it. bgse_raised
+// counts the scores raised.
+DEFINE_PATCH_FUNCTION bgse_encounter_least
+  INT_VAR str = 0
+          int = 0
+          wis = 0
+          dex = 0
+          con = 0
+          cha = 0
+  RET bgse_raised
+BEGIN
+  SET bgse_raised = 0
+  // 0x239 is the exceptional strength, which no least score names.
+  FOR (o = 0x238; o <= 0x23e; o += 1) BEGIN
+    SET least = 0
+    PATCH_IF (o = 0x238) BEGIN SET least = str END
+    PATCH_IF (o = 0x23a) BEGIN SET least = int END
+    PATCH_IF (o = 0x23b) BEGIN SET least = wis END
+    PATCH_IF (o = 0x23c) BEGIN SET least = dex END
+    PATCH_IF (o = 0x23d) BEGIN SET least = con END
+    PATCH_IF (o = 0x23e) BEGIN SET least = cha END
+    PATCH_IF (least > 0) AND (least <= 25) AND (BYTE_AT o < least) BEGIN
+      WRITE_BYTE o least
+      SET bgse_raised += 1
+    END
+  END
+END
+
+// The book of bgse_encounter, level by level. bgse_booked counts the levels whose memorized spells changed.
+DEFINE_PATCH_FUNCTION bgse_encounter_book
+  STR_VAR cre = ~~
+          book = ~~
+  RET bgse_booked
+BEGIN
+  SET bgse_booked = 0
+  TEXT_SPRINT levels ~~
+  INNER_PATCH ~%book%~ BEGIN
+    REPLACE_EVALUATE CASE_INSENSITIVE ~\(priest\|wizard\)\([1-9]\)=\([A-Za-z0-9_#,-]+\)~ BEGIN
+      TEXT_SPRINT kind ~%MATCH1%~
+      TO_LOWER kind
+      TEXT_SPRINT levels ~%levels%%kind%:%MATCH2%:%MATCH3%|~
+    END ~%MATCH0%~
+  END
+  SET pos = 0
+  WHILE (pos < STRING_LENGTH ~%levels%~) BEGIN
+    INNER_PATCH ~%levels%~ BEGIN
+      SET to = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~|~ pos)
+      READ_ASCII pos entry (to - pos)
+    END
+    SET pos = to + 1
+    INNER_PATCH ~%entry%~ BEGIN
+      REPLACE_EVALUATE CASE_SENSITIVE ~^\([a-z]+\):\([1-9]\):\(.*\)$~ BEGIN
+        TEXT_SPRINT kind ~%MATCH1%~
+        SET level = MATCH2
+        TEXT_SPRINT list ~%MATCH3%,~
+      END ~%MATCH0%~
+    END
+    LPF bgse_encounter_level INT_VAR level = level STR_VAR cre = EVAL ~%cre%~ kind = EVAL ~%kind%~ list = EVAL ~%list%~
+      RET bgse_changed_level END
+    SET bgse_booked += bgse_changed_level
+  END
+END
+
+// One level of a book (bgse_encounter_book): kind priest or wizard, the spell level, and list, its spells
+// each followed by a comma. bgse_changed_level is 1 when that level's memorized spells changed.
+DEFINE_PATCH_FUNCTION bgse_encounter_level
+  INT_VAR level = 1
+  STR_VAR cre = ~~
+          kind = ~priest~
+          list = ~~
+  RET bgse_changed_level
+BEGIN
+  SET bgse_changed_level = 0
+  SET type = (~%kind%~ STRING_EQUAL ~wizard~) ? 1 : 0
+  SET file_type = (type = 1) ? 1 : 2
+  SET row = level - 1
+  // The spells this game has, of the right kind and level, in the book's order.
+  TEXT_SPRINT wanted ~|~
+  SET pos = 0
+  WHILE (pos < STRING_LENGTH ~%list%~) BEGIN
+    INNER_PATCH ~%list%~ BEGIN
+      SET to = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~,~ pos)
+      READ_ASCII pos spell (to - pos)
+    END
+    SET pos = to + 1
+    TO_UPPER spell
+    SET fits = 0
+    SET spell_type = 0 - 1
+    SET spell_level = 0 - 1
+    PATCH_IF (STRING_LENGTH ~%spell%~ > 0) AND (STRING_LENGTH ~%spell%~ <= 8) BEGIN
+      PATCH_IF (FILE_EXISTS_IN_GAME ~%spell%.spl~) BEGIN
+        INNER_PATCH_FILE ~%spell%.spl~ BEGIN
+          PATCH_IF (BUFFER_LENGTH >= 0x72) BEGIN
+            READ_ASCII 0 signature (8)
+            PATCH_IF (~%signature%~ STRING_EQUAL ~SPL V1  ~) BEGIN
+              READ_SHORT 0x1c spell_type
+              READ_LONG 0x34 spell_level
+            END
+          END
+        END
+        SET fits = ((spell_type = file_type) AND (spell_level = level)) ? 1 : 0
+      END
+    END
+    PATCH_IF (fits = 1) BEGIN
+      TEXT_SPRINT wanted ~%wanted%%spell%|~
+    END ELSE PATCH_IF (STRING_LENGTH ~%spell%~ > 0) BEGIN
+      PATCH_PRINT ~BGSE encounter: %cre%.cre leaves out %spell% (%kind% level %level%): this game lacks it, or its file says another kind or level~
+    END
+  END
+  PATCH_IF (STRING_LENGTH ~%wanted%~ > 1) BEGIN
+    // What the level holds now: its memorized spells, each once.
+    TEXT_SPRINT had ~|~
+    TEXT_SPRINT had_all ~|~
+    READ_LONG 0x2a8 info
+    READ_LONG 0x2ac info_count
+    READ_LONG 0x2b0 at
+    READ_LONG 0x2b4 count
+    FOR (i = 0; i < info_count; i += 1) BEGIN
+      PATCH_IF (info + 16 * i + 16 <= BUFFER_LENGTH) BEGIN
+        READ_SHORT (info + 16 * i) row_level
+        READ_SHORT (info + 16 * i + 6) row_type
+        READ_LONG (info + 16 * i + 8) first
+        READ_LONG (info + 16 * i + 12) many
+        PATCH_IF (row_level = level - 1) AND (row_type = type) BEGIN
+          FOR (j = first; (j < first + many) AND (j < count); j += 1) BEGIN
+            PATCH_IF (at + 12 * j + 12 <= BUFFER_LENGTH) BEGIN
+              READ_ASCII (at + 12 * j) spell (8) NULL
+              TO_UPPER spell
+              TEXT_SPRINT had_all ~%had_all%%spell%|~
+              PATCH_IF (STRING_LENGTH ~%spell%~ > 0) AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%spell%|~ ~%had%~) < 0) BEGIN
+                TEXT_SPRINT had ~%had%%spell%|~
+              END
+            END
+          END
+        END
+      END
+    END
+    PATCH_IF NOT (~%had_all%~ STRING_EQUAL ~%wanted%~) BEGIN
+      READ_ASCII 0 cre_bytes (BUFFER_LENGTH)
+      PATCH_TRY
+        // The level's spells go; those the book leaves out are forgotten too.
+        SET p = 1
+        WHILE (p < STRING_LENGTH ~%had%~) BEGIN
+          INNER_PATCH ~%had%~ BEGIN
+            SET to = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~|~ p)
+            READ_ASCII p spell (to - p)
+          END
+          SET p = to + 1
+          REMOVE_MEMORIZED_SPELL ~%spell%~
+          PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%spell%|~ ~%wanted%~) < 0) BEGIN
+            REMOVE_KNOWN_SPELL ~%spell%~
+          END
+        END
+        // The book's spells come, each known once.
+        SET p = 1
+        WHILE (p < STRING_LENGTH ~%wanted%~) BEGIN
+          INNER_PATCH ~%wanted%~ BEGIN
+            SET to = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~|~ p)
+            READ_ASCII p spell (to - p)
+          END
+          SET p = to + 1
+          SET known = 0
+          READ_LONG 0x2a0 known_at
+          READ_LONG 0x2a4 known_count
+          FOR (k = 0; k < known_count; k += 1) BEGIN
+            PATCH_IF (known_at + 12 * k + 12 <= BUFFER_LENGTH) BEGIN
+              READ_ASCII (known_at + 12 * k) name (8) NULL
+              READ_SHORT (known_at + 12 * k + 8) known_level
+              READ_SHORT (known_at + 12 * k + 10) known_type
+              PATCH_IF (~%name%~ STRING_EQUAL_CASE ~%spell%~) AND (known_level = level - 1) AND (known_type = type) BEGIN
+                SET known = 1
+              END
+            END
+          END
+          PATCH_IF (known = 0) BEGIN
+            ADD_KNOWN_SPELL ~%spell%~ (row) ~%kind%~
+          END
+          ADD_MEMORIZED_SPELL ~%spell%~ (row) ~%kind%~ (1)
+        END
+        SET bgse_changed_level = 1
+      WITH DEFAULT
+        SET bgse_changed_level = 0
+        DELETE_BYTES 0 BUFFER_LENGTH
+        INSERT_BYTES 0 (STRING_LENGTH ~%cre_bytes%~)
+        WRITE_ASCIIE 0 ~%cre_bytes%~
+        PATCH_PRINT ~BGSE encounter: %cre%.cre keeps its %kind% level %level% spells (WeiDU could not change them)~
+      END
+    END
+  END ELSE BEGIN
+    PATCH_PRINT ~BGSE encounter: %cre%.cre keeps its %kind% level %level% spells: this game has none of the book's~
+  END
+END
+
+// The items of bgse_encounter: each it does not carry yet, in a free pack slot. bgse_given counts them.
+DEFINE_PATCH_FUNCTION bgse_encounter_carries
+  STR_VAR cre = ~~
+          carries = ~~
+  RET bgse_given
+BEGIN
+  SET bgse_given = 0
+  TEXT_SPRINT items ~~
+  INNER_PATCH ~%carries%~ BEGIN
+    REPLACE_EVALUATE CASE_INSENSITIVE ~[A-Za-z0-9_#-]+~ BEGIN
+      TEXT_SPRINT items ~%items%%MATCH0%|~
+    END ~%MATCH0%~
+  END
+  SET pos = 0
+  WHILE (pos < STRING_LENGTH ~%items%~) BEGIN
+    INNER_PATCH ~%items%~ BEGIN
+      SET to = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~|~ pos)
+      READ_ASCII pos item (to - pos)
+    END
+    SET pos = to + 1
+    TO_UPPER item
+    SET carried = 0
+    READ_LONG 0x2bc item_at
+    READ_LONG 0x2c0 item_count
+    FOR (i = 0; i < item_count; i += 1) BEGIN
+      PATCH_IF (item_at + 20 * i + 20 <= BUFFER_LENGTH) BEGIN
+        READ_ASCII (item_at + 20 * i) name (8) NULL
+        PATCH_IF (~%name%~ STRING_EQUAL_CASE ~%item%~) BEGIN
+          SET carried = 1
+        END
+      END
+    END
+    // A free pack slot: the slot words of the inventory, 21 to 36, empty.
+    SET free = 0
+    READ_LONG 0x2b8 slots
+    FOR (s = 21; s <= 36; s += 1) BEGIN
+      PATCH_IF (slots + 2 * s + 2 <= BUFFER_LENGTH) BEGIN
+        READ_SHORT (slots + 2 * s) word
+        PATCH_IF (word = 0xffff) OR (word = 0 - 1) BEGIN
+          SET free = 1
+        END
+      END
+    END
+    SET exists = 0
+    PATCH_IF (STRING_LENGTH ~%item%~ <= 8) BEGIN
+      PATCH_IF (FILE_EXISTS_IN_GAME ~%item%.itm~) BEGIN
+        SET exists = 1
+      END
+    END
+    PATCH_IF (exists = 0) BEGIN
+      PATCH_PRINT ~BGSE encounter: %cre%.cre does not get %item%: this game lacks it~
+    END ELSE PATCH_IF (carried = 0) AND (free = 0) BEGIN
+      PATCH_PRINT ~BGSE encounter: %cre%.cre does not get %item%: its pack is full~
+    END ELSE PATCH_IF (carried = 0) BEGIN
+      ADD_CRE_ITEM ~%item%~ #0 #0 #0 ~NONE~ ~INV1 INV2 INV3 INV4 INV5 INV6 INV7 INV8 INV9 INV10 INV11 INV12 INV13 INV14 INV15 INV16~
+      SET bgse_given += 1
+    END
+  END
+END

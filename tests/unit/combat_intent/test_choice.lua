@@ -1019,4 +1019,58 @@ do
 end
 groups=groups+1
 
+-- 27. The designer's opener (orders.opener; Christopher, 2026-11-04, for Neira: "das muss alles nicht
+-- komplett starr sein"): the first step left with a choice worth making comes before the ranking,
+-- marked with its number, the steps before it passed over; of a list the best counts; a watch only
+-- while the caster is invisible; after the last step, or while the casting aura runs, the ranking as
+-- before. The checks.
+do
+    local function opened(opener,next,fields)
+        local i=enemies(input({spells={row('TESTBOLT',bolt,3),row('TESTHOLD',hold,2)}}),{enemy(11),enemy(12,{x=140})})
+        i.opener={steps=opener,next=next or 1}
+        for k,v in pairs(fields or {}) do i.frame.self[k]=v end
+        return choice.decide(i)
+    end
+    local plain=choice.decide(enemies(input({spells={row('TESTBOLT',bolt,3),row('TESTHOLD',hold,2)}}),
+        {enemy(11),enemy(12,{x=140})}))
+    local d,why=opened({'TESTHOLD'})
+    assert(d.resref=='TESTHOLD' and why=='opener-step' and d.openerStep==1)
+    -- A step it cannot take (nothing of it in its book) is passed over for the next.
+    d,why=opened({'TESTGONE','TESTBOLT'})
+    assert(d.resref=='TESTBOLT' and why=='opener-step' and d.openerStep==2)
+    -- Of a list, the best by worth; from the step it takes next on.
+    local options
+    d,why,options=opened({{'TESTHOLD','TESTBOLT'}})
+    local top
+    for _,o in ipairs(options) do if o.score>0 and (not top or o.score>top.score) then top=o end end
+    assert(d.openerStep==1 and d==top)
+    d=opened({'TESTHOLD','TESTBOLT'},2)
+    assert(d.resref=='TESTBOLT' and d.openerStep==2)
+    -- A watch while the caster is invisible: a wait of its seconds; seen, it is passed over.
+    d,why=opened({{watch=4},'TESTBOLT'},1,{state=0x10})
+    assert(d.kind=='wait' and why=='opener-watch' and d.seconds==4 and d.openerStep==1)
+    d,why=opened({{watch=4},'TESTBOLT'})
+    assert(d.resref=='TESTBOLT' and d.openerStep==2)
+    -- After the last step, or with nothing worth it, the ranking as before; the aura still waits.
+    d,why=opened({'TESTHOLD'},2)
+    assert(why~='opener-step' and d.openerStep==nil and d.resref==plain.resref and d.target==plain.target)
+    d,why=opened({'TESTGONE'})
+    assert(why~='opener-step' and d.resref==plain.resref)
+    -- A step whose choices are worth less than they cost (spell slots priced a hundredfold) is no step
+    -- to take either.
+    local dear=enemies(input({spells={row('TESTHOLD',hold,2)},slots=100}),{enemy(11),enemy(12,{x=140})})
+    dear.opener={steps={'TESTHOLD'},next=1}
+    d,why=choice.decide(dear)
+    assert(why~='opener-step' and (d==nil or d.openerStep==nil))
+    d,why=opened({'TESTHOLD'},1,{aura=60})
+    assert(why=='aura' and d.openerStep==nil)
+    -- The checks.
+    assert(orders.check({opener={'POTN10',{watch=4},{'SPPR113','SPPR208'},'SPPR208'},openerFrom=4}))
+    assert(select(2,orders.check({opener={}}))=='opener' and select(2,orders.check({opener='SPPR113'}))=='opener')
+    assert(select(2,orders.check({opener={{watch=0}}}))=='opener' and select(2,orders.check({opener={{watch=13}}}))=='opener')
+    assert(select(2,orders.check({opener={{watch=4,cast='X'}}}))=='opener' and select(2,orders.check({opener={'TOOLONGNAME'}}))=='opener')
+    assert(select(2,orders.check({opener={{}}}))=='opener' and select(2,orders.check({opener={'SPPR113'},openerFrom=6}))=='openerFrom')
+end
+groups=groups+1
+
 return groups

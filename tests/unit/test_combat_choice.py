@@ -16,9 +16,9 @@ def run(backend, name):
 
 @pytest.mark.parametrize('backend', ['lua51', 'luajit21'])
 def test_choice(backend):
-    assert run(backend, 'tests/unit/combat_intent/test_choice.lua') == 26
+    assert run(backend, 'tests/unit/combat_intent/test_choice.lua') == 27
 
 
 @pytest.mark.parametrize('backend', ['lua51', 'luajit21'])
 def test_eeex_choice(backend):
-    assert run(backend, 'tests/unit/kernel/test_eeex_choice.lua') == 50
+    assert run(backend, 'tests/unit/kernel/test_eeex_choice.lua') == 51

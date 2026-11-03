@@ -658,3 +658,147 @@ def test_without_eeex_nothing_is_installed(tmp_path: Path, missing: str) -> None
     output = _install(tmp_path, '--force-install-list', '0')
     assert 'SKIPPING' in output, output
     assert _snapshot(tmp_path) == before
+
+
+# Neira as the no-SR lab has her (BOSS-01): priest spells by spell level, an innate ability and a wizard
+# spell another mod might give her, and her items with their slot words (2 shield, 9 weapon 1, 18 quick
+# item 1, 21 the first pack slot).
+NEIRA_BOOK = {(0, 1): ['SPPR111', 'SPPR108', 'SPPR101'], (0, 2): ['SPPR211', 'SPPR208', 'SPPR213'],
+              (0, 3): ['SPPR314'], (1, 1): ['SPWI112'], (2, 1): ['SPIN101']}
+NEIRA_ITEMS = [('SHLD03A', 2), ('BLUN01', 9), ('SCRLNEI', 18), ('DW#RND02', 21)]
+# The book bgse/encounters.tpa gives her (Christopher, 2026-11-04).
+DESIGNED = {(0, 1): ['SPPR111', 'SPPR117', 'SPPR113', 'SPPR102', 'SPPR101'],
+            (0, 2): ['SPPR201', 'SPPR208', 'SPPR211', 'SPPR213'], (0, 3): ['SPPR314']}
+PRIEST_LEVELS = {'SPPR101': 1, 'SPPR102': 1, 'SPPR108': 1, 'SPPR111': 1, 'SPPR113': 1, 'SPPR117': 1, 'SPPR201': 2,
+                 'SPPR208': 2, 'SPPR211': 2, 'SPPR213': 2, 'SPPR314': 3}
+
+
+def _book_cre(book, wis=14, items=()) -> bytes:
+    """A level-5 cleric with these memorized spells by (type, spell level) (type 0 priest, 1 wizard, 2
+    innate), each known once, WIS wis, these items (resref, slot word) and the memorization rows a real
+    creature has, five slots in each of its first three priest levels; no effects."""
+    head = bytearray(0x2D4)
+    head[:8] = b'CRE V1.0'
+    struct.pack_into('<II', head, 0x08, 0xFFFFFFFF, 0xFFFFFFFF)
+    head[0x238:0x23F] = bytes([12, 0, 14, wis, 16, 10, 13])
+    head[0x234], head[0x273] = 5, 3
+    head[0x248:0x250] = b'DW#SHDLG'
+    rows = [(level, 0) for level in range(7)] + [(level, 1) for level in range(9)] + [(0, 2)]
+    known, info, memorized, index = b'', b'', b'', 0
+    for level, kind in rows:
+        spells = book.get((kind, level + 1), [])
+        for spell in dict.fromkeys(spells):
+            known += spell.encode('ascii').ljust(8, b'\0') + struct.pack('<HH', level, kind)
+        memorized += b''.join(s.encode('ascii').ljust(8, b'\0') + struct.pack('<I', 1) for s in spells)
+        slots = 5 if kind == 0 and level < 3 else len(spells)
+        info += struct.pack('<HHHHII', level, slots, slots, kind, index, len(spells))
+        index += len(spells)
+    words = [0xFFFF] * 38 + [0, 0]
+    records = b''
+    for i, (item, slot) in enumerate(items):
+        records += item.encode('ascii').ljust(8, b'\0') + struct.pack('<HHHHI', 0, 0, 0, 0, 0)
+        words[slot] = i
+    slots = struct.pack('<40H', *words)
+    at = 0x2D4
+    struct.pack_into('<II', head, 0x2A0, at, len(known) // 12)
+    struct.pack_into('<II', head, 0x2A8, at + len(known), len(rows))
+    struct.pack_into('<II', head, 0x2B0, at + len(known) + len(info), len(memorized) // 12)
+    end = at + len(known) + len(info) + len(memorized)
+    struct.pack_into('<III', head, 0x2B8, end, end + len(slots), len(items))
+    struct.pack_into('<II', head, 0x2C4, end + len(slots) + len(records), 0)
+    return bytes(head) + known + info + memorized + slots + records
+
+
+def _book_of(data: bytes):
+    """A creature's memorized spells by (type, spell level), and its known spells (resref, level, type)."""
+    info, rows = struct.unpack_from('<II', data, 0x2A8)
+    at, _ = struct.unpack_from('<II', data, 0x2B0)
+    book = {}
+    for i in range(rows):
+        level, _, _, kind, first, many = struct.unpack_from('<HHHHII', data, info + 16 * i)
+        if many:
+            book[(kind, level + 1)] = [data[at + 12 * j:at + 12 * j + 8].rstrip(b'\0').decode('ascii').upper()
+                                       for j in range(first, first + many)]
+    known_at, known_count = struct.unpack_from('<II', data, 0x2A0)
+    known = [(data[known_at + 12 * i:known_at + 12 * i + 8].rstrip(b'\0').decode('ascii').upper(),
+              *struct.unpack_from('<HH', data, known_at + 12 * i + 8)) for i in range(known_count)]
+    return book, known
+
+
+def _items_of(data: bytes):
+    """A creature's items by slot word."""
+    slot_at, item_at, count = struct.unpack_from('<III', data, 0x2B8)
+    words = struct.unpack_from('<40H', data, slot_at)
+    items = [data[item_at + 20 * i:item_at + 20 * i + 8].rstrip(b'\0').decode('ascii').upper() for i in range(count)]
+    return {slot: items[word] for slot, word in enumerate(words[:38]) if word < count}
+
+
+@pytest.mark.parametrize('variant', ['plain', 'strong', 'odd', 'absent'])
+def test_a_designed_creature_gets_its_scores_book_and_items(tmp_path: Path, variant: str) -> None:
+    # Neira's entry (bgse/encounters.tpa): WIS at least 15, her priest levels 1 to 3 as the book says,
+    # other spells and items as they were, and a Potion of Invisibility in a free pack slot. 'strong': a
+    # wiser Neira who carries the potion already keeps her WIS and gets no second. 'odd': a game without
+    # Protection From Good, whose Doom is a second-level spell, without Unholy Blight, and a full pack:
+    # those are left out with a warning, her third level stays, the rest still comes. 'absent': no Neira.
+    _fake_game(tmp_path)
+    levels = dict(PRIEST_LEVELS)
+    if variant == 'odd':
+        del levels['SPPR117'], levels['SPPR314']
+        levels['SPPR113'] = 2
+    for spell, level in levels.items():
+        data = bytearray(_spl(2))
+        struct.pack_into('<I', data, 0x34, level)
+        (tmp_path / f'override/{spell}.SPL').write_bytes(bytes(data))
+    (tmp_path / 'override/POTN10.ITM').write_bytes(b'ITM V1  ' + bytes(0x72 - 8))
+    items = list(NEIRA_ITEMS)
+    if variant == 'strong':
+        items.append(('POTN10', 23))
+    if variant == 'odd':
+        items += [(f'MISC{slot:02d}', slot) for slot in range(22, 37)]
+    if variant != 'absent':
+        (tmp_path / 'override/NEIRA.CRE').write_bytes(_book_cre(NEIRA_BOOK, 17 if variant == 'strong' else 14, items))
+    before = _snapshot(tmp_path)
+    output = _install(tmp_path, '--force-install-list', '0')
+    assert 'SUCCESSFULLY INSTALLED' in output, output
+    installed = _snapshot(tmp_path)
+    if variant == 'absent':
+        assert 'BGSE encounter: neira.cre is not in this game, left out' in output, output
+        assert 'BGSE encounter: 0 designed creatures changed.' in output, output
+        assert 'override/neira.cre' not in installed
+    else:
+        assert 'BGSE encounter: 1 designed creatures changed.' in output, output
+        new = installed['override/neira.cre']
+        assert new[0x23B] == (17 if variant == 'strong' else 15)
+        assert new[0x238:0x23B] == before['override/neira.cre'][0x238:0x23B]
+        assert new[0x23C:0x23F] == before['override/neira.cre'][0x23C:0x23F]
+        book, known = _book_of(new)
+        wanted = {key: list(spells) for key, spells in DESIGNED.items()}
+        if variant == 'odd':
+            wanted[(0, 1)] = ['SPPR111', 'SPPR102', 'SPPR101']
+            wanted[(0, 3)] = ['SPPR314']
+            for spell in ('SPPR117', 'SPPR113', 'SPPR314'):
+                assert f'leaves out {spell}' in output, (spell, output)
+            assert 'keeps its priest level 3 spells' in output, output
+        # Each level holds its spells as often as named; WeiDU may put them in any order.
+        assert {key: Counter(spells) for key, spells in book.items()} == {
+            key: Counter(spells) for key, spells in {**wanted, (1, 1): ['SPWI112'], (2, 1): ['SPIN101']}.items()}, book
+        expected_known = Counter((spell, level - 1, kind) for (kind, level), spells in book.items()
+                                 for spell in dict.fromkeys(spells))
+        assert Counter(known) == expected_known, known
+        have = _items_of(new)
+        for item, slot in items:
+            assert have[slot] == item, (slot, have)
+        added = {slot: item for slot, item in have.items() if slot not in dict((s, i) for i, s in items)}
+        if variant == 'plain':
+            assert added == {22: 'POTN10'}, added
+        else:
+            assert added == {}, added
+            if variant == 'odd':
+                assert 'does not get POTN10: its pack is full' in output, output
+    for name in before:
+        if name != 'override/neira.cre' and not name.endswith('.bcs') and name in installed:
+            assert installed[name] == before[name] or not name.endswith(('.spl', '.itm')), name
+    _install(tmp_path, '--force-uninstall-list', '0', '--force-install-list', '0')
+    assert _snapshot(tmp_path) == installed
+    _install(tmp_path, '--force-uninstall-list', '0')
+    assert _snapshot(tmp_path) == before

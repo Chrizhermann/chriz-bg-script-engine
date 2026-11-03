@@ -41,12 +41,24 @@
 -- 'none' as a clever, a normal and a dull creature judge them.
 --
 -- talkPrep says what a talk-on-sight creature adds to its preparation before it speaks
--- (combat-intent/talk.lua), from the game's difficulty talkFrom (1 to 5, default 1) up: an instant
--- copy of a spell it has ready, {cast=copy, spend=spell}, which spends that spell; or 'buff-potion',
--- its best potion that strengthens or protects it.
+-- (combat-intent/talk.lua), from the game's difficulty talkFrom (1 to 5, default 1) up: a spell it has
+-- ready, cast at once, {cast=spell or a copy of it, spend=spell}, which spends that spell; or
+-- 'buff-potion', its best potion that strengthens or protects it.
+--
+-- opener says how the creature opens its fight, from the game's difficulty openerFrom (1 to 5, default
+-- 1) up (Christopher, 2026-11-04, for Neira: "das muss alles nicht komplett starr sein"): steps in
+-- order, each a spell or item (its file), a list of them (the best counts), or {watch=seconds}, a
+-- moment's wait while the creature is invisible. At each decision the first step left with a choice
+-- worth making (allowed, and worth more than it costs) is taken, and the steps before it are passed
+-- over; a step not worth making now waits. The adapter keeps which step comes next (input.opener), for
+-- at most openerSeconds from the creature's first decision in sight of an enemy.
 local targeting=require('combat-intent.targeting')
 local M={}
 M.bonus=1
+-- How long an opener holds, in seconds from the creature's first decision with an enemy in sight, and
+-- the longest watch it may hold.
+M.openerSeconds=30
+M.watchLimit=12
 -- The decisions an order to always attack an enemy keeps to it: attacks, touch charges, strikes,
 -- weapon attacks, jumps into the fight (teleport) and protection removal. Defences, heals, cures,
 -- summons, openers, ways out of a zone and waits stay free.
@@ -67,6 +79,18 @@ local function extra(v)
     return resref(v.cast) and resref(v.spend)
 end
 local function level(v) return number(v) and v>=1 and v<=5 and v==math.floor(v) end
+-- One step of an opener: a spell or item, a list of them, or {watch=seconds}.
+local function step(v)
+    if resref(v) then return true end
+    if type(v)~='table' then return false end
+    if v.watch~=nil then
+        for k in pairs(v) do if k~='watch' then return false end end
+        return number(v.watch) and v.watch>0 and v.watch<=M.watchLimit
+    end
+    if #v==0 then return false end
+    for i,s in pairs(v) do if type(i)~='number' or not resref(s) then return false end end
+    return true
+end
 
 -- Whether o is a creature's orders as the adapter takes them, else false and the bad field.
 function M.check(o)
@@ -95,7 +119,10 @@ function M.check(o)
         elseif k=='talkPrep' then
             if type(v)~='table' or #v==0 then return false,k end
             for i,e in pairs(v) do if type(i)~='number' or not extra(e) then return false,k end end
-        elseif k=='talkFrom' then
+        elseif k=='opener' then
+            if type(v)~='table' or #v==0 then return false,k end
+            for i,s in pairs(v) do if type(i)~='number' or not step(s) then return false,k end end
+        elseif k=='talkFrom' or k=='openerFrom' then
             if not level(v) then return false,k end
         else return false,tostring(k) end
     end
@@ -179,5 +206,33 @@ function M.keep(input,options,swings)
     end
     local a,b=left(options),left(swings)
     return a,b,cut
+end
+
+local UNSEEN=targeting.STATE.invisible+targeting.STATE.improvedInvisible
+-- The step of the creature's opener to take now (input.opener: {steps, next, the number of the step
+-- left first}): {option=the best of options a spell or item step offers that is worth more than it
+-- costs, step=its number}, or {watch=seconds, step=its number} while the creature is invisible
+-- (input.frame.self.state); the first step from next on that offers one. Nil when none does.
+function M.openerStep(input,options)
+    local o=type(input)=='table' and input.opener or nil
+    if type(o)~='table' or type(o.steps)~='table' then return nil end
+    local self=type(input.frame)=='table' and type(input.frame.self)=='table' and input.frame.self or nil
+    local hidden=self~=nil and targeting.has(self.state,UNSEEN)
+    for k=number(o.next) and math.max(1,math.floor(o.next)) or 1,#o.steps do
+        local s=o.steps[k]
+        if type(s)=='table' and s.watch~=nil then
+            if hidden and number(s.watch) and s.watch>0 then return {watch=s.watch,step=k} end
+        else
+            local names={}
+            for _,r in ipairs(type(s)=='table' and s or {s}) do if type(r)=='string' then names[r:upper()]=true end end
+            local best
+            for _,c in ipairs(type(options)=='table' and options or {}) do
+                if type(c)=='table' and type(c.resref)=='string' and names[c.resref:upper()] and number(c.score) and
+                    c.score>0 and (not best or c.score>best.score) then best=c end
+            end
+            if best then return {option=best,step=k} end
+        end
+    end
+    return nil
 end
 return M

@@ -15,18 +15,23 @@ M.ORDERS={
     TARNES={target='protagonist',bonus=M.LIGHT},
     -- Karlat, Red Sheaf, Beregost: carries the bounty notice on the protagonist (2026-11-04).
     KARLAT={target='protagonist',bonus=M.LIGHT},
-    -- Neira, Nashkel Inn: carries the later bounty notice on the protagonist (2026-11-04).
-    NEIRA={target='protagonist',bonus=M.LIGHT},
+    -- Neira, Nashkel Inn: carries the later bounty notice on the protagonist (2026-11-04). From Hard
+    -- she prepares in sight before she speaks: her own Aid and Protection From Good, cast at once and
+    -- spent (SCS's own preparation adds Armor of Faith and her hammer). After the talk she opens like a
+    -- priestess of Mask: a Potion of Invisibility, a moment's watch from invisibility, then Doom or Hold
+    -- Person, and Hold Person after Doom; worth decides each step ("das muss alles nicht komplett starr
+    -- sein"). Her book, WIS 15 and the potion come from the installer (bgse/encounters.tpa).
+    NEIRA={target='protagonist',bonus=M.LIGHT,
+        talkPrep={{cast='SPPR201',spend='SPPR201'},{cast='SPPR117',spend='SPPR117'}},talkFrom=4,
+        opener={'POTN10',{watch=4},{'SPPR113','SPPR208'},'SPPR208'},openerFrom=4},
 }
 
--- A copy of the orders, so that whoever takes them cannot change this book.
-function M.orders()
-    local copy={}
-    for resref,o in pairs(M.ORDERS) do
-        local c={}
-        for k,v in pairs(o) do c[k]=v end
-        copy[resref]=c
-    end
-    return copy
+local function copy(v)
+    if type(v)~='table' then return v end
+    local c={}
+    for k,x in pairs(v) do c[k]=copy(x) end
+    return c
 end
+-- A copy of the orders, so that whoever takes them cannot change this book.
+function M.orders() return copy(M.ORDERS) end
 return M

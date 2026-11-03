@@ -161,6 +161,15 @@ Built for Agreed point 1 (`combat-intent/orders.lua`, `combat-intent/choice.lua`
   strikes, weapon attacks) stays on it while one of them reaches it; defences, heals, cures,
   summons and ways out of a zone stay free, and with the enemy out of sight or reach everything is
   open again. The choice row logs `ordered`. Other decisions get their orders as they are built.
+- **Openers** (2026-11-04, for Neira; Christopher: "das muss alles nicht komplett starr sein"):
+  `opener` gives a creature a first sequence for its fight, from the difficulty `openerFrom` up: steps
+  in order, each a spell or item, a list of them (the best by worth counts) or `{watch=seconds}`. At each
+  decision the first step left with a choice worth more than it costs comes before the ranking, and the
+  steps before it are passed over; a watch is a wait of its seconds and counts only while the creature
+  is invisible. A step is behind the creature once its cast or drink starts, so a cast cut short before
+  it starts is tried again. The opener ends after its last step or 30 seconds after the creature's first
+  decision with an enemy in sight (`orders.openerSeconds`), and a load starts it anew. The choice row
+  logs `openerStep` and `how` `opener-step` or `opener-watch`; an `opener` row says when a step was taken.
 - **Interrupting.** Damage that lands while an enemy casts breaks its spell, and the spell slot
   stays spent (ACT-03, batch H5). Each enemy in a cast that damage can break (Spell, SpellPoint
   and their NoDec forms; forced casts cannot be broken) carries its spell, read at the enemy's

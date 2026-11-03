@@ -519,7 +519,9 @@ function M.new(g,options)
     local kept,keptCount={},0
     -- Each talk-on-sight creature's preparation before its talk (combat-intent/talk.lua), by object id.
     local talks,talkCount={},0
-    local counts={talkHolds=0,talkExtras=0,preps=0,prepHolds=0,kept=0,cut=0,waits=0,marked=0,escapes=0,escaped=0,unescaped=0,zoneFailures=0,stayed=0,left=0,pains=0,witFailures=0,decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
+    -- Each creature's opener in its fight (orders.opener): the step it takes next and the tick it began.
+    local openings,openingCount={},0
+    local counts={openerSteps=0,talkHolds=0,talkExtras=0,preps=0,prepHolds=0,kept=0,cut=0,waits=0,marked=0,escapes=0,escaped=0,unescaped=0,zoneFailures=0,stayed=0,left=0,pains=0,witFailures=0,decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
         hits=0,misses=0,errors=0,holds=0,frozen=0,marks=0,markFailures=0,defences=0,guarded=0,unguarded=0,
         guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0,arms=0,attacks=0,attackHits=0,
         weaponFailures=0,releases=0,heals=0,cures=0,potions=0,cared=0,uncared=0,summons=0,conjured=0,
@@ -921,6 +923,14 @@ function M.new(g,options)
         if stop~=nil and caster~=stop then resumed=tick end
         if caster~=stop then stopCasts={} end
         stop=caster
+    end
+    -- The running Time Stop in the input of creature id's decision: who holds it and its seconds left
+    -- (input.timeStop), and what the creature started in its own (input.stopCasts).
+    local function stopView(input,id)
+        local holder,left=timeStop()
+        if holder==nil then return end
+        input.timeStop={caster=holder,left=left}
+        if holder==id then input.stopCasts=stopCasts[id] or {} end
     end
     local function frozen(id)
         if stop==nil or id==stop then return false end
@@ -1712,6 +1722,32 @@ function M.new(g,options)
             clue=d.clue,target=d.target,gaveUp=d.gaveUp,guard=d.guard}
     end
 
+    -- The designer's openers (orders.opener), in one table so that decide stays within Lua's limit of
+    -- upvalues. opener.of: the opener of creature id with orders own at tick, for the choice: its steps
+    -- and the one it takes next, from orders.openerFrom's difficulty up, for orders.openerSeconds from
+    -- its first ask here; nil once that is over, all its steps are taken, or without one.
+    local opener={}
+    function opener.of(id,own,tick)
+        if type(own)~='table' or type(own.opener)~='table' then return nil end
+        if type(own.openerFrom)=='number' and (difficulty() or 0)<own.openerFrom then return nil end
+        local st=openings[id]
+        if not st then
+            if openingCount>=M.cacheLimit then openings,openingCount={},0 end
+            st={next=1,since=tick};openings[id]=st;openingCount=openingCount+1
+        end
+        if tick-st.since>orders.openerSeconds*M.ticksPerSecond or st.next>#own.opener then return nil end
+        return {steps=own.opener,next=st.next}
+    end
+    -- Creature id took step k of its opener at tick (its cast or drink started, or its watch began): an
+    -- 'opener' row, and the steps up to k are behind it.
+    function opener.took(id,k,tick,spell)
+        local st=openings[id]
+        if not st or type(k)~='number' or k<st.next then return end
+        st.next=k+1
+        counts.openerSteps=counts.openerSteps+1
+        record({kind='opener',tick=tick,member=id,step=k,spell=spell})
+    end
+
     local function decide(view,family)
         if not enabled or missing then return decline(missing and 'missing' or 'off') end
         if not families[family] then return decline('family') end
@@ -1838,12 +1874,12 @@ function M.new(g,options)
         local plan=director and director:plan(id,tick) or {}
         local fight=situate(sprite,frame,rows,tick,returning,plan)
         counts.decisions=counts.decisions+1
-        local holder,left=timeStop()
         local input={tick=tick,family=family,frame=frame,spells=rows,items=carried,lastDefence=lastDefence[id],
             plan=plan,memory=memory[id] or {},mind=mindFor(sprite,family),rng=rng,
             creatures=summoned(rows),orders=orderBook[text(sprite.m_resref:get())],
             teleports=search.teleports(rows),jumped=seeker:jumped(id),kited=kited[id],tables=(sense.tables(g)),
             returning=returning,fight=fight}
+        if not unseen then input.opener=opener.of(id,input.orders,tick) end
         lore(input)
         -- The zones in the area, with what they weigh about the caster itself.
         local raw=zoneList(sprite,tick)
@@ -1855,10 +1891,7 @@ function M.new(g,options)
         end
         rage(sprite,frame.self)
         input.pained=pain(sprite,frame,input.zones or {},input.mind,tick)
-        if holder~=nil then
-            input.timeStop={caster=holder,left=left}
-            if holder==id then input.stopCasts=stopCasts[id] or {} end
-        end
+        stopView(input,id)
         -- The share of a spell slot's cost that counts now, kept for the log.
         input.slots=choice.slotShare(input)
         local d,why,options,rejected=choice.decide(input)
@@ -1877,6 +1910,7 @@ function M.new(g,options)
         -- A wait is held until it is over (above). A 'wait' row logs a new one: why, its seconds and
         -- the best of what it waits for; one that goes on with the last for the same reason logs none.
         if d.kind=='wait' then
+            if d.openerStep then opener.took(id,d.openerStep,tick,d.resref) end
             local again=w~=nil and w.why==why
             waits[id]={tick=tick,ends=tick+math.max(1,math.ceil(d.seconds*M.ticksPerSecond)),why=why}
             if not again then
@@ -1934,7 +1968,7 @@ function M.new(g,options)
             inZones=zoneView(input,d),lasting=d.lasting,wit=input.mind.wit,walk=d.walk,interrupt=d.interrupt,
             ordered=d.ordered,slot=d.slot,backstab=d.backstab,opening=d.opening,ready=d.ready,
             calm=d.ready and d.calm or nil,fight=fight and {#fight.allies+1,#fight.enemies} or nil,
-            insight=d.insight,at=d.at})
+            insight=d.insight,at=d.at,openerStep=d.openerStep})
         -- A disable claims its targets in the group at once, so that another member deciding
         -- before this cast starts leaves them alone, and a debuff the enemies it weakens for its
         -- spell; any other decision gives earlier claims back.
@@ -1988,7 +2022,7 @@ function M.new(g,options)
             walk=d.walk,melee=d.kind=='teleport' and d.melee or nil,innate=d.kind=='teleport' and d.innate or nil,
             slot=d.kind=='weapon' and d.slot or nil,abilityNum=d.kind=='weapon' and d.abilityNum or nil,
             backstab=d.kind=='weapon' and d.backstab or nil,at=d.kind=='removal' and d.at or nil,
-            lands=d.kind=='removal' and d.lands or nil}
+            lands=d.kind=='removal' and d.lands or nil,openerStep=d.openerStep}
     end
     -- From the gate, each time a hooked script asks: nil (the creature's script has the round),
     -- {hold=true,own=true} while the engine's queued cast has not started or its own action runs,
@@ -2128,7 +2162,7 @@ function M.new(g,options)
                 target=decision.target,point=decision.point,hits=decision.hits,tick=tick,hp=hp,
                 castTicks=decision.castTicks,sources=decision.sources,expected=decision.expected,before=decision.before,
                 count=decision.count,creatures=decision.creatures,monsters=decision.monsters,known=known,walk=decision.walk,
-                at=decision.at,lands=decision.lands}
+                at=decision.at,lands=decision.lands,openerStep=decision.openerStep}
         end
         counts.performed=counts.performed+1
         round(object,tick,decision.cover)
@@ -2195,6 +2229,7 @@ function M.new(g,options)
             end
             record({kind='start',tick=tick,member=id,spell=p.resref,target=p.target,point=p.point,
                 waited=tick-p.tick})
+            if p.openerStep then opener.took(id,p.openerStep,tick,p.resref) end
             return {spell=p.resref,role=p.kind,target=p.target,hits=p.hits}
         end
     end
@@ -2353,8 +2388,9 @@ function M.new(g,options)
     end
     -- Talk on sight, the designer's extras (orders.talkPrep, combat-intent/encounters.lua): the actions
     -- that carry out what the creature adds before it speaks, one a line, once the game's difficulty is
-    -- orders.talkFrom or more. A cast: the instant copy (cast) of a spell it has ready (spend), and the
-    -- spell spent; 'buff-potion': the first potion it carries that strengthens or protects itself.
+    -- orders.talkFrom or more. A cast: the spell cast (the spell itself, or a copy of it) of a spell it has
+    -- ready (spend), and the spell spent, while the spell cast is in this game; 'buff-potion': the first
+    -- potion it carries that strengthens or protects itself.
     local function extrasFor(sprite)
         local own=orderBook[text(sprite.m_resref:get())]
         if type(own)~='table' or type(own.talkPrep)~='table' then return {} end
@@ -2375,7 +2411,7 @@ function M.new(g,options)
                     if found then break end
                 end
                 if found then out[#out+1]=('UseItem("%s",Myself)'):format(found) end
-            elseif type(e)=='table' then
+            elseif type(e)=='table' and reader.get('SPL',e.cast:upper()) then
                 for _,row in ipairs(type(rows)=='table' and rows or {}) do
                     if row.resref==e.spend:upper() and type(row.ready)=='number' and row.ready>0 then
                         out[#out+1]=('ReallyForceSpellRES("%s",Myself)'):format(e.cast:upper())
@@ -2526,6 +2562,7 @@ function M.new(g,options)
         prepHeld,prepHeldCount={},0
         kept,keptCount={},0
         talks,talkCount={},0
+        openings,openingCount={},0
         outside,outsideCount={},0
         seeker:invalidate()
         hider:invalidate()

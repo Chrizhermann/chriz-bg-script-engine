@@ -1898,6 +1898,14 @@ local function pick(input)
         if swung>0 then return swing,'weapon',all() end
         return M.wait(aura-M.auraLead),'aura',all(),rejected
     end
+    -- The fight's designer's opener (orders.opener): its step to take now comes before the ranking,
+    -- marked with its number for the adapter.
+    local opening=orders.openerStep(input,options)
+    if opening then
+        local d=opening.option or M.wait(opening.watch)
+        d.openerStep=opening.step
+        return d,opening.option and 'opener-step' or 'opener-watch',all()
+    end
     if #options==0 then
         if swinging then return swing,'weapon',all() end
         return M.wait(M.idle),'no-option',options,rejected
@@ -1953,7 +1961,8 @@ end
 -- fight, step away from melee enemies ('kite'), walk into position for the next cast ('position'),
 -- way out of a zone or wait to do now, and why
 -- ('aura', 'no-option' or 'nothing-good' for a wait; 'jump' for a jump taken over the attack it
--- brings sooner; 'drink' for a buff potion drunk before the attack), or nil and why for bad input; the options come along for the log, and with a wait for want of options the
+-- brings sooner; 'drink' for a buff potion drunk before the attack; 'opener-step' and 'opener-watch'
+-- for a step of the designer's opener, the decision marked openerStep), or nil and why for bad input; the options come along for the log, and with a wait for want of options the
 -- count of reasons the ready spells gave none. Leaving costs no spell, only the seconds of the
 -- walk: it comes first when it is worth more than that share of a round of the choice, or when the
 -- pain drives a dull creature out (forced). Spell slots cost input.slots of their price,

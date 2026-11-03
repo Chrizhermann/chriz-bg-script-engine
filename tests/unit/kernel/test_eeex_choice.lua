@@ -4046,13 +4046,15 @@ groups=groups+1
 -- 50. Talk on sight, the designer's extras (orders.talkPrep): from orders.talkFrom's difficulty up, the
 -- talk keeps waiting after SCS's pass (its switch back) until the engine's block fired once
 -- (BGSE_TalkExtras) and its response queued the instant copy of a spell the creature has ready, with that
--- spell spent, and its buff potion (BGSE_TalkAct); then while the creature is busy. With nothing it can
--- carry out, or below that difficulty, the talk goes after SCS's pass.
+-- spell spent, and its buff potion (BGSE_TalkAct); then while the creature is busy. A copy this game
+-- lacks is left out. With nothing it can carry out, or below that difficulty, the talk goes after SCS's
+-- pass.
 ;(function()
 local w=world()
 w.EngineGlobals.g_pBaldurChitin.m_pObjectGame.m_options={m_nDifficultyLevel=5}
 local d=directors.new(w,{reader=reader})
-local orders={TEST7={talkPrep={{cast='TESTCOPY',spend='TESTBOLT'},'buff-potion'},talkFrom=4},
+records.TESTCOPY=spl('TESTCOPY',3,{fx(12,{p2=8*65536,dice=6,sides=6})})
+local orders={TEST7={talkPrep={{cast='TESTGONE',spend='TESTBOLT'},{cast='TESTCOPY',spend='TESTBOLT'},'buff-potion'},talkFrom=4},
     TEST8={talkPrep={{cast='TESTCOPY',spend='TESTBALL'}}}}
 local c=choices.new(w,{reader=reader,director=d,seed=94,orders=orders})
 local list={}
@@ -4093,6 +4095,81 @@ c:invalidate()
 assert(w.BGSE_TalkHold(t,'','dw#shdlg')==true and talks()[#talks()].extras==false)
 assert(w.BGSE_TalkHold(t,'','dw#shdlg')==false)
 assert(c:inspect().counts.errors==0)
+end)()
+groups=groups+1
+
+-- 51. The designer's opener (orders.opener): from orders.openerFrom's difficulty up the creature takes
+-- the first step worth making, the steps before it passed over; a step is behind it once its cast
+-- starts (an 'opener' row), a watch at once. After the last step, after orders.openerSeconds from the
+-- first decision, or below that difficulty, the engine ranks as before; a load starts the opener anew.
+;(function()
+local orders=require('combat-intent.orders')
+local w=world()
+w.EngineGlobals.g_pBaldurChitin.m_pObjectGame.m_options={m_nDifficultyLevel=4}
+local d=directors.new(w,{reader=reader})
+local steps={'TESTGONE','TESTBALL','TESTBOLT'}
+local c=choices.new(w,{reader=reader,director=d,seed=95,orders={TEST1={opener=steps,openerFrom=4},
+    TEST2={opener=steps,openerFrom=4},TEST3={opener={{watch=4},'TESTBOLT'},openerFrom=4}}})
+local list={}
+c:setSink(function(row) list[#list+1]=row end)
+runtime.install(w,{director=d,choice=c,version='test'})
+local function last(kind) for i=#list,1,-1 do if list[i].kind==kind then return list[i] end end end
+local function caster(id)
+    local s=w.add(sprite(id,0,id*10,255))
+    learn(s,2,'TESTBOLT',2);learn(s,2,'TESTBALL',1)
+    return s
+end
+local m=caster(1)
+w.add(sprite(11,100,0,2));w.add(sprite(12,140,0,2))
+w.ticks=100
+assert(w.BGSE_Claim(m,'mage','s1')==true)
+local ch=last('choice')
+assert(ch.spell=='TESTBALL' and ch.openerStep==2 and ch.how=='opener-step')
+-- Queued is not taken: the step counts when the cast starts.
+w.BGSE_Act(m)
+assert(last('opener')==nil)
+w.ticks=101
+w.listeners.started[1](m,action(31,'TESTBALL',-1))
+local o=last('opener')
+assert(o.step==2 and o.spell=='TESTBALL' and o.member==1 and c:inspect().counts.openerSteps==1)
+-- Once the cast is over and its aura free, the third step.
+m.m_curAction={m_actionID=0};m.castTimer=100
+w.ticks=200
+assert(w.BGSE_Claim(m,'mage','s1')==true)
+ch=last('choice')
+assert(ch.spell=='TESTBOLT' and ch.openerStep==3 and ch.tick==200)
+w.BGSE_Act(m)
+w.ticks=201
+w.listeners.started[1](m,action(31,'TESTBOLT',-1))
+assert(last('opener').step==3 and c:inspect().counts.openerSteps==2)
+-- All steps taken: the ranking as before.
+m.m_curAction={m_actionID=0};m.castTimer=100
+w.ticks=300
+assert(w.BGSE_Claim(m,'mage','s1')==true and last('choice').tick==300 and last('choice').openerStep==nil)
+-- Past openerSeconds from its first decision the opener is over, its steps untaken.
+local n=caster(2)
+w.ticks=400
+assert(w.BGSE_Claim(n,'mage','s1')==true and last('choice').member==2 and last('choice').openerStep==2)
+w.ticks=400+orders.openerSeconds*15+1
+assert(w.BGSE_Claim(n,'mage','s1')==true and last('choice').tick==w.ticks and last('choice').openerStep==nil)
+-- A watch while it is invisible, at once behind it with an 'opener' row; seen, it is passed over.
+local v=caster(3)
+v.state=0x10
+w.ticks=1000
+assert(w.BGSE_Claim(v,'mage','s1')==true)
+local wt=last('wait')
+assert(wt.member==3 and wt.reason=='opener-watch' and wt.seconds==4 and last('opener').step==1 and last('opener').member==3)
+-- Below openerFrom's difficulty, the ranking as before; a load starts the opener anew.
+w.EngineGlobals.g_pBaldurChitin.m_pObjectGame.m_options.m_nDifficultyLevel=3
+c:invalidate()
+m.m_curAction={m_actionID=0};m.castTimer=100
+w.ticks=2000
+assert(w.BGSE_Claim(m,'mage','s1')==true and last('choice').tick==2000 and last('choice').openerStep==nil)
+w.EngineGlobals.g_pBaldurChitin.m_pObjectGame.m_options.m_nDifficultyLevel=4
+c:invalidate()
+w.ticks=2100
+assert(w.BGSE_Claim(m,'mage','s1')==true and last('choice').tick==2100 and last('choice').openerStep==2)
+assert(c:inspect().counts.errors==0,c:inspect().lastError)
 end)()
 groups=groups+1
 

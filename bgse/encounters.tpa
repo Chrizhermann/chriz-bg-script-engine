@@ -1,0 +1,14 @@
+// The designed encounters: what each fight's design changes in its creatures, one entry each, in story
+// order (bgse/lib/encounter.tpa: bgse_encounter). The design is
+// docs/research/BOSS-01-bg1-early-encounters.md; the engine's side of it is combat-intent/encounters.lua.
+// Each entry adds what it changed to bgse_designed.
+
+// 4. Neira, Nashkel Inn (Christopher, 2026-11-04): WIS 15, which gives her five, four and one priest
+// spells at level 5; her book (Remove Fear goes, no Draw Upon Holy Might); a Potion of Invisibility for her
+// opener.
+LAF bgse_encounter INT_VAR wis = 15
+  STR_VAR cre = ~neira~
+          book = ~priest1=SPPR111,SPPR117,SPPR113,SPPR102,SPPR101 priest2=SPPR201,SPPR208,SPPR211,SPPR213 priest3=SPPR314~
+          carries = ~POTN10~
+  RET bgse_changed END
+OUTER_SET bgse_designed += bgse_changed

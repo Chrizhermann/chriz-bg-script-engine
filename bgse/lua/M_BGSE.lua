@@ -5669,12 +5669,24 @@ factories["combat-intent.orders"]=function(require)
 -- 'none' as a clever, a normal and a dull creature judge them.
 --
 -- talkPrep says what a talk-on-sight creature adds to its preparation before it speaks
--- (combat-intent/talk.lua), from the game's difficulty talkFrom (1 to 5, default 1) up: an instant
--- copy of a spell it has ready, {cast=copy, spend=spell}, which spends that spell; or 'buff-potion',
--- its best potion that strengthens or protects it.
+-- (combat-intent/talk.lua), from the game's difficulty talkFrom (1 to 5, default 1) up: a spell it has
+-- ready, cast at once, {cast=spell or a copy of it, spend=spell}, which spends that spell; or
+-- 'buff-potion', its best potion that strengthens or protects it.
+--
+-- opener says how the creature opens its fight, from the game's difficulty openerFrom (1 to 5, default
+-- 1) up (Christopher, 2026-11-04, for Neira: "das muss alles nicht komplett starr sein"): steps in
+-- order, each a spell or item (its file), a list of them (the best counts), or {watch=seconds}, a
+-- moment's wait while the creature is invisible. At each decision the first step left with a choice
+-- worth making (allowed, and worth more than it costs) is taken, and the steps before it are passed
+-- over; a step not worth making now waits. The adapter keeps which step comes next (input.opener), for
+-- at most openerSeconds from the creature's first decision in sight of an enemy.
 local targeting=require('combat-intent.targeting')
 local M={}
 M.bonus=1
+-- How long an opener holds, in seconds from the creature's first decision with an enemy in sight, and
+-- the longest watch it may hold.
+M.openerSeconds=30
+M.watchLimit=12
 -- The decisions an order to always attack an enemy keeps to it: attacks, touch charges, strikes,
 -- weapon attacks, jumps into the fight (teleport) and protection removal. Defences, heals, cures,
 -- summons, openers, ways out of a zone and waits stay free.
@@ -5695,6 +5707,18 @@ local function extra(v)
     return resref(v.cast) and resref(v.spend)
 end
 local function level(v) return number(v) and v>=1 and v<=5 and v==math.floor(v) end
+-- One step of an opener: a spell or item, a list of them, or {watch=seconds}.
+local function step(v)
+    if resref(v) then return true end
+    if type(v)~='table' then return false end
+    if v.watch~=nil then
+        for k in pairs(v) do if k~='watch' then return false end end
+        return number(v.watch) and v.watch>0 and v.watch<=M.watchLimit
+    end
+    if #v==0 then return false end
+    for i,s in pairs(v) do if type(i)~='number' or not resref(s) then return false end end
+    return true
+end
 
 -- Whether o is a creature's orders as the adapter takes them, else false and the bad field.
 function M.check(o)
@@ -5723,7 +5747,10 @@ function M.check(o)
         elseif k=='talkPrep' then
             if type(v)~='table' or #v==0 then return false,k end
             for i,e in pairs(v) do if type(i)~='number' or not extra(e) then return false,k end end
-        elseif k=='talkFrom' then
+        elseif k=='opener' then
+            if type(v)~='table' or #v==0 then return false,k end
+            for i,s in pairs(v) do if type(i)~='number' or not step(s) then return false,k end end
+        elseif k=='talkFrom' or k=='openerFrom' then
             if not level(v) then return false,k end
         else return false,tostring(k) end
     end
@@ -5808,6 +5835,34 @@ function M.keep(input,options,swings)
     local a,b=left(options),left(swings)
     return a,b,cut
 end
+
+local UNSEEN=targeting.STATE.invisible+targeting.STATE.improvedInvisible
+-- The step of the creature's opener to take now (input.opener: {steps, next, the number of the step
+-- left first}): {option=the best of options a spell or item step offers that is worth more than it
+-- costs, step=its number}, or {watch=seconds, step=its number} while the creature is invisible
+-- (input.frame.self.state); the first step from next on that offers one. Nil when none does.
+function M.openerStep(input,options)
+    local o=type(input)=='table' and input.opener or nil
+    if type(o)~='table' or type(o.steps)~='table' then return nil end
+    local self=type(input.frame)=='table' and type(input.frame.self)=='table' and input.frame.self or nil
+    local hidden=self~=nil and targeting.has(self.state,UNSEEN)
+    for k=number(o.next) and math.max(1,math.floor(o.next)) or 1,#o.steps do
+        local s=o.steps[k]
+        if type(s)=='table' and s.watch~=nil then
+            if hidden and number(s.watch) and s.watch>0 then return {watch=s.watch,step=k} end
+        else
+            local names={}
+            for _,r in ipairs(type(s)=='table' and s or {s}) do if type(r)=='string' then names[r:upper()]=true end end
+            local best
+            for _,c in ipairs(type(options)=='table' and options or {}) do
+                if type(c)=='table' and type(c.resref)=='string' and names[c.resref:upper()] and number(c.score) and
+                    c.score>0 and (not best or c.score>best.score) then best=c end
+            end
+            if best then return {option=best,step=k} end
+        end
+    end
+    return nil
+end
 return M
 end
 factories["combat-intent.encounters"]=function(require)
@@ -5828,20 +5883,25 @@ M.ORDERS={
     TARNES={target='protagonist',bonus=M.LIGHT},
     -- Karlat, Red Sheaf, Beregost: carries the bounty notice on the protagonist (2026-11-04).
     KARLAT={target='protagonist',bonus=M.LIGHT},
-    -- Neira, Nashkel Inn: carries the later bounty notice on the protagonist (2026-11-04).
-    NEIRA={target='protagonist',bonus=M.LIGHT},
+    -- Neira, Nashkel Inn: carries the later bounty notice on the protagonist (2026-11-04). From Hard
+    -- she prepares in sight before she speaks: her own Aid and Protection From Good, cast at once and
+    -- spent (SCS's own preparation adds Armor of Faith and her hammer). After the talk she opens like a
+    -- priestess of Mask: a Potion of Invisibility, a moment's watch from invisibility, then Doom or Hold
+    -- Person, and Hold Person after Doom; worth decides each step ("das muss alles nicht komplett starr
+    -- sein"). Her book, WIS 15 and the potion come from the installer (bgse/encounters.tpa).
+    NEIRA={target='protagonist',bonus=M.LIGHT,
+        talkPrep={{cast='SPPR201',spend='SPPR201'},{cast='SPPR117',spend='SPPR117'}},talkFrom=4,
+        opener={'POTN10',{watch=4},{'SPPR113','SPPR208'},'SPPR208'},openerFrom=4},
 }
 
--- A copy of the orders, so that whoever takes them cannot change this book.
-function M.orders()
-    local copy={}
-    for resref,o in pairs(M.ORDERS) do
-        local c={}
-        for k,v in pairs(o) do c[k]=v end
-        copy[resref]=c
-    end
-    return copy
+local function copy(v)
+    if type(v)~='table' then return v end
+    local c={}
+    for k,x in pairs(v) do c[k]=copy(x) end
+    return c
 end
+-- A copy of the orders, so that whoever takes them cannot change this book.
+function M.orders() return copy(M.ORDERS) end
 return M
 end
 factories["combat-intent.removal"]=function(require)
@@ -8935,6 +8995,14 @@ local function pick(input)
         if swung>0 then return swing,'weapon',all() end
         return M.wait(aura-M.auraLead),'aura',all(),rejected
     end
+    -- The fight's designer's opener (orders.opener): its step to take now comes before the ranking,
+    -- marked with its number for the adapter.
+    local opening=orders.openerStep(input,options)
+    if opening then
+        local d=opening.option or M.wait(opening.watch)
+        d.openerStep=opening.step
+        return d,opening.option and 'opener-step' or 'opener-watch',all()
+    end
     if #options==0 then
         if swinging then return swing,'weapon',all() end
         return M.wait(M.idle),'no-option',options,rejected
@@ -8990,7 +9058,8 @@ end
 -- fight, step away from melee enemies ('kite'), walk into position for the next cast ('position'),
 -- way out of a zone or wait to do now, and why
 -- ('aura', 'no-option' or 'nothing-good' for a wait; 'jump' for a jump taken over the attack it
--- brings sooner; 'drink' for a buff potion drunk before the attack), or nil and why for bad input; the options come along for the log, and with a wait for want of options the
+-- brings sooner; 'drink' for a buff potion drunk before the attack; 'opener-step' and 'opener-watch'
+-- for a step of the designer's opener, the decision marked openerStep), or nil and why for bad input; the options come along for the log, and with a wait for want of options the
 -- count of reasons the ready spells gave none. Leaving costs no spell, only the seconds of the
 -- walk: it comes first when it is worth more than that share of a round of the choice, or when the
 -- pain drives a dull creature out (forced). Spell slots cost input.slots of their price,
@@ -13633,7 +13702,9 @@ function M.new(g,options)
     local kept,keptCount={},0
     -- Each talk-on-sight creature's preparation before its talk (combat-intent/talk.lua), by object id.
     local talks,talkCount={},0
-    local counts={talkHolds=0,talkExtras=0,preps=0,prepHolds=0,kept=0,cut=0,waits=0,marked=0,escapes=0,escaped=0,unescaped=0,zoneFailures=0,stayed=0,left=0,pains=0,witFailures=0,decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
+    -- Each creature's opener in its fight (orders.opener): the step it takes next and the tick it began.
+    local openings,openingCount={},0
+    local counts={openerSteps=0,talkHolds=0,talkExtras=0,preps=0,prepHolds=0,kept=0,cut=0,waits=0,marked=0,escapes=0,escaped=0,unescaped=0,zoneFailures=0,stayed=0,left=0,pains=0,witFailures=0,decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
         hits=0,misses=0,errors=0,holds=0,frozen=0,marks=0,markFailures=0,defences=0,guarded=0,unguarded=0,
         guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0,arms=0,attacks=0,attackHits=0,
         weaponFailures=0,releases=0,heals=0,cures=0,potions=0,cared=0,uncared=0,summons=0,conjured=0,
@@ -14035,6 +14106,14 @@ function M.new(g,options)
         if stop~=nil and caster~=stop then resumed=tick end
         if caster~=stop then stopCasts={} end
         stop=caster
+    end
+    -- The running Time Stop in the input of creature id's decision: who holds it and its seconds left
+    -- (input.timeStop), and what the creature started in its own (input.stopCasts).
+    local function stopView(input,id)
+        local holder,left=timeStop()
+        if holder==nil then return end
+        input.timeStop={caster=holder,left=left}
+        if holder==id then input.stopCasts=stopCasts[id] or {} end
     end
     local function frozen(id)
         if stop==nil or id==stop then return false end
@@ -14826,6 +14905,32 @@ function M.new(g,options)
             clue=d.clue,target=d.target,gaveUp=d.gaveUp,guard=d.guard}
     end
 
+    -- The designer's openers (orders.opener), in one table so that decide stays within Lua's limit of
+    -- upvalues. opener.of: the opener of creature id with orders own at tick, for the choice: its steps
+    -- and the one it takes next, from orders.openerFrom's difficulty up, for orders.openerSeconds from
+    -- its first ask here; nil once that is over, all its steps are taken, or without one.
+    local opener={}
+    function opener.of(id,own,tick)
+        if type(own)~='table' or type(own.opener)~='table' then return nil end
+        if type(own.openerFrom)=='number' and (difficulty() or 0)<own.openerFrom then return nil end
+        local st=openings[id]
+        if not st then
+            if openingCount>=M.cacheLimit then openings,openingCount={},0 end
+            st={next=1,since=tick};openings[id]=st;openingCount=openingCount+1
+        end
+        if tick-st.since>orders.openerSeconds*M.ticksPerSecond or st.next>#own.opener then return nil end
+        return {steps=own.opener,next=st.next}
+    end
+    -- Creature id took step k of its opener at tick (its cast or drink started, or its watch began): an
+    -- 'opener' row, and the steps up to k are behind it.
+    function opener.took(id,k,tick,spell)
+        local st=openings[id]
+        if not st or type(k)~='number' or k<st.next then return end
+        st.next=k+1
+        counts.openerSteps=counts.openerSteps+1
+        record({kind='opener',tick=tick,member=id,step=k,spell=spell})
+    end
+
     local function decide(view,family)
         if not enabled or missing then return decline(missing and 'missing' or 'off') end
         if not families[family] then return decline('family') end
@@ -14952,12 +15057,12 @@ function M.new(g,options)
         local plan=director and director:plan(id,tick) or {}
         local fight=situate(sprite,frame,rows,tick,returning,plan)
         counts.decisions=counts.decisions+1
-        local holder,left=timeStop()
         local input={tick=tick,family=family,frame=frame,spells=rows,items=carried,lastDefence=lastDefence[id],
             plan=plan,memory=memory[id] or {},mind=mindFor(sprite,family),rng=rng,
             creatures=summoned(rows),orders=orderBook[text(sprite.m_resref:get())],
             teleports=search.teleports(rows),jumped=seeker:jumped(id),kited=kited[id],tables=(sense.tables(g)),
             returning=returning,fight=fight}
+        if not unseen then input.opener=opener.of(id,input.orders,tick) end
         lore(input)
         -- The zones in the area, with what they weigh about the caster itself.
         local raw=zoneList(sprite,tick)
@@ -14969,10 +15074,7 @@ function M.new(g,options)
         end
         rage(sprite,frame.self)
         input.pained=pain(sprite,frame,input.zones or {},input.mind,tick)
-        if holder~=nil then
-            input.timeStop={caster=holder,left=left}
-            if holder==id then input.stopCasts=stopCasts[id] or {} end
-        end
+        stopView(input,id)
         -- The share of a spell slot's cost that counts now, kept for the log.
         input.slots=choice.slotShare(input)
         local d,why,options,rejected=choice.decide(input)
@@ -14991,6 +15093,7 @@ function M.new(g,options)
         -- A wait is held until it is over (above). A 'wait' row logs a new one: why, its seconds and
         -- the best of what it waits for; one that goes on with the last for the same reason logs none.
         if d.kind=='wait' then
+            if d.openerStep then opener.took(id,d.openerStep,tick,d.resref) end
             local again=w~=nil and w.why==why
             waits[id]={tick=tick,ends=tick+math.max(1,math.ceil(d.seconds*M.ticksPerSecond)),why=why}
             if not again then
@@ -15048,7 +15151,7 @@ function M.new(g,options)
             inZones=zoneView(input,d),lasting=d.lasting,wit=input.mind.wit,walk=d.walk,interrupt=d.interrupt,
             ordered=d.ordered,slot=d.slot,backstab=d.backstab,opening=d.opening,ready=d.ready,
             calm=d.ready and d.calm or nil,fight=fight and {#fight.allies+1,#fight.enemies} or nil,
-            insight=d.insight,at=d.at})
+            insight=d.insight,at=d.at,openerStep=d.openerStep})
         -- A disable claims its targets in the group at once, so that another member deciding
         -- before this cast starts leaves them alone, and a debuff the enemies it weakens for its
         -- spell; any other decision gives earlier claims back.
@@ -15102,7 +15205,7 @@ function M.new(g,options)
             walk=d.walk,melee=d.kind=='teleport' and d.melee or nil,innate=d.kind=='teleport' and d.innate or nil,
             slot=d.kind=='weapon' and d.slot or nil,abilityNum=d.kind=='weapon' and d.abilityNum or nil,
             backstab=d.kind=='weapon' and d.backstab or nil,at=d.kind=='removal' and d.at or nil,
-            lands=d.kind=='removal' and d.lands or nil}
+            lands=d.kind=='removal' and d.lands or nil,openerStep=d.openerStep}
     end
     -- From the gate, each time a hooked script asks: nil (the creature's script has the round),
     -- {hold=true,own=true} while the engine's queued cast has not started or its own action runs,
@@ -15242,7 +15345,7 @@ function M.new(g,options)
                 target=decision.target,point=decision.point,hits=decision.hits,tick=tick,hp=hp,
                 castTicks=decision.castTicks,sources=decision.sources,expected=decision.expected,before=decision.before,
                 count=decision.count,creatures=decision.creatures,monsters=decision.monsters,known=known,walk=decision.walk,
-                at=decision.at,lands=decision.lands}
+                at=decision.at,lands=decision.lands,openerStep=decision.openerStep}
         end
         counts.performed=counts.performed+1
         round(object,tick,decision.cover)
@@ -15309,6 +15412,7 @@ function M.new(g,options)
             end
             record({kind='start',tick=tick,member=id,spell=p.resref,target=p.target,point=p.point,
                 waited=tick-p.tick})
+            if p.openerStep then opener.took(id,p.openerStep,tick,p.resref) end
             return {spell=p.resref,role=p.kind,target=p.target,hits=p.hits}
         end
     end
@@ -15467,8 +15571,9 @@ function M.new(g,options)
     end
     -- Talk on sight, the designer's extras (orders.talkPrep, combat-intent/encounters.lua): the actions
     -- that carry out what the creature adds before it speaks, one a line, once the game's difficulty is
-    -- orders.talkFrom or more. A cast: the instant copy (cast) of a spell it has ready (spend), and the
-    -- spell spent; 'buff-potion': the first potion it carries that strengthens or protects itself.
+    -- orders.talkFrom or more. A cast: the spell cast (the spell itself, or a copy of it) of a spell it has
+    -- ready (spend), and the spell spent, while the spell cast is in this game; 'buff-potion': the first
+    -- potion it carries that strengthens or protects itself.
     local function extrasFor(sprite)
         local own=orderBook[text(sprite.m_resref:get())]
         if type(own)~='table' or type(own.talkPrep)~='table' then return {} end
@@ -15489,7 +15594,7 @@ function M.new(g,options)
                     if found then break end
                 end
                 if found then out[#out+1]=('UseItem("%s",Myself)'):format(found) end
-            elseif type(e)=='table' then
+            elseif type(e)=='table' and reader.get('SPL',e.cast:upper()) then
                 for _,row in ipairs(type(rows)=='table' and rows or {}) do
                     if row.resref==e.spend:upper() and type(row.ready)=='number' and row.ready>0 then
                         out[#out+1]=('ReallyForceSpellRES("%s",Myself)'):format(e.cast:upper())
@@ -15640,6 +15745,7 @@ function M.new(g,options)
         prepHeld,prepHeldCount={},0
         kept,keptCount={},0
         talks,talkCount={},0
+        openings,openingCount={},0
         outside,outsideCount={},0
         seeker:invalidate()
         hider:invalidate()

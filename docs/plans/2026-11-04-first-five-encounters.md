@@ -33,7 +33,8 @@ Hard; Core and below play normally (Christopher, 2026-11-04).
    level Aid, Hold Person, Silence, Spiritual Hammer; third level Unholy Blight; a Potion of
    Invisibility. From Hard: Aid, Armor of Faith and Protection From Good instantly on sight, then
    after the talk the potion, then the opening spell from invisibility (Doom, then Hold Person, by
-   worth). Our own instant copies for Aid and Protection From Good.
+   worth). She casts her own Aid and Protection From Good at once, visibly (SCS's "cast previously"
+   copies hide the cast, but she prepares in sight of the party).
 4. **Karlat:** from the talk-on-sight preparation, his best battle potion right before he speaks.
 5. **Silke:** her preparation (the potion, Mirror Image, instant) when the "thugs" arrive; Garrick's
    line added to his dialogue.
@@ -64,3 +65,18 @@ Python/WeiDU agreement check on both labs.
   (`UseItem` of the best buff potion the creature carries; `ReallyForceSpellRES` of our instant copy
   and `RemoveSpellRES` of the memorized spell, only while that spell is ready). The talk waits until
   they ran, at most 120 ticks in all. WeiDU and Python agree on both EET labs.
+- Step 3, Neira (2026-11-04):
+  - Her creature, from a data entry in `bgse/encounters.tpa` that a shared installer routine applies
+    (`bgse/lib/encounter.tpa`): WIS 15, Christopher's book, and a Potion of Invisibility in a free pack
+    slot. Checked on her real lab file: only WIS, the spell tables and the new item change, and uninstall
+    restores it.
+  - Her orders: from Hard she casts her own Aid and Protection From Good at once before she speaks and
+    spends them; SCS's own preparation adds Armor of Faith and the hammer.
+  - Her opener, a new kind of order (FIGHT-01, Openers), from Hard: the potion, a 4-second watch from
+    invisibility, then Doom or Hold Person by worth, then Hold Person.
+  - To check in the lab: the order around the talk, the potion right after it, that the watch feels
+    right (4 seconds, to tune with Christopher), and how often she drinks the potion on Core, where she
+    has no opener and drinks it only when it is worth it, as any creature would.
+- Encounter tooling (2026-11-04, Christopher: build each encounter faster than the last): the guide
+  [docs/ENCOUNTERS.md](../ENCOUNTERS.md) with a checklist, where each decision goes and the pitfalls so far,
+  and `tools/scout.py`, which shows everything about a creature in one command.

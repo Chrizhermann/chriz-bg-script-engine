@@ -55,4 +55,18 @@ assert(seen.orders.NEIRA.target=='protagonist' and seen.orders.NEIRA~=encounters
 assert(choices.orderBook(seen.orders).KARLAT.bonus==encounters.LIGHT)
 groups=groups+1
 
+-- 5. Neira (BOSS-01 sheet 4, Christopher 2026-11-04): from Hard she casts her own Aid and Protection
+-- From Good at once before she speaks, each spending its spell; from Hard she opens with the Potion of
+-- Invisibility, a watch, then Doom or Hold Person, then Hold Person. The book's nested lists are copied
+-- too.
+local neira=encounters.ORDERS.NEIRA
+assert(neira.talkFrom==4 and neira.openerFrom==4 and #neira.talkPrep==2)
+for _,e in ipairs(neira.talkPrep) do assert(e.cast==e.spend and (e.cast=='SPPR201' or e.cast=='SPPR117')) end
+assert(neira.opener[1]=='POTN10' and neira.opener[2].watch>0 and neira.opener[3][1]=='SPPR113' and
+    neira.opener[3][2]=='SPPR208' and neira.opener[4]=='SPPR208')
+local mine=encounters.orders().NEIRA
+mine.opener[1]='POTN11';mine.talkPrep[1].cast='X'
+assert(neira.opener[1]=='POTN10' and neira.talkPrep[1].cast=='SPPR201')
+groups=groups+1
+
 return groups

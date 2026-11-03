@@ -13,4 +13,4 @@ ROOT = Path(__file__).resolve().parents[2]
 def test_encounters(backend):
     runtime = importlib.import_module('lupa.' + backend).LuaRuntime()
     runtime.execute("package.path=... .. '/?.lua;' .. package.path", ROOT.as_posix())
-    assert runtime.execute((ROOT / 'tests/unit/combat_intent/test_encounters.lua').read_text(encoding='utf-8')) == 4
+    assert runtime.execute((ROOT / 'tests/unit/combat_intent/test_encounters.lua').read_text(encoding='utf-8')) == 5
