@@ -976,4 +976,47 @@ do
 end
 groups=groups+1
 
+-- 26. Teleport Field (Christopher, 2026-11-03: a tactical spell, "auch AI muss sich positionieren,
+-- genau wie Spieler"): ten explosions a round apart on the caster's enemies only, each sending an enemy
+-- off up to 256 away (opcode 222). One that fights a friend in melee walks back what takes it beyond its
+-- reach (64): 192^2/512 = 72 world units, 0.72 seconds at a fighter's walk, worth that long a hold. It
+-- comes back for each explosion while the friend it fights stands in the field, gets one otherwise; one
+-- that shoots or fights nobody loses nothing. The caster and its allies may stand in the field.
+do
+    local harm=require('combat-intent.harm')
+    local pro=area(256,64)
+    pro.repeats,pro.delay=10,100
+    local field=spell('TESTFLD',4,{fx(222,{p1=256})},{target=4,speed=4},pro)
+    local role=field.roles.debuff
+    assert(field.area.explosions==10 and field.area.filter=='enemies' and role.kinds.teleportField and
+        role.amounts.teleportRange==256)
+    local fighter=enemy(11,{x=420,y=100,actee=2})
+    assert(near(harm.displaced(role,fighter),0.72) and near(harm.teleport(role,fighter,10),7.2/18))
+    assert(near(harm.teleport(role,fighter,30),1) and harm.teleport(role,fighter,0)==0)
+    assert(harm.displaced({kinds={teleportField=true},amounts={teleportRange=60}},fighter)==0)
+    local function cast(e,friendX)
+        local at=enemies(input({spells={row('TESTFLD',field,4)}}),{e})
+        at.frame.allies={{id=2,x=friendX or 400,y=100,hp=30,maxHp=30,state=0}}
+        local rejected={}
+        for _,o in ipairs(choice.options(at,rejected)) do if o.resref=='TESTFLD' then return o end end
+        return nil,rejected
+    end
+    local o=cast(fighter)
+    local n=o.lasting[1].stay
+    assert(n>1 and o.lasting[1].leave==n and o.lasting[1].q==1 and #o.hits==1 and o.hits[1]==11)
+    assert(near(o.worth,harm.teleport(role,fighter,n)) and o.point)
+    -- The friend it fights stands outside the field: one explosion.
+    o=cast(enemy(11,{x=420,y=100,actee=2}),800)
+    assert(o and o.lasting[1].stay==1 and near(o.worth,harm.teleport(role,fighter,1)))
+    -- It fights the caster, who stands in the field.
+    o=cast(enemy(11,{x=130,y=100,actee=1}))
+    assert(o and o.lasting[1].stay>1)
+    -- An archer, or one that fights nobody: no worth.
+    local none,why=cast(enemy(11,{x=420,y=100,actee=2,attack={apr=1,thac0=10,damage=5,ranged=true}}))
+    assert(none==nil and why['no-worth']==1)
+    none,why=cast(enemy(11,{x=420,y=100,actee=-1}))
+    assert(none==nil and why['no-worth']==1)
+end
+groups=groups+1
+
 return groups

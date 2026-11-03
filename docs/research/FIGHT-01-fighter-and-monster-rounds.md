@@ -1813,6 +1813,35 @@ minutes, no guard tripped, the lab clean after.
   time, slightly ahead), SCS's none; against the fiends both won all nine, the engine's with more
   left and fewer deaths in each run.
 
+### Teleport Field: a spell for positions (Christopher, 2026-11-03)
+
+Christopher: "Solche Spells müssen natürlich auch bewertet werden. Du musst überlegen, dass das ein
+taktischer Spell ist. Auch AI muss sich positionieren, genau wie Spieler." The field teleports again and
+again. Until now the engine gave Teleport Field no worth, so it never cast it.
+
+- **What the spell does (the labs' data):** vanilla `SPWI421` casts the area projectile `PFIELD`
+  (projectile 238, `PROJECTL` 237) at a point within 40 feet: a radius of 256, enemies of the caster only
+  (area flag bit 6), ten explosions 100 ticks (a round) apart. Each explosion applies opcode 222 with
+  parameter 1 = 256 to every enemy in the field. IESDP: the target is teleported in a random direction,
+  up to that range, measured as a projectile's radius (16 = 1 foot). Spell Revisions' version casts the
+  same projectile with the opcode in a sub-spell (a save vs. spell at -4 by its text).
+- **The worth (built 2026-11-03):** a foe that fights a friend in melee (the caster or an ally its
+  action aims at, with no ranged weapon) walks back the part of each jump that takes it beyond its
+  weapon's reach and loses that walk from its fight. With the jump's length even over the range, which
+  IESDP leaves open, that is (256-64)^2/(2*256) = 72 world units, 0.72 seconds at a fighter's walk, worth
+  a hold that long (`harm.displaced`, `harm.teleport`). It comes back for each explosion while the friend
+  it fights stands in the field, and gets one otherwise (`choice.lua`, `lastingOn`). The caster and its
+  allies may stand in the field, since it spares them, so the best spot is the melee around the
+  engine's own fighters and casters. Over ten explosions that is up to 7.2 seconds of a foe's fight,
+  as a hold of 7 seconds.
+- **Not counted yet:** whether a jump breaks a cast under way or the foe's attack (then it would also
+  be worth something against casters and archers), and whether the jump's length is even over the
+  range or over the field's area. The Teleport Field probe (`.work/stepP-lab`, the SR lab, nothing
+  installed: the PC casts the vanilla spell at a fighter attacking an ally, a caster casting at it, an
+  enemy and an ally standing still) measures each jump and what happens to attacks and casts. It waits
+  for a quiet PC (the CPU was busy on 2026-11-03). The engine's own creatures in an enemy's field do not
+  weigh it yet either.
+
 ## Agreed (Christopher, 2026-10-25)
 
 1. **Target choice by worth, with overrides.** Not SCS's fixed list ("Ich würde es nicht eins zu

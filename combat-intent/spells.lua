@@ -498,7 +498,13 @@ H[332]=function(c,e,who,p)
     local r=kind(c,e.p1>0 and 'buff' or 'debuff','damagePercent',who,e,p)
     tally(set(r,'damagePercentBy'),e.p2,math.abs(e.p1)*p)
 end
-H[222]=function(c,e,who,p) kind(c,'debuff','teleportField',who,e,p) end
+-- Teleport Field (IESDP): each delivery sends the receiver off in a random direction, up to parameter
+-- 1 away (measured as a projectile's radius); teleportRange keeps the farthest.
+H[222]=function(c,e,who,p)
+    local r=kind(c,'debuff','teleportField',who,e,p)
+    local a=set(r,'amounts')
+    if number(e.p1) and e.p1>0 then a.teleportRange=math.max(a.teleportRange or 0,e.p1) end
+end
 -- Wild magic makes the receiver's own spells surge.
 H[280]=function(c,e,who,p) if who~='self' then kind(c,'debuff','wildSurge',who,e,p) end end
 -- The receiver turns undead like the modal action, so the undead around it are hit.

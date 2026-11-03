@@ -605,6 +605,29 @@ local function debuffOn(input,row,role,e,ctx,plain)
     if not plain then worth=worth+opening(input,row,role,e,ctx) end
     return worth*remembered(input,row.resref,e,role)*orders.favour(input,e)
 end
+-- Teleport Field (harm.teleport; Christopher, 2026-11-03): the friend e fights in melee, the caster or
+-- an ally its action aims at, when e's weapon is no ranged one; nil when it fights none of them so.
+local function fighting(input,e)
+    local id=e.actee
+    if not number(id) or id<0 or threat.attack(e).ranged then return nil end
+    local frame=input.frame
+    if type(frame.self)=='table' and frame.self.id==id then return frame.self end
+    for _,f in ipairs(type(frame.allies)=='table' and frame.allies or {}) do
+        if type(f)=='table' and f.id==id and targeting.alive(f) then return f end
+    end
+end
+local function teleports(role) return type(role)=='table' and type(role.kinds)=='table' and role.kinds.teleportField==true end
+-- What n explosions of a Teleport Field take from e's fight while it fights a friend in melee, as
+-- debuffOn weighs a debuff: nothing on an enemy another member casts the same spell at, more on one
+-- the creature's orders name.
+local function teleportOn(input,row,role,e,n)
+    if not fighting(input,e) then return 0 end
+    local plan=input.plan
+    local cursed=type(plan)=='table' and type(plan.cursed)=='table' and plan.cursed[e.id]
+    local owner=type(cursed)=='table' and cursed[row.resref]
+    if owner and owner~=input.frame.self.id and input.mind.coordination>=0.5 then return 0 end
+    return harm.teleport(role,e,n)*remembered(input,row.resref,e,role)*orders.favour(input,e)
+end
 -- The worth on e of the spell's kind of attack and the debuff beside it over n explosions (one
 -- for a cast), and the hit points it is expected to take: damage n times over, added up by the
 -- dice (e dies once, however many explosions it takes); a disable or a debuff as likely as it
@@ -618,6 +641,7 @@ local function attackOn(input,row,kind,roles,e,ctx,n,plain)
     if reaches(main) then
         if kind=='damage' then worth,hp=damageOn(input,row,main,e,floor,n)
         elseif kind=='disable' then worth=disableOn(input,row,main,e,floor)*tries(main,e,n)
+        elseif teleports(main) then worth=teleportOn(input,row,main,e,n)
         else worth=debuffOn(input,row,main,e,ctx,plain)*tries(main,e,n) end
     end
     if kind~='debuff' and reaches(roles.debuff) then
@@ -651,6 +675,15 @@ local function lastingOn(input,row,spell,kind,roles,e,center,ctx,walk)
     local from=math.max(0,back-cast)
     local upto=back>0 and back+ctx.rest-cast or math.max(first,ctx.rest-cast)
     local stay=hitsIn(first,step,last,from,upto)
+    -- A Teleport Field: a foe that fights a friend in melee comes back for each explosion while that
+    -- friend stands in the field, and gets one otherwise; walking out costs it that fight all the same.
+    if kind=='debuff' and teleports(roles.debuff) then
+        local friend=fighting(input,e)
+        local n=stay
+        if friend and targeting.distance(center,friend)>a.radius then n=math.min(n,1) end
+        n=math.max(0,n-targeting.stopped(e,spell))
+        return teleportOn(input,row,roles.debuff,e,n),0,{id=e.id,stay=n,leave=n,q=1}
+    end
     local leave,walk=stay,0
     if not stuck(e,reaches(roles.damage)) then
         local speed=number(e.speed) and e.speed>0 and e.speed or zones.walkSpeed

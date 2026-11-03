@@ -948,7 +948,13 @@ H[332]=function(c,e,who,p)
     local r=kind(c,e.p1>0 and 'buff' or 'debuff','damagePercent',who,e,p)
     tally(set(r,'damagePercentBy'),e.p2,math.abs(e.p1)*p)
 end
-H[222]=function(c,e,who,p) kind(c,'debuff','teleportField',who,e,p) end
+-- Teleport Field (IESDP): each delivery sends the receiver off in a random direction, up to parameter
+-- 1 away (measured as a projectile's radius); teleportRange keeps the farthest.
+H[222]=function(c,e,who,p)
+    local r=kind(c,'debuff','teleportField',who,e,p)
+    local a=set(r,'amounts')
+    if number(e.p1) and e.p1>0 then a.teleportRange=math.max(a.teleportRange or 0,e.p1) end
+end
 -- Wild magic makes the receiver's own spells surge.
 H[280]=function(c,e,who,p) if who~='self' then kind(c,'debuff','wildSurge',who,e,p) end end
 -- The receiver turns undead like the modal action, so the undead around it are hit.
@@ -2654,6 +2660,28 @@ function M.carries(e,spell,resref)
         if type(w)=='table' and type(w.source)=='string' and from[w.source:upper()] then return true end
     end
     return false
+end
+
+-- Teleport Field (opcode 222; Christopher, 2026-11-03: a tactical spell, "auch AI muss sich
+-- positionieren, genau wie Spieler"): each explosion sends a foe off in a random direction, up to the
+-- role's teleportRange (IESDP; measured as a projectile's radius, as the engine measures distances). One
+-- that fights someone in melee walks back the part of the jump beyond its weapon's reach (threat.reach)
+-- and loses that walk from its fight: on average (range-reach)^2/(2*range) world units for a jump's
+-- length even over the range, which IESDP leaves open (the lab's Teleport Field probe checks it).
+function M.displaced(role,e)
+    local a=type(role)=='table' and role.amounts
+    local range=type(a)=='table' and number(a.teleportRange) and a.teleportRange or 0
+    if type(e)~='table' or range<=threat.reach then return 0 end
+    return (range-threat.reach)^2/(2*range)/weapons.speed(e)
+end
+-- The worth of n explosions of a Teleport Field on e when e fights someone in melee: the seconds it
+-- loses walking back as each lands (M.chance), as a disable that long counts (M.debuff: up to
+-- fullSeconds). Nothing on a creature already disabled or outside the role's levels.
+function M.teleport(role,e,n)
+    if type(role)~='table' or type(e)~='table' or not number(n) or n<=0 or targeting.disabled(e) or
+        not M.within(role,e) then return 0 end
+    local lost=math.min(M.fullSeconds,n*M.displaced(role,e)*M.chance(role,e))
+    return lost/M.fullSeconds*(0.5+0.5*targeting.health(e))
 end
 
 -- The worth of a debuff role on e: the share of e's fight it takes (M.weaken, with ac as there)
@@ -7375,6 +7403,29 @@ local function debuffOn(input,row,role,e,ctx,plain)
     if not plain then worth=worth+opening(input,row,role,e,ctx) end
     return worth*remembered(input,row.resref,e,role)*orders.favour(input,e)
 end
+-- Teleport Field (harm.teleport; Christopher, 2026-11-03): the friend e fights in melee, the caster or
+-- an ally its action aims at, when e's weapon is no ranged one; nil when it fights none of them so.
+local function fighting(input,e)
+    local id=e.actee
+    if not number(id) or id<0 or threat.attack(e).ranged then return nil end
+    local frame=input.frame
+    if type(frame.self)=='table' and frame.self.id==id then return frame.self end
+    for _,f in ipairs(type(frame.allies)=='table' and frame.allies or {}) do
+        if type(f)=='table' and f.id==id and targeting.alive(f) then return f end
+    end
+end
+local function teleports(role) return type(role)=='table' and type(role.kinds)=='table' and role.kinds.teleportField==true end
+-- What n explosions of a Teleport Field take from e's fight while it fights a friend in melee, as
+-- debuffOn weighs a debuff: nothing on an enemy another member casts the same spell at, more on one
+-- the creature's orders name.
+local function teleportOn(input,row,role,e,n)
+    if not fighting(input,e) then return 0 end
+    local plan=input.plan
+    local cursed=type(plan)=='table' and type(plan.cursed)=='table' and plan.cursed[e.id]
+    local owner=type(cursed)=='table' and cursed[row.resref]
+    if owner and owner~=input.frame.self.id and input.mind.coordination>=0.5 then return 0 end
+    return harm.teleport(role,e,n)*remembered(input,row.resref,e,role)*orders.favour(input,e)
+end
 -- The worth on e of the spell's kind of attack and the debuff beside it over n explosions (one
 -- for a cast), and the hit points it is expected to take: damage n times over, added up by the
 -- dice (e dies once, however many explosions it takes); a disable or a debuff as likely as it
@@ -7388,6 +7439,7 @@ local function attackOn(input,row,kind,roles,e,ctx,n,plain)
     if reaches(main) then
         if kind=='damage' then worth,hp=damageOn(input,row,main,e,floor,n)
         elseif kind=='disable' then worth=disableOn(input,row,main,e,floor)*tries(main,e,n)
+        elseif teleports(main) then worth=teleportOn(input,row,main,e,n)
         else worth=debuffOn(input,row,main,e,ctx,plain)*tries(main,e,n) end
     end
     if kind~='debuff' and reaches(roles.debuff) then
@@ -7421,6 +7473,15 @@ local function lastingOn(input,row,spell,kind,roles,e,center,ctx,walk)
     local from=math.max(0,back-cast)
     local upto=back>0 and back+ctx.rest-cast or math.max(first,ctx.rest-cast)
     local stay=hitsIn(first,step,last,from,upto)
+    -- A Teleport Field: a foe that fights a friend in melee comes back for each explosion while that
+    -- friend stands in the field, and gets one otherwise; walking out costs it that fight all the same.
+    if kind=='debuff' and teleports(roles.debuff) then
+        local friend=fighting(input,e)
+        local n=stay
+        if friend and targeting.distance(center,friend)>a.radius then n=math.min(n,1) end
+        n=math.max(0,n-targeting.stopped(e,spell))
+        return teleportOn(input,row,roles.debuff,e,n),0,{id=e.id,stay=n,leave=n,q=1}
+    end
     local leave,walk=stay,0
     if not stuck(e,reaches(roles.damage)) then
         local speed=number(e.speed) and e.speed>0 and e.speed or zones.walkSpeed

@@ -417,6 +417,28 @@ function M.carries(e,spell,resref)
     return false
 end
 
+-- Teleport Field (opcode 222; Christopher, 2026-11-03: a tactical spell, "auch AI muss sich
+-- positionieren, genau wie Spieler"): each explosion sends a foe off in a random direction, up to the
+-- role's teleportRange (IESDP; measured as a projectile's radius, as the engine measures distances). One
+-- that fights someone in melee walks back the part of the jump beyond its weapon's reach (threat.reach)
+-- and loses that walk from its fight: on average (range-reach)^2/(2*range) world units for a jump's
+-- length even over the range, which IESDP leaves open (the lab's Teleport Field probe checks it).
+function M.displaced(role,e)
+    local a=type(role)=='table' and role.amounts
+    local range=type(a)=='table' and number(a.teleportRange) and a.teleportRange or 0
+    if type(e)~='table' or range<=threat.reach then return 0 end
+    return (range-threat.reach)^2/(2*range)/weapons.speed(e)
+end
+-- The worth of n explosions of a Teleport Field on e when e fights someone in melee: the seconds it
+-- loses walking back as each lands (M.chance), as a disable that long counts (M.debuff: up to
+-- fullSeconds). Nothing on a creature already disabled or outside the role's levels.
+function M.teleport(role,e,n)
+    if type(role)~='table' or type(e)~='table' or not number(n) or n<=0 or targeting.disabled(e) or
+        not M.within(role,e) then return 0 end
+    local lost=math.min(M.fullSeconds,n*M.displaced(role,e)*M.chance(role,e))
+    return lost/M.fullSeconds*(0.5+0.5*targeting.health(e))
+end
+
 -- The worth of a debuff role on e: the share of e's fight it takes (M.weaken, with ac as there)
 -- for as long as it holds, as a disable counts its kind (a hold that takes all of a healthy
 -- creature's fight for the full time is worth 1), times the chance it lands. Nothing on a creature
