@@ -129,8 +129,9 @@ engine's or the script's, starts the pause before the next defence (SCS's redefe
   The attack row says `stuck`. Until E8 v6 the margin was half a reach (96 for two humans); then
   Neira, boxed in by Khalid and Jaheira, aimed at the hero 79 away for seventy seconds without a
   swing. Across the encounter lab's batches v3 to v6, attacks between two creatures of a human's
-  size, both standing, dealt damage up to 75 apart (in about half the samples at 72 to 75) and never
-  from 76 to 95 (73 samples); hence 76.
+  size, both standing, dealt damage up to 75 apart (in about half the samples at 72 to 75) and not
+  from 76 to 99 (74 samples; in one more, at 85, the target lost hit points while Kestrel was
+  shooting at it); hence 76.
 
 ### The engine owns the round (2026-10-25)
 

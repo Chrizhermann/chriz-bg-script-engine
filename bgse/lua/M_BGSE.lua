@@ -13624,8 +13624,9 @@ M.WEAPON_SLOTS={[35]=true,[36]=true,[37]=true,[38]=true}
 -- spaceReach for each cell of personal space (search-map cells) either has beyond a human's
 -- (humanSpace). A swing reaches reachSlack beyond a weapon's reach (threat.reach): in the encounter
 -- lab's batches E8 v3 to v6, attacks between two creatures of a human's size, both standing, dealt
--- damage up to 75 apart and never from 76 to 95 (73 samples), and Neira, boxed in by Khalid and
--- Jaheira, aimed at the hero 79 away for seventy seconds without a swing (v6).
+-- damage up to 75 apart and not from 76 to 99 (74 samples; one more hit at 85 came from an archer),
+-- and Neira, boxed in by Khalid and Jaheira, aimed at the hero 79 away for seventy seconds without a
+-- swing (v6).
 M.stillSlack=8
 M.stuckTicks=45
 M.unreachableTicks=180
