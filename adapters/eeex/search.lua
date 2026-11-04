@@ -13,7 +13,8 @@
 -- a maze) are no clues; the search awaits them (combat-intent/search.lua, M.await) and reads them for
 -- a guard's readiness (seeker:returning). A walk is held
 -- while the creature walks it, a look and the rogue's detection mode briefly; each ends early when an
--- enemy shows or the creature is hurt.
+-- enemy shows or the creature is hurt. A search walk that ends by itself no nearer its spot finds no
+-- way there: the spot counts as searched (a 'blocked' row).
 --
 -- Doors (combat-intent/doors.lua, adapters/eeex/doors.lua): a creature with hands for a door (its IDS
 -- names and wit, or its orders) gets the area's doors, a locked one counted as openable only when it
@@ -63,7 +64,10 @@ M.illusionStat=136
 M.detectMode=2
 M.stealthMode=3
 -- A walk back that ends no nearer than progress to the post than the last is stuck; after
--- stuckLimit of them the creature stays where it is.
+-- stuckLimit of them the creature stays where it is. A search walk that ends no nearer than progress
+-- to its spot finds no way there (lab batch E8 v4: Tarnesh's walk out of a dead-end corridor whose
+-- mouth two of the party blocked failed at once, again and again for 20 seconds): that spot counts
+-- as searched.
 M.progress=32
 M.stuckLimit=2
 M.cacheLimit=1024
@@ -77,7 +81,7 @@ function M.new(g,options)
     local states,stateCount={},0
     local counts={hunts=0,walks=0,looks=0,returns=0,gaveUp=0,detects=0,modals=0,teleports=0,hitClues=0,guards=0,
         stuck=0,guardFailures=0,awaits=0,guardWalks=0,readyFailures=0,doors=0,doorsOpened=0,doorsShut=0,
-        doorFailures=0,unlocks=0}
+        doorFailures=0,unlocks=0,blocked=0}
     local seeker={}
     local doorError
     -- The area's doors, read once a tick for each area.
@@ -428,14 +432,15 @@ function M.new(g,options)
         return d
     end
     -- The walk prepared for a search, a guard's walk to its place by a foe out of play or a way back
-    -- (decision: its kind, clue, target, gaveUp and guard), to point, an open spot: held while the
-    -- creature walks it.
+    -- (decision: its kind, clue, target, gaveUp, guard and, for a search, the key of its spot), to
+    -- point, an open spot: held while the creature walks it.
     function seeker:walk(sprite,decision,point,tick)
         local id=sprite.m_id
         local s=state(id)
         local from={x=sprite.m_pos.x,y=sprite.m_pos.y}
         local seconds=targeting.distance(from,point)/M.walkSpeed
-        s.act={kind='walk',tick=tick,limit=math.ceil(seconds*M.ticksPerSecond*2)+M.walkMargin}
+        s.act={kind='walk',tick=tick,limit=math.ceil(seconds*M.ticksPerSecond*2)+M.walkMargin,
+            key=decision.kind=='search' and decision.key or nil,from=from,point=point,target=decision.target}
         if decision.kind=='search' then
             s.aim,s.aimTick=point,tick
             counts.walks=counts.walks+1
@@ -502,10 +507,21 @@ function M.new(g,options)
     function seeker:mode(sprite,tick)
         state(sprite.m_id).act={kind='modal',tick=tick,limit=M.modalTicks}
     end
+    -- A search walk over by itself (why: 'time' or 'done'): one that came no nearer than progress to its
+    -- spot finds no way there, so the spot counts as searched, with a 'blocked' row.
+    local function walked(s,id,a,sprite,tick,why)
+        if not a.key or (why~='time' and why~='done') then return end
+        local at={x=sprite.m_pos.x,y=sprite.m_pos.y}
+        if targeting.distance(a.from,a.point)-targeting.distance(at,a.point)>=M.progress then return end
+        s.searched[a.key]=true
+        counts.blocked=counts.blocked+1
+        record({kind='blocked',tick=tick,member=id,move='search',target=a.target,to=a.point,at=at,why=why})
+    end
     -- Whether the creature's walk, look, detection mode or door goes on ('walk', 'look', 'modal' or
     -- 'door'; false once it is over): not past its time, a walk not once the creature has stopped
     -- walking, a door not once it neither walks nor opens, and none once an enemy shows or the
-    -- creature was hurt. A door is judged when its try is over.
+    -- creature was hurt. A door is judged when its try is over, a search walk when it is over by
+    -- itself (walked).
     function seeker:holding(sprite,id,tick)
         local s=states[id]
         local a=s and s.act
@@ -521,6 +537,7 @@ function M.new(g,options)
         if why then
             s.act=nil
             if a.kind=='door' then judged(s,id,a,tick,why) end
+            if a.kind=='walk' then walked(s,id,a,sprite,tick,why) end
             return false
         end
         return a.kind

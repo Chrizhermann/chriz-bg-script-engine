@@ -155,6 +155,16 @@ i=input({tactical=false})
 i.frame.enemies={enemy(11)}
 rejected={}
 assert(#choice.flankOptions(i,rejected)==0 and rejected['flank-unnoticed']==1)
+-- None behind an enemy the adapter found no open way behind lately (input.blocked); behind another
+-- one, still.
+i=input()
+i.frame.enemies={enemy(11),enemy(12)}
+i.blocked={flank={[11]=true}}
+rejected={}
+list=choice.flankOptions(i,rejected)
+assert(#list==1 and list[1].target==12 and rejected['flank-blocked']==1)
+i.blocked={kite=true,position=true}
+assert(#choice.flankOptions(i)==2)
 -- A weapon to take up goes along: the switch's second comes first too.
 i=input(nil,{weapon=BOW,arsenal={{item='TESTDAGG',damage=4.5,damageType=1,apr=1,thac0=10,ranged=false,flags=0,
     enchantment=0,backstab=true,slot=35,abilityNum=0}}})

@@ -618,6 +618,16 @@ assert(why=='weapon' and d.resref=='TESTBOW')
 i.kited=i.tick-18*15
 assert(choice.kite(i))
 i.kited=nil
+-- One the adapter found no open step for lately (input.blocked): it shoots. A blocked walk into
+-- position or behind an enemy leaves the step away as it is.
+i.blocked={kite=true}
+rejected={}
+assert(choice.kite(i,rejected)==nil and rejected['kite-blocked']==1)
+d,why=choice.decide(i)
+assert(why=='weapon' and d.resref=='TESTBOW')
+i.blocked={position=true,flank={[ogre.id]=true}}
+assert(choice.kite(i))
+i.blocked=nil
 -- A weak enemy (one swing of 2 that hits three times in ten) is not worth stepping away from.
 i.frame.enemies={foe(11,1050,{attack={apr=1,thac0=20,damage=2}})}
 assert(choice.kite(i) and choice.decide(i).kind=='weapon')

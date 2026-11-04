@@ -2170,6 +2170,39 @@ assert(g33.queued[#g33.queued].text=='MoveToPoint([200.0])' and last33('search')
 e33.state=0x800
 m33.m_curAction={m_actionID=0}
 assert(claim33(m33,830)==false and ch33:inspect().reasons['given-up']==2 and last33('gave-up').why=='no-clue')
+-- A search walk that finds no way (lab batch E8 v4: Tarnesh's walks out of a corridor whose mouth two
+-- of the party blocked failed at once, again and again for 20 seconds): the mage comes no nearer the
+-- spot, so the spot counts as searched (a 'blocked' row) and it looks around instead of walking there
+-- again. A walk that gets on its way counts as none, nor does one an enemy in sight ends.
+do
+    local function walker(seed)
+        local g,ch,_,last,claim=setup(seed)
+        local m=g.add(sprite(1,0,0,255))
+        local e=g.add(sprite(11,300,0,2))
+        assert(claim(m,100)==true)
+        e.m_pos={x=900,y=0}
+        assert(claim(m,140)==true)
+        g.BGSE_Act(m)
+        assert(g.queued[#g.queued].text=='MoveToPoint([300.0])')
+        return g,ch,last,claim,m,e
+    end
+    local g,ch,last,claim,m=walker(35)
+    m.m_curAction={m_actionID=0}
+    local queued=#g.queued
+    assert(claim(m,150)==true)
+    local b=last('blocked')
+    assert(b and b.move=='search' and b.why=='done' and b.target==11 and b.to.x==300 and b.at.x==0)
+    assert(ch:inspect().search.counts.blocked==1 and ch:inspect().search.counts.looks==1)
+    g.BGSE_Act(m)
+    assert(#g.queued==queued or g.queued[#g.queued].text~='MoveToPoint([300.0])')
+    g,ch,last,claim,m=walker(36)
+    m.m_pos={x=40,y=0};m.m_curAction={m_actionID=0}
+    assert(claim(m,150)==true and last('blocked')==nil and ch:inspect().search.counts.blocked==0)
+    local e
+    g,ch,last,claim,m,e=walker(37)
+    m.m_curAction={m_actionID=23};e.m_pos={x=300,y=0}
+    assert(claim(m,150)==true and last('blocked')==nil and ch:inspect().search.counts.blocked==0)
+end
 
 -- A mage whose last enemy vanishes into a maze (opcode 213 on it; its object stays where it vanished,
 -- out of every area search) does not hunt it (Christopher, 2026-10-29): the director holds it out of
@@ -2667,6 +2700,103 @@ for _,r in ipairs(rows2) do
     if r.kind=='choice' and r.castKind=='weapon' then swings=swings+1 end
 end
 assert(errors==1 and swings==0 and type(ch2:inspect().tableError)=='string' and ch:inspect().tableError==false)
+-- Blocked steps (lab batch E8 v4: a step north into the inn's walls came out 419 units east, in a
+-- dead-end corridor). A walk goes around something when, a second after the walking began, it has
+-- come nearer its spot by less than half of a straight walk at its pace; it falls short when it ends
+-- more than a weapon's reach from its spot, less than half of the way nearer.
+local m={from={x=0,y=0},point={x=400,y=0},pace=400/60,walking=100}
+assert(not choices.detour(m,{x=0,y=0},114) and choices.detour(m,{x=0,y=0},115))
+assert(not choices.detour(m,{x=51,y=0},115) and choices.detour(m,{x=49,y=0},115))
+assert(not choices.detour(m,{x=200,y=0},200) and choices.detour(m,{x=150,y=0},200))
+m.walking=nil
+assert(not choices.detour(m,{x=0,y=0},300))
+assert(choices.short(m,{x=100,y=0}) and not choices.short(m,{x=201,y=0}) and not choices.short(m,{x=340,y=0}))
+assert(not choices.short({from={x=0,y=0},point={x=60,y=0}},{x=0,y=0}))
+-- Every spot the search map gives lies 500 east of the one asked for: the step and its exits lie in or
+-- beyond an obstacle, so the step is blocked (a 'blocked' row, why 'snap') and the archer shoots at
+-- once instead. While the block lasts (blockedTicks, here 200) it does not try to step away; after it,
+-- it tries again, blocked again.
+local g3=world()
+tablesOf(g3)
+local shift=500
+g3.EEex_Sprite_GetPersonalSpace=function() return 3 end
+g3.EEex_Area_GetNearestOpenPosition=function(area,x,y,space) return x+shift,y end
+local boxed=g3.add(bowman(2,5000,5000))
+local brute=g3.add(armed(sprite(13,5050,5000,2),35,'TESTCLUB'))
+brute.stats[8],brute.stats[7]=3,1
+brute.m_baseStats.m_hitPoints=80;brute.stats[1]=80
+local dir3=directors.new(g3,{reader=reader9})
+local ch3=choices.new(g3,{reader=reader9,director=dir3,seed=47,
+    mindFor=function() return profiles.forFamily(profiles.new(),'fighter') end})
+local rows3={}
+ch3:setSink(function(row) rows3[#rows3+1]=row end)
+runtime.install(g3,{director=dir3,choice=ch3,version='test'})
+local function last3(kind) for n=#rows3,1,-1 do if rows3[n].kind==kind then return rows3[n] end end end
+local function claim3(tick,action) g3.ticks=tick;boxed.m_curAction={m_actionID=action or 0};return g3.BGSE_Claim(boxed,'mage','s1') end
+local blockedTicks=choices.blockedTicks
+choices.blockedTicks=200
+assert(claim3(400)==true)
+local b=last3('blocked')
+assert(b and b.move=='kite' and b.why=='snap' and b.member==2 and ch3:inspect().counts.blocked==1)
+c=last3('choice')
+assert(c.castKind=='weapon' and c.spell=='TESTLBOW' and c.target==13 and last3('kite')==nil)
+g3.BGSE_Act(boxed)
+assert(claim3(500)==true and last3('choice').castKind=='weapon' and ch3:inspect().counts.blocked==1)
+g3.BGSE_Act(boxed)
+assert(claim3(610)==true and last3('choice').castKind=='weapon' and ch3:inspect().counts.blocked==2)
+g3.BGSE_Act(boxed)
+-- The spots near enough now (the block over): the archer steps away. After a second of walking it has
+-- come no nearer: the step ends there (its 'kited' row names it blocked, 'detour'), is blocked, and the
+-- archer shoots.
+choices.blockedTicks=blockedTicks
+shift=0
+assert(claim3(820)==true and last3('choice').castKind=='kite')
+g3.BGSE_Act(boxed)
+assert(g3.queued[#g3.queued].text=='MoveToPoint([4600.5000])')
+assert(claim3(830,23)==true and last3('kited')==nil)
+assert(claim3(844,23)==true and last3('kited')==nil)
+assert(claim3(845,23)==true)
+local k=last3('kited')
+assert(k.blocked=='detour' and k.at.x==5000 and k.took==25 and ch3:inspect().counts.detours==1)
+b=last3('blocked')
+assert(b.move=='kite' and b.why=='detour' and b.tick==845 and ch3:inspect().counts.blocked==3)
+assert(last3('choice').castKind=='weapon' and last3('choice').tick==845)
+g3.BGSE_Act(boxed)
+-- One that ends by itself 350 short of its spot, 50 of the way nearer, falls short the same way.
+assert(claim3(1200)==true and last3('choice').castKind=='kite')
+g3.BGSE_Act(boxed)
+assert(claim3(1205,23)==true)
+boxed.m_pos={x=4950,y=5000}
+assert(claim3(1215)==true)
+k=last3('kited')
+assert(k.blocked=='short' and k.at.x==4950 and last3('blocked').why=='short' and ch3:inspect().counts.detours==2)
+assert(last3('choice').castKind=='weapon')
+-- A normal archer, which notices a tactic by a draw, draws that once: deciding again after the block
+-- takes it as noticed, since the step was one (one draw in all: the step and the shot after it come
+-- without one).
+local g5=world()
+tablesOf(g5)
+g5.EEex_Sprite_GetPersonalSpace=function() return 3 end
+g5.EEex_Area_GetNearestOpenPosition=function(area,x,y,space) return x+500,y end
+local wary=g5.add(bowman(2,5000,5000))
+local brute5=g5.add(armed(sprite(13,5050,5000,2),35,'TESTCLUB'))
+brute5.stats[8],brute5.stats[7]=3,1
+brute5.m_baseStats.m_hitPoints=80;brute5.stats[1]=80
+local draws=0
+local dir5=directors.new(g5,{reader=reader9})
+local ch5=choices.new(g5,{reader=reader9,director=dir5,rng={nextInt=function(_,lo) draws=draws+1;return lo end},
+    mindFor=function() return profiles.withWit(profiles.forFamily(profiles.new(),'fighter'),{step='normal',danger=1}) end})
+local rows5={}
+ch5:setSink(function(row) rows5[#rows5+1]=row end)
+runtime.install(g5,{director=dir5,choice=ch5,version='test'})
+g5.ticks=400
+assert(g5.BGSE_Claim(wary,'mage','s1')==true)
+local blocks,kinds=0,{}
+for _,r in ipairs(rows5) do
+    if r.kind=='blocked' then blocks=blocks+1 end
+    if r.kind=='choice' then kinds[#kinds+1]=r.castKind end
+end
+assert(blocks==1 and #kinds==1 and kinds[1]=='weapon' and draws==1)
 end)()
 groups=groups+1
 
@@ -2787,6 +2917,9 @@ holds=ch:inspect().counts.holds
 assert(claim(120)==true and ch:inspect().counts.holds==holds+1)
 stabber.m_curAction={m_actionID=23}
 assert(claim(130)==true and ch:inspect().counts.holds==holds+2)
+-- Its walk counts from when the walking began, not from the switch: ten ticks of walking without a
+-- step yet go on (M.detour).
+assert(claim(140)==true and ch:inspect().counts.holds==holds+3 and ch:inspect().counts.detours==0)
 -- Seen, with a long sword (7.5 a hit) and a backstab of five against an ogre that faces away: the
 -- potion first, for two thirds of the ogre's hit points as likely as the stab lands (with the bonus
 -- for the group's focus, the ogre), less the walk.
@@ -3214,6 +3347,15 @@ assert(claim(100)==true)
 w=last('wait')
 assert(w.reason=='aura' and w.wit=='dull' and w.positioning.unnoticed==1 and last('position')==nil)
 assert(ch:inspect().counts.positions==0 and ch:inspect().counts.errors==0)
+-- The aura about to free ends a walk into position short of its spot, as planned: no block.
+g,m,ch,last,claim=setup(43)
+m.castTimer=40
+assert(claim(100)==true and last('choice').castKind=='position')
+g.BGSE_Act(m)
+m.m_curAction={m_actionID=23};m.m_pos={x=50,y=0};m.castTimer=95
+assert(claim(110)==true)
+done=last('positioned')
+assert(done.at.x==50 and done.blocked==nil and ch:inspect().counts.blocked==0)
 end)()
 groups=groups+1
 

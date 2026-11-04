@@ -175,6 +175,11 @@
 -- breaks it after the step than where it stands. A melee enemy that attacks the creature follows it,
 -- a moment late (M.react); the others stay where they are.
 --
+-- Blocked moves (lab batch E8 v4: Tarnesh's step away from the inn's wall ended in a dead-end
+-- corridor out of sight of everyone): a step away, a walk behind an enemy or a walk into position
+-- that the adapter found no open way for lately (input.blocked: kite, position, flank by enemy) is
+-- left out, so that the creature does something else where it stands.
+--
 -- Backstabs (F2d; SCS's thieves drink invisibility when they see an enemy, then stab the weakest
 -- close enemy without Mirror Images or Stoneskin, [src] genai/ssl/backstab.ssl, dw#wtacor.ssl,
 -- credit DavidW): an invisible creature's first hit from behind its target multiplies the weapon's
@@ -280,6 +285,13 @@ M.positionMin=16
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
 local function clamp(v,a,b) if v<a then return a elseif v>b then return b end return v end
+-- Whether the adapter found no open way for a move of this kind lately (input.blocked: kite and
+-- position true, flank a table of the enemies behind whom it found none).
+local function blocked(input,kind,id)
+    local b=type(input.blocked)=='table' and input.blocked[kind] or nil
+    if kind=='flank' then return type(b)=='table' and b[id]==true end
+    return b==true
+end
 local function reaches(role) return type(role)=='table' and type(role.who)=='table' and (role.who.target or role.who.area) end
 local function benefits(role)
     return type(role)=='table' and type(role.who)=='table' and (role.who.target or role.who.area or role.who.point or role.who.party)
@@ -1486,8 +1498,9 @@ end
 -- it the walk to that spot and a weapon switch take; on a casting enemy what breaking its spell is
 -- worth with the hits after those. Cost: what standing next to the enemy costs, times caution. None
 -- for a creature that cannot walk, holds a touch charge, is in its own Time Stop or under Improved
--- Alacrity, or does not see the tactic (M.tactical). rejected (a table, optional) counts why an
--- enemy got none: 'flank-' and the reason.
+-- Alacrity, or does not see the tactic (M.tactical), and none behind an enemy the adapter found no
+-- open way behind lately (input.blocked). rejected (a table, optional) counts why an enemy got none:
+-- 'flank-' and the reason.
 function M.flankOptions(input,rejected)
     local out={}
     local function reject(why) if rejected then rejected['flank-'..why]=(rejected['flank-'..why] or 0)+1 end end
@@ -1506,6 +1519,7 @@ function M.flankOptions(input,rejected)
             local ok,why=weapons.reachable(caster,e,mind,arms)
             if ok and weapons.immuneTo(e,arms) then ok,why=false,'weapon-immunity' end
             if ok and not backstab.open(e) then ok,why=false,'closed' end
+            if ok and blocked(input,'flank',e.id) then ok,why=false,'blocked' end
             local spot=ok and backstab.spot(e) or nil
             if ok and not spot then ok,why=false,'facing-unknown' end
             if ok and backstab.behind(caster,e)~=false then ok,why=false,'behind' end
@@ -1585,9 +1599,10 @@ end
 -- stands, the casting beginning when its casting aura frees. None for a creature that cannot walk,
 -- is invisible, holds a touch charge, is in its own Time Stop or under Improved Alacrity, has
 -- neither a missile weapon to shoot an enemy with (shooting) nor such a cast as its best choice,
--- does not see the tactic (M.tactical), or stepped away within kiteGap seconds (input.kited, by
--- input.tick). The option names the cast (cast) and the chances it breaks here and after the step
--- (breaks). rejected (a table, optional) counts why there is none: 'kite-' and the reason.
+-- does not see the tactic (M.tactical), found no open step lately (input.blocked) or stepped away
+-- within kiteGap seconds (input.kited, by input.tick). The option names the cast (cast) and the
+-- chances it breaks here and after the step (breaks). rejected (a table, optional) counts why there
+-- is none: 'kite-' and the reason.
 function M.kite(input,rejected,best)
     local function reject(why) if rejected then rejected['kite-'..why]=(rejected['kite-'..why] or 0)+1 end end
     local frame=input.frame
@@ -1600,6 +1615,7 @@ function M.kite(input,rejected,best)
     local cast=breakable(best) and best or nil
     if not cast and not shooting(input) then reject('no-ranged');return nil end
     if not M.tactical(input) then reject('unnoticed');return nil end
+    if blocked(input,'kite') then reject('blocked');return nil end
     if number(input.kited) and not (number(input.tick) and input.tick-input.kited>=M.kiteGap*M.ticksPerSecond) then
         reject('recent');return nil
     end
@@ -1661,8 +1677,9 @@ end
 -- shrinks by that much (weapons.paced of the walk left against the whole walk, on o's worth before
 -- its walk lowered it), and what standing there is worth in the zones (zones.delta). None for a
 -- cast without a walk into range, an aim that cannot be found, a creature that cannot walk, a walk
--- shorter than positionMin, or a creature that does not see the tactic (M.tactical). rejected (a
--- table, optional) counts why there is none: 'position-' and the reason.
+-- shorter than positionMin, a creature that does not see the tactic (M.tactical), or one that found
+-- no open way into position lately (input.blocked). rejected (a table, optional) counts why there is
+-- none: 'position-' and the reason.
 function M.position(input,o,aura,rejected)
     local function reject(why) if rejected then rejected['position-'..why]=(rejected['position-'..why] or 0)+1 end end
     if type(o)~='table' or not number(o.walk) or o.walk<=0 or not number(o.worth) or not number(aura) then return nil end
@@ -1681,6 +1698,7 @@ function M.position(input,o,aura,rejected)
     local d=targeting.distance(caster,p)
     if d==math.huge or d<=0 then reject('no-aim');return nil end
     if not M.tactical(input) then reject('unnoticed');return nil end
+    if blocked(input,'position') then reject('blocked');return nil end
     local speed=weapons.speed(caster)
     local far=math.min(d,seconds*speed)
     local spot,walked

@@ -373,9 +373,16 @@ The engine searches with what the creature and its group perceived instead
   An ally's walk after the party stays. So the engine alone searches, also when it has no clue, for
   every creature on the engine's side (fighters and monsters too since F1e); a neutral or charmed
   creature keeps SCS's own hunt.
+- **A spot without a way there counts as searched** (E8 v4, 2026-11-04): Tarnesh, out of everyone's
+  sight in a dead-end corridor whose mouth Kivan and Yeslick blocked, walked to the same clue every few
+  ticks for twenty seconds, each `MoveToPoint` over at once. Now a search walk that ends by itself (it
+  stopped walking, or its time ran out) no nearer its spot than `progress` (32) finds no way there:
+  the spot counts as searched (a `blocked` row with move `search`), and the search goes on with the
+  next clue, a look or giving up. One ended by an enemy in sight or a hit is no such sign.
 - **Log.** Rows `hunt` (a search begins: clues, tactics, patience, guard, wit), `clue` (a hit),
-  `search` and `return` (walks), `teleport` and `landed`, `detect`, `reveal`, `door` and `door-end`,
-  `gave-up` (why: patience, no clue, stuck) and `stuck`; `inspect()` has the search's counts.
+  `search` and `return` (walks), `blocked` (a walk with no way), `teleport` and `landed`, `detect`,
+  `reveal`, `door` and `door-end`, `gave-up` (why: patience, no clue, stuck) and `stuck`; `inspect()`
+  has the search's counts.
 
 Not built yet: buffing at the post after giving up, barks, and an ordered target's
 clues coming first. SCS's scripted teleports (the fiends' and Melissan's `dw#fitel`, cast with
@@ -654,10 +661,29 @@ most damaging melee weapon and fights (`dw#wtacor.ssl`, `EquipMostDamagingMelee`
   while the creature walks, like a way out of a zone, with a `kite` row and, once it is over, a
   `kited` row (where it ended, how close the nearest enemy it sees stands); `kites` and `kited`
   count them.
+- **Blocked steps** (E8 v4, 2026-11-04). Tarnesh, cornered in the narrow lane by the Friendly Arm
+  Inn (`BG2300`), stepped away north, into the inn's walls: the nearest open spot of the search map
+  for that point lay 419 units east, in a dead-end corridor, and the walk there took him round the
+  block for ten seconds and out of everyone's sight. Kivan and Yeslick, walking after him, ended up
+  across a one-cell wall from him, and the fight timed out after two minutes. The nearest open spot
+  can lie anywhere around an obstacle and says nothing of the way there (`learned.md`, section 5). Now
+  a step away, a walk behind an enemy and a walk into position, whose worth was weighed for their own
+  spot, take an open spot only within a weapon's reach of it (`snapSlack`, 64), else the next exit; with
+  none, the move is blocked (a `blocked` row, why `snap`) and the engine decides again at once without
+  it (the creature casts or shoots where it stands). A walk that after a second of walking has come
+  nearer its spot by less than half a straight walk at its pace goes round something (`M.detour`) and
+  ends there; one that ends by itself more than a weapon's reach from its spot, less than half the way
+  nearer, falls short (`M.short`). Both block the move too (why `detour` or `short`, named in the
+  `kited`, `positioned` or `flanked` row). The choice leaves a blocked move out for a round
+  (`input.blocked`: kite, position, a flank by enemy). A walk into position cut by the casting aura, as
+  planned, is no failure.
 
 Tests: `arsenal` (5 groups, probe F's numbers), weapons groups 12 and 13, the choice adapter's group
 35, 37 mutations checked. Casters (E7): weapons group 16, the choice adapter's group 16 (a mage behind
-Stoneskin steps away in its casting pause), 21 mutations checked.
+Stoneskin steps away in its casting pause), 21 mutations checked. Blocked steps: weapons group 13,
+choice group 24, backstab group 5, the choice adapter's groups 35, 36 (a flank's walk counts from its
+first step) and 40 (a walk into position cut by the aura), 25 mutations checked with the search fix
+below.
 
 To see in a lab: how long `SelectWeaponAbility` takes and that it takes up a launcher with its
 ammunition, and whether a queued one can hang (one queued on the protagonist did once, on

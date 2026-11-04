@@ -14,8 +14,8 @@ import struct
 import sys
 from pathlib import Path
 
-TYPES = {'SPL': 0x3EE, 'ITM': 0x3ED, 'BCS': 0x3EF, 'IDS': 0x3F0, 'CRE': 0x3F1, '2DA': 0x3F4,
-         'EFF': 0x3F8, 'PRO': 0x3FD}
+TYPES = {'BMP': 0x001, 'SPL': 0x3EE, 'ITM': 0x3ED, 'BCS': 0x3EF, 'IDS': 0x3F0, 'CRE': 0x3F1,
+         '2DA': 0x3F4, 'EFF': 0x3F8, 'PRO': 0x3FD}
 TYPE_NAMES = {code: ext for ext, code in TYPES.items()}
 
 

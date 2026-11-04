@@ -155,6 +155,17 @@ Python/WeiDU agreement check on both labs.
     in 3 to 10 seconds). Batch v4 gives it level 3 there (`labEnc.lua`, HERO) and runs the mid party again
     against all five, with Neira against the lone hero and the duo and Karlat against the level 1 to 2
     party, on the fixed build.
+  - Batch v4 (2026-11-04, the build 7112c84, 64 fights; the mid party's PC at level 3 with 31 hit points,
+    as EE adds the Constitution bonus for the new levels by itself). Party wins out of four, engine and
+    SCS: Tarnesh 2 (and one time-out) and 4, Neira 4 and 4, Karlat 4 and 4, Silke 1 and 0, Greywolf 0 and 1;
+    the lone hero and the duo lost every fight against Neira in both modes, and the level 1 to 2 party won
+    one of four against Karlat in both. Both fixes held: all 9 of Neira's Unholy Blights and Tarnesh's 4
+    Sleeps went at the creature, her fights against the lone hero on Core took 3.5 seconds (SCS's 12 to 21),
+    and no swing stood stuck (the new end for one was never needed). One new engine fault, fixed: the
+    time-out was Tarnesh stepping away from the inn's wall into a dead-end corridor out of everyone's sight,
+    then walking at a blocked spot for 20 seconds (FIGHT-01, blocked steps; a spot without a way there).
+    Engine, Greywolf with Kestrel: the mid party lost all four (on Core all its members died); SCS's
+    Greywolf comes alone. Batch v5 runs all 160 fights on the build with the blocked steps.
 - Encounter tooling (2026-11-04, Christopher: build each encounter faster than the last): the guide
   [docs/ENCOUNTERS.md](../ENCOUNTERS.md) with a checklist, where each decision goes and the pitfalls so far,
   and `tools/scout.py`, which shows everything about a creature in one command.

@@ -53,6 +53,10 @@ normally.
   saving throws, its memorized spells and items by name, SCS's random items with their odds, scripts, dialog,
   effects (weapon proficiencies by name); `--where` adds the areas it stands in, where the starting game's NPC
   list (`BALDUR.GAM`) puts it, and the scripts and dialogs that name it. Read-only.
+- `python -I tools/srmap.py <lab game folder> AREA x0 y0 x1 y1 [x,y=L ...]`: the area's search map around some
+  spots as text (`#` blocks walking and sight, `x` walking), with letters on the spots; for a lab fight in which a
+  walk stuck or a creature lost sight of its foes (encounter batch E8 v4: a one-cell wall at the Friendly Arm
+  Inn). Read-only.
 - Dialogue paths: a DLG's states and replies with their texts, triggers and actions tell which replies lead to
   the fight (the encounter lab picks them by their text: Silke's party refuses to kill the "thugs", Greywolf's
   stands against him).

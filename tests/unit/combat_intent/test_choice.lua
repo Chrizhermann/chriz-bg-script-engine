@@ -888,6 +888,13 @@ do
     assert(choice.position(p,lost,4)==nil)
     p.frame.self.rooted=nil
     assert(choice.position(p,lost,4).point.x==220)
+    -- Nor for one the adapter found no open way into position for lately (input.blocked); a blocked
+    -- step away leaves it as it is.
+    p.blocked={position=true};rej={}
+    assert(choice.position(p,lost,4,rej)==nil and rej['position-blocked']==1)
+    p.blocked={kite=true}
+    assert(choice.position(p,lost,4).point.x==220)
+    p.blocked=nil
     -- One walk rule for heals (combat-intent/care.lua): a heal for an ally 700 away walks 2.2 seconds
     -- into its range, and the caster walks toward the ally in the casting pause.
     local h=input({spells={row('TESTHEAL',heal,4,{list='priest'})},family='priest'})

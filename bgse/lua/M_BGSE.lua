@@ -7293,6 +7293,11 @@ factories["combat-intent.choice"]=function(require)
 -- breaks it after the step than where it stands. A melee enemy that attacks the creature follows it,
 -- a moment late (M.react); the others stay where they are.
 --
+-- Blocked moves (lab batch E8 v4: Tarnesh's step away from the inn's wall ended in a dead-end
+-- corridor out of sight of everyone): a step away, a walk behind an enemy or a walk into position
+-- that the adapter found no open way for lately (input.blocked: kite, position, flank by enemy) is
+-- left out, so that the creature does something else where it stands.
+--
 -- Backstabs (F2d; SCS's thieves drink invisibility when they see an enemy, then stab the weakest
 -- close enemy without Mirror Images or Stoneskin, [src] genai/ssl/backstab.ssl, dw#wtacor.ssl,
 -- credit DavidW): an invisible creature's first hit from behind its target multiplies the weapon's
@@ -7398,6 +7403,13 @@ M.positionMin=16
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
 local function clamp(v,a,b) if v<a then return a elseif v>b then return b end return v end
+-- Whether the adapter found no open way for a move of this kind lately (input.blocked: kite and
+-- position true, flank a table of the enemies behind whom it found none).
+local function blocked(input,kind,id)
+    local b=type(input.blocked)=='table' and input.blocked[kind] or nil
+    if kind=='flank' then return type(b)=='table' and b[id]==true end
+    return b==true
+end
 local function reaches(role) return type(role)=='table' and type(role.who)=='table' and (role.who.target or role.who.area) end
 local function benefits(role)
     return type(role)=='table' and type(role.who)=='table' and (role.who.target or role.who.area or role.who.point or role.who.party)
@@ -8604,8 +8616,9 @@ end
 -- it the walk to that spot and a weapon switch take; on a casting enemy what breaking its spell is
 -- worth with the hits after those. Cost: what standing next to the enemy costs, times caution. None
 -- for a creature that cannot walk, holds a touch charge, is in its own Time Stop or under Improved
--- Alacrity, or does not see the tactic (M.tactical). rejected (a table, optional) counts why an
--- enemy got none: 'flank-' and the reason.
+-- Alacrity, or does not see the tactic (M.tactical), and none behind an enemy the adapter found no
+-- open way behind lately (input.blocked). rejected (a table, optional) counts why an enemy got none:
+-- 'flank-' and the reason.
 function M.flankOptions(input,rejected)
     local out={}
     local function reject(why) if rejected then rejected['flank-'..why]=(rejected['flank-'..why] or 0)+1 end end
@@ -8624,6 +8637,7 @@ function M.flankOptions(input,rejected)
             local ok,why=weapons.reachable(caster,e,mind,arms)
             if ok and weapons.immuneTo(e,arms) then ok,why=false,'weapon-immunity' end
             if ok and not backstab.open(e) then ok,why=false,'closed' end
+            if ok and blocked(input,'flank',e.id) then ok,why=false,'blocked' end
             local spot=ok and backstab.spot(e) or nil
             if ok and not spot then ok,why=false,'facing-unknown' end
             if ok and backstab.behind(caster,e)~=false then ok,why=false,'behind' end
@@ -8703,9 +8717,10 @@ end
 -- stands, the casting beginning when its casting aura frees. None for a creature that cannot walk,
 -- is invisible, holds a touch charge, is in its own Time Stop or under Improved Alacrity, has
 -- neither a missile weapon to shoot an enemy with (shooting) nor such a cast as its best choice,
--- does not see the tactic (M.tactical), or stepped away within kiteGap seconds (input.kited, by
--- input.tick). The option names the cast (cast) and the chances it breaks here and after the step
--- (breaks). rejected (a table, optional) counts why there is none: 'kite-' and the reason.
+-- does not see the tactic (M.tactical), found no open step lately (input.blocked) or stepped away
+-- within kiteGap seconds (input.kited, by input.tick). The option names the cast (cast) and the
+-- chances it breaks here and after the step (breaks). rejected (a table, optional) counts why there
+-- is none: 'kite-' and the reason.
 function M.kite(input,rejected,best)
     local function reject(why) if rejected then rejected['kite-'..why]=(rejected['kite-'..why] or 0)+1 end end
     local frame=input.frame
@@ -8718,6 +8733,7 @@ function M.kite(input,rejected,best)
     local cast=breakable(best) and best or nil
     if not cast and not shooting(input) then reject('no-ranged');return nil end
     if not M.tactical(input) then reject('unnoticed');return nil end
+    if blocked(input,'kite') then reject('blocked');return nil end
     if number(input.kited) and not (number(input.tick) and input.tick-input.kited>=M.kiteGap*M.ticksPerSecond) then
         reject('recent');return nil
     end
@@ -8779,8 +8795,9 @@ end
 -- shrinks by that much (weapons.paced of the walk left against the whole walk, on o's worth before
 -- its walk lowered it), and what standing there is worth in the zones (zones.delta). None for a
 -- cast without a walk into range, an aim that cannot be found, a creature that cannot walk, a walk
--- shorter than positionMin, or a creature that does not see the tactic (M.tactical). rejected (a
--- table, optional) counts why there is none: 'position-' and the reason.
+-- shorter than positionMin, a creature that does not see the tactic (M.tactical), or one that found
+-- no open way into position lately (input.blocked). rejected (a table, optional) counts why there is
+-- none: 'position-' and the reason.
 function M.position(input,o,aura,rejected)
     local function reject(why) if rejected then rejected['position-'..why]=(rejected['position-'..why] or 0)+1 end end
     if type(o)~='table' or not number(o.walk) or o.walk<=0 or not number(o.worth) or not number(aura) then return nil end
@@ -8799,6 +8816,7 @@ function M.position(input,o,aura,rejected)
     local d=targeting.distance(caster,p)
     if d==math.huge or d<=0 then reject('no-aim');return nil end
     if not M.tactical(input) then reject('unnoticed');return nil end
+    if blocked(input,'position') then reject('blocked');return nil end
     local speed=weapons.speed(caster)
     local far=math.min(d,seconds*speed)
     local spot,walked
@@ -12546,7 +12564,8 @@ factories["adapters.eeex.search"]=function(require)
 -- a maze) are no clues; the search awaits them (combat-intent/search.lua, M.await) and reads them for
 -- a guard's readiness (seeker:returning). A walk is held
 -- while the creature walks it, a look and the rogue's detection mode briefly; each ends early when an
--- enemy shows or the creature is hurt.
+-- enemy shows or the creature is hurt. A search walk that ends by itself no nearer its spot finds no
+-- way there: the spot counts as searched (a 'blocked' row).
 --
 -- Doors (combat-intent/doors.lua, adapters/eeex/doors.lua): a creature with hands for a door (its IDS
 -- names and wit, or its orders) gets the area's doors, a locked one counted as openable only when it
@@ -12596,7 +12615,10 @@ M.illusionStat=136
 M.detectMode=2
 M.stealthMode=3
 -- A walk back that ends no nearer than progress to the post than the last is stuck; after
--- stuckLimit of them the creature stays where it is.
+-- stuckLimit of them the creature stays where it is. A search walk that ends no nearer than progress
+-- to its spot finds no way there (lab batch E8 v4: Tarnesh's walk out of a dead-end corridor whose
+-- mouth two of the party blocked failed at once, again and again for 20 seconds): that spot counts
+-- as searched.
 M.progress=32
 M.stuckLimit=2
 M.cacheLimit=1024
@@ -12610,7 +12632,7 @@ function M.new(g,options)
     local states,stateCount={},0
     local counts={hunts=0,walks=0,looks=0,returns=0,gaveUp=0,detects=0,modals=0,teleports=0,hitClues=0,guards=0,
         stuck=0,guardFailures=0,awaits=0,guardWalks=0,readyFailures=0,doors=0,doorsOpened=0,doorsShut=0,
-        doorFailures=0,unlocks=0}
+        doorFailures=0,unlocks=0,blocked=0}
     local seeker={}
     local doorError
     -- The area's doors, read once a tick for each area.
@@ -12961,14 +12983,15 @@ function M.new(g,options)
         return d
     end
     -- The walk prepared for a search, a guard's walk to its place by a foe out of play or a way back
-    -- (decision: its kind, clue, target, gaveUp and guard), to point, an open spot: held while the
-    -- creature walks it.
+    -- (decision: its kind, clue, target, gaveUp, guard and, for a search, the key of its spot), to
+    -- point, an open spot: held while the creature walks it.
     function seeker:walk(sprite,decision,point,tick)
         local id=sprite.m_id
         local s=state(id)
         local from={x=sprite.m_pos.x,y=sprite.m_pos.y}
         local seconds=targeting.distance(from,point)/M.walkSpeed
-        s.act={kind='walk',tick=tick,limit=math.ceil(seconds*M.ticksPerSecond*2)+M.walkMargin}
+        s.act={kind='walk',tick=tick,limit=math.ceil(seconds*M.ticksPerSecond*2)+M.walkMargin,
+            key=decision.kind=='search' and decision.key or nil,from=from,point=point,target=decision.target}
         if decision.kind=='search' then
             s.aim,s.aimTick=point,tick
             counts.walks=counts.walks+1
@@ -13035,10 +13058,21 @@ function M.new(g,options)
     function seeker:mode(sprite,tick)
         state(sprite.m_id).act={kind='modal',tick=tick,limit=M.modalTicks}
     end
+    -- A search walk over by itself (why: 'time' or 'done'): one that came no nearer than progress to its
+    -- spot finds no way there, so the spot counts as searched, with a 'blocked' row.
+    local function walked(s,id,a,sprite,tick,why)
+        if not a.key or (why~='time' and why~='done') then return end
+        local at={x=sprite.m_pos.x,y=sprite.m_pos.y}
+        if targeting.distance(a.from,a.point)-targeting.distance(at,a.point)>=M.progress then return end
+        s.searched[a.key]=true
+        counts.blocked=counts.blocked+1
+        record({kind='blocked',tick=tick,member=id,move='search',target=a.target,to=a.point,at=at,why=why})
+    end
     -- Whether the creature's walk, look, detection mode or door goes on ('walk', 'look', 'modal' or
     -- 'door'; false once it is over): not past its time, a walk not once the creature has stopped
     -- walking, a door not once it neither walks nor opens, and none once an enemy shows or the
-    -- creature was hurt. A door is judged when its try is over.
+    -- creature was hurt. A door is judged when its try is over, a search walk when it is over by
+    -- itself (walked).
     function seeker:holding(sprite,id,tick)
         local s=states[id]
         local a=s and s.act
@@ -13054,6 +13088,7 @@ function M.new(g,options)
         if why then
             s.act=nil
             if a.kind=='door' then judged(s,id,a,tick,why) end
+            if a.kind=='walk' then walked(s,id,a,sprite,tick,why) end
             return false
         end
         return a.kind
@@ -13457,6 +13492,15 @@ factories["adapters.eeex.choice"]=function(require)
 -- that the first hit is a backstab, and a choice row for a hide (a potion or spell of invisibility)
 -- what the backstab after it adds (opening).
 --
+-- Blocked moves (lab batch E8 v4): a step away, a walk behind an enemy and a walk into position were
+-- weighed for their own spot, so each takes an open spot of the search map only near that spot
+-- (snapSlack); with none near it or its exits the move is blocked for the creature (a 'blocked' row
+-- with why 'snap') and the engine decides again at once without it. Such a walk that goes around
+-- something (M.detour) ends early, and one that ends by itself well short of its spot (M.short) is
+-- over; each is blocked the same way (why 'detour' or 'short', which its 'kited', 'positioned' or
+-- 'flanked' row names as blocked). The choice leaves a blocked move out for blockedTicks
+-- (input.blocked).
+--
 -- Hiding (F2f, combat-intent/stealth.lua, adapters/eeex/stealth.lua): with no enemy in sight, once
 -- no zone hurts it and no friend in sight needs a heal or cure worth casting, a thief hides in
 -- shadows before it searches: the game's own Hide(), whose roll the game makes against its skill,
@@ -13599,6 +13643,19 @@ M.moveMargin=30
 -- The decisions that walk to a point: a way out of a zone, a step away from melee enemies, a walk
 -- behind an enemy and a walk into position for the next cast.
 M.MOVES={escape=true,kite=true,flank=true,position=true}
+-- Of those, the ones whose worth the choice weighed for their own spot (see the top: blocked moves).
+-- Such a spot the search map moves further than snapSlack (a weapon's reach) lies in or beyond an
+-- obstacle, as the nearest open spot can lie anywhere around one (lab batch E8 v4: a step north
+-- into the Friendly Arm Inn's walls came out 419 units east, in a dead-end corridor). Such a walk
+-- that after detourTicks of walking has come nearer its spot by less than detourShare of a straight
+-- walk at its pace goes around something (M.detour), and one that ends by itself more than
+-- snapSlack from its spot, less than detourShare of the way nearer, falls short (M.short). Each
+-- blocks that move for blockedTicks (a round).
+M.SPOTS={kite=true,flank=true,position=true}
+M.snapSlack=64
+M.detourTicks=15
+M.detourShare=0.5
+M.blockedTicks=90
 -- Game ticks a second, for the projectile's counters (lab batch H measured 15.00).
 M.ticksPerSecond=15
 -- Ticks between two looks at what enemies do in the zones of an area (a third of a second; zones
@@ -13660,6 +13717,27 @@ function M.stuck(s,at,seen,tick)
     end
     if tick-(type(s.still)=='number' and s.still or tick)<M.stuckTicks then return false end
     return targeting.distance(at,seen)>s.reach+threat.reach/2
+end
+-- Whether a walk to a spot goes around something (m: the walk's record: from, where it began; point;
+-- pace, world units a tick; walking, the tick the creature was first seen walking it; at: the
+-- creature's spot at tick): detourTicks after the walking began, it has come nearer its spot by less
+-- than detourShare of what a straight walk at its pace covers meanwhile (all of the way at most). A
+-- walk without a pace, or not walked yet (a flank's weapon is taken up first), is never one.
+function M.detour(m,at,tick)
+    if type(m)~='table' or type(m.pace)~='number' or m.pace<=0 or type(m.walking)~='number' or type(m.from)~='table' or
+        type(m.point)~='table' or type(at)~='table' or type(tick)~='number' or tick-m.walking<M.detourTicks then
+        return false
+    end
+    local way=targeting.distance(m.from,m.point)
+    local gained=way-targeting.distance(at,m.point)
+    return gained<M.detourShare*math.min(way,m.pace*(tick-m.walking))
+end
+-- Whether a walk to a spot that ended fell short of it (m as for M.detour; at: where it ended): more
+-- than snapSlack from its spot, nearer it by less than detourShare of the way.
+function M.short(m,at)
+    if type(m)~='table' or type(m.from)~='table' or type(m.point)~='table' or type(at)~='table' then return false end
+    local way,left=targeting.distance(m.from,m.point),targeting.distance(at,m.point)
+    return left>M.snapSlack and way-left<M.detourShare*way
 end
 -- Seconds until the casting aura frees, from its count (EEex_Sprite_GetCastTimer: -1 while free).
 function M.auraLeft(timer)
@@ -13803,12 +13881,14 @@ function M.new(g,options)
     local hurts,hurtCount,pained={},0,{}
     -- The families whose rounds the choice takes (api:setFamilies).
     local families=M.families
+    -- The decisions' draws: options.rng (a source with nextInt, for tests), else one from options.seed
+    -- or the clock.
     local seed=options.seed
     if type(seed)~='number' then
         local clock=rawget(g,'os') and g.os.time or (os and os.time)
         seed=(clock and clock() or 1)%2147483645+1
     end
-    local rng=rngs.new(seed)
+    local rng=type(options.rng)=='table' and options.rng or rngs.new(seed)
     local enabled=options.enabled~=false
     local missing
     for _,name in ipairs(M.required) do
@@ -13836,6 +13916,9 @@ function M.new(g,options)
     -- kited: the tick each creature last stepped away from melee enemies (F2c); inHand: the weapon
     -- in each creature's hand when last read, for the 'arms' row.
     local kited,kitedCount,inHand,inHandCount={},0,{},0
+    -- blockedAt: by creature, the moves it found no open way for (M.SPOTS): the tick for a step away
+    -- and a walk into position, by enemy for a walk behind one.
+    local blockedAt,blockedCount={},0
     -- unreached: by creature, the enemies its melee attack could not get to (M.stuck), each with the
     -- tick that mark ends and the reach between the two.
     local unreached,unreachedCount={},0
@@ -13860,7 +13943,7 @@ function M.new(g,options)
         weaponFailures=0,releases=0,heals=0,cures=0,potions=0,cared=0,uncared=0,summons=0,conjured=0,
         unconjured=0,removals=0,stripped=0,unstripped=0,wardFailures=0,revealed=0,unrevealed=0,landed=0,unlanded=0,
         jumps=0,debuffs=0,switches=0,kites=0,kited=0,flanks=0,flanked=0,replaced=0,positions=0,positioned=0,readies=0,
-        fightFailures=0}
+        fightFailures=0,blocked=0,detours=0}
     local reasons={}
     local log,nextRow,size={},1,0
     local root,sink,lastError,markError,guardError,weaponError,wardError,zoneError,witError,tableError,fightError
@@ -14672,7 +14755,9 @@ function M.new(g,options)
     end
     -- Where a way out ends: its point, else the next of its exits, moved to the nearest open spot
     -- of the area's search map where the creature fits (its personal space), as long as that still
-    -- lies outside every zone it leaves. Without the search map the point itself is walked to.
+    -- lies outside every zone it leaves. A move whose worth was weighed for its own spot (M.SPOTS)
+    -- takes such a spot only within snapSlack of the one asked for. Without the search map the point
+    -- itself is walked to.
     local function walkable(object,decision)
         local nearest=rawget(g,'EEex_Area_GetNearestOpenPosition')
         local spaceOf=rawget(g,'EEex_Sprite_GetPersonalSpace')
@@ -14696,6 +14781,7 @@ function M.new(g,options)
                 for _,z in ipairs(type(decision.zones)=='table' and decision.zones or {}) do
                     if targeting.distance(z,{x=x,y=y})<=z.radius then clear=false end
                 end
+                if clear and M.SPOTS[decision.kind] and targeting.distance(p,{x=x,y=y})>M.snapSlack then clear=false end
                 if clear then return {x=x,y=y} end
             end
         end
@@ -14704,7 +14790,9 @@ function M.new(g,options)
     -- from melee enemies that is over: where it ended and how close the nearest enemy it sees
     -- stands then. A walk behind an enemy that is over: whether the creature stands behind it now
     -- (nil while the enemy's facing is unknown or it is gone), is still hidden, and how far from it.
-    local function moved(m,sprite,tick)
+    -- Each row says why a walk that went around something or fell short of its spot was blocked
+    -- (blocked: 'detour' or 'short', walker:holding).
+    local function moved(m,sprite,tick,why)
         moves[sprite.m_id]=nil
         local at={x=sprite.m_pos.x,y=sprite.m_pos.y}
         if m.flank then
@@ -14714,7 +14802,7 @@ function M.new(g,options)
             counts.flanked=counts.flanked+1
             record({kind='flanked',tick=tick,member=sprite.m_id,target=m.flank,to=m.point,at=at,took=tick-m.tick,
                 behind=enemy and backstab.behind(self,enemy) or nil,hidden=backstab.hidden(self),
-                near=enemy and math.floor(targeting.distance(enemy,at)+0.5) or nil})
+                near=enemy and math.floor(targeting.distance(enemy,at)+0.5) or nil,blocked=why})
             return
         end
         if m.kite or m.position then
@@ -14724,11 +14812,12 @@ function M.new(g,options)
             near=near<math.huge and math.floor(near+0.5) or nil
             if m.kite then
                 counts.kited=counts.kited+1
-                record({kind='kited',tick=tick,member=sprite.m_id,to=m.point,at=at,took=tick-m.tick,near=near})
+                record({kind='kited',tick=tick,member=sprite.m_id,to=m.point,at=at,took=tick-m.tick,near=near,
+                    blocked=why})
             else
                 counts.positioned=counts.positioned+1
                 record({kind='positioned',tick=tick,member=sprite.m_id,to=m.point,at=at,took=tick-m.tick,near=near,
-                    cast=m.position~=true and m.position or nil})
+                    cast=m.position~=true and m.position or nil,blocked=why})
             end
             return
         end
@@ -14736,6 +14825,77 @@ function M.new(g,options)
         for _,z in ipairs(m.zones) do if targeting.distance(z,at)<=z.radius then out=false end end
         if out then counts.escaped=counts.escaped+1 else counts.unescaped=counts.unescaped+1 end
         record({kind='escaped',tick=tick,member=sprite.m_id,to=m.point,at=at,out=out,took=tick-m.tick})
+    end
+    -- Walks to a point while they last, when each creature last stepped away, and the moves it found
+    -- no open way for (see the top: blocked moves). decide reaches them through this one table: Lua
+    -- 5.1 gives a function 60 upvalues at most, and decide has that many.
+    local walker={}
+    -- Blocks a move of M.SPOTS for creature id at tick (kind; target, the enemy of a walk behind one;
+    -- why: 'snap' when no open spot lies near its own, 'detour' when its walk went around something),
+    -- with a 'blocked' row.
+    local function block(id,kind,target,tick,why)
+        local b=blockedAt[id]
+        if not b then
+            if blockedCount>=M.cacheLimit then blockedAt,blockedCount={},0 end
+            blockedCount=blockedCount+1
+            b={flank={}}
+            blockedAt[id]=b
+        end
+        if kind=='flank' then
+            if target==nil then return end
+            b.flank[target]=tick
+        else b[kind]=tick end
+        counts.blocked=counts.blocked+1
+        record({kind='blocked',tick=tick,member=id,move=kind,target=target,why=why})
+    end
+    -- The moves creature id found no open way for within blockedTicks of tick, as the choice reads
+    -- them (input.blocked), or nil.
+    function walker:blocked(id,tick)
+        local b=blockedAt[id]
+        if not b then return nil end
+        local function fresh(t) return type(t)=='number' and tick>=t and tick-t<M.blockedTicks end
+        local out
+        if fresh(b.kite) then out=out or {};out.kite=true end
+        if fresh(b.position) then out=out or {};out.position=true end
+        for target,t in pairs(b.flank) do
+            if fresh(t) then out=out or {};out.flank=out.flank or {};out.flank[target]=true end
+        end
+        return out
+    end
+    -- When creature id last stepped away from melee enemies (input.kited).
+    function walker:kited(id) return kited[id] end
+    -- Whether decision is a move of M.SPOTS with no open spot near its own or its exits' (walkable):
+    -- then that move is blocked for the creature.
+    function walker:blocks(sprite,decision,tick)
+        if type(decision)~='table' or not M.SPOTS[decision.kind] or walkable(sprite,decision) then return false end
+        block(sprite.m_id,decision.kind,decision.target,tick,'snap')
+        return true
+    end
+    -- Whether the creature's walk to a point goes on: while it walks it (a flank also while it takes
+    -- up its weapon), or moveGrace ticks until it starts, within its limit, a walk into position only
+    -- until the casting aura is about to free, and a move of M.SPOTS only while it does not go around
+    -- something (M.detour). Once over it is judged (moved); a move of M.SPOTS that went around
+    -- something or, over otherwise than by the aura, fell short of its spot (M.short) is blocked.
+    function walker:holding(sprite,id,tick)
+        local m=moves[id]
+        if not m then return false end
+        local doing=sprite.m_curAction.m_actionID
+        if doing==M.MOVE and not m.walking then m.walking=tick end
+        local at={x=sprite.m_pos.x,y=sprite.m_pos.y}
+        local spots=M.SPOTS[m.kind]
+        local detour=spots and M.detour(m,at,tick)
+        local aura=m.position and M.auraLeft(g.EEex_Sprite_GetCastTimer(sprite))<=choice.auraLead
+        if not detour and not aura and tick-m.tick<m.limit and
+            (doing==M.MOVE or (m.flank and doing==M.SELECT) or tick-m.tick<M.moveGrace) then
+            return true
+        end
+        local why=detour and 'detour' or (spots and not aura and M.short(m,at) and 'short') or nil
+        if why then
+            counts.detours=counts.detours+1
+            block(id,m.kind,m.flank,tick,why)
+        end
+        moved(m,sprite,tick,why)
+        return false
     end
     -- Wit: whether a rage runs on the creature (frame entry self: raging).
     local function rage(sprite,self)
@@ -15078,7 +15238,7 @@ function M.new(g,options)
                 behind=d.behind,toward=d.toward,clue=d.clue,target=d.target,way=d.way,spell=d.spell}
         end
         return {own=true,response='MoveToPoint(['..d.point.x..'.'..d.point.y..'])',kind=d.kind,point=d.point,
-            clue=d.clue,target=d.target,gaveUp=d.gaveUp,guard=d.guard}
+            clue=d.clue,target=d.target,gaveUp=d.gaveUp,guard=d.guard,key=d.key}
     end
 
     -- The designer's openers (orders.opener), in one table so that decide stays within Lua's limit of
@@ -15169,17 +15329,8 @@ function M.new(g,options)
             else strikes[id]=nil end
         end
         -- A way out of a zone, a step away, a walk behind an enemy or a walk into position runs while
-        -- the creature walks it (a flank also while it takes up its weapon, a walk into position only
-        -- until the casting aura is about to free); then it is judged.
-        local m=moves[id]
-        if m then
-            local doing=sprite.m_curAction.m_actionID
-            if tick-m.tick<m.limit and (doing==M.MOVE or (m.flank and doing==M.SELECT) or tick-m.tick<M.moveGrace) and
-                not (m.position and M.auraLeft(g.EEex_Sprite_GetCastTimer(sprite))<=choice.auraLead) then
-                return hold()
-            end
-            moved(m,sprite,tick)
-        end
+        -- the creature walks it (walker:holding); then it is judged.
+        if walker:holding(sprite,id,tick) then return hold() end
         -- A wait runs while the creature does nothing, until it is over or waitTicks after the
         -- decision that made it; meanwhile the creature may still walk out of a zone that hurts it.
         -- An action it took up meanwhile (a block of SCS's above the hook) ends the wait.
@@ -15241,8 +15392,8 @@ function M.new(g,options)
         local input={tick=tick,family=family,frame=frame,spells=rows,items=carried,lastDefence=lastDefence[id],
             plan=plan,memory=memory[id] or {},mind=mindFor(sprite,family),rng=rng,
             creatures=summoned(rows),orders=orderBook[text(sprite.m_resref:get())],
-            teleports=search.teleports(rows),jumped=seeker:jumped(id),kited=kited[id],tables=(sense.tables(g)),
-            returning=returning,fight=fight}
+            teleports=search.teleports(rows),jumped=seeker:jumped(id),kited=walker:kited(id),tables=(sense.tables(g)),
+            returning=returning,fight=fight,blocked=walker:blocked(id,tick)}
         if not unseen then input.opener=opener.of(id,input.orders,tick) end
         lore(input)
         -- The zones in the area, with what they weigh about the caster itself.
@@ -15259,6 +15410,14 @@ function M.new(g,options)
         -- The share of a spell slot's cost that counts now, kept for the log.
         input.slots=choice.slotShare(input)
         local d,why,options,rejected=choice.decide(input)
+        -- A step away, a walk behind an enemy or a walk into position with no open spot near its own
+        -- is blocked (walker:blocks), and the engine decides again without it. Each such move was a
+        -- tactic, so the creature saw tactics in this decision (input.tactical).
+        for _=1,3 do
+            if not walker:blocks(sprite,d,tick) then break end
+            input.blocked,input.tactical=walker:blocked(id,tick),true
+            d,why,options,rejected=choice.decide(input)
+        end
         if unseen and not (d and (M.CARE[d.kind] or d.ready)) then return seek(sprite,frame,id,tick,family,rows,carried,input.mind) end
         lastDetail=rejected
         local top={}
@@ -15461,9 +15620,9 @@ function M.new(g,options)
                 slot=decision.slot,backstab=decision.backstab})
         elseif M.MOVES[decision.kind] then
             -- A way out: to the nearest open spot that still lies outside the zones it leaves. A step
-            -- away from melee enemies: to the first open spot of its step and exits. A walk behind an
-            -- enemy: to the nearest open spot by the spot behind it, its weapon taken up first. A walk
-            -- into position: to the nearest open spot by its point.
+            -- away from melee enemies: to the first open spot of its step and exits near its own. A
+            -- walk behind an enemy: to the open spot nearest the spot behind it, its weapon taken up
+            -- first. A walk into position: to the open spot nearest its point (walkable).
             local point=walkable(object,decision)
             if not point then return 'skipped' end
             local kite,flank,position=decision.kind=='kite',decision.kind=='flank',decision.kind=='position'
@@ -15471,9 +15630,15 @@ function M.new(g,options)
             if flank then first=takeUp(decision) end
             if not first then return 'skipped' end
             decision.response=chain(first,'MoveToPoint(['..point.x..'.'..point.y..'])')
+            -- Its pace: the way to the spot the choice asked for over the seconds it gave the walk.
+            local from={x=object.m_pos.x,y=object.m_pos.y}
+            local pace
+            if M.SPOTS[decision.kind] and type(decision.walk)=='number' and decision.walk>0 and type(decision.point)=='table' then
+                pace=targeting.distance(from,decision.point)/(decision.walk*M.ticksPerSecond)
+            end
             moves[object.m_id]={tick=tick,point=point,zones=type(decision.zones)=='table' and decision.zones or {},
                 limit=M.walkTicks(decision.walk)+M.moveMargin,kite=kite or nil,flank=flank and decision.target or nil,
-                position=position and (decision.cast or true) or nil}
+                position=position and (decision.cast or true) or nil,kind=decision.kind,from=from,pace=pace}
             if kite then
                 if kited[object.m_id]==nil then
                     if kitedCount>=M.cacheLimit then kited,kitedCount={},0 end
@@ -15956,6 +16121,7 @@ function M.new(g,options)
         pending,running,judging,memory,stop,resumed={},{},{},{},nil,nil
         lastDefence,known,stopCasts,strikes={},{},{},{}
         moves,zoneRead,zoneSpells,zoneSpellCount,zoneBroken={},nil,{},0,false
+        blockedAt,blockedCount={},0
         stays,stayCount,insideOf,insideCount,lookedAt={},0,{},0,{}
         dispels,dispelCount={},0
         minds,mindCount,hurts,hurtCount,pained={},0,{},0,{}
