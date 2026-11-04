@@ -294,15 +294,20 @@ M.magicSlot=34
 M.strikeTicks=180
 M.WEAPON_SLOTS={[35]=true,[36]=true,[37]=true,[38]=true}
 -- A melee attack that cannot get to its target (M.stuck): the attacker has stood still for
--- stuckTicks (no step of stillSlack or more) with its target beyond a weapon's reach for the two of
--- them; the engine then leaves that target to its other choices for unreachableTicks, or until it
--- stands within that reach. The reach between two creatures grows by spaceReach for each cell of
--- personal space (search-map cells) either has beyond a human's (humanSpace).
+-- stuckTicks (no step of stillSlack or more) with its target beyond a swing's reach for the two of
+-- them (M.swingReach); the engine then leaves that target to its other choices for
+-- unreachableTicks, or until it stands within that reach. The reach between two creatures grows by
+-- spaceReach for each cell of personal space (search-map cells) either has beyond a human's
+-- (humanSpace). A swing reaches reachSlack beyond a weapon's reach (threat.reach): in the encounter
+-- lab's batches E8 v3 to v6, attacks between two creatures of a human's size, both standing, dealt
+-- damage up to 75 apart and never from 76 to 95 (73 samples), and Neira, boxed in by Khalid and
+-- Jaheira, aimed at the hero 79 away for seventy seconds without a swing (v6).
 M.stillSlack=8
 M.stuckTicks=45
 M.unreachableTicks=180
 M.spaceReach=16
 M.humanSpace=3
+M.reachSlack=12
 -- A CRE file's item slots (its own order, from 0): the first weapon slot and the quiver slots.
 M.creWeapon=9
 M.creQuiver={13,14,15}
@@ -390,13 +395,16 @@ function M.pairReach(a,b)
     if type(a)~='number' or type(b)~='number' then return nil end
     return threat.reach+M.spaceReach*(math.max(0,a-M.humanSpace)+math.max(0,b-M.humanSpace))
 end
+-- How far a swing goes between two creatures whose pair reach is r (M.pairReach): reachSlack more.
+function M.swingReach(r) return r+M.reachSlack end
 -- Whether a melee attack cannot get to its target (s: the attack's record, with s.reach from
 -- M.pairReach; at: the attacker's spot; seen: its target, at tick): the attacker has stood still for
--- stuckTicks, no step of stillSlack or more, with its target further than that reach by half a
--- weapon's reach. Notes in s where and since when it stands. The game's attack stands so for the
+-- stuckTicks, no step of stillSlack or more, with its target beyond a swing's reach
+-- (M.swingReach). Notes in s where and since when it stands. The game's attack stands so for the
 -- rest of its rounds when others block every way (lab batch E8 v3: Karlat, boxed in by four of the
--- party, swung at Imoen behind them for a hundred seconds); the engine decides again. Without the
--- creatures' sizes it cannot tell a big monster's swing from afar, and never finds one stuck.
+-- party, swung at Imoen behind them for a hundred seconds; v6: Neira, at the hero 79 away); the
+-- engine decides again. Without the creatures' sizes it cannot tell a big monster's swing from afar,
+-- and never finds one stuck.
 function M.stuck(s,at,seen,tick)
     if not s.melee or type(s.reach)~='number' or type(at)~='table' or type(seen)~='table' or type(tick)~='number' then
         return false
@@ -406,7 +414,7 @@ function M.stuck(s,at,seen,tick)
         return false
     end
     if tick-(type(s.still)=='number' and s.still or tick)<M.stuckTicks then return false end
-    return targeting.distance(at,seen)>s.reach+threat.reach/2
+    return targeting.distance(at,seen)>M.swingReach(s.reach)
 end
 -- Whether a walk to a spot goes around something (m: the walk's record: from, where it began; point;
 -- pace, world units a tick; walking, the tick the creature was first seen walking it; at: the
@@ -1834,13 +1842,13 @@ function M.new(g,options)
         -- Improved Alacrity (aura cleansing) it holds no cast back.
         frame.self.aura=not frame.self.alacrity and M.auraLeft(g.EEex_Sprite_GetCastTimer(sprite)) or 0
         -- The enemies its melee attack could not get to (attacked): out of its melee choices until
-        -- that mark ends, while they stand beyond reach of it (combat-intent/weapons.lua).
+        -- that mark ends, while they stand beyond a swing's reach of it (combat-intent/weapons.lua).
         local marks=unreached[sprite.m_id]
         if marks then
             local set
             for _,e in ipairs(frame.enemies) do
                 local m=marks[e.id]
-                if m and tick<m.ends and targeting.distance(frame.self,e)>m.reach+threat.reach/2 then
+                if m and tick<m.ends and targeting.distance(frame.self,e)>M.swingReach(m.reach) then
                     set=set or {};set[e.id]=true
                 end
             end

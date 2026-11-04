@@ -991,16 +991,18 @@ assert(last10('attack').started==300 and last10('attack').tick==350)
 foe2.m_baseStats.m_hitPoints=0;foe2.state=0x800
 fighter.m_curAction={m_actionID=0}
 -- A melee attack that cannot get to its target (lab batch E8 v3: Karlat, boxed in by four of the
--- party, swung at Imoen behind them for a hundred seconds): once the attacker has stood still for
--- stuckTicks with its target beyond reach for the two (their personal spaces: two of a human's
--- size, 64, by half that again), the attack ends, and the creature leaves that target out of its
+-- party, swung at Imoen behind them for a hundred seconds; v6: Neira, boxed in, at the hero 79
+-- away): once the attacker has stood still for stuckTicks with its target beyond a swing's reach
+-- for the two (their personal spaces: two of a human's size, 64, and 12 more, as swings landed up
+-- to 75 apart and never from 76), the attack ends, and the creature leaves that target out of its
 -- melee choices; one within reach again counts at once. A step resets its standing; without the
 -- creatures' sizes it is never stuck.
 assert(choices.pairReach(3,3)==64 and choices.pairReach(5,3)==96 and choices.pairReach(1,3)==64)
-assert(choices.pairReach(nil,3)==nil)
+assert(choices.pairReach(nil,3)==nil and choices.swingReach(64)==76)
 assert(not choices.stuck({melee=true,reach=64,spot={x=0,y=0},still=0},{x=0,y=0},{x=200,y=0},44))
 assert(choices.stuck({melee=true,reach=64,spot={x=0,y=0},still=0},{x=0,y=0},{x=200,y=0},45))
-assert(not choices.stuck({melee=true,reach=64,spot={x=0,y=0},still=0},{x=0,y=0},{x=96,y=0},90))
+assert(not choices.stuck({melee=true,reach=64,spot={x=0,y=0},still=0},{x=0,y=0},{x=76,y=0},90))
+assert(choices.stuck({melee=true,reach=64,spot={x=0,y=0},still=0},{x=0,y=0},{x=52,y=45},90))
 assert(not choices.stuck({melee=true,spot={x=0,y=0},still=0},{x=0,y=0},{x=200,y=0},90))
 assert(not choices.stuck({reach=64,spot={x=0,y=0},still=0},{x=0,y=0},{x=200,y=0},90))
 -- A step of ten starts its standing anew; two are no step.
@@ -1033,6 +1035,12 @@ assert(g10.BGSE_Claim(fighter,'fighter','s1')==true and last10('choice').target=
 foe2.m_pos.x=120
 g10.ticks=480
 assert(g10.BGSE_Claim(fighter,'fighter','s1')==true and last10('wait').tick==480 and last10('wait').rejected.unreachable==1)
+-- 85 away is beyond a swing's reach (76) too: it goes on waiting (an unchanged wait is not logged
+-- again), no attack.
+foe2.m_pos.x=85
+g10.ticks=520
+assert(g10.BGSE_Claim(fighter,'fighter','s1')==true and last10('choice').tick==470 and last10('wait').tick==480)
+foe2.m_pos.x=120
 g10.ticks=625
 assert(g10.BGSE_Claim(fighter,'fighter','s1')==true and last10('choice').tick==625 and last10('choice').target==17)
 foe2.m_baseStats.m_hitPoints=0;foe2.state=0x800

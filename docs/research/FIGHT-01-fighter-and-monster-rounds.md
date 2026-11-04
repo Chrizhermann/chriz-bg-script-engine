@@ -119,13 +119,18 @@ engine's or the script's, starts the pause before the next defence (SCS's redefe
 - **A target the creature cannot get to ends the attack too** (E8 v3, 2026-11-04: Karlat, boxed in by
   four of the party, swung at Imoen behind them for a hundred seconds without a step, until the
   two-minute limit, with 3 of his 35 hit points left). An attacker that stands still for three
-  seconds (45 ticks, no step of 8 or more) while its target stands beyond a weapon's reach for the two
-  of them by half a reach is stuck (`M.stuck`): the reach is 64 for two of a human's size and 16 more
-  for each cell of personal space either has beyond a human's 3 (`M.pairReach`), so a big monster
-  swinging from its own edge is never taken for stuck; without the sizes nothing is. The engine then
-  leaves that target out of the creature's melee choices for two rounds, or until it stands within
-  that reach again (`frame.self.unreachable`, `weapons.reachable`); missiles, spells and a teleport
-  still go there. The attack row says `stuck`.
+  seconds (45 ticks, no step of 8 or more) while its target stands beyond a swing's reach for the two
+  of them is stuck (`M.stuck`, `M.swingReach`): a weapon's reach, 64 for two of a human's size and 16
+  more for each cell of personal space either has beyond a human's 3 (`M.pairReach`), so a big
+  monster swinging from its own edge is never taken for stuck, and 12 more, as swings go a little
+  further (`M.reachSlack`); without the sizes nothing is. The engine then leaves that target out of
+  the creature's melee choices for two rounds, or until it stands within that reach again
+  (`frame.self.unreachable`, `weapons.reachable`); missiles, spells and a teleport still go there.
+  The attack row says `stuck`. Until E8 v6 the margin was half a reach (96 for two humans); then
+  Neira, boxed in by Khalid and Jaheira, aimed at the hero 79 away for seventy seconds without a
+  swing. Across the encounter lab's batches v3 to v6, attacks between two creatures of a human's
+  size, both standing, dealt damage up to 75 apart (in about half the samples at 72 to 75) and never
+  from 76 to 95 (73 samples); hence 76.
 
 ### The engine owns the round (2026-10-25)
 

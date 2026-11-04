@@ -183,6 +183,15 @@ Python/WeiDU agreement check on both labs.
     the game ended by itself, without a Windows error report, in Greywolf's first SCS phase against the lone
     hero (learned.md section 6; the quiet runner now records exit codes, and those eight phases ran again
     without fault). Batch v6 runs Tarnesh, Neira and Silke again on the build with the casters' walk.
+  - Batch v6 (2026-11-04, the build 88474d8, 96 fights, all with a result). Party wins, engine and SCS, out
+    of 16 each: Tarnesh 5 and 7, Neira 4 and 5, Silke 1 and 1. The engine's Tarnesh no longer stood still:
+    he chose his staff 41 times, 32 of them after a walk of up to 3 seconds (most under one), and none of
+    his fights ran out of time (the duo won one of its two Core fights against him, as against SCS's in v5).
+    One new engine fault, fixed: Neira, boxed in by Khalid and Jaheira, aimed her mace at the hero 79 away
+    for seventy seconds without a swing until the time ran out; the stuck check allowed 96 between two
+    humans, while across batches v3 to v6 swings landed up to 75 apart and never beyond, so it now allows
+    76 (FIGHT-01, F1d). One SCS fight against Tarnesh ran out of time too (the level 1 to 2 party on
+    Insane, Tarnesh at 10 of 25).
 - Encounter tooling (2026-11-04, Christopher: build each encounter faster than the last): the guide
   [docs/ENCOUNTERS.md](../ENCOUNTERS.md) with a checklist, where each decision goes and the pitfalls so far,
   and `tools/scout.py`, which shows everything about a creature in one command.
