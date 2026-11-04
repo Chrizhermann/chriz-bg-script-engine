@@ -170,14 +170,25 @@ assert(math.abs(choice.brokenFree(60,free,{})-6*(1-0.5^10)/0.5)<1e-9)
 assert(choice.brokenFree(60,{every=6},{})==60 and choice.brokenFree(nil,free,{})==0)
 groups=groups+1
 
--- 8. Area spells: the middle of a cluster beats one enemy's spot; never with an ally or the
--- caster inside; an enemies-only area ignores allies.
+-- 8. Area spells: the aim that catches most of a cluster beats one enemy alone; never with an ally
+-- or the caster inside; an enemies-only area ignores allies. An area aimed at an enemy's spot is
+-- cast at that enemy (lab batch E8 v3: a point stays where the enemy stood when the cast was
+-- chosen), the middle of a cluster at its point; of aims that catch the same enemies the one at an
+-- enemy goes first. One at an enemy the caster cannot aim at stays on its spot.
 local cluster={enemy(11,{x=400,y=100}),enemy(12,{x=430,y=100}),enemy(13,{x=460,y=120}),enemy(14,{x=250,y=400})}
 i=enemies(input({spells={row('TESTBALL',ball,3)}}),cluster)
 d=choice.decide(i)
-assert(d.mode=='point-area' and #d.hits==3 and d.point.x==430 and d.point.y==107 and d.target==nil)
+assert(d.mode=='creature-area' and #d.hits==3 and d.target==12 and d.point==nil)
 i.frame.allies={{id=2,x=440,y=100,hp=10,maxHp=10,state=0}}
-d=choice.decide(i);assert(d.point.x==250 and d.point.y==400 and #d.hits==1)
+d=choice.decide(i);assert(d.target==14 and d.mode=='creature-area' and d.point==nil and #d.hits==1)
+cluster[4].sanctuary=1
+d=choice.decide(i);assert(d.mode=='point-area' and d.target==nil and d.point.x==250 and d.point.y==400 and #d.hits==1)
+cluster[4].sanctuary,cluster[4].state=0,0x10
+d=choice.decide(i);assert(d.mode=='point-area' and d.point.x==250 and #d.hits==1)
+-- Three in a row: the middle one's spot catches all three, and the ball goes at it.
+local spread={enemy(11,{x=400,y=100}),enemy(12,{x=440,y=100}),enemy(13,{x=480,y=100})}
+i=enemies(input({spells={row('TESTBALL',ball,3)}}),spread)
+d=choice.decide(i);assert(d.target==12 and #d.hits==3)
 i=enemies(input({spells={row('TESTBALL',ball,3)}}),{enemy(11,{x=120,y=100})})
 assert(select(2,choice.decide(i))=='no-option')
 i=enemies(input({spells={row('TESTSCRN',screen,3)}}),{enemy(11,{x=400}),enemy(12,{x=430})})
@@ -331,11 +342,11 @@ local holdArea=spell('TESTHLDA',2,{fx(175,{p2=3,p1=1,duration=30,save=1})},nil,a
 i=enemies(input({spells={row('TESTHLDA',holdArea,2)}}),{enemy(11,{x=400,state=0x20,held=1}),enemy(12,{x=430})})
 local opts=choice.options(i)
 assert(#opts==1 and opts[1].mode=='creature-area' and opts[1].target==12 and #opts[1].hits==1 and opts[1].hits[1]==12)
--- Two enemies close together: every point that catches both is the same option, the one
--- between them.
+-- Two enemies close together: every aim that catches both is the same option, the one cast at
+-- the first of them.
 i=enemies(input({spells={row('TESTBALL',ball,3)}}),{enemy(11,{x=400,y=100}),enemy(12,{x=410,y=100})})
 opts=choice.options(i)
-assert(#opts==1 and #opts[1].hits==2 and opts[1].point.x==405 and opts[1].point.y==100)
+assert(#opts==1 and #opts[1].hits==2 and opts[1].target==11 and opts[1].point==nil)
 -- Different enemies hit stay different options.
 i=enemies(input({spells={row('TESTBALL',ball,3)}}),{enemy(11,{x=400,y=100}),enemy(12,{x=530,y=100})})
 assert(#choice.options(i)==2)
@@ -543,11 +554,11 @@ groups=groups+1
 -- is out of reach.
 i=enemies(input({spells={row('TESTBALL',ball,3)}}),{enemy(11,{x=500})})
 d=choice.decide(i)
-assert(d.mode=='point-area' and d.walk==nil)
+assert(d.mode=='creature-area' and d.target==11 and d.walk==nil)
 local inReach=d.worth
 i.frame.enemies[1].x=700
 d=choice.decide(i)
-assert(d.point.x==700 and d.point.y==100 and near(d.walk,1.2) and near(d.worth,inReach*6/7.2))
+assert(d.target==11 and d.point==nil and near(d.walk,1.2) and near(d.worth,inReach*6/7.2))
 local function ballOf(resref,range)
     return spell(resref,3,{fx(12,{p2=FIRE,dice=6,sides=6,save=1,special=256})},{target=4,range=range},area(64))
 end
@@ -556,7 +567,7 @@ rejected={}
 assert(#choice.options(i,rejected)==0 and rejected['caster-in-area']==1)
 i=enemies(input({spells={row('TESTBAL8',ballOf('TESTBAL8',8),3)}}),{enemy(11,{x=300})})
 d=choice.decide(i)
-assert(d.point.x==300 and near(d.walk,0.72))
+assert(d.target==11 and near(d.walk,0.72))
 i=enemies(input({spells={row('TESTSHOU',paused,4)}}),{enemy(11,{x=700})})
 rejected={}
 assert(#choice.options(i,rejected)==0 and rejected['out-of-reach']==1)
@@ -1011,7 +1022,7 @@ do
     local o=cast(fighter)
     local n=o.lasting[1].stay
     assert(n>1 and o.lasting[1].leave==n and o.lasting[1].q==1 and #o.hits==1 and o.hits[1]==11)
-    assert(near(o.worth,harm.teleport(role,fighter,n)) and o.point)
+    assert(near(o.worth,harm.teleport(role,fighter,n)) and o.target==11 and o.point==nil)
     -- The friend it fights stands outside the field: one explosion.
     o=cast(enemy(11,{x=420,y=100,actee=2}),800)
     assert(o and o.lasting[1].stay==1 and near(o.worth,harm.teleport(role,fighter,1)))

@@ -66,7 +66,9 @@
 -- that chases (F1d) needs no move of its own; the choice row logs the seconds of the walk. A melee
 -- target that runs off, further than when the attack began and than a weapon's reach once that walk
 -- is over (M.outrun), ends the attack, and the engine decides again: the game's attack would follow
--- it for the rest of its two rounds (lab batch E8 v1, a mage after a panicking hero). Once its
+-- it for the rest of its two rounds (lab batch E8 v1, a mage after a panicking hero). So does one
+-- that stands still beyond reach of its target (M.stuck: others block every way), and the creature
+-- leaves that target out of its melee choices for a while (lab batch E8 v3, Karlat boxed in). Once its
 -- target died the engine decides again at once, and its new decision, or a wait, replaces the
 -- attack still running (adapters/eeex/hook.lua): the game's attack can go on at a dead target, once
 -- in lab batch I for a minute. A spell that conjures a weapon is cast on the caster.
@@ -282,6 +284,16 @@ M.ATTACKS={[3]=true,[98]=true,[105]=true,[134]=true}
 M.magicSlot=34
 M.strikeTicks=180
 M.WEAPON_SLOTS={[35]=true,[36]=true,[37]=true,[38]=true}
+-- A melee attack that cannot get to its target (M.stuck): the attacker has stood still for
+-- stuckTicks (no step of stillSlack or more) with its target beyond a weapon's reach for the two of
+-- them; the engine then leaves that target to its other choices for unreachableTicks, or until it
+-- stands within that reach. The reach between two creatures grows by spaceReach for each cell of
+-- personal space (search-map cells) either has beyond a human's (humanSpace).
+M.stillSlack=8
+M.stuckTicks=45
+M.unreachableTicks=180
+M.spaceReach=16
+M.humanSpace=3
 -- A CRE file's item slots (its own order, from 0): the first weapon slot and the quiver slots.
 M.creWeapon=9
 M.creQuiver={13,14,15}
@@ -348,6 +360,31 @@ function M.outrun(s,at,seen,tick)
     if not s.melee or type(s.apart)~='number' or type(seen)~='table' or type(tick)~='number' then return false end
     if tick-s.tick<=M.walkTicks(s.walk)+M.moveMargin then return false end
     return targeting.distance(at,seen)>math.max(s.apart,threat.reach)+threat.reach/2
+end
+-- A weapon's reach between two creatures of personal spaces a and b (search-map cells): a weapon's
+-- reach (threat.reach) for two of a human's size, spaceReach more for each cell either is larger,
+-- so a big monster's swing from its own edge still counts. nil when a space is unknown.
+function M.pairReach(a,b)
+    if type(a)~='number' or type(b)~='number' then return nil end
+    return threat.reach+M.spaceReach*(math.max(0,a-M.humanSpace)+math.max(0,b-M.humanSpace))
+end
+-- Whether a melee attack cannot get to its target (s: the attack's record, with s.reach from
+-- M.pairReach; at: the attacker's spot; seen: its target, at tick): the attacker has stood still for
+-- stuckTicks, no step of stillSlack or more, with its target further than that reach by half a
+-- weapon's reach. Notes in s where and since when it stands. The game's attack stands so for the
+-- rest of its rounds when others block every way (lab batch E8 v3: Karlat, boxed in by four of the
+-- party, swung at Imoen behind them for a hundred seconds); the engine decides again. Without the
+-- creatures' sizes it cannot tell a big monster's swing from afar, and never finds one stuck.
+function M.stuck(s,at,seen,tick)
+    if not s.melee or type(s.reach)~='number' or type(at)~='table' or type(seen)~='table' or type(tick)~='number' then
+        return false
+    end
+    if type(s.spot)~='table' or targeting.distance(at,s.spot)>=M.stillSlack then
+        s.spot,s.still={x=at.x,y=at.y},tick
+        return false
+    end
+    if tick-(type(s.still)=='number' and s.still or tick)<M.stuckTicks then return false end
+    return targeting.distance(at,seen)>s.reach+threat.reach/2
 end
 -- Seconds until the casting aura frees, from its count (EEex_Sprite_GetCastTimer: -1 while free).
 function M.auraLeft(timer)
@@ -524,6 +561,9 @@ function M.new(g,options)
     -- kited: the tick each creature last stepped away from melee enemies (F2c); inHand: the weapon
     -- in each creature's hand when last read, for the 'arms' row.
     local kited,kitedCount,inHand,inHandCount={},0,{},0
+    -- unreached: by creature, the enemies its melee attack could not get to (M.stuck), each with the
+    -- tick that mark ends and the reach between the two.
+    local unreached,unreachedCount={},0
     -- stays and insideOf: what the group has seen its enemies do in zones (look); lookedAt: the
     -- tick each area was last looked at.
     local stays,stayCount,insideOf,insideCount,lookedAt={},0,{},0,{}
@@ -541,7 +581,7 @@ function M.new(g,options)
     local companions,companionCount={},0
     local counts={companions=0,openerSteps=0,talkHolds=0,talkExtras=0,preps=0,prepHolds=0,kept=0,cut=0,waits=0,marked=0,escapes=0,escaped=0,unescaped=0,zoneFailures=0,stayed=0,left=0,pains=0,witFailures=0,decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
         hits=0,misses=0,errors=0,holds=0,frozen=0,marks=0,markFailures=0,defences=0,guarded=0,unguarded=0,
-        guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0,arms=0,attacks=0,attackHits=0,
+        guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0,arms=0,attacks=0,attackHits=0,stuck=0,
         weaponFailures=0,releases=0,heals=0,cures=0,potions=0,cared=0,uncared=0,summons=0,conjured=0,
         unconjured=0,removals=0,stripped=0,unstripped=0,wardFailures=0,revealed=0,unrevealed=0,landed=0,unlanded=0,
         jumps=0,debuffs=0,switches=0,kites=0,kited=0,flanks=0,flanked=0,replaced=0,positions=0,positioned=0,readies=0,
@@ -1141,15 +1181,26 @@ function M.new(g,options)
         record({kind='strike',tick=tick,member=s.caster,item=s.item,spell=s.spell,target=s.target,hit=hit,started=s.tick})
     end
     -- A weapon attack that is over: whether its target lost hit points meanwhile (from any hand), and
-    -- the chance its first hit was a backstab when it was chosen.
-    local function attacked(s,tick)
+    -- the chance its first hit was a backstab when it was chosen. One that could not get to its
+    -- target (stuck, M.stuck) leaves that target out of the attacker's melee choices for
+    -- unreachableTicks, or until it stands within reach (situate).
+    local function attacked(s,tick,stuck)
         strikes[s.caster]=nil
         local target=any(s.target)
         local hp=target and target.m_baseStats.m_hitPoints
         local hit=s.hp~=nil and type(hp)=='number' and hp<s.hp
         if hit then counts.attackHits=counts.attackHits+1 end
+        if stuck then
+            local marks=unreached[s.caster]
+            if not marks then
+                if unreachedCount>=M.cacheLimit then unreached,unreachedCount={},0 end
+                marks={};unreached[s.caster]=marks;unreachedCount=unreachedCount+1
+            end
+            marks[s.target]={ends=tick+M.unreachableTicks,reach=s.reach}
+            counts.stuck=counts.stuck+1
+        end
         record({kind='attack',tick=tick,member=s.caster,item=s.item,target=s.target,hit=hit,
-            lost=hit and s.hp-hp or 0,started=s.tick,backstab=s.backstab})
+            lost=hit and s.hp-hp or 0,started=s.tick,backstab=s.backstab,stuck=stuck or nil})
     end
 
     -- Danger zones. Whether they can be read: EEex offers what M.zoneRequired names and no read
@@ -1614,8 +1665,8 @@ function M.new(g,options)
     -- What the creature knows of the fight beyond its frame, added to it: its ready spells' SPLPROT
     -- marks, what protects each friend and the weapons around (sense.defend), what a removal could
     -- take from each enemy, the enemies' casts that damage can break (casts), its own Improved
-    -- Alacrity, THAC0, touch charge, magic weapon slot, casting aura and weapon, and the marks of
-    -- what its hits bring (markHits). The foes out of play it readies itself for (returning) get
+    -- Alacrity, THAC0, touch charge, magic weapon slot, casting aura and weapon, the enemies its
+    -- melee attack could not get to (unreachable), and the marks of what its hits bring (markHits). The foes out of play it readies itself for (returning) get
     -- the SPLPROT marks as the enemies in sight do: a cloud laid where a mazed foe will be back is
     -- weighed on it. Returns the fight as the group knows it (fightFor, with the group's plan).
     local function situate(sprite,frame,rows,tick,returning,plan)
@@ -1657,6 +1708,21 @@ function M.new(g,options)
         -- Seconds until the casting aura frees: casts wait for it (combat-intent/choice.lua). Under
         -- Improved Alacrity (aura cleansing) it holds no cast back.
         frame.self.aura=not frame.self.alacrity and M.auraLeft(g.EEex_Sprite_GetCastTimer(sprite)) or 0
+        -- The enemies its melee attack could not get to (attacked): out of its melee choices until
+        -- that mark ends, while they stand beyond reach of it (combat-intent/weapons.lua).
+        local marks=unreached[sprite.m_id]
+        if marks then
+            local set
+            for _,e in ipairs(frame.enemies) do
+                local m=marks[e.id]
+                if m and tick<m.ends and targeting.distance(frame.self,e)>m.reach+threat.reach/2 then
+                    set=set or {};set[e.id]=true
+                end
+            end
+            for target,m in pairs(marks) do if tick>=m.ends then marks[target]=nil end end
+            if next(marks)==nil then unreached[sprite.m_id]=nil;unreachedCount=unreachedCount-1 end
+            frame.self.unreachable=set
+        end
         -- A weapon that cannot be read leaves the caster without a weapon attack, nothing more; the
         -- game's tables that cannot be read leave it with the one in hand.
         local read,err=pcall(function()
@@ -1817,9 +1883,12 @@ function M.new(g,options)
             local going=alive and tick-s.tick<M.strikeTicks and
                 (M.ATTACKS[sprite.m_curAction.m_actionID] or tick-s.tick<M.roundTicks)
             if s.weapon then
-                -- A melee target that ran off ends the attack as well (M.outrun).
-                if going and not M.outrun(s,{x=sprite.m_pos.x,y=sprite.m_pos.y},seen,tick) then return hold() end
-                attacked(s,tick)
+                -- A melee target that ran off, or that the creature cannot get to, ends the attack as
+                -- well (M.outrun, M.stuck); one it cannot get to it leaves alone for a while.
+                local at={x=sprite.m_pos.x,y=sprite.m_pos.y}
+                local stuck=going and M.stuck(s,at,seen,tick)
+                if going and not stuck and not M.outrun(s,at,seen,tick) then return hold() end
+                attacked(s,tick,stuck)
             elseif held(sprite)~=s.item then struck(s,tick)
             elseif going then return hold()
             else strikes[id]=nil end
@@ -2081,7 +2150,7 @@ function M.new(g,options)
         if not enabled or missing then return 'skipped' end
         local tick=now()
         if type(tick)~='number' then return 'skipped' end
-        local hp,apart
+        local hp,apart,reach
         if decision.target and not decision.point and not decision.self then
             local target=get(decision.target)
             if not target then return 'skipped' end
@@ -2093,6 +2162,13 @@ function M.new(g,options)
             name(object,decision.target)
             hp=seen.hp
             apart=targeting.distance({x=object.m_pos.x,y=object.m_pos.y},seen)
+            -- A melee attack's reach between the two, from their personal spaces (M.stuck).
+            local spaceOf=decision.melee and rawget(g,'EEex_Sprite_GetPersonalSpace')
+            if type(spaceOf)=='function' then
+                local ok,a=pcall(spaceOf,object)
+                local fine,b=pcall(spaceOf,target)
+                reach=ok and fine and M.pairReach(a,b) or nil
+            end
         end
         local known=idSet(decision.known)
         if decision.kind=='strike' then
@@ -2102,7 +2178,8 @@ function M.new(g,options)
             record({kind='swing',tick=tick,member=object.m_id,item=decision.spell,target=decision.target})
         elseif decision.kind=='weapon' then
             strikes[object.m_id]={caster=object.m_id,item=decision.spell,weapon=true,target=decision.target,hp=hp,tick=tick,
-                known=known,backstab=decision.backstab,melee=decision.melee,walk=decision.walk,apart=apart}
+                known=known,backstab=decision.backstab,melee=decision.melee,walk=decision.walk,apart=apart,reach=reach,
+                spot={x=object.m_pos.x,y=object.m_pos.y},still=tick}
             counts.attacks=counts.attacks+1
             if decision.slot then counts.switches=counts.switches+1 end
             record({kind='swing',tick=tick,member=object.m_id,item=decision.spell,target=decision.target,weapon=true,

@@ -99,6 +99,12 @@ assert(select(2,weapons.reachable(caster,enemy(11,{x=300}),m,sword))=='out-of-re
 assert(weapons.reachable(caster,enemy(11,{x=700}),m,met))
 assert(select(2,weapons.reachable(caster,enemy(11,{x=800}),m,met))=='out-of-reach')
 assert(select(2,weapons.reachable(caster,enemy(11,{x=150,state=targeting.STATE.invisible}),m,met))=='invisible')
+-- An enemy the caster could not get to on foot (others block every way: caster.unreachable) is out
+-- of melee reach for now; a missile still reaches it, a leap (a teleport) goes there anyway.
+local boxed={id=1,x=100,y=100,thac0=12,apr=1,unreachable={[11]=true}}
+assert(select(2,weapons.reachable(boxed,enemy(11,{x=250}),m,sword))=='unreachable')
+assert(weapons.reachable(boxed,enemy(11,{x=250}),m,met) and weapons.reachable(boxed,enemy(11,{x=250}),m,sword,true))
+assert(weapons.reachable(boxed,enemy(12,{x=250}),m,sword))
 assert(weapons.immuneTo(enemy(11,{protections={{opcode=120,p1=0,p2=1}}}),sword))
 assert(not weapons.immuneTo(enemy(11,{protections={{opcode=120,p1=0,p2=2}}}),sword))
 assert(weapons.immuneTo(enemy(11,{protections={{opcode=120,p1=3,p2=0}}}),sword))
@@ -141,6 +147,14 @@ i.frame.enemies={enemy(11,{x=300}),enemy(12,{x=200,protections={{opcode=120,p1=0
 list=choice.weaponOptions(i,rejected)
 assert(#list==1 and list[1].target==13 and near(list[1].worth,3.6/60*14/15*6/6.46) and list[1].expected[13]==0)
 assert(rejected['out-of-reach']==1 and rejected['weapon-immunity']==1 and rejected.absorbed==nil)
+-- One the caster found it cannot get to (lab batch E8 v3: boxed in by others) is no melee target;
+-- the next one is.
+rejected={}
+i.frame.self.unreachable={[13]=true}
+i.frame.enemies={enemy(13,{x=210}),enemy(14,{x=250})}
+list=choice.weaponOptions(i,rejected)
+assert(#list==1 and list[1].target==14 and rejected.unreachable==1)
+i.frame.self.unreachable=nil
 -- A sling reaches its range and costs nothing to use from afar.
 i.frame.self.weapon={item='TESTSLNG',damage=3.5,damageType=2,apr=1,thac0=10,ranged=true,range=400,flags=0,enchantment=0}
 i.frame.enemies={enemy(11,{x=450,attack={apr=2,thac0=5,damage=10}})}
@@ -373,6 +387,11 @@ assert(why=='best' and d.kind=='teleport' and d.target==11 and d.point.x==652)
 i.frame.enemies={enemy(11,{x=700,skins=2})}
 o=choice.jumpOptions(i)[1]
 assert(o and near(o.worth,32/60*3/5))
+-- One others keep it from on foot (frame.self.unreachable): the jump still goes there, the walk not.
+i.frame.enemies={enemy(11,{x=700})}
+i.frame.self.unreachable={[11]=true}
+assert(#choice.jumpOptions(i)==1 and #choice.weaponOptions(i)==0)
+i.frame.self.unreachable=nil
 -- Within a jump's walk of the landing (200) it walks.
 i.frame.enemies={enemy(11,{x=290})}
 rejected={}

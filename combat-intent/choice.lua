@@ -1060,6 +1060,12 @@ local function evaluate(input,row,spell,kind,mode,aim,ctx)
     if kind=='damage' then option.expected=expected end
     if sat and #sat>0 then option.lasting=sat end
     if aim.enemy and (mode=='creature' or mode=='creature-area') then option.target=aim.enemy.id
+    elseif mode=='point-area' and aim.enemy and not aim.enemy.away and aimable(caster,aim.enemy,spell) then
+        -- An area aimed at an enemy's spot goes at that enemy, as SCS casts its areas: the game sets
+        -- it off where the enemy stands when the cast goes off, not where it stood when it was chosen
+        -- (lab batch E8 v3: Neira's Unholy Blight at the spot of a charging hero, who had walked on by
+        -- then). One the caster cannot aim at (sanctuary, unseen) or out of play stays on the spot.
+        option.target=aim.enemy.id;option.mode='creature-area'
     elseif mode=='point-area' then option.point={x=math.floor(aim.point.x+0.5),y=math.floor(aim.point.y+0.5)}
     elseif mode=='self-area' then option.self=true
     elseif aim.enemy then option.target=aim.enemy.id end
@@ -1300,8 +1306,9 @@ function M.strike(input,rejected)
 end
 
 -- Where the spell can be aimed: enemies it can reach for creature spells; for point areas each
--- such enemy's spot and the middle of the enemies around it; the caster for its own area. An aim
--- beyond the spell's range carries the seconds of the walk into range (walk).
+-- such enemy's spot (cast at the enemy itself where it can be, evaluate) and the middle of the
+-- enemies around it; the caster for its own area. An aim beyond the spell's range carries the
+-- seconds of the walk into range (walk).
 local function aims(input,spell,mode)
     local frame=input.frame
     local caster=frame.self
@@ -1723,7 +1730,8 @@ function M.jumpOptions(input,rejected)
     local maxHp=number(caster.maxHp) and caster.maxHp>0 and caster.maxHp or nil
     local aura=number(caster.aura) and caster.aura>0 and caster.aura or 0
     for _,e in ipairs(frame.enemies) do
-        local ok,why=weapons.reachable(caster,e,mind,arms)
+        -- A teleport goes where a walk cannot: an enemy others keep the caster from counts too.
+        local ok,why=weapons.reachable(caster,e,mind,arms,true)
         if ok and weapons.immuneTo(e,arms) then ok,why=false,'weapon-immunity' end
         local d=ok and targeting.distance(caster,e) or 0
         if ok and d-M.landShort<search.jumpMin then ok,why=false,'near' end

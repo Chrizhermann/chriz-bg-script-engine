@@ -128,15 +128,21 @@ function M.reach(mind,caster)
 end
 -- Whether the caster can attack e with weapon w: alive, no sanctuary, seen, within the weapon's
 -- range for missiles and thrown weapons, within reach for melee. Else false and why. A weapon
--- without its own (w nil) counts as melee.
-function M.reachable(caster,e,mind,w)
+-- without its own (w nil) counts as melee. An enemy the caster found it cannot get to on foot
+-- (caster.unreachable, its ids: others block every way, adapters/eeex/choice.lua) is out of melee
+-- reach for now, unless the caster leaps there (a teleport, leap).
+function M.reachable(caster,e,mind,w,leap)
     if not targeting.alive(e) then return false,'dead' end
     if number(e.sanctuary) and e.sanctuary>0 then return false,'sanctuary' end
     if targeting.has(e.state,UNSEEN) and not caster.seeInvisible then return false,'invisible' end
     local d=targeting.distance(caster,e)
     if d==math.huge then return false,'no-position' end
-    local far=type(w)=='table' and w.ranged and (number(w.range) and w.range or 0) or M.reach(mind,caster)
+    local ranged=type(w)=='table' and w.ranged
+    local far=ranged and (number(w.range) and w.range or 0) or M.reach(mind,caster)
     if d>far then return false,'out-of-reach' end
+    if not ranged and not leap and type(caster.unreachable)=='table' and caster.unreachable[e.id] then
+        return false,'unreachable'
+    end
     return true
 end
 -- World units the caster walks a second: its own speed or a fighter's (threat.stride a round).

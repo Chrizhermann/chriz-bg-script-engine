@@ -333,20 +333,21 @@ learn(friend,2,'TESTBOLT')
 assert(claim(friend,'mage','s1',470)==false and root.inspect().choice.reasons.side==1)
 groups=groups+1
 
--- 7. An area spell at a point: the Fireball goes where it catches the whole cluster (the
--- middle ranks first; equal options are drawn at random), as a SpellPointRES, and its start
--- at that point is the engine's own.
+-- 7. An area spell at a cluster: the Fireball goes at the enemy whose spot catches the whole
+-- cluster with the most room (equal options are drawn at random), as a SpellRES at EEex_Target, so
+-- that it goes off where that enemy stands then, not where it stood (lab batch E8 v3); its start
+-- is the engine's own.
 local m6=g.add(sprite(6,0,100,255))
 learn(m6,2,'TESTBALL')
 local f21=g.add(sprite(21,300,100,2));local f22=g.add(sprite(22,330,100,2));g.add(sprite(23,360,100,2))
 for _,e in ipairs({e11,e12,e13}) do e.state=0x800 end
 assert(claim(m6,'mage','s1',510)==true)
 c=last('choice')
-assert(c.spell=='TESTBALL' and c.mode=='point-area' and #c.hits==3 and c.point.y==100 and c.target==nil)
-assert(c.top[1].point.x==330 and c.top[1].hits==3)
+assert(c.spell=='TESTBALL' and c.mode=='creature-area' and #c.hits==3 and c.target==22 and c.point==nil)
+assert(c.top[1].target==22 and c.top[1].hits==3)
 g.BGSE_Act(m6)
-assert(g.queued[#g.queued].text:find('SpellPointRES%("TESTBALL",%['..c.point.x..'%.100%]%)')~=nil)
-start(m6,action(95,'TESTBALL',-1))
+assert(g.queued[#g.queued].text=='SpellRES("TESTBALL",EEex_Target("BGSE"))' and m6.aux.EEex_Target.BGSE==22)
+start(m6,action(31,'TESTBALL',22))
 assert(root.inspect().choice.counts.started>=5)
 groups=groups+1
 
@@ -989,6 +990,53 @@ assert(last10('attack').target==16 and last10('attack').hit==false)
 assert(last10('attack').started==300 and last10('attack').tick==350)
 foe2.m_baseStats.m_hitPoints=0;foe2.state=0x800
 fighter.m_curAction={m_actionID=0}
+-- A melee attack that cannot get to its target (lab batch E8 v3: Karlat, boxed in by four of the
+-- party, swung at Imoen behind them for a hundred seconds): once the attacker has stood still for
+-- stuckTicks with its target beyond reach for the two (their personal spaces: two of a human's
+-- size, 64, by half that again), the attack ends, and the creature leaves that target out of its
+-- melee choices; one within reach again counts at once. A step resets its standing; without the
+-- creatures' sizes it is never stuck.
+assert(choices.pairReach(3,3)==64 and choices.pairReach(5,3)==96 and choices.pairReach(1,3)==64)
+assert(choices.pairReach(nil,3)==nil)
+assert(not choices.stuck({melee=true,reach=64,spot={x=0,y=0},still=0},{x=0,y=0},{x=200,y=0},44))
+assert(choices.stuck({melee=true,reach=64,spot={x=0,y=0},still=0},{x=0,y=0},{x=200,y=0},45))
+assert(not choices.stuck({melee=true,reach=64,spot={x=0,y=0},still=0},{x=0,y=0},{x=96,y=0},90))
+assert(not choices.stuck({melee=true,spot={x=0,y=0},still=0},{x=0,y=0},{x=200,y=0},90))
+assert(not choices.stuck({reach=64,spot={x=0,y=0},still=0},{x=0,y=0},{x=200,y=0},90))
+-- A step of ten starts its standing anew; two are no step.
+c10={melee=true,reach=64,spot={x=0,y=0},still=0}
+assert(not choices.stuck(c10,{x=10,y=0},{x=200,y=0},60) and c10.still==60 and c10.spot.x==10)
+assert(not choices.stuck(c10,{x=12,y=0},{x=200,y=0},104) and choices.stuck(c10,{x=12,y=0},{x=200,y=0},105))
+-- The staff's bearer decides as a fighter here: fighters walk to their foes (F1d). Others block
+-- its way: it stands where it is.
+foe2=g10.add(sprite(17,120,0,2))
+foe2.stats[2]=5
+g10.EEex_Sprite_GetPersonalSpace=function() return 3 end
+g10.ticks=400
+assert(g10.BGSE_Claim(fighter,'fighter','s1')==true and last10('choice').target==17)
+g10.BGSE_Act(fighter)
+fighter.m_curAction=action(105,'',17)
+holds10=ch10:inspect().counts.holds
+g10.ticks=420
+assert(g10.BGSE_Claim(fighter,'fighter','s1')==true and ch10:inspect().counts.holds==holds10+1)
+-- Forty-five ticks standing from its decision, 120 from its target: stuck. The only enemy is out of
+-- its melee choices, and it waits.
+g10.ticks=445
+assert(g10.BGSE_Claim(fighter,'fighter','s1')==true and last10('wait').tick==445 and last10('wait').reason=='no-option')
+assert(last10('wait').rejected.unreachable==1)
+assert(last10('attack').target==17 and last10('attack').stuck==true and ch10:inspect().counts.stuck==1)
+fighter.m_curAction={m_actionID=0}
+-- Within reach again (60 away), it counts at once; beyond it, not until the mark ends (180 ticks).
+foe2.m_pos.x=60
+g10.ticks=470
+assert(g10.BGSE_Claim(fighter,'fighter','s1')==true and last10('choice').target==17)
+foe2.m_pos.x=120
+g10.ticks=480
+assert(g10.BGSE_Claim(fighter,'fighter','s1')==true and last10('wait').tick==480 and last10('wait').rejected.unreachable==1)
+g10.ticks=625
+assert(g10.BGSE_Claim(fighter,'fighter','s1')==true and last10('choice').tick==625 and last10('choice').target==17)
+foe2.m_baseStats.m_hitPoints=0;foe2.state=0x800
+g10.EEex_Sprite_GetPersonalSpace=nil
 -- A mage with the meteors ready, a staff in hand, and an enemy 300 away.
 local thrower=g10.add(armed(sprite(2,0,600,255),35,'TESTSTAF'))
 thrower.stats[8],thrower.stats[7],thrower.stats[2]=1,14,8

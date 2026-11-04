@@ -98,6 +98,13 @@ Worth is counted in shares of an enemy taken out of the fight (`combat-intent/ch
   resistances yet, so this mostly means globes, deflections and immunities). Distances count
   heights 4/3. Point areas are tried on each enemy's spot and on the middle of the enemies around
   it.
+- **An area at an enemy's spot goes at the enemy** (lab batch E8 v3, 2026-11-04: Neira's Unholy
+  Blight went to the spot where a charging hero stood when she chose it; after her casting he had
+  walked on and took nothing). Such an aim is cast at the creature (`SpellRES` at `EEex_Target`,
+  mode `creature-area`), as SCS casts its areas, so the game sets it off where the enemy stands when
+  the cast goes off. Of aims that catch the same enemies the one at a creature goes first, then the
+  one with the most room. The middle of a group stays a point, and so does an enemy the caster
+  cannot aim at (sanctuary, unseen) or one out of play (charmed, mazed).
 - **Lasting areas** (D3e; Christopher, 2026-10-23: "eine Mischung aus A und C"): a cloud or storm
   of the caster's own (an area projectile with more than one explosion: its repetitions, or the
   caster's level where the projectile says so, one every delay+1 ticks) counts the explosions

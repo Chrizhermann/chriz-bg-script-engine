@@ -105,6 +105,16 @@ engine's or the script's, starts the pause before the next defence (SCS's redefe
   off than when the attack began and than a weapon's reach, by half that reach, makes the engine
   decide again (`adapters/eeex/choice.lua`, `M.outrun`); the attack is recorded as any other. A
   target that only steps aside, or a big creature whose body keeps its foe further than 64, keeps it.
+- **A target the creature cannot get to ends the attack too** (E8 v3, 2026-11-04: Karlat, boxed in by
+  four of the party, swung at Imoen behind them for a hundred seconds without a step, until the
+  two-minute limit, with 3 of his 35 hit points left). An attacker that stands still for three
+  seconds (45 ticks, no step of 8 or more) while its target stands beyond a weapon's reach for the two
+  of them by half a reach is stuck (`M.stuck`): the reach is 64 for two of a human's size and 16 more
+  for each cell of personal space either has beyond a human's 3 (`M.pairReach`), so a big monster
+  swinging from its own edge is never taken for stuck; without the sizes nothing is. The engine then
+  leaves that target out of the creature's melee choices for two rounds, or until it stands within
+  that reach again (`frame.self.unreachable`, `weapons.reachable`); missiles, spells and a teleport
+  still go there. The attack row says `stuck`.
 
 ### The engine owns the round (2026-10-25)
 
