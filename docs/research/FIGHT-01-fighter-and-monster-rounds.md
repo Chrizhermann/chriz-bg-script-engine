@@ -84,9 +84,20 @@ engine's or the script's, starts the pause before the next defence (SCS's redefe
 
 ### F1d: walking to the enemy (2026-10-25)
 
-- `mind.chase` (fighters and monsters): such a creature may attack any enemy it sees in melee. A
-  caster goes no further than `touchReach` (10 range units), a webbed or entangled creature no
-  further than a weapon reaches (`threat.reach`, 64).
+- Every creature may attack any enemy it sees in melee, a webbed or entangled one no further than a
+  weapon reaches (`threat.reach`, 64). Until E8 v5 a caster went no further than `touchReach` (10
+  range units, SCS's reach for touch spells); then Tarnesh, his attack spells spent, stood eighty
+  seconds beside the hero he had put to sleep 195 away, twice, until the two-minute limit. SCS's
+  mages walk there (the mage script `DW#MG468`, decompiled read only, credit DavidW): between casts
+  (its `castspell` timer) `EquipRanged` and `AttackReevaluate` at the party, first at those not
+  asleep, stunned or held, then at anyone, and once their attack spells and wands are spent
+  `AttackReevaluate(NearestEnemyOf(Myself),30)` at any distance. A caster weighs what standing
+  next to the enemy costs (`mind.alwaysAttack` is the fighters'), so it walks to a sleeper but not
+  into an awake fighter's swings for a staff's few points. Touch strikes keep `touchReach`;
+  `mind.chase` (fighters and monsters) lets a touch strike go any distance and a teleport into
+  melee. A spell that conjures a melee weapon counts the walk as its share of the rounds the weapon
+  fights (`combat-intent/choice.lua`, `armOptions`). Test group 8 in `test_weapons.lua`, 10
+  mutations.
 - The walk comes first and lowers the worth (`weapons.walk`, `weapons.paced`): the seconds to come
   within a weapon's reach of the enemy, at the creature's own speed when known, else a fighter's
   100 a second; a round of hits after a walk of w seconds counts 6 / (6 + w) of its worth (half a

@@ -616,7 +616,9 @@ higher enchantment (plain ammunition from a magical launcher hits as magical). A
 without ammunition is no weapon.
 
 - An attack goes at each enemy that is alive, seen, without sanctuary, within the weapon's range
-  (melee: `touchReach`) and not immune to it (opcode 120, the same rule as touch charges).
+  (melee: `touchReach` until E8 v5, any enemy it sees since, as SCS's mages walk there between
+  casts: [FIGHT-01](FIGHT-01-fighter-and-monster-rounds.md), F1d) and not immune to it (opcode 120,
+  the same rule as touch charges).
 - Worth: a round of its hits on that enemy. Hits: the attacks a round times the chance to hit,
   less the hits Mirror Images and Stoneskin skins take first. A hit deals the weapon's damage
   (lessened by the enemy's resistance to its type, not by magic resistance or a save) and what it

@@ -137,8 +137,8 @@ Python/WeiDU agreement check on both labs.
     and Sleep and aims its Magic Missiles at the protagonist; the engine holds that opener, opens with Sleep
     or Horror, never casts Mirror Image or Power Word Sleep on Core, and spreads its missiles by worth (a
     light protagonist preference). Three fights ran into the two-minute limit: with his three Magic Missiles
-    spent and the party asleep, the engine's Tarnesh waited (casters do not walk into melee; SCS's mages
-    never melee either: `NeverMelee`). Questions for Christopher (2026-11-04): should a caster with nothing
+    spent and the party asleep, the engine's Tarnesh waited (casters did not walk into melee; that SCS's
+    mages never melee was a misreading, see v5). Questions for Christopher (2026-11-04): should a caster with nothing
     left beat a helpless foe with its weapon, and is the light preference right when SCS's missiles end the
     game by killing the protagonist? Tarnesh also carries a Scroll of Magic Missile nobody reads.
   - The four other encounters' ways in (flows, 2026-11-04): Neira and Greywolf work in both modes (Prism's
@@ -166,6 +166,23 @@ Python/WeiDU agreement check on both labs.
     then walking at a blocked spot for 20 seconds (FIGHT-01, blocked steps; a spot without a way there).
     Engine, Greywolf with Kestrel: the mid party lost all four (on Core all its members died); SCS's
     Greywolf comes alone. Batch v5 runs all 160 fights on the build with the blocked steps.
+  - Batch v5 (2026-11-04, the build 9685a08, 160 fights; 159 with a result). Party wins, engine and SCS, out of 16
+    each: Tarnesh 4 and 6 (of 15), Neira 4 and 5, Karlat 3 and 4, Silke 1 and 0, Greywolf 2 and 0. By party:
+    the lone hero lost all 40 fights, the duo won one (against SCS's Tarnesh), the level 1 to 2 party 2 against
+    the engine and 5 against SCS, the level 2 to 4 party 12 of 20 against the engine and 9 of 19 against SCS
+    (on Core 8 of 10 against the engine). The checks added after v3 and v4 acted five times, each rightly: a step away of
+    Tarnesh's ended after two seconds without getting nearer, two of Neira's were refused because the open
+    spot lay too far from the one asked for, and one stuck swing each of Karlat and Silke ended; no walk ran
+    into a wall. Two fights against
+    the engine's Tarnesh (the duo, Core) ran into the two-minute limit: his attack spells spent and Imoen dead,
+    he stood 80 seconds beside the hero he had put to sleep 195 away, his staff out of a caster's reach. SCS's
+    mages walk there (their melee block's shots without a missile weapon and its last block once the spells
+    are spent; learned.md section 4 corrects the earlier reading), and so do the engine's casters now, by
+    worth (FIGHT-01, F1d). Neira's one time-out was a long fight (she drank a healing potion and stood at 8
+    of 44). The lab lost two runs: the console did not answer while one of Tarnesh's phases was set up, and
+    the game ended by itself, without a Windows error report, in Greywolf's first SCS phase against the lone
+    hero (learned.md section 6; the quiet runner now records exit codes, and those eight phases ran again
+    without fault). Batch v6 runs Tarnesh, Neira and Silke again on the build with the casters' walk.
 - Encounter tooling (2026-11-04, Christopher: build each encounter faster than the last): the guide
   [docs/ENCOUNTERS.md](../ENCOUNTERS.md) with a checklist, where each decision goes and the pitfalls so far,
   and `tools/scout.py`, which shows everything about a creature in one command.

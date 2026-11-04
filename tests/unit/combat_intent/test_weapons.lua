@@ -89,13 +89,16 @@ assert(weapons.conjured(half,caster).apr==1.5)
 assert(weapons.conjured(hand,caster)==nil and weapons.conjured(bolt,caster)==nil and weapons.conjured(nil,caster)==nil)
 groups=groups+1
 
--- 2. Reach, immunities and hits. Melee goes within touchReach (160), a missile within its range;
--- an unseen enemy is no target. Protection from Magical Weapons keeps the +3 blade off, an
+-- 2. Reach, immunities and hits. Melee goes to any enemy the caster sees (SCS's mages walk there
+-- between casts, E8 v5), a touch strike's reach when one is given (160), a missile within its
+-- range; an unseen enemy is no target. Protection from Magical Weapons keeps the +3 blade off, an
 -- immunity up to +3 too, up to +2 not. Two swings at THAC0 10 against armour class 5 hit 1.6
 -- times a round; a Mirror Image takes one, two skins the rest.
 local m=mind.new()
-assert(weapons.reachable(caster,enemy(11,{x=250}),m,sword))
-assert(select(2,weapons.reachable(caster,enemy(11,{x=300}),m,sword))=='out-of-reach')
+assert(weapons.reachable(caster,enemy(11,{x=250}),m,sword) and weapons.reachable(caster,enemy(11,{x=900}),m,sword))
+assert(weapons.reachable(caster,enemy(11,{x=250}),m,nil,nil,160))
+assert(select(2,weapons.reachable(caster,enemy(11,{x=300}),m,nil,nil,160))=='out-of-reach')
+assert(select(2,weapons.reachable({id=1,x=100,y=100,rooted=true},enemy(11,{x=300}),m,sword))=='out-of-reach')
 assert(weapons.reachable(caster,enemy(11,{x=700}),m,met))
 assert(select(2,weapons.reachable(caster,enemy(11,{x=800}),m,met))=='out-of-reach')
 assert(select(2,weapons.reachable(caster,enemy(11,{x=150,state=targeting.STATE.invisible}),m,met))=='invisible')
@@ -139,14 +142,20 @@ i.frame.enemies={enemy(11,{x=200,hp=1,minHp=1})}
 assert(#choice.weaponOptions(i)==0)
 i.frame.enemies={enemy(11,{x=200,resist={crushing=50}})}
 assert(near(choice.weaponOptions(i)[1].worth,0.8*2.25/60*pace))
--- Out of reach and immune: no attack, and why. Behind a Mirror Image the round's 0.8 hits all go to
--- the image and deal nothing, yet they bring the kill closer: it takes 14 hits of 4.5 and one for
--- the image, so the round counts 14/15 of its 3.6 (after a walk of 0.46 seconds).
+-- Immune: no attack, and why; one further off is worth its walk (1.36 seconds). Behind a Mirror
+-- Image the round's 0.8 hits all go to the image and deal nothing, yet they bring the kill closer:
+-- it takes 14 hits of 4.5 and one for the image, so the round counts 14/15 of its 3.6 (after a
+-- walk of 0.46 seconds). A webbed caster reaches none of them: out of reach.
 local rejected={}
 i.frame.enemies={enemy(11,{x=300}),enemy(12,{x=200,protections={{opcode=120,p1=0,p2=2}}}),enemy(13,{x=210,mirror=1})}
 list=choice.weaponOptions(i,rejected)
-assert(#list==1 and list[1].target==13 and near(list[1].worth,3.6/60*14/15*6/6.46) and list[1].expected[13]==0)
-assert(rejected['out-of-reach']==1 and rejected['weapon-immunity']==1 and rejected.absorbed==nil)
+assert(#list==2 and list[1].target==13 and near(list[1].worth,3.6/60*14/15*6/6.46) and list[1].expected[13]==0)
+assert(list[2].target==11 and near(list[2].worth,3.6/60*6/7.36) and near(list[2].walk,1.36))
+assert(rejected['out-of-reach']==nil and rejected['weapon-immunity']==1 and rejected.absorbed==nil)
+rejected={}
+i.frame.self.rooted=true
+assert(#choice.weaponOptions(i,rejected)==0 and rejected['out-of-reach']==3 and rejected['weapon-immunity']==nil)
+i.frame.self.rooted=nil
 -- One the caster found it cannot get to (lab batch E8 v3: boxed in by others) is no melee target;
 -- the next one is.
 rejected={}
@@ -233,6 +242,12 @@ local j=input({spells={row('TESTBLAD',blade,2)}})
 j.frame.enemies={enemy(11,{x=200})}
 local b=choice.options(j)[1]
 assert(b.kind=='arm' and b.target==11 and b.cost>0.06)
+-- The walk to its enemy takes its share of the three rounds it counts for (E8 v5: casters walk to
+-- any enemy): 600 away, 5.36 seconds of 18; the meteors above walk nowhere.
+j.frame.enemies={enemy(11,{x=164})}
+local b0=choice.options(j)[1]
+j.frame.enemies={enemy(11,{x=700})}
+assert(near(choice.options(j)[1].worth,b0.worth*18/(18+5.36)))
 -- Readiness (combat-intent/choice.lua): no weapon conjured for a foe out of play.
 local away=input({spells={row('TESTMMM',mmm,3)},returning={enemy(11,{x=400,away='maze',back=5})}})
 assert(#choice.options(choice.readied(away))==0)
@@ -267,11 +282,12 @@ d,why=choice.decide(i)
 assert(why=='weapon' and d.kind=='weapon')
 groups=groups+1
 
--- 8. Chasing (F1d). A creature that chases (fighters and monsters) walks to any enemy it sees, a
--- caster no further than touchReach, one that cannot walk (webbed or entangled) no further than a
--- weapon reaches. The walk lowers the worth: an enemy 664 away takes six seconds at a fighter's
--- hundred a second, so a round of hits there counts half; twice as fast, two thirds. A wounded one
--- far off is still worth the walk.
+-- 8. Chasing (F1d). Every creature walks to any enemy it sees for its melee weapon (a caster too,
+-- as SCS's mages do between casts, E8 v5), one that cannot walk (webbed or entangled) no further
+-- than a weapon reaches; a touch strike goes as far only for a creature that chases (fighters and
+-- monsters), a caster's no further than touchReach (combat-intent/touch.lua). The walk lowers the
+-- worth: an enemy 664 away takes six seconds at a fighter's hundred a second, so a round of hits
+-- there counts half; twice as fast, two thirds. A wounded one far off is still worth the walk.
 assert(near(weapons.walk({x=100,y=100},{x=364,y=100}),2) and weapons.walk({x=100,y=100},{x=150,y=100})==0)
 assert(near(weapons.walk({x=100,y=100,speed=200},{x=364,y=100}),1))
 assert(weapons.paced(0)==1 and near(weapons.paced(3),2/3) and weapons.paced(nil)==1)
@@ -282,8 +298,24 @@ assert(weapons.approach({x=100,y=100,rooted=true},{x=700,y=100},480)==nil and we
 assert(mind.forFamily(mind.new(),'fighter').chase and mind.forFamily(mind.new(),'monster').chase)
 assert(not mind.new().chase and not mind.forFamily(mind.new(),'mage').chase)
 assert(select(2,mind.new({chase=1}))=='chase')
-assert(weapons.reach(mind.new({chase=true}))==math.huge and weapons.reach(mind.new())==160)
-assert(weapons.reach(mind.new({chase=true}),{rooted=true})==64)
+assert(weapons.reach(mind.new({chase=true}))==math.huge and weapons.reach(mind.new())==math.huge)
+assert(weapons.reach(mind.new({chase=true}),{rooted=true})==64 and weapons.reach(mind.new(),{rooted=true})==64)
+do
+    local touch=require('combat-intent.touch')
+    assert(touch.reach(mind.new({chase=true}))==math.huge and touch.reach(mind.new())==160)
+    assert(touch.reach(mind.new({chase=true}),{rooted=true})==64)
+    -- E8 v5: Tarnesh, out of attack spells, stood eighty seconds beside the hero he had put to
+    -- sleep 195 away, his staff out of a caster's reach. A mage walks to a sleeper now, at no cost
+    -- (a sleeper strikes nobody); an awake fighter as far off costs it what it would lose there.
+    local mage=input()
+    mage.frame.self.weapon=MACE
+    mage.frame.enemies={enemy(11,{x=600,state=targeting.STATE.sleeping,attack={apr=1,thac0=10,damage=8}})}
+    local o=choice.weaponOptions(mage)[1]
+    assert(o and o.target==11 and near(o.walk,(500-64)/100) and o.cost==0 and o.score>0)
+    mage.frame.enemies[1].state=0
+    o=choice.weaponOptions(mage)[1]
+    assert(o and o.target==11 and o.cost>0 and o.score<o.worth)
+end
 i=input({mind=mind.forFamily(mind.new(),'fighter')})
 i.frame.self.weapon=MACE
 i.frame.enemies={enemy(11,{x=164}),enemy(12,{x=764})}
@@ -299,11 +331,12 @@ o=choice.weaponOptions(i)[1]
 assert(o.target==12 and near(o.worth,(3.6/60+0.5*0.8)/2))
 local d8,why8=choice.decide(i)
 assert(why8=='weapon' and d8.target==12 and near(d8.walk,6))
--- A caster does not go that far; webbed, a fighter strikes only what its weapon reaches.
+-- A caster goes that far too (as SCS's mages do between casts, E8 v5); webbed, a fighter strikes
+-- only what its weapon reaches.
 i.mind=mind.new()
 rejected={}
 list=choice.weaponOptions(i,rejected)
-assert(#list==1 and list[1].target==11 and rejected['out-of-reach']==1)
+assert(#list==2 and list[1].target==12 and near(list[1].walk,6) and list[2].target==11 and rejected['out-of-reach']==nil)
 i.mind=mind.forFamily(mind.new(),'fighter')
 i.frame.self.rooted=true
 i.frame.enemies={enemy(11,{x=164}),enemy(12,{x=200})}

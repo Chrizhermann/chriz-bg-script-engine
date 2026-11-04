@@ -2817,9 +2817,11 @@ M.default={
     -- Its own weapon counts for its own buffs (Kai, Whirlwind Attack, rages, potions): fighters and
     -- monsters swing (M.FAMILIES), casters cast.
     ownWeapon=false,
-    -- It walks to any enemy it sees for a melee attack, as SCS's fighters and monsters do (their
-    -- MoveToObject blocks), the walk lowering what the attack is worth (combat-intent/weapons.lua):
-    -- fighters and monsters (M.FAMILIES). A caster goes no further than touchReach.
+    -- It goes for its enemies as SCS's fighters and monsters do (their MoveToObject blocks): a touch
+    -- strike at any enemy it sees, and a teleport it has into melee (combat-intent/choice.lua):
+    -- fighters and monsters (M.FAMILIES). A caster strikes no further than touchReach. Every
+    -- creature that can walk goes to the enemy its weapon attacks, the walk lowering the worth
+    -- (combat-intent/weapons.lua).
     chase=false,
     -- It attacks whenever nothing else is worth more, whatever standing next to the enemy costs;
     -- that cost only chooses between targets (Christopher, 2026-10-25): fighters and monsters
@@ -3586,28 +3588,31 @@ function M.missileBlocked(e,w)
     return false
 end
 
--- How far, in world units, the caster goes for a melee hit: the profile's touchReach in range
--- units (SCS's touch attacks: within 10); any distance for a creature that chases (mind.chase:
--- fighters and monsters); no further than a weapon reaches (threat.reach) for one that cannot walk
--- (webbed or entangled: caster.rooted).
+-- How far, in world units, the caster goes for a melee hit: to any enemy it sees, as SCS's
+-- creatures walk to theirs (fighters and monsters with MoveToObject; mages too, between casts and
+-- once their attack spells are spent, with AttackReevaluate: the mage script DW#MG468, decompiled
+-- read only, E8 v5); the walk and, for casters, standing next to the enemy lower what the hit is
+-- worth (combat-intent/choice.lua). No further than a weapon reaches (threat.reach) for one that
+-- cannot walk (webbed or entangled: caster.rooted). Touch strikes go less far
+-- (combat-intent/touch.lua).
 function M.reach(mind,caster)
     if type(caster)=='table' and caster.rooted==true then return threat.reach end
-    if type(mind)=='table' and mind.chase==true then return math.huge end
-    return (type(mind)=='table' and number(mind.touchReach) and mind.touchReach or 0)*targeting.rangeUnit
+    return math.huge
 end
 -- Whether the caster can attack e with weapon w: alive, no sanctuary, seen, within the weapon's
--- range for missiles and thrown weapons, within reach for melee. Else false and why. A weapon
--- without its own (w nil) counts as melee. An enemy the caster found it cannot get to on foot
--- (caster.unreachable, its ids: others block every way, adapters/eeex/choice.lua) is out of melee
--- reach for now, unless the caster leaps there (a teleport, leap).
-function M.reachable(caster,e,mind,w,leap)
+-- range for missiles and thrown weapons, within reach for melee (M.reach, or reach when given: a
+-- touch strike's). Else false and why. A weapon without its own (w nil) counts as melee. An enemy
+-- the caster found it cannot get to on foot (caster.unreachable, its ids: others block every way,
+-- adapters/eeex/choice.lua) is out of melee reach for now, unless the caster leaps there (a
+-- teleport, leap).
+function M.reachable(caster,e,mind,w,leap,reach)
     if not targeting.alive(e) then return false,'dead' end
     if number(e.sanctuary) and e.sanctuary>0 then return false,'sanctuary' end
     if targeting.has(e.state,UNSEEN) and not caster.seeInvisible then return false,'invisible' end
     local d=targeting.distance(caster,e)
     if d==math.huge then return false,'no-position' end
     local ranged=type(w)=='table' and w.ranged
-    local far=ranged and (number(w.range) and w.range or 0) or M.reach(mind,caster)
+    local far=ranged and (number(w.range) and w.range or 0) or (number(reach) and reach) or M.reach(mind,caster)
     if d>far then return false,'out-of-reach' end
     if not ranged and not leap and type(caster.unreachable)=='table' and caster.unreachable[e.id] then
         return false,'unreachable'
@@ -4187,11 +4192,17 @@ function M.charge(spell)
 end
 
 -- How far, in world units, the caster goes for a strike: the profile's touchReach in range
--- units (SCS: within 10), as for any melee hit (combat-intent/weapons.lua).
-M.reach=weapons.reach
+-- units (SCS's touch attacks: within 10), any distance for a creature that chases (mind.chase:
+-- fighters and monsters), no further than a weapon reaches (threat.reach) for one that cannot walk
+-- (webbed or entangled: caster.rooted). A weapon's melee hit goes further (combat-intent/weapons.lua).
+function M.reach(mind,caster)
+    if type(caster)=='table' and caster.rooted==true then return threat.reach end
+    if type(mind)=='table' and mind.chase==true then return math.huge end
+    return (type(mind)=='table' and number(mind.touchReach) and mind.touchReach or 0)*targeting.rangeUnit
+end
 
 -- Whether the caster can go for e: alive, no sanctuary, seen, within reach. Else false and why.
-function M.reachable(caster,e,mind) return weapons.reachable(caster,e,mind,nil) end
+function M.reachable(caster,e,mind) return weapons.reachable(caster,e,mind,nil,nil,M.reach(mind,caster)) end
 
 -- The chance a swing of w hits e: a d20 against the caster's THAC0 less the weapon's bonus, and
 -- e's armour class.
@@ -7177,8 +7188,8 @@ factories["combat-intent.choice"]=function(require)
 -- Weapon attacks (D2c, combat-intent/weapons.lua; Christopher, 2026-10-20): the weapon in the
 -- caster's hand, conjured or not, is worth a round of its hits on the enemy it attacks, less what
 -- standing next to that enemy costs for melee. The walk to a melee enemy comes first and lowers
--- the worth; fighters and monsters walk to any enemy they see (mind.chase, F1d), casters only
--- within touchReach. It spends nothing, so it needs no minimum worth:
+-- the worth; every creature walks to any enemy it sees (F1d), casters as SCS's mages do between
+-- casts (E8 v5). It spends nothing, so it needs no minimum worth:
 -- when no spell reaches minValue, the engine attacks. A spell
 -- that conjures a weapon is worth the hits the weapon deals in the rounds after, as many as it
 -- lasts within the horizon. Neither in the caster's own Time Stop nor under Improved Alacrity.
@@ -8367,8 +8378,9 @@ end
 
 -- Options of one ready spell that conjures a weapon (arms, combat-intent/weapons.lua): cast on
 -- the caster, worth the hits the weapon deals in the rounds after, as many as it lasts within
--- the horizon (the enemy's images and skins taking their hits once), at the enemy in its reach
--- where they are worth most. Cost: the spell's level, and
+-- the horizon (the enemy's images and skins taking their hits once), less the share of those
+-- rounds the walk to a melee enemy takes, at the enemy in its reach where they are worth most.
+-- Cost: the spell's level, and
 -- for a melee weapon the hit points lost standing next to that enemy those rounds, times caution.
 local function armOptions(input,row,spell,arms,out,reject)
     local frame=input.frame
@@ -8384,6 +8396,8 @@ local function armOptions(input,row,spell,arms,out,reject)
         if ok then
             local _,raw,absorbed=weapons.hits(arms.apr,arms.thac0,e)
             local worth,hp=hitsOn(input,arms,raw*rounds,e,nil,absorbed)
+            -- The walk shares out over the rounds: rounds*6 / (rounds*6 + walk) of their hits.
+            if not arms.ranged then worth=worth*weapons.paced(weapons.walk(caster,e)/rounds) end
             if worth>best or (worth==best and worth>0 and e.id<target) then best,target,expected=worth,e.id,hp end
         else reject(why) end
     end
@@ -8555,7 +8569,7 @@ end
 -- could take up): with each at each enemy it reaches and can hurt, best first. Worth: a round of
 -- its hits (behind Mirror Images and skins as hitsOn counts them), as much of it as counts for a
 -- round after what comes first (weapons.paced): the walk
--- to a melee enemy (a creature that chases walks to any enemy it sees, weapons.reach), the walk
+-- to a melee enemy (any enemy it sees, weapons.reach), the walk
 -- into a missile's range, and taking up a weapon not in hand (weapons.switchSeconds); on a casting
 -- enemy what breaking its spell is worth with the hits that come after those. Cost: for melee, the
 -- hit points the caster loses to the weapons around the target that round, times caution. A weapon

@@ -117,28 +117,31 @@ function M.missileBlocked(e,w)
     return false
 end
 
--- How far, in world units, the caster goes for a melee hit: the profile's touchReach in range
--- units (SCS's touch attacks: within 10); any distance for a creature that chases (mind.chase:
--- fighters and monsters); no further than a weapon reaches (threat.reach) for one that cannot walk
--- (webbed or entangled: caster.rooted).
+-- How far, in world units, the caster goes for a melee hit: to any enemy it sees, as SCS's
+-- creatures walk to theirs (fighters and monsters with MoveToObject; mages too, between casts and
+-- once their attack spells are spent, with AttackReevaluate: the mage script DW#MG468, decompiled
+-- read only, E8 v5); the walk and, for casters, standing next to the enemy lower what the hit is
+-- worth (combat-intent/choice.lua). No further than a weapon reaches (threat.reach) for one that
+-- cannot walk (webbed or entangled: caster.rooted). Touch strikes go less far
+-- (combat-intent/touch.lua).
 function M.reach(mind,caster)
     if type(caster)=='table' and caster.rooted==true then return threat.reach end
-    if type(mind)=='table' and mind.chase==true then return math.huge end
-    return (type(mind)=='table' and number(mind.touchReach) and mind.touchReach or 0)*targeting.rangeUnit
+    return math.huge
 end
 -- Whether the caster can attack e with weapon w: alive, no sanctuary, seen, within the weapon's
--- range for missiles and thrown weapons, within reach for melee. Else false and why. A weapon
--- without its own (w nil) counts as melee. An enemy the caster found it cannot get to on foot
--- (caster.unreachable, its ids: others block every way, adapters/eeex/choice.lua) is out of melee
--- reach for now, unless the caster leaps there (a teleport, leap).
-function M.reachable(caster,e,mind,w,leap)
+-- range for missiles and thrown weapons, within reach for melee (M.reach, or reach when given: a
+-- touch strike's). Else false and why. A weapon without its own (w nil) counts as melee. An enemy
+-- the caster found it cannot get to on foot (caster.unreachable, its ids: others block every way,
+-- adapters/eeex/choice.lua) is out of melee reach for now, unless the caster leaps there (a
+-- teleport, leap).
+function M.reachable(caster,e,mind,w,leap,reach)
     if not targeting.alive(e) then return false,'dead' end
     if number(e.sanctuary) and e.sanctuary>0 then return false,'sanctuary' end
     if targeting.has(e.state,UNSEEN) and not caster.seeInvisible then return false,'invisible' end
     local d=targeting.distance(caster,e)
     if d==math.huge then return false,'no-position' end
     local ranged=type(w)=='table' and w.ranged
-    local far=ranged and (number(w.range) and w.range or 0) or M.reach(mind,caster)
+    local far=ranged and (number(w.range) and w.range or 0) or (number(reach) and reach) or M.reach(mind,caster)
     if d>far then return false,'out-of-reach' end
     if not ranged and not leap and type(caster.unreachable)=='table' and caster.unreachable[e.id] then
         return false,'unreachable'

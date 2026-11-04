@@ -59,8 +59,8 @@
 -- Weapon attacks (D2c, combat-intent/weapons.lua; Christopher, 2026-10-20): the weapon in the
 -- caster's hand, conjured or not, is worth a round of its hits on the enemy it attacks, less what
 -- standing next to that enemy costs for melee. The walk to a melee enemy comes first and lowers
--- the worth; fighters and monsters walk to any enemy they see (mind.chase, F1d), casters only
--- within touchReach. It spends nothing, so it needs no minimum worth:
+-- the worth; every creature walks to any enemy it sees (F1d), casters as SCS's mages do between
+-- casts (E8 v5). It spends nothing, so it needs no minimum worth:
 -- when no spell reaches minValue, the engine attacks. A spell
 -- that conjures a weapon is worth the hits the weapon deals in the rounds after, as many as it
 -- lasts within the horizon. Neither in the caster's own Time Stop nor under Improved Alacrity.
@@ -1249,8 +1249,9 @@ end
 
 -- Options of one ready spell that conjures a weapon (arms, combat-intent/weapons.lua): cast on
 -- the caster, worth the hits the weapon deals in the rounds after, as many as it lasts within
--- the horizon (the enemy's images and skins taking their hits once), at the enemy in its reach
--- where they are worth most. Cost: the spell's level, and
+-- the horizon (the enemy's images and skins taking their hits once), less the share of those
+-- rounds the walk to a melee enemy takes, at the enemy in its reach where they are worth most.
+-- Cost: the spell's level, and
 -- for a melee weapon the hit points lost standing next to that enemy those rounds, times caution.
 local function armOptions(input,row,spell,arms,out,reject)
     local frame=input.frame
@@ -1266,6 +1267,8 @@ local function armOptions(input,row,spell,arms,out,reject)
         if ok then
             local _,raw,absorbed=weapons.hits(arms.apr,arms.thac0,e)
             local worth,hp=hitsOn(input,arms,raw*rounds,e,nil,absorbed)
+            -- The walk shares out over the rounds: rounds*6 / (rounds*6 + walk) of their hits.
+            if not arms.ranged then worth=worth*weapons.paced(weapons.walk(caster,e)/rounds) end
             if worth>best or (worth==best and worth>0 and e.id<target) then best,target,expected=worth,e.id,hp end
         else reject(why) end
     end
@@ -1437,7 +1440,7 @@ end
 -- could take up): with each at each enemy it reaches and can hurt, best first. Worth: a round of
 -- its hits (behind Mirror Images and skins as hitsOn counts them), as much of it as counts for a
 -- round after what comes first (weapons.paced): the walk
--- to a melee enemy (a creature that chases walks to any enemy it sees, weapons.reach), the walk
+-- to a melee enemy (any enemy it sees, weapons.reach), the walk
 -- into a missile's range, and taking up a weapon not in hand (weapons.switchSeconds); on a casting
 -- enemy what breaking its spell is worth with the hits that come after those. Cost: for melee, the
 -- hit points the caster loses to the weapons around the target that round, times caution. A weapon

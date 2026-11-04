@@ -64,9 +64,11 @@ M.default={
     -- Its own weapon counts for its own buffs (Kai, Whirlwind Attack, rages, potions): fighters and
     -- monsters swing (M.FAMILIES), casters cast.
     ownWeapon=false,
-    -- It walks to any enemy it sees for a melee attack, as SCS's fighters and monsters do (their
-    -- MoveToObject blocks), the walk lowering what the attack is worth (combat-intent/weapons.lua):
-    -- fighters and monsters (M.FAMILIES). A caster goes no further than touchReach.
+    -- It goes for its enemies as SCS's fighters and monsters do (their MoveToObject blocks): a touch
+    -- strike at any enemy it sees, and a teleport it has into melee (combat-intent/choice.lua):
+    -- fighters and monsters (M.FAMILIES). A caster strikes no further than touchReach. Every
+    -- creature that can walk goes to the enemy its weapon attacks, the walk lowering the worth
+    -- (combat-intent/weapons.lua).
     chase=false,
     -- It attacks whenever nothing else is worth more, whatever standing next to the enemy costs;
     -- that cost only chooses between targets (Christopher, 2026-10-25): fighters and monsters

@@ -27,11 +27,17 @@ function M.charge(spell)
 end
 
 -- How far, in world units, the caster goes for a strike: the profile's touchReach in range
--- units (SCS: within 10), as for any melee hit (combat-intent/weapons.lua).
-M.reach=weapons.reach
+-- units (SCS's touch attacks: within 10), any distance for a creature that chases (mind.chase:
+-- fighters and monsters), no further than a weapon reaches (threat.reach) for one that cannot walk
+-- (webbed or entangled: caster.rooted). A weapon's melee hit goes further (combat-intent/weapons.lua).
+function M.reach(mind,caster)
+    if type(caster)=='table' and caster.rooted==true then return threat.reach end
+    if type(mind)=='table' and mind.chase==true then return math.huge end
+    return (type(mind)=='table' and number(mind.touchReach) and mind.touchReach or 0)*targeting.rangeUnit
+end
 
 -- Whether the caster can go for e: alive, no sanctuary, seen, within reach. Else false and why.
-function M.reachable(caster,e,mind) return weapons.reachable(caster,e,mind,nil) end
+function M.reachable(caster,e,mind) return weapons.reachable(caster,e,mind,nil,nil,M.reach(mind,caster)) end
 
 -- The chance a swing of w hits e: a d20 against the caster's THAC0 less the weapon's bonus, and
 -- e's armour class.
