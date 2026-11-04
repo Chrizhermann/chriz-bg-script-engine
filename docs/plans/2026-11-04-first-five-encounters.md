@@ -144,6 +144,17 @@ Python/WeiDU agreement check on both labs.
   - The four other encounters' ways in (flows, 2026-11-04): Neira and Greywolf work in both modes (Prism's
     plea, Greywolf's cutscene, Kestrel created by the engine on Core); Karlat's and Silke's needed two lab
     fixes (see ENCOUNTERS.md: the NPC list's names, a party made out of the creature's sight).
+  - Batch v3 (2026-11-04, the build b49ee1d, 32 fights each against Neira, Karlat and Greywolf). The party
+    won 2 of 16 against the engine's Neira and 5 against SCS's, 2 and 4 against Karlat, none against
+    Greywolf in either mode. Two engine faults, both fixed (7833413, CHOICE-01 and FIGHT-01): Neira's Unholy
+    Blight went to the spot where a charging hero stood when she chose it, and he took nothing (her fights
+    against the lone hero took 45 to 50 seconds, SCS's 4 to 10); and Karlat, boxed in by four of the party,
+    swung at Imoen behind them for a hundred seconds until the time ran out, with 3 of his 35 hit points
+    left. The lab's own fault: the PC was the test save's level-1 fighter (12 hit points) in every party,
+    the level 2 to 4 one too, so the protagonist's fall ended most fights within seconds (Greywolf: 8 of 8
+    in 3 to 10 seconds). Batch v4 gives it level 3 there (`labEnc.lua`, HERO) and runs the mid party again
+    against all five, with Neira against the lone hero and the duo and Karlat against the level 1 to 2
+    party, on the fixed build.
 - Encounter tooling (2026-11-04, Christopher: build each encounter faster than the last): the guide
   [docs/ENCOUNTERS.md](../ENCOUNTERS.md) with a checklist, where each decision goes and the pitfalls so far,
   and `tools/scout.py`, which shows everything about a creature in one command.
