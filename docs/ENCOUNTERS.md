@@ -120,3 +120,7 @@ creates the creature, so a playthrough may differ (scout shows the odds).
 - Testing a talk-on-sight creature in a small room: the console's move (`C:MoveToArea`) drops the party
   inside, where Karlat sees it at once and sets off to talk; moved again, it is gone, and `INITDLG` does not
   try a second time. Make the party in the street and let it walk in through the door (`LeaveAreaLUA`).
+- A lab party's PC must have the party's level: the protagonist's fall ends a phase, as it ends the game,
+  and the test save's level-1 fighter in the level 2 to 4 party ended most of batch v3's fights there within
+  seconds (`learned.md`, section 6; the encounter lab's `HERO`). List every member's level and hit points
+  first (`tools/scout.py`).
