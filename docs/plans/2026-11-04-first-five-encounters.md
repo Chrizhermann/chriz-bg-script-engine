@@ -192,6 +192,56 @@ Python/WeiDU agreement check on both labs.
     humans, while across batches v3 to v6 swings landed up to 75 apart and never beyond, so it now allows
     76 (FIGHT-01, F1d). One SCS fight against Tarnesh ran out of time too (the level 1 to 2 party on
     Insane, Tarnesh at 10 of 25).
+  - Batch v7 (2026-11-04 and 05, the build 12ea94c, 159 of 160 fights with a result; the console's silence
+    cost one SCS fight of Silke's against the lone hero, and an app restart stopped the chain once, which
+    the run recovered from). Party wins, engine and SCS, out of 16 each: Tarnesh 1 and 7, Neira 4 and 7,
+    Karlat 5 and 4, Silke 0 and 0, Greywolf 1 and 0. No fight ran out of time, no game ended by itself, the
+    casters' walks held (Tarnesh's staff after a walk 39 times, up to 3.8 seconds), and the stuck check
+    acted twice, both rightly. These wins do not count yet: reading Tarnesh's long fights showed two faults
+    of the lab, not of the engine (learned.md section 6). The lab's minimum of one hit point on the PC read
+    as "no kill" to the engine, which then left a low PC alone: in `greywolf-mid-own-c-1`, the one party win
+    against the engine's Greywolf, the PC stood at 2 hit points for 22 seconds while the foes chose others.
+    And in Tarnesh's fights about a quarter of the companions, in both modes, stood out of the bot's sight
+    for whole fights. Batch v8 fixes both on the same build and runs Tarnesh in full and the other four's
+    engine fights; SCS's v7 fights stand for those four, as they neither read the minimum nor had idle
+    members.
+  - Batch v8 (2026-11-05, the build 12ea94c with both lab faults fixed, 112 fights, all with a result; no
+    time-out, no phase lost, no game ended by itself, every cleanup clean, no bot error). The first send-up
+    did nothing (learned.md section 6), so Tarnesh's level 1 to 2 and level 2 to 4 fights ran again as
+    `tarnesh-v8b` with an attack order: all 32 members sent walked 500 to 900 round the inn, and of the 8 not
+    within 300 of him at the end six had the order still running, one lay asleep and one ran in panic from
+    his Horror. The hero's minimum no longer
+    turned anyone away: the foes went on choosing the low PC in every fight but one
+    (`silke-low-own-i-2`, two choices at others with the PC at 6 hit points). The closing table below
+    takes Tarnesh's lone hero and duo fights from v8, his larger parties from `tarnesh-v8b`, the other four's
+    engine fights from v8 and their SCS fights from v7.
+
+    Party wins, engine/SCS, of two fights a cell (Silke's lone hero on Insane against SCS: one fight):
+
+    | Encounter | lone hero Core | Insane | duo Core | Insane | level 1 to 2 Core | Insane | level 2 to 4 Core | Insane | all of 16 |
+    | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+    | Tarnesh | 0/0 | 0/0 | 0/1 | 0/0 | 1/2 | 2/1 | 2/2 | 2/2 | 7/8 |
+    | Neira | 0/0 | 0/0 | 0/0 | 0/0 | 0/2 | 0/1 | 2/2 | 2/2 | 4/7 |
+    | Karlat | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 2/2 | 2/2 | 4/4 |
+    | Silke | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 1/0 | 0/0 | 1/0 |
+    | Greywolf | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 |
+
+    In all 16 of 80 against the engine and 19 of 79 against SCS; by party, engine and SCS, the lone hero 0
+    and 0, the duo 0 and 1, the level 1 to 2 party 3 and 6, the level 2 to 4 party 13 and 12, each of 20
+    (SCS's lone hero of 19). Two fights a cell show the direction, not a measure, and the bot is no good
+    player. With every member fighting, Tarnesh's larger parties win about as often against the engine as
+    against SCS (7 and 7 of 8); before, his low Core and Insane fights stood at 0 and 4 of 4. In 80 engine
+    fights three steps away were refused and the stuck check acted four times: twice rightly, at a target
+    that had walked off, and twice wrongly, on swings that landed. Tarnesh hit the sleeping hero 80 away, Silke
+    hers 82 away, both with a staff, and the check ended the swing because it allows 76. The game's reach
+    follows the weapon: the Quarterstaff, Halberd, Spear and Two-Handed Sword have a range of 2, Club, Axe and
+    Long Sword 1, the Dagger 0, and every hit beyond 76 in batches v3 to v8 came from a staff (up to 87; one
+    at 85 from Kestrel's arrow). Neither fight's end turned on it: Tarnesh's next choice, Magic Missile, felled
+    the hero, and Silke went on with her staff at another target. What stays is
+    for the fight-by-fight tuning with Christopher: Neira on Core opens with Unholy Blight and ended both
+    fights of the level 1 to 2 party in under 4 seconds (on Insane she follows her book, and those fights
+    took about a minute), and Greywolf with Kestrel beat the level 2 to 4 party in 7 seconds at the median
+    (SCS's Greywolf alone in 16).
 - Encounter tooling (2026-11-04, Christopher: build each encounter faster than the last): the guide
   [docs/ENCOUNTERS.md](../ENCOUNTERS.md) with a checklist, where each decision goes and the pitfalls so far,
   and `tools/scout.py`, which shows everything about a creature in one command.

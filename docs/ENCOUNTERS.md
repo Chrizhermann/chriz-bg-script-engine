@@ -128,6 +128,8 @@ creates the creature, so a playthrough may differ (scout shows the odds).
   and the test save's level-1 fighter in the level 2 to 4 party ended most of batch v3's fights there within
   seconds (`learned.md`, section 6; the encounter lab's `HERO`). List every member's level and hit points
   first (`tools/scout.py`).
-- Before reading a lab batch, check two things (`learned.md`, section 6): that every member fought (the table
-  shows only wins and hit points; `analyzeEnc.py` lists members never ordered), and what the lab gives a
-  creature that the game would not and the engine reads (the PC's minimum of one hit point read as "no kill").
+- Before reading a lab batch, check three things (`learned.md`, section 6): that every member fought (the table
+  shows only wins and hit points; `analyzeEnc.py` lists members never ordered, and an order alone proves no
+  walk: compare positions), what the lab gives a creature that the game would not and the engine reads (the
+  PC's minimum of one hit point read as "no kill"), and that no fight is missing (a set can end clean without
+  one; `analyzeEnc.py` lists the phases lost or repeated).
