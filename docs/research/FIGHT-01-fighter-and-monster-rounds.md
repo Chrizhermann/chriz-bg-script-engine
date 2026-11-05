@@ -120,18 +120,23 @@ engine's or the script's, starts the pause before the next defence (SCS's redefe
   four of the party, swung at Imoen behind them for a hundred seconds without a step, until the
   two-minute limit, with 3 of his 35 hit points left). An attacker that stands still for three
   seconds (45 ticks, no step of 8 or more) while its target stands beyond a swing's reach for the two
-  of them is stuck (`M.stuck`, `M.swingReach`): a weapon's reach, 64 for two of a human's size and 16
-  more for each cell of personal space either has beyond a human's 3 (`M.pairReach`), so a big
-  monster swinging from its own edge is never taken for stuck, and 12 more, as swings go a little
-  further (`M.reachSlack`); without the sizes nothing is. The engine then leaves that target out of
+  of them is stuck (`M.stuck`, `M.swingReach`): a weapon's reach, 64 for two of a human's size with a
+  weapon of range 1, 16 more or less for each point of the weapon's own range from 1 (`swing`, the
+  ITM ability's range: a Halberd, Quarterstaff or Two-handed Sword 2, a Dagger 0), 16 more for each
+  cell of personal space either has beyond a human's 3 (`M.pairReach`), so a big monster swinging
+  from its own edge is never taken for stuck, and 12 more, as swings go a little further
+  (`M.reachSlack`); without the sizes nothing is. The engine then leaves that target out of
   the creature's melee choices for two rounds, or until it stands within that reach again
   (`frame.self.unreachable`, `weapons.reachable`); missiles, spells and a teleport still go there.
-  The attack row says `stuck`. Until E8 v6 the margin was half a reach (96 for two humans); then
-  Neira, boxed in by Khalid and Jaheira, aimed at the hero 79 away for seventy seconds without a
-  swing. Across the encounter lab's batches v3 to v6, attacks between two creatures of a human's
-  size, both standing, dealt damage up to 75 apart (in about half the samples at 72 to 75) and not
-  from 76 to 99 (74 samples; in one more, at 85, the target lost hit points while Kestrel was
-  shooting at it); hence 76.
+  The attack row says `stuck` and the reach. Until E8 v6 the margin was half a reach (96 for two
+  humans); then Neira, boxed in by Khalid and Jaheira, aimed at the hero 79 away for seventy seconds
+  without a swing. Across the encounter lab's batches v3 to v9, between two creatures of a human's
+  size, both standing, weapons of range 1 dealt damage up to 75 apart (in about half the samples at
+  72 to 75) and not from 76 to 99 (in one more, at 85, the target lost hit points while Kestrel was
+  shooting at it); hence 76. Weapons of range 2 dealt damage up to 89 (Kivan's Halberd, Tarnesh's
+  Quarterstaff at 87), hence 92, and until E8 v9, with one reach for all, the check ended staff
+  swings that landed (Tarnesh's at 80 and Silke's at 82 in v8). Alora's Dagger stopped to swing no
+  further than 39 in 18 stops, where swords in the same fights stopped up to 70: 60 for range 0.
 
 ### The engine owns the round (2026-10-25)
 

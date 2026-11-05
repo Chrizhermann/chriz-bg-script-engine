@@ -242,6 +242,14 @@ Python/WeiDU agreement check on both labs.
     fights of the level 1 to 2 party in under 4 seconds (on Insane she follows her book, and those fights
     took about a minute), and Greywolf with Kestrel beat the level 2 to 4 party in 7 seconds at the median
     (SCS's Greywolf alone in 16).
+  - Batch v9 (2026-11-05, 40 fights, all with a result): the swing's reach by weapon. A party with Alora's
+    Dagger, Minsc's Two-handed Sword, Montaron's Short Sword and Kagain's Battle Axe against Neira and Karlat
+    showed where each stops to swing: the Dagger no further than 39 in 18 stops, swords up to 70, the
+    Two-handed Sword up to 85. The reach now follows the weapon's own range, 60, 76 and 92 between two humans
+    (FIGHT-01, F1d). The first run's 12 engine fights still had the old build, as the lab installs its
+    snapshot (learned.md section 6; `labrunEnc.py` now refuses a stale one); on the build 958085f, Tarnesh's and
+    Silke's staffs read a reach of 80 in all 27 attack rows, and the one swing that ended as stuck (Tarnesh's)
+    had not landed. Step 8 is done. What stays is the tuning of each fight with Christopher.
 - Encounter tooling (2026-11-04, Christopher: build each encounter faster than the last): the guide
   [docs/ENCOUNTERS.md](../ENCOUNTERS.md) with a checklist, where each decision goes and the pitfalls so far,
   and `tools/scout.py`, which shows everything about a creature in one command.
