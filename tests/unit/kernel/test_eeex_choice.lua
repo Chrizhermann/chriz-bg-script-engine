@@ -1000,8 +1000,10 @@ fighter.m_curAction={m_actionID=0}
 assert(choices.pairReach(3,3)==64 and choices.pairReach(5,3)==96 and choices.pairReach(1,3)==64)
 assert(choices.pairReach(nil,3)==nil and choices.swingReach(64)==76)
 -- The weapon's own range: a Quarterstaff or Halberd (2) strikes a range unit further than a sword
--- (1), and it adds to a big creature's. (v8: Tarnesh's staff landed 80 away, a Halberd 89 away.)
+-- (1), a Dagger (0) one less, and it adds to a big creature's. (v8: Tarnesh's staff landed 80 away,
+-- a Halberd 89 away; v9: a Dagger stopped to swing at 39 at most.)
 assert(choices.pairReach(3,3,1)==64 and choices.pairReach(3,3,2)==80 and choices.pairReach(5,3,2)==112)
+assert(choices.pairReach(3,3,0)==48 and choices.swingReach(choices.pairReach(3,3,0))==60)
 assert(choices.swingReach(choices.pairReach(3,3,2))==92 and choices.pairReach(nil,3,2)==nil)
 assert(not choices.stuck({melee=true,reach=64,spot={x=0,y=0},still=0},{x=0,y=0},{x=200,y=0},44))
 assert(choices.stuck({melee=true,reach=64,spot={x=0,y=0},still=0},{x=0,y=0},{x=200,y=0},45))

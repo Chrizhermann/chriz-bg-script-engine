@@ -13626,13 +13626,14 @@ M.WEAPON_SLOTS={[35]=true,[36]=true,[37]=true,[38]=true}
 -- them (M.swingReach); the engine then leaves that target to its other choices for
 -- unreachableTicks, or until it stands within that reach. The reach between two creatures grows by
 -- spaceReach for each cell of personal space (search-map cells) either has beyond a human's
--- (humanSpace), and by a range unit for each point of the weapon's own range beyond swordRange. A
+-- (humanSpace), and by a range unit for each point of the weapon's own range from swordRange. A
 -- swing reaches reachSlack beyond a weapon's reach (threat.reach): in the encounter lab's batches
--- E8 v3 to v8, between two creatures of a human's size, weapons of range 1 (Club, Long Sword, Battle
+-- E8 v3 to v9, between two creatures of a human's size, weapons of range 1 (Club, Long Sword, Battle
 -- Axe) dealt damage up to 75 apart and none from 76 to 99 (one more hit at 85 came from an archer),
--- Quarterstaves and Halberds (range 2) up to 89, and Neira, boxed in by Khalid and Jaheira, aimed
--- her Club at the hero 79 away for seventy seconds without a swing (v6). Tarnesh's staff at 80 and
--- Silke's at 82 landed and were taken for stuck while one reach held for all weapons (v8).
+-- Quarterstaves and Halberds (range 2) up to 89, Alora's Dagger (range 0) stopped to swing no further
+-- than 39, and Neira, boxed in by Khalid and Jaheira, aimed her Club at the hero 79 away for seventy
+-- seconds without a swing (v6). Tarnesh's staff at 80 and Silke's at 82 landed and were taken for
+-- stuck while one reach held for all weapons (v8).
 M.stillSlack=8
 M.stuckTicks=45
 M.unreachableTicks=180
@@ -13722,11 +13723,12 @@ function M.outrun(s,at,seen,tick)
 end
 -- A weapon's reach between two creatures of personal spaces a and b (search-map cells): a weapon's
 -- reach (threat.reach) for two of a human's size, spaceReach more for each cell either is larger,
--- so a big monster's swing from its own edge still counts, and a range unit more for each point of
--- swing, the weapon's own range (arsenal), beyond swordRange. nil when a space is unknown.
+-- so a big monster's swing from its own edge still counts, and a range unit for each point of swing,
+-- the weapon's own range (arsenal), from swordRange: a Halberd's more, a Dagger's less. nil when a
+-- space is unknown.
 function M.pairReach(a,b,swing)
     if type(a)~='number' or type(b)~='number' then return nil end
-    local long=type(swing)=='number' and math.max(0,swing-M.swordRange) or 0
+    local long=type(swing)=='number' and swing-M.swordRange or 0
     return threat.reach+targeting.rangeUnit*long+M.spaceReach*(math.max(0,a-M.humanSpace)+math.max(0,b-M.humanSpace))
 end
 -- How far a swing goes between two creatures whose pair reach is r (M.pairReach): reachSlack more.
