@@ -3968,9 +3968,10 @@ end
 -- slot and abilityNum for SelectWeaponAbility, whether it can backstab (M.THIEF) and the item's
 -- category (ITEMCAT.IDS, for critical hit effects of one category); also the creature's strength
 -- and exceptional strength and which of strength's bonuses the weapon takes (strengthHit,
--- strengthDamage), for buffs that change its strength (combat-intent/defence.lua), and the weapon's
+-- strengthDamage), for buffs that change its strength (combat-intent/defence.lua), the weapon's
 -- own damage dice and its ammunition's (rolls: {dice, sides} each), for luck on base weapon damage
--- (threat.luckGain).
+-- (threat.luckGain), and a melee weapon's own range (swing: a Quarterstaff's or Halberd's 2, a Long
+-- Sword's 1), which sets how far it strikes (adapters/eeex/choice.lua, M.pairReach).
 local function attack(c,s,hit,damage)
     local stats=c.stats
     local melee=not s.ranged
@@ -3999,6 +4000,8 @@ local function attack(c,s,hit,damage)
         if range<=0 and s.shot then range=value(s.shot.range) end
         if range>0 then out.range=range*targeting.rangeUnit end
         out.projectile=a.projectile
+    else
+        out.swing=number(s.use.range) and s.use.range or nil
     end
     return out
 end
@@ -8612,7 +8615,8 @@ function M.weaponOptions(input,rejected)
                     worth=worth+stop
                     out[#out+1]={resref=arms.item or 'WEAPON',kind='weapon',mode='creature',target=e.id,worth=worth,
                         cost=cost,score=worth-cost,hits={e.id},slack=0,expected={[e.id]=expected},speed=0,
-                        melee=not arms.ranged or nil,walk=walk>0 and walk or nil,interrupt=stop>0 and stop or nil,
+                        melee=not arms.ranged or nil,swing=not arms.ranged and arms.swing or nil,
+                        walk=walk>0 and walk or nil,interrupt=stop>0 and stop or nil,
                         slot=switch and arms.slot or nil,abilityNum=switch and arms.abilityNum or nil,
                         ammo=switch and arms.ammo or nil,backstab=bs and bs.chance or nil}
                 else reject('no-worth') end
@@ -13622,16 +13626,19 @@ M.WEAPON_SLOTS={[35]=true,[36]=true,[37]=true,[38]=true}
 -- them (M.swingReach); the engine then leaves that target to its other choices for
 -- unreachableTicks, or until it stands within that reach. The reach between two creatures grows by
 -- spaceReach for each cell of personal space (search-map cells) either has beyond a human's
--- (humanSpace). A swing reaches reachSlack beyond a weapon's reach (threat.reach): in the encounter
--- lab's batches E8 v3 to v6, attacks between two creatures of a human's size, both standing, dealt
--- damage up to 75 apart and not from 76 to 99 (74 samples; one more hit at 85 came from an archer),
--- and Neira, boxed in by Khalid and Jaheira, aimed at the hero 79 away for seventy seconds without a
--- swing (v6).
+-- (humanSpace), and by a range unit for each point of the weapon's own range beyond swordRange. A
+-- swing reaches reachSlack beyond a weapon's reach (threat.reach): in the encounter lab's batches
+-- E8 v3 to v8, between two creatures of a human's size, weapons of range 1 (Club, Long Sword, Battle
+-- Axe) dealt damage up to 75 apart and none from 76 to 99 (one more hit at 85 came from an archer),
+-- Quarterstaves and Halberds (range 2) up to 89, and Neira, boxed in by Khalid and Jaheira, aimed
+-- her Club at the hero 79 away for seventy seconds without a swing (v6). Tarnesh's staff at 80 and
+-- Silke's at 82 landed and were taken for stuck while one reach held for all weapons (v8).
 M.stillSlack=8
 M.stuckTicks=45
 M.unreachableTicks=180
 M.spaceReach=16
 M.humanSpace=3
+M.swordRange=1
 M.reachSlack=12
 -- A CRE file's item slots (its own order, from 0): the first weapon slot and the quiver slots.
 M.creWeapon=9
@@ -13715,10 +13722,12 @@ function M.outrun(s,at,seen,tick)
 end
 -- A weapon's reach between two creatures of personal spaces a and b (search-map cells): a weapon's
 -- reach (threat.reach) for two of a human's size, spaceReach more for each cell either is larger,
--- so a big monster's swing from its own edge still counts. nil when a space is unknown.
-function M.pairReach(a,b)
+-- so a big monster's swing from its own edge still counts, and a range unit more for each point of
+-- swing, the weapon's own range (arsenal), beyond swordRange. nil when a space is unknown.
+function M.pairReach(a,b,swing)
     if type(a)~='number' or type(b)~='number' then return nil end
-    return threat.reach+M.spaceReach*(math.max(0,a-M.humanSpace)+math.max(0,b-M.humanSpace))
+    local long=type(swing)=='number' and math.max(0,swing-M.swordRange) or 0
+    return threat.reach+targeting.rangeUnit*long+M.spaceReach*(math.max(0,a-M.humanSpace)+math.max(0,b-M.humanSpace))
 end
 -- How far a swing goes between two creatures whose pair reach is r (M.pairReach): reachSlack more.
 function M.swingReach(r) return r+M.reachSlack end
@@ -14212,7 +14221,7 @@ function M.new(g,options)
         local strike
         if a.ammo then strike=item(a.ammo)[1] else strike=item(a.item)[a.ability] end
         return {item=a.item,damage=a.damage,damageType=a.damageType,apr=a.apr or weapons.baseApr,thac0=a.thac0,
-            ranged=a.ranged==true,range=a.range,flags=a.flags,enchantment=a.enchantment,strike=strike,fist=a.fist,
+            ranged=a.ranged==true,range=a.range,swing=a.swing,flags=a.flags,enchantment=a.enchantment,strike=strike,fist=a.fist,
             slot=a.slot,abilityNum=a.abilityNum,ammo=a.ammo,projectile=a.projectile,backstab=a.backstab,itemType=a.itemType,
             str=a.str,strExtra=a.strExtra,strengthHit=a.strengthHit,strengthDamage=a.strengthDamage}
     end
@@ -14581,7 +14590,7 @@ function M.new(g,options)
             counts.stuck=counts.stuck+1
         end
         record({kind='attack',tick=tick,member=s.caster,item=s.item,target=s.target,hit=hit,
-            lost=hit and s.hp-hp or 0,started=s.tick,backstab=s.backstab,stuck=stuck or nil})
+            lost=hit and s.hp-hp or 0,started=s.tick,backstab=s.backstab,stuck=stuck or nil,reach=s.reach})
     end
 
     -- Danger zones. Whether they can be read: EEex offers what M.zoneRequired names and no read
@@ -15567,6 +15576,7 @@ function M.new(g,options)
             sources=sources,expected=d.expected,disable=disable,charge=d.kind=='strike' and d.spell or nil,
             use=d.use,before=before,count=d.count,creatures=d.creatures,monsters=d.monsters,known=seen,cover=cover,
             walk=d.walk,melee=(d.kind=='teleport' or d.kind=='weapon') and d.melee or nil,
+            swing=d.kind=='weapon' and d.swing or nil,
             innate=d.kind=='teleport' and d.innate or nil,
             slot=d.kind=='weapon' and d.slot or nil,abilityNum=d.kind=='weapon' and d.abilityNum or nil,
             backstab=d.kind=='weapon' and d.backstab or nil,at=d.kind=='removal' and d.at or nil,
@@ -15619,12 +15629,12 @@ function M.new(g,options)
             name(object,decision.target)
             hp=seen.hp
             apart=targeting.distance({x=object.m_pos.x,y=object.m_pos.y},seen)
-            -- A melee attack's reach between the two, from their personal spaces (M.stuck).
+            -- A melee attack's reach between the two, from their personal spaces and the weapon (M.stuck).
             local spaceOf=decision.melee and rawget(g,'EEex_Sprite_GetPersonalSpace')
             if type(spaceOf)=='function' then
                 local ok,a=pcall(spaceOf,object)
                 local fine,b=pcall(spaceOf,target)
-                reach=ok and fine and M.pairReach(a,b) or nil
+                reach=ok and fine and M.pairReach(a,b,decision.swing) or nil
             end
         end
         local known=idSet(decision.known)

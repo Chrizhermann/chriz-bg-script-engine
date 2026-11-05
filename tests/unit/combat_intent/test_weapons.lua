@@ -131,6 +131,18 @@ local pace=6/(6+0.36)
 assert(#list==1 and o.kind=='weapon' and o.target==11 and o.resref=='TESTMACE' and o.mode=='creature')
 assert(near(o.worth,0.8*4.5/60*pace) and o.cost>0 and near(o.score,o.worth-o.cost) and near(o.expected[11],3.6))
 assert(near(o.walk,0.36))
+-- The weapon's own range goes with a melee attack (how far it strikes, swing), not with a shot.
+do
+    assert(o.swing==nil)
+    local long={}
+    for k,v in pairs(MACE) do long[k]=v end
+    long.swing=2
+    i.frame.self.weapon=long
+    assert(choice.weaponOptions(i)[1].swing==2)
+    long.ranged,long.range=true,1000
+    assert(choice.weaponOptions(i)[1].swing==nil)
+    i.frame.self.weapon=MACE
+end
 i.frame.enemies={enemy(11,{x=200,hp=4})}
 assert(near(choice.weaponOptions(i)[1].worth,(3.6/60+0.5*0.8)*pace))
 -- A minimum keeps that enemy alive: the hits take what it has above it and kill no one; at its

@@ -1483,7 +1483,8 @@ function M.weaponOptions(input,rejected)
                     worth=worth+stop
                     out[#out+1]={resref=arms.item or 'WEAPON',kind='weapon',mode='creature',target=e.id,worth=worth,
                         cost=cost,score=worth-cost,hits={e.id},slack=0,expected={[e.id]=expected},speed=0,
-                        melee=not arms.ranged or nil,walk=walk>0 and walk or nil,interrupt=stop>0 and stop or nil,
+                        melee=not arms.ranged or nil,swing=not arms.ranged and arms.swing or nil,
+                        walk=walk>0 and walk or nil,interrupt=stop>0 and stop or nil,
                         slot=switch and arms.slot or nil,abilityNum=switch and arms.abilityNum or nil,
                         ammo=switch and arms.ammo or nil,backstab=bs and bs.chance or nil}
                 else reject('no-worth') end

@@ -268,9 +268,10 @@ end
 -- slot and abilityNum for SelectWeaponAbility, whether it can backstab (M.THIEF) and the item's
 -- category (ITEMCAT.IDS, for critical hit effects of one category); also the creature's strength
 -- and exceptional strength and which of strength's bonuses the weapon takes (strengthHit,
--- strengthDamage), for buffs that change its strength (combat-intent/defence.lua), and the weapon's
+-- strengthDamage), for buffs that change its strength (combat-intent/defence.lua), the weapon's
 -- own damage dice and its ammunition's (rolls: {dice, sides} each), for luck on base weapon damage
--- (threat.luckGain).
+-- (threat.luckGain), and a melee weapon's own range (swing: a Quarterstaff's or Halberd's 2, a Long
+-- Sword's 1), which sets how far it strikes (adapters/eeex/choice.lua, M.pairReach).
 local function attack(c,s,hit,damage)
     local stats=c.stats
     local melee=not s.ranged
@@ -299,6 +300,8 @@ local function attack(c,s,hit,damage)
         if range<=0 and s.shot then range=value(s.shot.range) end
         if range>0 then out.range=range*targeting.rangeUnit end
         out.projectile=a.projectile
+    else
+        out.swing=number(s.use.range) and s.use.range or nil
     end
     return out
 end

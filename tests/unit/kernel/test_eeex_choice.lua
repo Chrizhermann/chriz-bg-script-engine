@@ -999,6 +999,10 @@ fighter.m_curAction={m_actionID=0}
 -- creatures' sizes it is never stuck.
 assert(choices.pairReach(3,3)==64 and choices.pairReach(5,3)==96 and choices.pairReach(1,3)==64)
 assert(choices.pairReach(nil,3)==nil and choices.swingReach(64)==76)
+-- The weapon's own range: a Quarterstaff or Halberd (2) strikes a range unit further than a sword
+-- (1), and it adds to a big creature's. (v8: Tarnesh's staff landed 80 away, a Halberd 89 away.)
+assert(choices.pairReach(3,3,1)==64 and choices.pairReach(3,3,2)==80 and choices.pairReach(5,3,2)==112)
+assert(choices.swingReach(choices.pairReach(3,3,2))==92 and choices.pairReach(nil,3,2)==nil)
 assert(not choices.stuck({melee=true,reach=64,spot={x=0,y=0},still=0},{x=0,y=0},{x=200,y=0},44))
 assert(choices.stuck({melee=true,reach=64,spot={x=0,y=0},still=0},{x=0,y=0},{x=200,y=0},45))
 assert(not choices.stuck({melee=true,reach=64,spot={x=0,y=0},still=0},{x=0,y=0},{x=76,y=0},90))
@@ -1044,6 +1048,33 @@ foe2.m_pos.x=120
 g10.ticks=625
 assert(g10.BGSE_Claim(fighter,'fighter','s1')==true and last10('choice').tick==625 and last10('choice').target==17)
 foe2.m_baseStats.m_hitPoints=0;foe2.state=0x800
+-- A weapon of range 2 in the same stand, 85 from its target: beyond a sword's swing, within its own.
+-- The attack stands and is held, not stuck, and its row says the reach; 100 away it is stuck.
+do
+    ITEMS.TESTPOLE=weapon('TESTPOLE',{flags=0},{dice=1,sides=6,damageType=2,range=2})
+    local pole=g10.add(armed(sprite(30,0,300,255),35,'TESTPOLE'))
+    pole.stats[8],pole.stats[7],pole.stats[2],pole.stats[84]=1,14,8,1
+    local far=g10.add(sprite(31,85,300,2))
+    far.stats[2]=5
+    local stuck=ch10:inspect().counts.stuck
+    g10.ticks=640
+    assert(g10.BGSE_Claim(pole,'fighter','s1')==true and last10('choice',30).target==31 and last10('choice',30).spell=='TESTPOLE')
+    g10.BGSE_Act(pole)
+    pole.m_curAction=action(105,'',31)
+    g10.ticks=660
+    assert(g10.BGSE_Claim(pole,'fighter','s1')==true)
+    local holds=ch10:inspect().counts.holds
+    g10.ticks=705
+    assert(g10.BGSE_Claim(pole,'fighter','s1')==true and ch10:inspect().counts.holds==holds+1)
+    assert(ch10:inspect().counts.stuck==stuck)
+    far.m_pos.x=100
+    g10.ticks=750
+    assert(g10.BGSE_Claim(pole,'fighter','s1')==true and ch10:inspect().counts.stuck==stuck+1)
+    assert(last10('attack',30).target==31 and last10('attack',30).stuck==true and last10('attack',30).reach==80)
+    pole.m_curAction={m_actionID=0}
+    pole.m_baseStats.m_hitPoints=0;pole.state=0x800
+    far.m_baseStats.m_hitPoints=0;far.state=0x800
+end
 g10.EEex_Sprite_GetPersonalSpace=nil
 -- A mage with the meteors ready, a staff in hand, and an enemy 300 away.
 local thrower=g10.add(armed(sprite(2,0,600,255),35,'TESTSTAF'))

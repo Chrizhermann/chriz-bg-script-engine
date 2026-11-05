@@ -63,6 +63,17 @@ assert(hand.magical and hand.damageType==1 and hand.range==nil and hand.fist==ni
 assert(#hand.rolls==1 and hand.rolls[1].dice==1 and hand.rolls[1].sides==6)
 local others=arsenal.others(TABLES,fighter(35,0,{apr=2,thac0Right=3,damageRight=2}))
 local bow=find(others,'BOW')
+-- A melee weapon's own range goes along, for how far it strikes (swing): the sword's 1, a staff's 2, in
+-- the hand or carried; no missile has one.
+assert(hand.swing==1 and bow.swing==nil)
+do
+    local c=fighter(35,0,{apr=2,thac0Right=3,damageRight=2})
+    c.items[35].record=item({proficiency=89},{ability({dice=1,sides=6,range=2})})
+    assert(arsenal.hand(TABLES,c).swing==2)
+    local up=fighter(36,0,{apr=2,thac0Right=3,damageRight=2})
+    up.items[35].record=c.items[35].record
+    assert(find(arsenal.others(TABLES,up),'SWORD').swing==2)
+end
 assert(#others==1 and bow.slot==36 and bow.abilityNum==0 and bow.ammo=='ARROWS' and bow.ranged and bow.launcher)
 assert(bow.thac0==7 and near(bow.damage,9.5) and bow.apr==3 and bow.range==1600 and bow.projectile==2 and bow.damageType==4)
 assert(bow.magical and bow.enchantment==1)
