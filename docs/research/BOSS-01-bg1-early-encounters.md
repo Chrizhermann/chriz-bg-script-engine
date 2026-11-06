@@ -16,7 +16,8 @@ otherwise.
   improved later.
 - Balance is judged at the intended setup: no double damage, no maximised hit points; labs use average
   hit point rolls (or random ones), full hit points only at level 1. For each encounter, ask
-  Christopher how strong the party usually is at that point.
+  Christopher how strong the party usually is at that point. The bar (2026-11-06): at that setup the game
+  is at least as hard as, better harder than, SCS at Insane with double damage and maximum hit points.
 - Preparation: instant prebuffing as SCS does it stays, but faster and more reactive ("am liebsten
   noch schneller und reaktiver. Das ist mir sehr wichtig"). Not everything is prebuffed: for each
   encounter, what the caster would definitely have prepared, which may depend on the situation. For a
