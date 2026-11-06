@@ -47,6 +47,26 @@ normally.
 | a line in a cutscene | `bgse/encounters.tpa` | `LAF bgse_encounter_cutline` with `cutscene`, `who` (the `CutSceneId` of the block), `before` (the action it goes before) and `line` |
 | a companion who comes with the creature, by difficulty | `bgse/encounters.tpa`, plus `companion` in `encounters.lua` | two creatures with `bgse_encounter_new`, a cutscene line `EEex_LuaAction("if BGSE_Companion then BGSE_Companion(EEex_LuaAction_Object) end")` with `bgse_encounter_cutline`, and `companion={weak=…, strong=…, strongFrom=4}` |
 
+## How strong the party may be
+
+The chapter XP caps (`chriz-bg-modpack` component `652`, optional) give each chapter a ceiling on a character's
+usable XP, and so on its level (Christopher, 2026-11-06). That is the highest a party can be when a fight comes,
+not what it will be: a full party earns less than a small one, a multiclass splits its XP, and the fight may come
+in another chapter. Party make-up, spells, items and the player's skill are not in it; those come from playing.
+
+| Chapter | XP cap | Fighter | Ranger, Paladin | Cleric | Druid | Thief, Bard | Mage, Sorcerer |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1, 2 | 16,000 | 5 | 4 | 5 | 5 | 5 | 4 |
+| 3 | 20,000 | 5 | 5 | 5 | 6 | 6 | 5 |
+| 4 | 32,000 | 6 | 5 | 6 | 6 | 6 | 5 |
+| 5 | 64,000 | 7 | 6 | 7 | 8 | 7 | 7 |
+| 6 | 85,000 | 7 | 7 | 7 | 8 | 8 | 7 |
+| 7 | 161,000 | 8 | 8 | 8 | 10 | 10 | 9 |
+
+SoD and BG2 follow in `cbmbank_policy.lua` (`chapterCaps`, Chapter 8 to 22: 200,000 to 8,900,000). Levels from the
+lab game's `XPLEVEL.2DA`. The first five encounters come in chapters 1 and 2, so up to a Fighter 5 and a Mage 4,
+while the encounter lab's strongest party has levels 2 to 4.
+
 ## Tools
 
 - `python -I tools/scout.py <lab game folder> NEIRA [KARLAT ...] [--where]`: who a creature is, its scores,
