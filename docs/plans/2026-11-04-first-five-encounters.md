@@ -249,7 +249,16 @@ Python/WeiDU agreement check on both labs.
     (FIGHT-01, F1d). The first run's 12 engine fights still had the old build, as the lab installs its
     snapshot (learned.md section 6; `labrunEnc.py` now refuses a stale one); on the build 958085f, Tarnesh's and
     Silke's staffs read a reach of 80 in all 27 attack rows, and the one swing that ended as stuck (Tarnesh's)
-    had not landed. Step 8 is done. What stays is the tuning of each fight with Christopher.
+    had not landed. 16 more engine fights (2026-11-06) read 64 for the Club, Spiritual Hammer, Battle Axe and
+    Long Sword in all 34 attack rows, with no stuck swing. Step 8 is done. What stays is the tuning of each
+    fight with Christopher.
+  - The bar (Christopher, 2026-11-06): every comparison above ran both sides at the same settings, so it shows
+    what the engine changes, not whether the difficulty goal is met. The goal compares the engine without
+    double damage and at average hit points with SCS at Insane with double damage and maximum hit points. Batch
+    v10 runs that SCS side (`labEnc.lua`, mode `ref`): Insane's extra damage on, the engine off, and Tweaks
+    Anthology's maximum hit points worked out per creature (Silke 29 to 60, Karlat +20, Neira +7, Greywolf +4;
+    Tarnesh keeps 25, as his dice give less). Our component stays installed there, as the lab needs it, so
+    Neira keeps the spellbook of her sheet.
 - Encounter tooling (2026-11-04, Christopher: build each encounter faster than the last): the guide
   [docs/ENCOUNTERS.md](../ENCOUNTERS.md) with a checklist, where each decision goes and the pitfalls so far,
   and `tools/scout.py`, which shows everything about a creature in one command.
