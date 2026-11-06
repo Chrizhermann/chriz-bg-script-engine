@@ -26,7 +26,7 @@ It will ship as an optional, experimental CEBG component.
   is more immersive and at least as hard as, better harder than, the classic SCS + Insane + double
   damage + maximum hit points run (a lab at equal settings does not test this): Core a real challenge
   that normal players beat, Insane hard but not only for the top 1%, Insane without reloading for a
-  few percent. Fair play, no blanket buffs or abilities a creature could not have (not Tactics Remix
+  few percent. Early BG1 may stay below that bar: a new adventure should not be taken apart on arrival, real balancing starts later, with a few shocks on the way (2026-11-06). Fair play, no blanket buffs or abilities a creature could not have (not Tactics Remix
   or Improved Anvil). Clever or tuned groups end up more dangerous than SCS's; each fight is tuned
   with Chris later. Long term the engine stands without SCS; for now SCS stays the base.
 - **Gameplay design is Chris's.** Build the technical base and hooks, show what's possible, and
