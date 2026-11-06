@@ -262,7 +262,7 @@ Python/WeiDU agreement check on both labs.
   - Batch v10 (2026-11-06, 40 fights, all with a result, cleanup clean). Party wins on Insane, the engine
     without double damage, SCS at the same settings, and SCS at the bar: 15 of 60, 8 of 39 and 5 of 40. By
     party: the lone hero and the duo 0 in all three, the level 1 to 2 party 4 of 16, 2 of 10 and 2 of 10, the
-    level 2 to 4 party 11 of 20, 6 of 10 and 3 of 10, losing on average 0.5 members a fight against the engine and
+    level 2 to 4 party 11 of 20, 6 of 10 and 3 of 10, losing on average 0.4 members a fight against the engine and
     1.7 at the bar. So the goal is not met yet for a party that can win at all: the bar is clearly harder for the
     level 2 to 4 party, and the engine at the intended setup does not reach it. The bar's cells hold two
     fights each and the party is still the simple bot. How to close the gap is for the tuning with Christopher.
