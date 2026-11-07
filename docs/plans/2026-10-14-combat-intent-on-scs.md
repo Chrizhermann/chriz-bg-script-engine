@@ -1275,6 +1275,13 @@ Christopher's ideas so far (living list; more will follow):
 
   So a "how clever" value would come from our own small table (by race, kind or kit) rather
   than from the creature files.
+- **Our own player AI script** (2026-11-08): a party script built from our AI scripts, offered as an
+  option as SCS and Tactics Remix do, partly configurable in game. "Das gehört jetzt nicht … in eine der
+  ersten Phasen." Later work. The same party logic could one day play the lab's smart test party.
+- **Own classes, kits and races** (2026-11-08): from now on ours, in their own repository, where nothing
+  has happened yet. Until then we work with vanilla classes, kits and races if need be; ours join later in
+  parallel. Christopher expects no big change in balance and that enemies need none of the kits. Should
+  enemies get kits or new abilities later, small changes may be needed so the AI uses them.
 - **The group protects itself, not only dispels the party.** Oct 18, on "one dispeller per
   protection": "und im Falle von SR Dispelling Screen oder mit und ohne SR andere AOE oder
   Single target schutzspells. Aber eher natürlich die, die für fights gerecht sind und
