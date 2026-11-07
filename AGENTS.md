@@ -65,8 +65,10 @@ It will ship as an optional, experimental CEBG component.
   [docs/research/disposable-lab-runbook.md](docs/research/disposable-lab-runbook.md).
 - Launch a lab game only through the quiet runner `lab_quiet_run.py`
   (`%USERPROFILE%\.codex\artifacts\next-batch-20261013\lab-tools\`): hidden desktop, muted,
-  windowed, with a pointer guard. `prepare` the profile, then `run`. Launch only when no
-  Baldur/InfinityLoader process is running, and not while Chris is working or streaming.
+  windowed, with a pointer guard. `prepare` the profile, then start the game through
+  `bg_lab_slots.py run` next to it. Up to five lab games may run in parallel (since 2026-10-18),
+  and it waits only for your own lab and the exclusive `bg-game-install.lock`. Never launch
+  while Chris is working or streaming.
 - Run many fights per launch and log decisions and outcomes. Use small reproductions only to
   diagnose failures.
 - Before building or changing lab tooling, read `docs/learned.md` section 6: it lists the traps found
