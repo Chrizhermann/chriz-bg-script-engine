@@ -30,9 +30,11 @@ It will ship as an optional, experimental CEBG component.
 
 ## Engineering rules
 
-- Read the installed game's real data at runtime: memorized spells, items, effects. Classify
-  spells by what they do. Skip anything unexpected or hand that creature back to SCS; never
-  switch the whole feature off.
+- Follow the binding We Overwrite compatibility policy in the BG modding skill. Runtime data
+  describes the action to take; a changed spell, item or creature is not a compatibility gate.
+  Read memorized spells, items and effects, then classify their current behaviour.
+- Fail soft only for a genuine runtime fault or a feature that cannot operate. Do not hand a
+  creature back to SCS merely because another mod changed its content.
 - Fail soft. If the engine has no decision, errors or is switched off, the creature's own
   script continues. Keep one global kill switch.
 - Play fair. Act only on what the creature could perceive. Use normal engine actions (casting

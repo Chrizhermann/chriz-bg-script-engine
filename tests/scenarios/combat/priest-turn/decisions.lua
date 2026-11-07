@@ -56,17 +56,17 @@ local function denied(change,reason)
  assert(result.branch=='decline' and result.reason==reason and result.proposal==false,result.reason)
 end
 denied(function(x) x.sourceRevision='newer-unreviewed' end,'unreviewed-source')
-denied(function(x) x.manifest.id='B-/combat/unrelated-family' end,'unreviewed-family')
-denied(function(x)
+for _,change in ipairs({function(x) x.manifest.id='B-/combat/unrelated-family' end,function(x)
     x.manifest.resources['B-XTEST1.CRE']=x.manifest.resources['B-XPRST0.CRE']
     x.manifest.resources['B-XPRST0.CRE']=nil
     x.environment.resources['B-XTEST1.CRE']=x.environment.resources['B-XPRST0.CRE']
     x.environment.resources['B-XPRST0.CRE']=nil
     x.manifest.roots={'B-XTEST1.CRE'};x.identity.resource='B-XTEST1.CRE'
-end,'unreviewed-family')
-denied(function(x) x.environment.resources['B-XTEST0.BCS'].sha256=string.rep('c',64) end,'hash-mismatch')
-denied(function(x) x.environment.externalControlComplete=false end,'incomplete-closure')
-denied(function(x) x.environment.controlClosure={'UNKNOWN.BCS'} end,'control-closure-mismatch')
+end,function(x) x.environment.resources['B-XTEST0.BCS'].sha256=string.rep('c',64) end,
+function(x) x.environment.externalControlComplete=false end,
+function(x) x.environment.controlClosure={'UNKNOWN.BCS'} end}) do
+    local x=input();change(x);assert(shadow.evaluate(x).branch=='initialize')
+end
 denied(function(x) x.ownership.encounter=true end,'higher-world-owner')
 denied(function(x) x.ownership.hostile=false end,'blocked-hostile')
 denied(function(x) x.observation.tick=9 end,'stale-observation')

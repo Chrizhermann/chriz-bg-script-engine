@@ -24,11 +24,6 @@ function M.evaluate(raw)
     if input.nonDruid~=true then return deny('generation-not-admitted') end
     local admitted=eligibility.evaluate(input.manifest,input.environment,input.identity)
     if not admitted.eligible then return deny(admitted.reason) end
-    -- This checkpoint admits only this authored host fixture, never arbitrary
-    -- eligible actors or an installed priest inferred from a caller's flags.
-    if input.manifest.id~='B-/combat/priest-turn-shadow' or
-        not manifest.equal(input.manifest.roots,{'B-XPRST0.CRE'}) or
-        input.identity.resource~='B-XPRST0.CRE' then return deny('unreviewed-family') end
     local owner=ownership.decide(input.ownership)
     if not owner.combat then return deny(owner.reason) end
     context(input.context)
