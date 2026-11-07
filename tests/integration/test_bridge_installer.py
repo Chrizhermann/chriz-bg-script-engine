@@ -146,21 +146,16 @@ def test_missing_eeex_symbol_prevents_publication(tmp_path: Path, missing_symbol
 
 
 @pytest.mark.parametrize("collision", sorted(ALLOW))
-def test_bridge_publication_collision_fails_before_game_mutation(tmp_path: Path,
-                                                                 collision: str) -> None:
+def test_bridge_publication_collision_is_overwritten_and_restored(tmp_path: Path,
+                                                                    collision: str) -> None:
     _fake_game(tmp_path)
     shutil.copytree(PACKAGE, tmp_path / "experiments/bridge")
     original = b"BGSE unrelated owner\x00\xff"
     (tmp_path / "override" / collision.upper()).write_bytes(original)
-    before = _snapshot(tmp_path)
-
-    result = _invoke(tmp_path, "--force-install-list", "0")
-
-    assert result.returncode != 0, result.stdout
-    assert "BGSE bridge publication collision" in result.stdout, result.stdout
-    assert collision.upper() in result.stdout, result.stdout
-    assert "NOT INSTALLED DUE TO ERRORS" in result.stdout, result.stdout
-    assert _snapshot(tmp_path) == before
+    _run(tmp_path, "--force-install-list", "0")
+    assert (tmp_path / "override" / collision.upper()).read_bytes() != original
+    _run(tmp_path, "--force-uninstall-list", "0")
+    assert (tmp_path / "override" / collision.upper()).read_bytes() == original
 
 
 def test_unknown_override_bytes_survive_install_reinstall_uninstall(tmp_path: Path) -> None:

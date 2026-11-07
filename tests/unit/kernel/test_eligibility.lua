@@ -27,30 +27,29 @@ denied(function(m) m.fallback=nil end,'manifest-fallback')
 denied(function(m) m.provenance=nil end,'manifest-provenance')
 denied(function(m) m.evidence={} end,'manifest-evidence')
 
--- 2. Exact dependency and script-slot/control closure, not the actor name, admits observation.
-denied(function(_,e) e.resources['B-XTEST0.BCS']=nil end,'missing-resource')
-denied(function(_,e) e.resources['B-XTEST0.BCS'].sha256=string.rep('c',64) end,'hash-mismatch')
-denied(function(_,e) e.resources['B-XTEST0.BCS'].opaque=true end,'opaque-resource')
-denied(function(_,e) e.resources['B-XTEST1.CRE'].slots.override='OTHERMOD' end,'slot-mismatch')
-denied(function(_,e) e.resources['B-XTEST0.BCS'].dependencies={'OTHER.BCS'} end,'dependency-mismatch')
-denied(function(m) m.resources['B-XTEST0.BCS']=nil end,'manifest-closure')
-denied(function(_,e) e.externalControlComplete=false end,'incomplete-closure')
-denied(function(_,e) e.closureComplete=false end,'incomplete-closure')
-denied(function(_,e) e.controlClosure={'UNKNOWN.BCS'} end,'control-closure-mismatch')
+-- 2. Changed resources, script slots, and public state do not refuse the declared action.
+for _,change in ipairs({
+    function(_,e) e.resources['B-XTEST0.BCS']=nil end,
+    function(_,e) e.resources['B-XTEST0.BCS'].sha256=string.rep('c',64) end,
+    function(_,e) e.resources['B-XTEST0.BCS'].opaque=true end,
+    function(_,e) e.resources['B-XTEST1.CRE'].slots.override='OTHERMOD' end,
+    function(_,e) e.resources['B-XTEST0.BCS'].dependencies={'OTHER.BCS'} end,
+    function(_,e) e.externalControlComplete=false end,
+    function(_,e) e.closureComplete=false end,
+    function(_,e) e.controlClosure={'UNKNOWN.BCS'} end,
+    function(_,e) e.publicStateComplete=false end,
+    function(_,e) e.publicState['GLOBAL:OTHER']={readers={'OTHER.BCS'},writers={}} end,
+}) do
+    local m,e,a=fixture();change(m,e,a);assert(eligibility.evaluate(m,e,a).eligible)
+end
 
--- 3. Public state reverse references and capabilities are part of the claim.
-denied(function(m,e)
-    m.publicState['GLOBAL:QUEST']={readers={'B-XTEST0.BCS'},writers={}}
-    e.publicState['GLOBAL:QUEST']={readers={'B-XTEST0.BCS'},writers={'OTHER.BCS'}}
-end,'public-state-mismatch')
-denied(function(_,e) e.publicStateComplete=false end,'incomplete-closure')
-denied(function(_,e) e.publicState['GLOBAL:OTHER']={readers={'OTHER.BCS'},writers={}} end,'public-state-mismatch')
+-- 3. Capabilities and runtime generation remain feature requirements.
 denied(function(_,e) e.capabilities.observe=false end,'missing-capability')
 denied(function(_,e) e.profile='older-profile' end,'profile-mismatch')
 denied(function(_,e) e.epoch='stack-2' end,'stale-stack')
 
--- 4. Actor identity must be unique, fresh and explicitly rooted.
-denied(function(_,_,a) a.resource='UNKNOWN.CRE' end,'unknown-resource')
+-- 4. Actor identity must be unique and fresh; its resource name is not a content fingerprint.
+local m,e,a=fixture();a.resource='UNKNOWN.CRE';assert(eligibility.evaluate(m,e,a).eligible)
 denied(function(_,_,a) a.matches=2 end,'ambiguous-identity')
 denied(function(_,_,a) a.epoch='old' end,'stale-identity')
 denied(function(_,_,a) a.key=nil end,'invalid-identity')

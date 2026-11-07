@@ -18,8 +18,8 @@ k:sample(e,candidates,read);assert(calls==1 and snapshot.x==10 and a.key=='lab/m
 assert(not k.dispatch and not k.save and not k.setLocal)
 assert(k:inspect().enrolled==1)
 e.resources['B-XTEST0.BCS'].sha256=string.rep('c',64)
-k:sample(e,candidates,read);assert(calls==1)
-assert(k:inspect().trace[2].reason=='hash-mismatch')
+k:sample(e,candidates,read);assert(calls==2)
+assert(k:inspect().trace[2].reason=='observed')
 e.resources['B-XTEST0.BCS'].sha256=string.rep('b',64)
 
 -- 2. Local reader/policy errors open only that adapter, then one bounded half-open probe.
@@ -31,17 +31,17 @@ k:sample(e,candidates,function(id)
     return copy(snapshot)
 end)
 assert(otherCalls==1 and k:inspect().circuits[m.id].state=='open')
-k:sample(e,candidates,read);assert(calls==1 and otherCalls==2)
+k:sample(e,candidates,read);assert(calls==2 and otherCalls==2)
 tick=5;k:sample(e,candidates,read)
-assert(calls==2 and otherCalls==3 and k:inspect().circuits[m.id].state=='closed')
+assert(calls==3 and otherCalls==3 and k:inspect().circuits[m.id].state=='closed')
 for _,row in ipairs(k:inspect().trace) do
     assert(not tostring(row.reason):find('private',1,true))
 end
 
 -- 3. Missing capability/disable/session change removes observation, not legacy actions.
-e.capabilities.observe=false;k:sample(e,candidates,read);assert(calls==2)
+e.capabilities.observe=false;k:sample(e,candidates,read);assert(calls==3)
 e.capabilities.observe=true;k:disable(m.id,'user-disabled');k:sample(e,candidates,read)
-assert(calls==2 and otherCalls==4)
+assert(calls==3 and otherCalls==4)
 k:invalidate('load');assert(k:inspect().enrolled==0)
 k:sample(e,candidates,function() error('old enrollment survived') end)
 assert(k:enroll({adapterId=other.id,key=a.key,resource=a.resource}))
