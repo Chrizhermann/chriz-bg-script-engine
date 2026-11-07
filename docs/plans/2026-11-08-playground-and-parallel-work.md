@@ -15,7 +15,10 @@ build them, and we refine afterwards. Agent and human keep testing meanwhile; th
    The spell mod session (2026-11-08): take `6eeaf36` on `claude/decided-specs` for the joint test, not 52d8558.
    New there: IWD Hopelessness, and the control check of all eight wizard elementals with creatures of their own,
    so `SPWI516`, `SPWI520`, `SPWI521`, `SPWI620`, `SPWI621` and `SPWI622` now call own EFFs and CREs (`CBMW*`):
-   run `spell_diff.py` again for these. The Celestials are still missing; that session says when a commit has them.
+   run `spell_diff.py` again for these. Then `0a035e5` (same branch) brought the Celestials: Deva, Fallen Deva,
+   Planetar and Dark Planetar are creatures of their own (`CBMDEVAG`, `CBMDEVAE`, `CBMPLANG`, `CBMPLANE`), called
+   through `SPDEVA`, `SPDEVA2`, `SPPLAN` and `SPPLAN2`. The party keeps at most one of each pair, enemy summoners
+   are not limited, and the player picks their spells.
 2. **Installer under the overwrite rule** (`claude/overwrite`): decided results are written whatever stood
    there.
 3. **Playtest recorder** (`claude/recorder`, component 10, REC-01), then its three checks in a lab game.
@@ -29,7 +32,10 @@ build them, and we refine afterwards. Agent and human keep testing meanwhile; th
 State of 2026-11-08, after the PC restart: `claude/overwrite`, `claude/recorder` and `claude/layers` are merged, and
 this branch is `main` now (Christopher's OK). Spell mod `6eeaf36` reads without a gap (no unknown effect, no partial
 spell). The recorder passed its checks in a hidden game (REC-01). **The Playground stands** (`docs/PLAYGROUND.md`,
-engine d8cbfda, spell mod 6eeaf36). Running: `magic-v1r` in `eet-magic`, the BG1 area tour in the second lab `eet-tour`
+engine d8cbfda, spell mod 6eeaf36). At 06:45 it took spell mod `0a035e5` with engine 9220e12 (the same engine code) in
+four minutes, its first real `update`. The engine reads that spell mod without a gap as well (137 new spells, no
+unknown effect, no partial spell), and the six celestial summonings (`SPPR726`, `SPPR727`, `SPWI923`, `SPWI924`,
+`SPCL923`, `SPCL935`) read as summons of the new creatures. Running then: `magic-v1r` in `eet-magic`, the BG1 area tour in the second lab `eet-tour`
 (`.work/stepTour-lab`: every BG1 area with enemies, the PC next to them, the engine on), the fight list FIGHTS-01.
 
 **Stack batch `magic-v1r`** (2026-11-08, `.work/stepMagic-lab`, engine c114eac plus the recorder's fixed scan, spell mod
@@ -60,4 +66,11 @@ with scripts of their own (trolls, golems, wyverns, ankhegs, some of them also i
 - **General hook** for creatures without SCS scripts: not needed for his first test. Idea to probe: a script level
   the game keeps free (level 3), set at run time, so that story scripts above it still run first and nothing is
   patched in the creature files.
+- **Enemy celestials** (found 2026-11-08, open): under SCS the old celestials (`DEVAGOOD`, `PLANGOOD` and their
+  evil twins) ran SCS's own fight scripts, which the engine hooks, so enemy celestials cast their spells. The spell
+  mod's own celestials run `CBMDEVAC` or `CBMPLANC` (one of each pair per party) and `BDSUM00`, which casts no spell.
+  For the party that is right, the player picks. On the enemy side they would only swing now: 127 creatures know one
+  of the six summonings, nearly all Summon Dark Planetar (SCS mages and liches of BG2 and ToB, none in BG1).
+  Proposal: the engine's installer hooks `CBMDEVAC` and `CBMPLANC` for enemies only, and the engine picks their
+  spells by worth. Waits for Christopher and the spell mod session.
 - **Later:** our own party AI script; our own classes, kits and races (see the main plan's ideas list).
