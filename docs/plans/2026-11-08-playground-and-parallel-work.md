@@ -66,11 +66,14 @@ with scripts of their own (trolls, golems, wyverns, ankhegs, some of them also i
 - **General hook** for creatures without SCS scripts: not needed for his first test. Idea to probe: a script level
   the game keeps free (level 3), set at run time, so that story scripts above it still run first and nothing is
   patched in the creature files.
-- **Enemy celestials** (found 2026-11-08, open): under SCS the old celestials (`DEVAGOOD`, `PLANGOOD` and their
+- **Enemy celestials** (found 2026-11-08, the spell mod fixes it): under SCS the old celestials (`DEVAGOOD`, `PLANGOOD` and their
   evil twins) ran SCS's own fight scripts, which the engine hooks, so enemy celestials cast their spells. The spell
   mod's own celestials run `CBMDEVAC` or `CBMPLANC` (one of each pair per party) and `BDSUM00`, which casts no spell.
   For the party that is right, the player picks. On the enemy side they would only swing now: 127 creatures know one
   of the six summonings, nearly all Summon Dark Planetar (SCS mages and liches of BG2 and ToB, none in BG1).
-  Proposal: the engine's installer hooks `CBMDEVAC` and `CBMPLANC` for enemies only, and the engine picks their
-  spells by worth. Waits for Christopher and the spell mod session.
+  The spell mod session fixes it on its side: `CBMDEVAC` and `CBMPLANC` give enemy celestials the game's celestial
+  script on arrival (`ChangeAIScript` to the class slot: `DEVAGOOD`, `DEVAEVIL`, `PLANGOOD` for both Planetars). Under
+  SCS that is SCS's script, which the installer hooks already (`DEVAGOOD`, `DEVAEVIL`, `PLANGOOD`, `PLANEVIL`,
+  `PLANET`), and the new celestials memorize 29 or 38 spells, so the engine needs no change. When that commit comes,
+  the Playground takes it and a lab check shows the engine driving an enemy Dark Planetar.
 - **Later:** our own party AI script; our own classes, kits and races (see the main plan's ideas list).
