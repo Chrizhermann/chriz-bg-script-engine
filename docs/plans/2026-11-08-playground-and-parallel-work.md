@@ -32,6 +32,13 @@ spell). The recorder passed its checks in a hidden game (REC-01). **The Playgrou
 engine d8cbfda, spell mod 6eeaf36). Running: `magic-v1r` in `eet-magic`, the BG1 area tour in the second lab `eet-tour`
 (`.work/stepTour-lab`: every BG1 area with enemies, the PC next to them, the engine on), the fight list FIGHTS-01.
 
+**Stack batch `magic-v1r`** (2026-11-08, `.work/stepMagic-lab`, engine c114eac plus the recorder's fixed scan, spell mod
+6eeaf36, recorder on): all 81 phases ran, no phase lost, no engine error, no crash, clean cleanup. Parties won 10 of 40
+fights against the engine and 8 of 40 against SCS at Insane without double damage: Tarnesh 5 and 3, Neira 2 and 3, Karlat
+3 and 2, Silke and Greywolf none. Two fights a cell and a simple bot, so this says the stack works and the two sides
+stay close at equal settings, nothing about the bar or about a player. The recorder ran through it all: 82 loads
+counted, 1.1 MB, 161 fight rows.
+
 **BG1 area tour** (2026-11-08, `.work/stepTour-lab`, engine d8cbfda, spell mod 6eeaf36): the PC, kept alive, jumped next to
 the enemies of each BG1 area from the census at Insane. 80 of 99 areas ran, with about 5,300 rounds the engine took and
 8,400 actions: no engine error and no crash. 15 areas were not reached within 45 seconds and 4 at the end were not

@@ -243,6 +243,7 @@ the cost of both priests' group preparation.
 2. Arrival: caught walking, or visible priest preparation before the threat (new group/talk hook)?
 3. Hard priest roles: normal choices, or Zeela summons while Lamalha opens with Silence (orders)?
 4. Thieves: missiles with opportunistic hiding, or deliberate retreats to hide (new engine work)?
+5. Hunting (also for sheets 3 and 4): both assassin parties and the camp's bandits walk to the party unseen, as SCS has it, from a script the engine leaves alone. They were sent after the party, so keep that, or let them go only by what they perceive (new installer work)?
 
 ## 3. Molkar, Drakar, Halacan and Morvin
 
