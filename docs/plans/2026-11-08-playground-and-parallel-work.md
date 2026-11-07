@@ -26,6 +26,13 @@ build them, and we refine afterwards. Agent and human keep testing meanwhile; th
    Artisan's Kitpack and Bardic Wonders; Christopher picks vanilla classes until our own kit mod exists. A fresh
    install without them takes about two hours and pays only if they get in the way.
 
+State at the pause of 2026-11-08 (Christopher's PC restart): nothing runs, every lab slot is free. Finished on their
+own branches, each with a green suite, not merged yet: `claude/overwrite` (71ed1f3), `claude/recorder` (7dc3bd0) and
+`claude/layers`. Next, in this order: review and merge the three here, full suite; put spell mod `6eeaf36` into
+`eet-magic`; `spell_diff.py` again; the recorder's three checks in a lab game (REC-01); `refresh_snapshot.py`, then
+`magic-v1`; then `tools/playground.py setup`. The fight list (FIGHTS-01) was stopped after two minutes with nothing
+written and starts anew.
+
 ## What the fight census shows
 
 `tools/fight_census.py` read the whole game (2026-11-08, lab `eet-nosr-2`). Hostile placed creatures that run on
