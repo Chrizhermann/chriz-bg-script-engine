@@ -356,14 +356,14 @@ function Root:foes(party)
     local seen,rows={},{}
     for _,member in ipairs(party) do
         local sprite=member.sprite
-        self.g.EEex_Sprite_ForAllOfTypeStringInRange(sprite,'[ANYONE]',M.sightRange,function(other)
+        self.g.EEex_Sprite_ForAllOfTypeStringInRange(sprite,'[ENEMY]',M.sightRange,function(other)
             if other and not seen[other.m_id] and other.m_id~=member.id
                 and self.g.EEex_GameObject_IsSprite(other,true) and living(self.g,other)
                 and other.m_typeAI and (other.m_typeAI.m_EnemyAlly or 0)>=200 then
                 seen[other.m_id]=true
                 rows[#rows+1]={id=other.m_id,resref=resrefOf(other),name=nameOf(self.g,other),x=other.m_pos.x,y=other.m_pos.y}
             end
-        end,true,false)
+        end,1,0)
     end
     table.sort(rows,function(a,b) return a.id<b.id end)
     return rows

@@ -72,7 +72,7 @@ def test_recorder_logic_and_fake_eeex_flow(backend):
         g.EEex_BAnd=function(value,mask) return value==0 and 0 or mask end
         g.EEex_Utility_IterateCPtrList=function(values,fn) for _,value in ipairs(values or {}) do if fn(value) then break end end end
         g.EEex_Sprite_ForAllOfTypeStringInRange=function(subject,what,range,fn,los,nonSprites)
-            assert(what=='[ANYONE]' and range==448 and los==true and nonSprites==false)
+            assert(what=='[ENEMY]' and range==448 and los==1 and nonSprites==0)
             g.scans=(g.scans or 0)+1
             for _,object in pairs(g.objects) do if object~=subject then fn(object) end end
         end
