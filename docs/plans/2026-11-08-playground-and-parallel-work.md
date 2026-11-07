@@ -12,6 +12,10 @@ build them, and we refine afterwards. Agent and human keep testing meanwhile; th
    fault, the engine on top of it in 6 minutes, and the five encounters ran once each in both modes against the
    level 2-4 party at Insane: 10 fights, no error, clean cleanup. One fight a cell shows that it works, nothing
    about strength.
+   The spell mod session (2026-11-08): take `6eeaf36` on `claude/decided-specs` for the joint test, not 52d8558.
+   New there: IWD Hopelessness, and the control check of all eight wizard elementals with creatures of their own,
+   so `SPWI516`, `SPWI520`, `SPWI521`, `SPWI620`, `SPWI621` and `SPWI622` now call own EFFs and CREs (`CBMW*`):
+   run `spell_diff.py` again for these. The Celestials are still missing; that session says when a commit has them.
 2. **Installer under the overwrite rule** (`claude/overwrite`): decided results are written whatever stood
    there.
 3. **Playtest recorder** (`claude/recorder`, component 10, REC-01), then its three checks in a lab game.
