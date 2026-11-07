@@ -31,7 +31,7 @@ local function ward(op,fields,effect)
     e.target=1
     local record={kind='SPL',resref='',name=0,flags=0,spellType=0,exclusion=0,school=0,secondary=0,level=1,casting={},
         abilities={{form=1,flags=0,location=2,target=5,targetCount=0,range=0,minLevel=1,speed=0,projectile=1,effects={e}}}}
-    local w={opcode=op,p2=e.p2,source='TESTSRC',school=0,secondary=0,power=5,level=10,dispellable=true,timed=true,
+    local w={opcode=op,p1=e.p1,p2=e.p2,res=e.res,source='TESTSRC',school=0,secondary=0,power=5,level=10,dispellable=true,timed=true,
         equipped=false,lasting=false,left=60,roles=spells.classify(record,1,nil,{level=1}).roles}
     for k,v in pairs(fields or {}) do w[k]=v end
     return w
@@ -459,6 +459,185 @@ assert(once and once.insight=='estimate' and once.hits[1]==11)
 i9.dispels={[11]={tried=1,sources={TESTPFMW={[15]={stayed=1,went=0}}}}}
 local again=removal.options(i9)[1]
 assert(not again or again.worth<0.2*once.worth)
+groups=groups+1
+
+-- 10. Layered removals, with invented spell names and secondary type 41. A screen stops the
+-- dispel and Breach payload, not the trailing removal of its own type. No spell name is special.
+;(function()
+local records={}
+local function record(res,level,effects,fields)
+    local a={form=1,flags=0,location=2,target=1,targetCount=0,range=40,minLevel=1,speed=0,projectile=1,effects=effects}
+    for k,v in pairs(fields or {}) do a[k]=v end
+    local r={kind='SPL',resref=res,name=0,flags=1024,spellType=1,exclusion=0,school=0,secondary=0,level=level,
+        abilities={a},casting={}}
+    records[res]=r
+    return r
+end
+local reads=0
+local function lookup(kind,key)
+    reads=reads+1
+    if kind=='SPL' then return records[key] end
+    if kind=='PRO' and key==2 then return area(190,64) end
+end
+local function read(r) return spells.classify(r,1,lookup,{level=15}) end
+local disp=read(record('SCDISP',3,{fx(58,{p2=1,resist=0}),fx(221,{p1=9,p2=41,resist=0})}))
+record('SCBREPAY',5,{fx(221,{p1=9,p2=7,resist=2,power=5}),fx(221,{p1=9,p2=2,resist=2,power=5})})
+record('SCBREEND',5,{fx(221,{p1=9,p2=41,resist=0,power=5})})
+local br=read(record('SCBREACH',5,{fx(146,{p2=1,res='SCBREPAY',power=5}),fx(146,{p2=1,res='SCBREEND',power=5})}))
+local pierce=read(record('SCPIERCE',8,{fx(166,{p1=-25,duration=30,resist=2}),fx(230,{p1=9,p2=1,resist=2}),
+    fx(221,{p1=9,p2=41,resist=0})}))
+local strike=read(record('SCSTRIKE',9,{fx(221,{p1=9,p2=1,resist=2}),fx(221,{p1=9,p2=41,resist=0})}))
+local immune=ward(101,{source='SCWALL',secondary=41,dispellable=false},{p2=58})
+local payload=ward(206,{source='SCWALL',secondary=41,dispellable=false},{p1=-1,res='SCBREPAY'})
+local e=enemy(11,{wards={pfmw15,immune,payload},protections={{opcode=101,p1=0,p2=58,res=''},
+    {opcode=206,p1=-1,p2=0,res='SCBREPAY'}}})
+local i=input()
+i.frame.allies={fighter(2)};i.frame.enemies={e}
+local bare=enemy(11,{wards={pfmw15}})
+-- Fixed old values: no screen must move neither the dispel nor the Breach number.
+assert(near(removal.on(i,breach,bare,3),0.5905405405405404))
+assert(near(removal.on(i,dispel,bare,3),0.2893648648648648))
+assert(near(removal.on(i,disp,bare,3),0.2893648648648648))
+local took=removal.taken(disp.roles.removal,e.wards,15)
+assert(took[1]==nil and took[2]==1 and took[3]==1)
+-- Even an unconditional dispel cannot dispel through 101/58. Other removal kinds still take.
+assert(next((removal.taken({kinds={dispel=true},dispel={mode='always'}},e.wards,15)))==nil)
+assert(removal.taken({kinds={schools=true},schools={[3]=9}},
+    {ward(101,{school=3},{p2=58})},15)[1]==1)
+assert(removal.taken({kinds={opcodes=true},opcodes={[101]={[58]=true}}},e.wards,15)[2]==1)
+local filtered,target=removal.against(i,br,e)
+assert(filtered~=br and not filtered.partial and filtered.roles.removal.secondaries[41]==9)
+assert(filtered.roles.removal.secondaries[7]==nil and filtered.roles.removal.secondaries[2]==nil)
+assert(not targeting.protected(target,filtered))
+took=removal.taken(filtered.roles.removal,e.wards,15)
+assert(took[1]==nil and took[2]==1 and took[3]==1)
+local calls=reads
+assert(removal.against(i,br,e)==filtered and reads==calls)
+assert(removal.against(i,br,bare)==br and reads==calls)
+assert(removal.against(i,br,enemy(11,{wards={ward(206,nil,{res='UNRELATED'})}}))==br)
+-- Removing only a screen opens no attack right now, but a second ready dispel gives it worth.
+i.spells={row('SCDISP',disp,3)}
+assert(select(2,removal.on(i,disp,e,3))=='no-worth')
+i.spells[1].ready=2
+assert(near(removal.on(i,disp,e,3),0.1446824324324324))
+assert(removal.screenFollow==0.5 and near(removal.on(i,disp,e,3),removal.screenFollow*removal.on(i,disp,bare,3)))
+assert(removal.on(i,disp,e,3,nil,true)==0) -- One level deep, even with two copies ready.
+assert(near(removal.on(i,disp,bare,3),0.2893648648648648)) -- The second dispel works.
+assert(#e.wards==3 and #e.protections==2 and br.roles.removal.secondaries[7]==9) -- snapshots untouched
+-- Breach too: the first is spent on the screen; the second can open the weapon protection.
+i.spells={row('SCBREACH',br,5)};i.spells[1].ready=2
+assert(near(removal.on(i,br,e,3),0.5*removal.on(i,br,bare,3)))
+assert(removal.on(i,br,e,3,nil,true)==0)
+i.spells[1].ready=1
+assert(removal.on(i,br,e,3)==0)
+i.spells={row('SCDISP',disp,3),row('SCBREACH',br,5)}
+i.spells[2].usable=false
+assert(removal.on(i,disp,e,3)==0)
+i.spells[2].usable=true;i.spells[2].ready=0
+assert(removal.on(i,disp,e,3)==0)
+-- An unrelated resource immunity earns no follow-up credit. A surviving second screen still
+-- blocks the second removal. A lasting screen that 221 leaves cannot be assumed gone.
+local unrelated=enemy(11,{wards={pfmw15,ward(206,{source='SCWALL',secondary=41,dispellable=false},{res='OTHER'})}})
+i.spells[2].ready=1
+assert(removal.on(i,disp,unrelated,3)>0) -- The dispel itself works here.
+assert(near(removal.on(i,disp,unrelated,3),removal.on(i,disp,unrelated,3,nil,true)))
+local stubborn=ward(101,{source='LASTWALL',secondary=42,dispellable=false},{p2=58})
+local twice=enemy(11,{wards={pfmw15,immune,stubborn}})
+i.spells={row('SCDISP',disp,3)};i.spells[1].ready=2
+assert(removal.on(i,disp,twice,3)==0)
+local permanent=ward(101,{source='SCWALL',secondary=41,lasting=true,dispellable=false},{p2=58})
+assert(removal.on(i,disp,enemy(11,{wards={pfmw15,permanent}}),3)==0)
+-- Wit: clever always reads the shape, normal by the tactic draw, dull never, exact always.
+i.spells={row('SCDISP',disp,3)};i.orders=nil;i.tactical=false
+i.mind=mind.new({wit='clever'})
+assert(removal.readScreen(i) and removal.on(i,disp,e,3)==0)
+i.mind=mind.new({wit='normal'})
+assert(not removal.readScreen(i) and removal.on(i,disp,e,3)>0)
+i.tactical=true
+assert(removal.readScreen(i) and removal.on(i,disp,e,3)==0)
+i.mind=mind.new({wit='dull'})
+assert(not removal.readScreen(i) and removal.on(i,disp,e,3)>0 and removal.on(i,br,e,3)>0)
+i.orders={insight='exact'}
+assert(removal.readScreen(i) and removal.on(i,disp,e,3)==0)
+-- The normal caster actually draws for this new tactic during choice, also without a charm,
+-- cast or debuff to notice. Neither an empty spellbook nor an unscreened foe draws.
+i.orders=nil;i.tactical=nil;i.mind=mind.new({wit='normal',tactics=0.5})
+local draws=0
+i.rng={nextInt=function() draws=draws+1;return 1 end}
+assert(choice.notices(i) and draws==1)
+i.rng.nextInt=function() draws=draws+1;return 1000 end
+assert(not choice.notices(i) and draws==2)
+i.frame.enemies={bare}
+assert(not choice.notices(i) and draws==2)
+i.frame.enemies={unrelated}
+assert(not choice.notices(i) and draws==2)
+i.frame.enemies={e};i.spells={}
+assert(not choice.notices(i) and draws==2)
+-- What a blocked dispel left still teaches the existing insight model; the ward level is not
+-- silently substituted for the caster's estimate.
+local book=removal.learn(nil,{TESTPFMW=1},{TESTPFMW=1},15,1)
+assert(book.tried==1 and book.sources.TESTPFMW[15].stayed==1 and book.sources.TESTPFMW[15].went==0)
+-- Pierce Shield / Spellstrike get their own removal plus the opening for the following Breach.
+-- Give the enemy spell protection and the caster a magic attack to profit from Pierce's MR cut.
+local globe=ward(102,{source='SCGLOBE',secondary=1,power=4,dispellable=false},{p1=4})
+e.wards={pfmw15,immune,payload,globe};e.mr=60
+i=input();i.frame.allies={fighter(2)};i.frame.enemies={e};i.orders=nil
+local blast=read(record('SCBLAST',6,{fx(12,{p1=40,p2=64*65536})}))
+i.spells={row('SCDISP',disp,3),row('SCBREACH',br,5),row('SCPIERCE',pierce,8),row('SCBLAST',blast,6)}
+assert(removal.on(i,pierce,e,3)>removal.on(i,pierce,e,3,nil,true))
+assert(removal.on(i,strike,e,3)>removal.on(i,strike,e,3,nil,true))
+local best=choice.decide(i)
+assert(best and best.resref=='SCPIERCE')
+-- The known Lua function reaches attack valuation, not just the classifier: its MR cut earns
+-- the gain of the next magic attack. Missing the tactic leaves only its direct removal.
+local pm=read(record('SCPMAGIC',6,{fx(402,{res='CBMBPM',resist=2}),fx(230,{p1=8,p2=1,resist=2})}))
+local mrFoe=enemy(11,{mr=60})
+i=input();i.frame.enemies={mrFoe};i.spells={row('SCPMAGIC',pm,6),row('SCBLAST',blast,6)}
+local function find(options,res)
+    for _,o in ipairs(options) do if o.resref==res then return o end end
+end
+local magicOption=find(choice.options(i),'SCPMAGIC')
+assert(magicOption and magicOption.kind=='debuff' and magicOption.worth>0)
+i.tactical=false
+assert(not find(choice.options(i),'SCPMAGIC'))
+-- A mixed attack still lands its damage while its dispel is absorbed. The screen must not
+-- cause the attack path's whole-spell protection check to reject it.
+local mixed=read(record('SCMIXED',3,{fx(58,{p2=1,resist=0}),fx(221,{p1=9,p2=41,resist=0}),
+    fx(12,{p1=10,p2=64*65536,resist=0})}))
+i=input();i.frame.enemies={enemy(11,{wards={immune,payload},protections=e.protections})}
+i.spells={row('SCMIXED',mixed,3)}
+local hit=choice.options(i)[1]
+assert(hit and hit.kind=='damage' and hit.resref=='SCMIXED')
+i.frame.enemies={enemy(11)}
+assert(near(hit.worth,choice.options(i)[1].worth))
+-- Releases are allowed at exactly one tenth of their former removal worth, also through choice.
+local releaseRecord=record('SCSEQ',4,{fx(146,{p2=1,res='SCDISP'}),fx(146,{p2=1,res='SCDISP'})})
+releaseRecord.spellType=4
+local seq=read(releaseRecord)
+assert(seq.release and removal.sequencerShare==0.1)
+i=input();i.frame.allies={fighter(2)};i.frame.enemies={bare}
+assert(near(removal.on(i,seq,bare,3),0.1*removal.on(i,disp,bare,3)))
+i.spells={row('SCSEQ',seq,3)}
+local options=removal.options(i)
+assert(#options==1 and options[1].release and options[1].worth>0)
+-- A non-dispel release keeps its old worth.
+local brel=record('SCBSEQ',4,{fx(146,{p2=1,res='SCBREACH'}),fx(146,{p2=1,res='SCBREACH'})})
+brel.spellType=4
+assert(near(removal.on(i,read(brel),bare,3),removal.on(i,br,bare,3)))
+-- An area can clear several screens; the follow-up is weighed for each recipient separately.
+local wide=read(record('SCWIDE',3,{fx(58,{p2=1,resist=0}),fx(221,{p1=9,p2=41,resist=0})},
+    {target=4,projectile=2}))
+i.spells={row('SCWIDE',wide,3),row('SCBREACH',br,5)}
+e.wards={pfmw15,immune,payload};e.mr=0
+i.frame.allies={fighter(2),fighter(3,{x=240})}
+i.frame.enemies={e,enemy(12,{x=220,wards={pfmw15,immune,payload},protections=e.protections})}
+local wideOption=removal.options(i)[1]
+assert(wideOption and wideOption.resref=='SCWIDE' and #wideOption.hits==2)
+-- A follow-up area that would catch a friend gives no screen-opening value.
+local unsafe=spell('SCUNSAFE',3,{fx(58,{p2=1,resist=0})},{target=4},area(190))
+i.frame.enemies={e};i.spells={row('SCDISP',disp,3),row('SCUNSAFE',unsafe,3)}
+assert(removal.on(i,disp,e,3)==0)
+end)()
 groups=groups+1
 
 return groups

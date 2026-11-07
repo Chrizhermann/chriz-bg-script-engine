@@ -55,6 +55,16 @@
 -- wäre es halt auch gut generell ein mal zu casten, damit es AOE auf mehrere weg ist. Egal ob es
 -- dispellen könnte oder nicht"): until then each of their wards counts at least the base chance.
 --
+-- Screens (Christopher, 2026-11-04): immunity to dispel (101 against 58) stops only the dispel;
+-- immunity to a delivered spell (206) stops only that branch. Removals by type, school or opcode
+-- still work, including a dispel's separate removal of the screen itself. A clever caster reads
+-- the screen, a normal one when it sees the tactic, a dull one never; insight='exact' always does.
+-- The group still learns from a wasted dispel as above. No spell name or secondary type is fixed.
+-- Taking a screen down also earns M.screenFollow of what the best removal still ready after this
+-- cast would open with it gone, one step only. The first cast's own opening counts as before.
+-- A release (sequencer, contingency or trigger) with a dispel gets M.sequencerShare of its removal
+-- worth: it is allowed, but rarely worth spending. Both shares are named for tuning in the lab.
+--
 -- What a removal takes follows the engine (IESDP):
 -- - a dispel (opcode 58) takes each effect that can be dispelled (resistance field bit 0), with a
 --   chance of 49% plus 5% a level the dispel is above the effect's caster level, less 10% a level
@@ -83,6 +93,8 @@ M.ROUND=6
 -- A speed point of casting time is 10 game ticks (as for defences).
 M.speedSeconds=10/15
 M.costPerLevel=0.03
+M.screenFollow=0.5
+M.sequencerShare=0.1
 -- Allies keep this much room beyond an area's edge (as for attacks).
 M.allyMargin=32
 -- GENDER.IDS: summoned, illusionary and demonic summoned creatures.
@@ -170,6 +182,71 @@ function M.insight(input)
     if o~=nil and M.INSIGHTS[o] then return o end
     local m=type(input)=='table' and input.mind or nil
     return type(m)=='table' and M.INSIGHT[m.wit] or 'estimate'
+end
+-- Whether this creature reads a screen in this decision, using the same insight and tactic
+-- draw as the rest of removal. Exact orders also let a dull boss see it.
+function M.readScreen(input)
+    local insight=M.insight(input)
+    return insight=='exact' or insight=='estimate' or (insight=='rough' and tactical(input))
+end
+local function screen(w)
+    return type(w)=='table' and ((w.opcode==101 and w.p2==58) or
+        (w.opcode==206 and type(w.res)=='string' and w.res~=''))
+end
+local function blocksRemoval(w,spell)
+    if not screen(w) then return false end
+    local role=type(spell.roles)=='table' and spell.roles.removal
+    if w.opcode==101 then return type(role)=='table' and list(role.kinds).dispel==true end
+    return type(spell.sources)=='table' and spell.sources[w.res]==true
+end
+-- Whether a screen is there to notice (choice.notices), with a ready removal to use on it.
+function M.screening(input)
+    for _,e in ipairs(list(input.frame.enemies)) do
+        for _,w in ipairs(list(e.wards)) do
+            if screen(w) then
+                for _,row in ipairs(list(input.spells)) do
+                    if type(row)=='table' and number(row.ready) and row.ready>0 and row.usable and
+                        M.removal(row.spell) and blocksRemoval(w,row.spell) then return true end
+                end
+            end
+        end
+    end
+    return false
+end
+-- A removal as it reaches this enemy. The general protection check treats an opcode immunity
+-- or a blocked delivery as stopping the whole spell; here the surviving parts must still count.
+-- A caster that misses the screen believes the original delivery and dispel will work.
+function M.against(input,spell,e)
+    local hasScreen,dispel,blocked=false,false,nil
+    for _,w in ipairs(list(e.wards)) do
+        if type(w)=='table' then
+            if screen(w) then hasScreen=true end
+            if w.opcode==101 and w.p2==58 then dispel=true
+            elseif w.opcode==206 and type(w.res)=='string' and w.res~='' and w.res~=spell.resref and
+                type(spell.sources)=='table' and spell.sources[w.res] then
+                blocked=blocked or {};blocked[w.res]=true
+            end
+        end
+    end
+    local reads=hasScreen and M.readScreen(input)
+    if not dispel and not blocked then return spell,e,reads end
+    local effective=reads and blocked and spells.without(spell,blocked) or spell
+    local target=e
+    if type(e.protections)=='table' then
+        local kept={}
+        for _,p in ipairs(e.protections) do
+            local skip=type(p)=='table' and ((dispel and p.opcode==101 and p.p2==58) or
+                (p.opcode==206 and blocked and blocked[p.res] and
+                (not reads or effective~=spell)))
+            if not skip then kept[#kept+1]=p end
+        end
+        if #kept<#e.protections then
+            target={}
+            for k,v in pairs(e) do target[k]=v end
+            target.protections=kept
+        end
+    end
+    return effective,target,reads
 end
 -- The least caster level a spell of level power takes: a wizard's 1, 3, 5 up to 17, a priest's the
 -- same up to its sixth level.
@@ -281,11 +358,18 @@ end
 -- What removal r takes of wards (an enemy's, in list order), cast at caster level level: the
 -- chance each ward goes, by index, and whether the invisible state goes. chanceOf(w,at) (optional,
 -- M.belief) gives a dispel's chance at ward w; without it, its effect's own caster level does.
-function M.taken(r,wards,level,chanceOf)
+-- readScreen=false is the belief of a caster that did not see the dispel immunity.
+function M.taken(r,wards,level,chanceOf,readScreen)
     local chance={}
     local function take(i,p) chance[i]=math.max(chance[i] or 0,p) end
     local kinds=list(r.kinds)
-    if kinds.dispel and type(r.dispel)=='table' then
+    local screened=false
+    if kinds.dispel and readScreen~=false then
+        for _,w in ipairs(wards) do
+            if type(w)=='table' and w.opcode==101 and w.p2==58 then screened=true;break end
+        end
+    end
+    if kinds.dispel and type(r.dispel)=='table' and not screened then
         local at=r.dispel.mode=='fixed' and r.dispel.level or level
         for i,w in ipairs(wards) do
             if type(w)=='table' and w.dispellable then
@@ -460,22 +544,25 @@ end
 -- The worth of a removal spell on enemy e once it lands, r rounds before the horizon ends, the
 -- reason when it is none, and the chance it lands. It can be below zero: then the removal frees e
 -- of more than it opens. area: the spell is cast as an area (a dispel's chance, M.belief).
-function M.on(input,spell,e,r,area)
+function M.on(input,spell,e,r,area,following)
     local mind=input.mind
     local killBonus=number(mind.killBonus) and mind.killBonus or 0
-    local roles,key=spells.view(spell,targeting.holds(e))
+    local effective,target,reads=M.against(input,spell,e)
+    local roles,key=spells.view(effective,targeting.holds(e))
     if type(roles)~='table' or (type(key)=='string' and key:find('?',1,true)) then return 0,'unknown-filter' end
     local role=roles.removal
     if type(role)~='table' or type(role.who)~='table' or not (role.who.target or role.who.area) then return 0,'filter' end
-    if targeting.protected(e,spell) then return 0,'protected' end
+    if targeting.protected(target,effective) then return 0,'protected' end
     local kinds=list(role.kinds)
     local land=targeting.landing(role,e)*(1-targeting.saveChance(role,e))*clamp(number(role.chance) and role.chance or 1,0,1)
+    local original=type(spell.roles)=='table' and spell.roles.removal
+    local share=spell.release and type(original)=='table' and list(original.kinds).dispel and M.sequencerShare or 1
     if land<=0 then return 0,'resisted' end
     -- Unsummoned or destroyed: out of the fight for good, as a kill. Unsummoning takes summons only.
-    if kinds.destroy or (kinds.summons and summoned(e)) then return land*(targeting.health(e)+killBonus) end
+    if kinds.destroy or (kinds.summons and summoned(e)) then return share*land*(targeting.health(e)+killBonus) end
     if r<=0 then return 0,'no-time' end
     local wards=type(e.wards)=='table' and e.wards or {}
-    local chance,purge=M.taken(role,wards,input.frame.self.level,M.belief(input,e,area))
+    local chance,purge=M.taken(role,wards,input.frame.self.level,M.belief(input,e,area),reads)
     local gone,n,sum=nil,0,0
     for i,p in pairs(chance) do
         if p>0 then gone=gone or {};gone[i]=true;n=n+1;sum=sum+p end
@@ -517,7 +604,10 @@ function M.on(input,spell,e,r,area)
         local p,gain=M.freed(e,wards,chance,r)
         worth=p*gain+(1-p)*worth
     end
-    worth=worth*land
+    if not following and gone and reads then
+        worth=worth+M.follow(input,spell,e,changed,after,wards,gone,chance,r)
+    end
+    worth=worth*land*share
     if worth==0 then return 0,'no-worth' end
     return worth,worth<0 and 'frees' or nil,land
 end
@@ -586,6 +676,85 @@ local function aims(input,spell)
         end
     end
     return out
+end
+
+-- The enemy after these wards go, for one following removal only. Match protection rows one
+-- at a time so a second, surviving copy of an immunity still protects it.
+local function afterWards(e,changed,shield,wards,gone)
+    local out={}
+    for k,v in pairs(changed) do out[k]=v end
+    out.wards={}
+    for i,w in ipairs(wards) do if not gone[i] then out.wards[#out.wards+1]=w end end
+    out.mr=shield.mr;out.skins=shield.stoneskin;out.mirror=shield.mirror
+    if type(e.protections)=='table' then
+        out.protections={}
+        local used={}
+        for _,p in ipairs(e.protections) do
+            local take=false
+            for i in pairs(gone) do
+                local w=wards[i]
+                if not used[i] and type(p)=='table' and p.opcode==w.opcode and p.p2==w.p2 and
+                    (w.p1==nil or p.p1==w.p1) and (p.res or '')==(w.res or '') then
+                    used[i]=true;take=true;break
+                end
+            end
+            if not take then out.protections[#out.protections+1]=p end
+        end
+    end
+    return out
+end
+-- A following removal must have a legal aim that reaches e and spares the caster's side,
+-- just as the options below. Keep the best walk's pacing; a release cannot walk into range.
+local function followReach(input,spell,role,e)
+    local best=0
+    local a=type(spell.area)=='table' and spell.area
+    for _,aim in ipairs(aims(input,spell)) do
+        local reaches=aim.enemy and aim.enemy.id==e.id
+        if a and (not aim.enemy or role.who.area) then
+            reaches=targeting.distance(aim.point,e)<=a.radius
+            if reaches and a.filter~='enemies' then
+                for _,ally in ipairs(list(input.frame.allies)) do
+                    if targeting.alive(ally) and targeting.distance(aim.point,ally)<=a.radius+M.allyMargin then reaches=false end
+                end
+                local caster=input.frame.self
+                local at=aim.walk and castFrom(caster,aim.point,spell) or caster
+                if (not aim.self and targeting.distance(aim.point,at)<=a.radius+M.allyMargin) or
+                    (aim.self and not a.skipsCenter) then reaches=false end
+            end
+        end
+        if reaches then best=math.max(best,aim.walk and weapons.paced(aim.walk) or 1) end
+    end
+    return best
+end
+-- The best next removal that this screen kept out, discounted once. Spend this cast's ready
+-- copy before looking ahead. A second step never looks ahead again (M.on's following flag).
+function M.follow(input,spell,e,changed,shield,wards,gone,chance,r)
+    local screens={}
+    for i in pairs(gone) do if screen(wards[i]) then screens[#screens+1]=i end end
+    if #screens==0 then return 0 end
+    local after=afterWards(e,changed,shield,wards,gone)
+    local best=0
+    for _,row in ipairs(list(input.spells)) do
+        if type(row)=='table' and number(row.ready) and row.usable then
+            local same=row.spell==spell or row.resref==spell.resref
+            local nextSpell=row.spell
+            local role=row.ready>(same and 1 or 0) and M.removal(nextSpell)
+            if role then
+                local p=0
+                for _,i in ipairs(screens) do
+                    if blocksRemoval(wards[i],nextSpell) then p=math.max(p,chance[i] or 0) end
+                end
+                if p>0 then
+                    local pace=followReach(input,nextSpell,role,after)
+                    if pace>0 then
+                        local value=M.on(input,nextSpell,after,r,nextSpell.area~=nil,true)
+                        best=math.max(best,value*p*pace)
+                    end
+                end
+            end
+        end
+    end
+    return best*M.screenFollow
 end
 
 -- Every removal the caster can cast now, best aim per spell: {resref, kind='removal', mode, worth,

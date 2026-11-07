@@ -390,14 +390,16 @@ end
 -- creature (spells.view) must hold the attack or a debuff, and e's spell protections must not stop
 -- it. A lasting area gets through once the turnings, deflections and traps that count down are
 -- spent.
-local function affects(spell,e,kind,lasting)
-    local roles,key=spells.view(spell,targeting.holds(e))
+local function affects(spell,e,kind,lasting,input)
+    local effective,target=spell,e
+    if input and reaches(spell.roles.removal) then effective,target=removal.against(input,spell,e) end
+    local roles,key=spells.view(effective,targeting.holds(e))
     if type(roles)~='table' or not (reaches(roles[kind]) or reaches(roles.debuff)) then
         return nil,type(key)=='string' and key:find('?',1,true) and 'unknown-filter' or 'filter'
     end
     if lasting then
-        if targeting.stopped(e,spell)==math.huge then return nil,'protected' end
-    elseif targeting.protected(e,spell) then return nil,'protected' end
+        if targeting.stopped(target,effective)==math.huge then return nil,'protected' end
+    elseif targeting.protected(target,effective) then return nil,'protected' end
     return roles
 end
 
@@ -554,7 +556,8 @@ local function opens(role)
     local a=type(role.amounts)=='table' and role.amounts or {}
     return (type(role.saveBy)=='table' and next(role.saveBy)~=nil) or
         (type(role.resist)=='table' and next(role.resist)~=nil) or (number(a.armor) and a.armor>0) or
-        (number(a.magicResistance) and a.magicResistance>0) or (type(role.kinds)=='table' and role.kinds.blind==true) or false
+        (number(a.magicResistance) and a.magicResistance>0) or (type(role.mrCuts)=='table' and #role.mrCuts>0) or
+        (type(role.kinds)=='table' and role.kinds.blind==true) or false
 end
 local worthOn
 -- Openings (see the top): what a debuff role that lowers e's defences opens for the attacks after
@@ -579,7 +582,7 @@ local function opening(input,row,role,e,ctx)
                 if type(other)=='table' and other~=row and other.resref~=row.resref and number(other.ready) and other.ready>0 and
                     other.usable then
                     local kind=M.attack(other.spell)
-                    local roles=kind and affects(other.spell,e,kind)
+                    local roles=kind and affects(other.spell,e,kind,nil,input)
                     if roles then
                         gain=math.max(gain,worthOn(input,other,kind,roles,w,ctx,true)-worthOn(input,other,kind,roles,e,ctx,true))
                     end
@@ -914,7 +917,7 @@ end
 -- Draws once a decision whether the creature sees a tactic's chance (mind.tactics), and only when
 -- there is one to see (an enemy casts, a jump into the fight is there, a debuff opens an enemy's
 -- defences, a melee enemy close by can be stepped away from, a backstab is there, a walk into
--- position in the casting pause, or an enemy the other side charmed to free), so that other
+-- position in the casting pause, an enemy the other side charmed to free, or a removal screen), so that other
 -- decisions draw nothing. Without input.rng: when its chance is a half or more.
 function M.notices(input)
     local p=number(input.mind.tactics) and input.mind.tactics or 1
@@ -925,7 +928,7 @@ function M.notices(input)
         if type(e)=='table' and type(e.cast)=='table' then any=true;break end
     end
     if not any and not leaping(input) and not opener(input) and not kiting(input) and not stabbing(input) and
-        not positioning(input) and not freeing(input) then return false end
+        not positioning(input) and not freeing(input) and not removal.screening(input) then return false end
     local rng=input.rng
     if not rng then return p>=0.5 end
     return rng:nextInt(1,1000)<=math.floor(p*1000+0.5)
@@ -993,7 +996,7 @@ local function evaluate(input,row,spell,kind,mode,aim,ctx)
     end
     if mode=='creature' then
         local e=aim.enemy
-        local roles,why=affects(spell,e,kind)
+        local roles,why=affects(spell,e,kind,nil,input)
         if not roles then return nil,why end
         if kind=='disable' and targeting.disabled(e) then return nil,'disabled' end
         worth,expected[e.id]=worthOn(input,row,kind,roles,e,ctx)
@@ -1005,7 +1008,7 @@ local function evaluate(input,row,spell,kind,mode,aim,ctx)
         if a.line or a.rectangle then
             -- An enemies-only line or box: counted for the creature aimed at only.
             local e=aim.enemy
-            local roles=e and affects(spell,e,kind)
+            local roles=e and affects(spell,e,kind,nil,input)
             if not roles then return nil,'shape' end
             worth,expected[e.id]=worthOn(input,row,kind,roles,e,ctx)
             worth=worth+stripped(input,spell,e)
@@ -1041,7 +1044,7 @@ local function evaluate(input,row,spell,kind,mode,aim,ctx)
             -- enemies well inside still hits them after a step.
             slack=math.huge
             for _,e in ipairs(frame.enemies) do
-                local roles=targeting.alive(e) and inside(e) and affects(spell,e,kind,lasting)
+                local roles=targeting.alive(e) and inside(e) and affects(spell,e,kind,lasting,input)
                 -- Before they are back, only a mazed foe whose return can be told is in the area:
                 -- it comes back where it went; a charmed one walks about meanwhile.
                 if roles and away and (e.away~='maze' or not number(e.back)) then roles=nil end

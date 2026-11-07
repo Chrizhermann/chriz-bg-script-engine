@@ -1102,4 +1102,66 @@ assert(c.roles.buff.kinds.haste and not c.roles.buff.kinds.improvedHaste)
 end)()
 groups=groups+1
 
+-- A target's resource immunity can stop one delivery without hiding the other branches or
+-- making a spell partial. The cached variant is made from plain records, without more lookups.
+;(function()
+local body=spl('SCRPAY',{ability({fx(221,{p1=9,p2=7})})})
+local tail=spl('SCRTAIL',{ability({fx(221,{p1=9,p2=41})})})
+local root=spl('SCRROOT',{ability({fx(146,{res='SCRPAY'}),fx(146,{res='SCRTAIL'})})})
+local records={['SPL:SCRPAY']=body,['SPL:SCRTAIL']=tail}
+local calls=0
+local lookup=function(kind,key) calls=calls+1;return records[kind..':'..tostring(key)] end
+local original=classify(root,lookup)
+local before=calls
+local view=spells.without(original,{SCRPAY=true})
+assert(not view.partial and view.roles.removal.secondaries[7]==nil and view.roles.removal.secondaries[41]==9)
+assert(#view.delivered==1 and view.delivered[1].resref=='SCRTAIL' and not view.sources.SCRPAY)
+assert(calls==before and spells.without(original,{SCRPAY=true})==view)
+assert(spells.without(original,{UNRELATED=true})==original and original.roles.removal.secondaries[7]==9)
+-- Blocking a missing delivery does not make the remaining, fully known branch partial.
+records['SPL:SCRPAY']=nil
+view=classify(root,lookup,{blockedSpells={SCRPAY=true}})
+assert(not view.partial and view.roles.removal.secondaries[41]==9 and not view.reasons['missing:SPL:SCRPAY'])
+assert(classify(root,lookup).partial)
+records['SPL:SCRPAY']=body
+-- A conditional delivery still keeps its condition on a surviving branch; the target's ward
+-- cannot block the same spell cast on the caster. The 326 self remapping still names the target.
+root=spl('SCRCOND',{ability({fx(326,{res='SCRPAY',p2=125,p1=8}),fx(146,{res='SCRTAIL'})})})
+view=classify(root,lookup,{blockedSpells={SCRPAY=true}})
+assert(not view.partial and not view.conditions and view.roles.removal.secondaries[7]==nil)
+root=spl('SCRSELF',{ability({fx(146,{res='SCRPAY',target=1}),fx(146,{res='SCRPAY'}),fx(146,{res='SCRTAIL'})})})
+view=classify(root,lookup,{blockedSpells={SCRPAY=true}})
+assert(view.roles.removal.who.self and view.roles.removal.who.target)
+assert(#view.delivered==2 and view.delivered[1].to=='self' and view.delivered[2].resref=='SCRTAIL')
+root=spl('SCRMAP',{ability({fx(326,{res='SCRPAY',target=1}),fx(146,{res='SCRTAIL'})})})
+view=classify(root,lookup,{blockedSpells={SCRPAY=true}})
+assert(view.roles.removal.secondaries[7]==nil and view.roles.removal.secondaries[41]==9)
+end)()
+groups=groups+1
+
+-- Only known Invoke Lua functions get a meaning. Pierce Magic's CBMBPM uses current target MR,
+-- including rounding and both bounds, for 30 seconds; the containing spell's name is irrelevant.
+;(function()
+local harm=require('combat-intent.harm')
+local targeting=require('combat-intent.targeting')
+local c=one(fx(402,{res='CBMBPM',resist=2,timing=1}))
+assert(c.roles.debuff.kinds.magicResistance and c.roles.debuff.duration==30 and not c.roles.debuff.resisted)
+assert(c.unknown[402]==nil and c.roles.debuff.amounts==nil)
+for _,pair in ipairs({{0,0},{15,5},{20,10},{51,26},{80,40},{120,80}}) do
+    assert(harm.weakened(c.roles.debuff,{mr=pair[1]}).mr==pair[2])
+end
+local renamed=classify(spl('ANYNAME',{ability({fx(402,{res='cbmbpm',resist=2}),fx(230,{p1=8,p2=1,resist=2})})}))
+assert(renamed.roles.debuff and renamed.roles.removal and renamed.unknown[402]==nil)
+local unknown=one(fx(402,{res='UNKNOWN'}))
+assert(unknown.unknown[402]==1 and unknown.roles.debuff==nil and not unknown.partial)
+-- Role views keep the known function behind the delivery's target condition.
+local child=spl('SCRLUA',{ability({fx(402,{res='CBMBPM',resist=2})})})
+local cond=classify(spl('SCRLCND',{ability({fx(326,{res='SCRLUA',p2=125,p1=8})})}),world({['SPL:SCRLUA']=child}))
+local key=spells.conditionKey(cond.conditions[1])
+assert(spells.view(cond,targeting.holds({splprot={[key]=false}})).debuff==nil)
+local role=spells.view(cond,targeting.holds({splprot={[key]=true}})).debuff
+assert(role.duration==30 and harm.weakened(role,{mr=51}).mr==26)
+end)()
+groups=groups+1
+
 return groups

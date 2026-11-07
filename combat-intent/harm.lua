@@ -462,6 +462,10 @@ function M.weakened(role,e)
     local armor=number(e.ac) and amount(role,'armor') or 0
     if number(e.ac) and k.blind and not targeting.has(e.state,targeting.STATE.blind) then armor=armor+M.blindArmor end
     local mr=amount(role,'magicResistance')
+    for _,cut in ipairs(type(role.mrCuts)=='table' and role.mrCuts or {}) do
+        local current=(number(e.mr) and e.mr or 0)-mr
+        mr=mr+math.max(cut.min,math.min(cut.max,math.floor(current*cut.share)))*cut.p
+    end
     local saves=next(by)~=nil and type(e.saves)=='table'
     if not saves and next(resist)==nil and armor<=0 and mr<=0 then return nil end
     local c={}

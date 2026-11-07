@@ -553,6 +553,20 @@ for op in pairs(SAVE_MODS) do
     end
 end
 H[166]=function(c,e,who,p) modifier(c,e,who,p,'magicResistance','protection','debuff') end
+-- Invoke Lua cannot be read from a SPL. Describe only functions whose implementation is known,
+-- never the spell that happens to call them. CBMBPM floors half the receiver's current MR,
+-- clamps the reduction to 10..40 points and keeps it for five rounds (the spell mod's Lua).
+M.luaEffects={CBMBPM={share=0.5,min=10,max=40,duration=30}}
+H[402]=function(c,e,who,p)
+    local known=M.luaEffects[e.res:upper()]
+    if not known then c.unknown=c.unknown or {};tally(c.unknown,402,1);return end
+    local effect={}
+    for k,v in pairs(e) do effect[k]=v end
+    effect.timing=0;effect.duration=known.duration
+    local r=kind(c,'debuff','magicResistance',who,effect,p)
+    local cuts=set(r,'mrCuts')
+    cuts[#cuts+1]={share=known.share,min=known.min,max=known.max,p=p}
+end
 H[0]=function(c,e,who,p)
     if e.p2==16 then kind(c,'protection','armor',who,e,p);return end
     signed(c,e,who,p,e.p1,'armor','protection','debuff')
@@ -1056,6 +1070,9 @@ local function send(c,state,e,where,depth,p)
     local res=e.res
     -- A resref holds eight characters, so an eight-character holder names itself.
     if op==333 and res=='' and c.owner then res=(c.owner..'B'):sub(1,8) end
+    local receiverHere=receiver(c,e,where)
+    if op==326 and (e.target==1 or e.target==9) then receiverHere=c.aim or receiverHere end
+    if receiverHere~='self' and state.blockedSpells and state.blockedSpells[res:upper()] then return end
     local sub=state.lookup('SPL',res)
     if type(sub)~='table' then return state.miss(c,'SPL',res) end
     c.sources[res]=true
@@ -1265,6 +1282,8 @@ end
 -- (releaseRange) is marked c.release, with its spells' shortest range as c.range and its own as
 -- c.ownRange. c.recharge is when the ability is back after its use (recharge). A spell that ends
 -- its own condition is walked twice (ownEnds); options.ends is that second walk's.
+-- options.blockedSpells names deliveries stopped by an outside ward. Those branches bring
+-- nothing, without making the reading partial. M.without caches that reading on demand.
 function M.classify(record,index,lookup,options)
     options=options or {}
     local c={roles={},unknown={},reasons={},opcodes={},sources={},conditions={},conditionAt={},log={},nodes={},
@@ -1282,11 +1301,13 @@ function M.classify(record,index,lookup,options)
     local targets={[1]='creature',[2]='item',[3]='dead',[4]='point',[5]='self',[7]='self'}
     c.target=targets[ability.target] or 'none'
     -- lookup may be any callable (a host function arrives as userdata).
+    local records={}
     local state={lookup=function(kind,key)
             if lookup==nil then return nil end
             local ok,value=pcall(lookup,kind,key)
-            if ok and type(value)=='table' then return value end
-        end,path={},count=0,level=options.level or 1,weapons=options.weapons~=false,ends=options.ends}
+            if ok and type(value)=='table' then records[kind..':'..tostring(key)]=value;return value end
+        end,path={},count=0,level=options.level or 1,weapons=options.weapons~=false,ends=options.ends,
+        blockedSpells=options.blockedSpells}
     function state.miss(cl,kind,res) cl.partial=true;cl.reasons['missing:'..kind..':'..tostring(res)]=true end
     -- Projectiles 0 and 1 are none. Others without a PRO file are built into the engine (in
     -- MISSILE.IDS, not PROJECTL.IDS), so their shape is unknown here.
@@ -1344,7 +1365,40 @@ function M.classify(record,index,lookup,options)
         end
     end
     table.sort(names);c.kinds=names
+    -- Keep plain records, not the adapter's lookup or engine handles. Only removals with
+    -- sub-spells need a second reading when an enemy blocks one of their deliveries.
+    if c.roles.removal then
+        for res in pairs(c.sources) do
+            if res~=c.resref and records['SPL:'..res] then
+                c.reading={record=record,index=index,records=records,options=options};break
+            end
+        end
+    end
     return c
+end
+
+-- The same removal without the named delivered spells. No second reading or cache for an
+-- unrelated immunity. Each relevant set is classified once, from records read the first time.
+function M.without(c,blocked)
+    if not c.reading then return c end
+    local names={}
+    for res in pairs(blocked or {}) do
+        if res~=c.resref and c.sources and c.sources[res] then names[#names+1]=res end
+    end
+    if #names==0 then return c end
+    table.sort(names)
+    local key=table.concat(names,':')
+    c.withoutViews=c.withoutViews or {}
+    if c.withoutViews[key] then return c.withoutViews[key] end
+    local read=c.reading
+    local options={}
+    for k,v in pairs(read.options) do options[k]=v end
+    options.blockedSpells={}
+    for res in pairs(read.options.blockedSpells or {}) do options.blockedSpells[res]=true end
+    for _,res in ipairs(names) do options.blockedSpells[res]=true end
+    local view=M.classify(read.record,read.index,function(kind,res) return read.records[kind..':'..tostring(res)] end,options)
+    c.withoutViews[key]=view
+    return view
 end
 
 -- The roles the classified spell c has for one creature it reaches. holds(condition) answers
