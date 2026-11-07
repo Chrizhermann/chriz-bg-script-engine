@@ -203,7 +203,7 @@ ACTION_IF (bgse_hooked > 0) BEGIN
     BUT_ONLY_IF_IT_CHANGES
   END
 END
-// The designed encounters' creatures (Christopher designs each fight): least ability scores, spellbooks
+// The designed encounters' creatures (Christopher designs each fight): ability scores, spellbooks
 // and items, one entry each (bgse/encounters.tpa, bgse/lib/encounter.tpa).
 OUTER_SET bgse_designed = 0
 OUTER_SET bgse_lines = 0

@@ -2607,10 +2607,9 @@ END
 // copy (bgse_gift_name). The creature knows it and has it memorized as an innate ability as often as SCS
 // gives it (once when it comes back by itself; the most of two gifts of the same name). Each copy goes
 // into bgse_copies (|NAME>RESREF:RECHARGE| entries) for bgse_create_gifts. A gift whose spell the game
-// lacks is left out, and so is one whose copy would take a name the game already has (another mod's
-// file) or another spell's copy has. Spells are looked up once each (bgse_look_spell). bgse_given lists
-// what the creature got, for the log. A creature file WeiDU cannot add the spells to is left exactly as
-// it was.
+// lacks is left out, and so is one whose copy name another spell of ours already has. Each copy name is ours
+// and overwrites a resource under it. Spells are looked up once each (bgse_look_spell). bgse_given lists what
+// the creature got, for the log. A creature file WeiDU cannot add the spells to is left exactly as it was.
 DEFINE_PATCH_FUNCTION bgse_grant_gifts
   STR_VAR bgse_gifts_of = ~|~
           bgse_party = ~|~
@@ -2741,8 +2740,6 @@ BEGIN
               PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%grant%>%res%:~ ~%listed%~) < 0) BEGIN
                 SET keep = 0
               END
-            END ELSE PATCH_IF (FILE_EXISTS_IN_GAME ~%grant%.spl~) BEGIN
-              SET keep = 0
             END ELSE BEGIN
               TEXT_SPRINT made ~%made%%grant%>%res%:%seconds%|~
             END
@@ -2842,6 +2839,7 @@ DEFINE_ACTION_FUNCTION bgse_create_gift
   STR_VAR bgse_res = ~~
           bgse_name = ~~
 BEGIN
+  // bgse_name is our copy name: COPY_EXISTING overwrites whatever resource currently has it.
   COPY_EXISTING ~%bgse_res%.spl~ ~override/%bgse_name%.spl~
     PATCH_IF (BUFFER_LENGTH >= 0x72) BEGIN
       WRITE_SHORT 0x1c 4                    // innate
@@ -2893,6 +2891,7 @@ BEGIN
   ACTION_IF (name < 0) BEGIN
     OUTER_SET name = RESOLVE_STR_REF (~Teleport Without Error~)
   END
+  // BGSETELE is ours: CREATE overwrites a resource currently under that name.
   CREATE SPL ~bgsetele~
     WRITE_LONG  0x08 name
     WRITE_LONG  0x0c (0 - 1)

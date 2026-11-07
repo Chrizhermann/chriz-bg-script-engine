@@ -609,11 +609,12 @@ def _check_teleport(data: bytes, name: str, root: Path) -> None:
     assert _tlk_text((root / 'lang/en_us/dialog.tlk').read_bytes(), spell['name']) == name
 
 
-def test_without_the_fiend_teleport_the_jump_stays_and_the_innate_gets_an_english_name(tmp_path: Path) -> None:
+def test_without_the_fiend_teleport_the_jump_stays_and_the_innate_overwrites_a_taken_name(tmp_path: Path) -> None:
     # A game without the fiend teleport: the monster's jump casts a spell that moves nobody there, so
     # it stays a special copied above the hook; its chase still teleports by script, so its creature
     # gets the innate teleport, named in English.
     _fake_game(tmp_path, fiend_teleport=False)
+    (tmp_path / 'override/BGSETELE.SPL').write_bytes(_spl(1, opcode=17, target=1))
     before = _snapshot(tmp_path)
     originals = _decompile(tmp_path, ['B-HKMON'])
     output = _install(tmp_path, '--force-install-list', '0')
@@ -625,16 +626,16 @@ def test_without_the_fiend_teleport_the_jump_stays_and_the_innate_gets_an_englis
     assert hooked['B-HKMON'] == hook_rule.patch(originals['B-HKMON'], 'B-HKMON', TELEPORTS - {'INNATE_FIEND_TELEPORT'})[0]
     installed = _snapshot(tmp_path)
     _check_teleport(installed['override/bgsetele.spl'], 'Teleport Without Error', tmp_path)
+    assert 'another mod has BGSETELE' not in output
     _install(tmp_path, '--force-uninstall-list', '0')
     assert _snapshot(tmp_path) == before
 
 
-def test_a_gift_never_takes_a_name_another_mod_or_another_spell_has(tmp_path: Path) -> None:
+def test_a_gift_overwrites_a_taken_name_but_two_ours_do_not_share_one(tmp_path: Path) -> None:
     # A game where another mod has a spell named as the fiend's round invisibility would be, and where
-    # two rounds last 30 seconds: then b-hkshd's copy and the thief script's b-hksil copy would share
-    # one name. Nobody gets the round invisibility, the other mod's spell stays as it is, and the name
-    # both copies want stands for the spell of the first creature that got it; the other spell's
-    # creatures go without that gift.
+    # two rounds last 30 seconds: BGSE owns and overwrites the first name. b-hkshd's copy and the thief
+    # script's b-hksil copy still share a generated name, so the first source owns it and creatures of
+    # the other source go without that gift.
     _fake_game(tmp_path, times={'ONE_ROUND': 6, 'TWO_ROUNDS': 30})
     foreign = _spl(1, opcode=17, target=1)
     (tmp_path / 'override/BGW20606.SPL').write_bytes(foreign)
@@ -643,7 +644,9 @@ def test_a_gift_never_takes_a_name_another_mod_or_another_spell_has(tmp_path: Pa
     output = _install(tmp_path, '--force-install-list', '0')
     assert 'SUCCESSFULLY INSTALLED' in output, output
     installed = _snapshot(tmp_path)
-    assert installed['override/bgw20606.spl'] == foreign
+    assert installed['override/bgw20606.spl'] != foreign
+    assert _gift_spell(installed, 'BGW20606') == ((4, 1, 4, 3), [(20, 1, 0, ''), (172, 1, 0, 'BGW20606'),
+                                                                  (171, 4, 6, 'BGW20606')])
     # b-hkshd is Improved Invisibility (parameter 2 is 1), b-hksil plain.
     _, effects = _gift_spell(installed, 'BGB-HK0U')
     source = 'B-HKSHD' if parse_spl(installed['override/bgb-hk0u.spl'], 'BGB-HK0U')['abilities'][0]['effects'][0][
@@ -653,13 +656,13 @@ def test_a_gift_never_takes_a_name_another_mod_or_another_spell_has(tmp_path: Pa
     gifts_of = {name.lower(): hook_rule.script_gifts(text, HIDES, INNATES, {'ONE_ROUND': 6, 'TWO_ROUNDS': 30})
                 for name, text in originals.items()}
     for name, grants in expected.items():
-        grants.pop('BGW20606', None)
         scripts = _creatures()[name][0]
         wants = {spell for s in scripts for spell, _, _, recharge in gifts_of.get(s.lower(), []) if recharge == 30}
         if 'BGB-HK0U' in grants and source not in wants:
             del grants['BGB-HK0U']
     assert expected['B-HKFE1'].get('BGB-HK0U') == (1 if source == 'B-HKSHD' else None)
     assert expected['B-HKWAR'].get('BGB-HK0U') == (1 if source == 'B-HKSIL' else None)
+    assert 'another mod has' not in output
     _check_gifts(before, installed, expected)
     _install(tmp_path, '--force-uninstall-list', '0')
     assert _snapshot(tmp_path) == before
@@ -748,17 +751,15 @@ def _items_of(data: bytes):
     return {slot: items[word] for slot, word in enumerate(words[:38]) if word < count}
 
 
-@pytest.mark.parametrize('variant', ['plain', 'strong', 'odd', 'absent'])
+@pytest.mark.parametrize('variant', ['plain', 'strong', 'mismatched', 'full', 'absent'])
 def test_a_designed_creature_gets_its_scores_book_and_items(tmp_path: Path, variant: str) -> None:
-    # Neira's entry (bgse/encounters.tpa): WIS at least 15, her priest levels 1 to 3 as the book says,
-    # other spells and items as they were, and a Potion of Invisibility in a free pack slot. 'strong': a
-    # wiser Neira who carries the potion already keeps her WIS and gets no second. 'odd': a game without
-    # Protection From Good, whose Doom is a second-level spell, without Unholy Blight, and a full pack:
-    # those are left out with a warning, her third level stays, the rest still comes. 'absent': no Neira.
+    # Neira's entry (bgse/encounters.tpa): WIS is exactly 15, her priest levels 1 to 3 are the book's,
+    # and she gets one Potion of Invisibility. 'strong' has higher WIS and the potion already; it is
+    # lowered and not duplicated. 'mismatched' gives Doom another file level, which does not move it out
+    # of the entry's priest level 1. 'full' replaces the last pack item. 'absent' has no Neira.
     _fake_game(tmp_path)
     levels = dict(PRIEST_LEVELS)
-    if variant == 'odd':
-        del levels['SPPR117'], levels['SPPR314']
+    if variant == 'mismatched':
         levels['SPPR113'] = 2
     for spell, level in levels.items():
         data = bytearray(_spl(2))
@@ -768,7 +769,7 @@ def test_a_designed_creature_gets_its_scores_book_and_items(tmp_path: Path, vari
     items = list(NEIRA_ITEMS)
     if variant == 'strong':
         items.append(('POTN10', 23))
-    if variant == 'odd':
+    if variant == 'full':
         items += [(f'MISC{slot:02d}', slot) for slot in range(22, 37)]
     if variant != 'absent':
         (tmp_path / 'override/NEIRA.CRE').write_bytes(_book_cre(NEIRA_BOOK, 17 if variant == 'strong' else 14, items))
@@ -783,17 +784,11 @@ def test_a_designed_creature_gets_its_scores_book_and_items(tmp_path: Path, vari
     else:
         assert 'BGSE encounter: 1 designed creatures changed, 0 lines added to dialogues, 0 new creatures made.' in output, output
         new = installed['override/neira.cre']
-        assert new[0x23B] == (17 if variant == 'strong' else 15)
+        assert new[0x23B] == 15
         assert new[0x238:0x23B] == before['override/neira.cre'][0x238:0x23B]
         assert new[0x23C:0x23F] == before['override/neira.cre'][0x23C:0x23F]
         book, known = _book_of(new)
         wanted = {key: list(spells) for key, spells in DESIGNED.items()}
-        if variant == 'odd':
-            wanted[(0, 1)] = ['SPPR111', 'SPPR102', 'SPPR101']
-            wanted[(0, 3)] = ['SPPR314']
-            for spell in ('SPPR117', 'SPPR113', 'SPPR314'):
-                assert f'leaves out {spell}' in output, (spell, output)
-            assert 'keeps its priest level 3 spells' in output, output
         # Each level holds its spells as often as named; WeiDU may put them in any order.
         assert {key: Counter(spells) for key, spells in book.items()} == {
             key: Counter(spells) for key, spells in {**wanted, (1, 1): ['SPWI112'], (2, 1): ['SPIN101']}.items()}, book
@@ -802,14 +797,14 @@ def test_a_designed_creature_gets_its_scores_book_and_items(tmp_path: Path, vari
         assert Counter(known) == expected_known, known
         have = _items_of(new)
         for item, slot in items:
-            assert have[slot] == item, (slot, have)
+            assert have[slot] == ('POTN10' if variant == 'full' and slot == 36 else item), (slot, have)
         added = {slot: item for slot, item in have.items() if slot not in dict((s, i) for i, s in items)}
-        if variant == 'plain':
+        if variant in ('plain', 'mismatched'):
             assert added == {22: 'POTN10'}, added
         else:
             assert added == {}, added
-            if variant == 'odd':
-                assert 'does not get POTN10: its pack is full' in output, output
+        assert 'file says another kind or level' not in output, output
+        assert 'pack is full' not in output, output
     for name in before:
         if name != 'override/neira.cre' and not name.endswith('.bcs') and name in installed:
             assert installed[name] == before[name] or not name.endswith(('.spl', '.itm')), name
@@ -819,18 +814,20 @@ def test_a_designed_creature_gets_its_scores_book_and_items(tmp_path: Path, vari
     assert _snapshot(tmp_path) == before
 
 
-@pytest.mark.parametrize('variant', ['plain', 'elsewhere', 'taken'])
+@pytest.mark.parametrize('variant', ['plain', 'elsewhere', 'full', 'taken'])
 def test_a_designed_creature_gets_its_own_talk_script(tmp_path: Path, variant: str) -> None:
     # Karlat's entry (bgse/encounters.tpa): his own copy of the game's INITDLG, BGSEKARL, whose talk waits while the
     # engine prepares him as tools/hook_rule.py patches it (own=True); his slot names the copy, and INITDLG and every
-    # other creature that uses it stay as they were. 'elsewhere': a Karlat another mod gave other scripts keeps them
-    # and no copy is made. 'taken': another mod has a BGSEKARL already, which stays, and Karlat keeps INITDLG.
+    # other creature that uses it stay as they were. 'elsewhere' puts the copy in Karlat's first empty script slot;
+    # 'full' replaces Karlat's override script when none is empty; 'taken' overwrites a BGSEKARL another mod left.
     _fake_game(tmp_path)
     compiled = next(p for p in (tmp_path / 'override').iterdir() if p.name.lower() == 'b-hkidl.bcs').read_bytes()
     (tmp_path / 'override/INITDLG.BCS').write_bytes(compiled)
     if variant == 'taken':
         (tmp_path / 'override/BGSEKARL.BCS').write_bytes(compiled)
-    scripts = ['DW#OTHER', '', '', '', 'DW1MELGE'] if variant == 'elsewhere' else ['INITDLG', '', '', '', 'DW1MELGE']
+    scripts = (['DW#OTHER', '', '', '', 'DW1MELGE'] if variant == 'elsewhere' else
+               ['DW#OTHER', 'DW#CLASS', 'DW#RACE', 'DW#GENERAL', 'DW1MELGE'] if variant == 'full' else
+               ['INITDLG', '', '', '', 'DW1MELGE'])
     (tmp_path / 'override/KARLAT.CRE').write_bytes(_cre(scripts, []))
     (tmp_path / 'override/B-HKTALK.CRE').write_bytes(_cre(['INITDLG', '', '', '', ''], []))
     before = _snapshot(tmp_path)
@@ -841,17 +838,12 @@ def test_a_designed_creature_gets_its_own_talk_script(tmp_path: Path, variant: s
     assert installed['override/initdlg.bcs'] == before['override/initdlg.bcs']
     assert installed['override/b-hktalk.cre'] == before['override/b-hktalk.cre']
     karlat, old = installed['override/karlat.cre'], before['override/karlat.cre']
-    if variant == 'plain':
-        assert 'BGSE encounter: 1 designed creatures changed, 0 lines added to dialogues, 0 new creatures made.' in output, output
-        assert karlat[0x248:0x250] == b'BGSEKARL' and karlat[:0x248] + karlat[0x250:] == old[:0x248] + old[0x250:]
-        assert _decompile(tmp_path, ['BGSEKARL'])['BGSEKARL'] == hook_rule.patch_talk(source, 'BGSEKARL', own=True)[0]
-    else:
-        message = ('karlat.cre has no script INITDLG, its talk stays as it is' if variant == 'elsewhere'
-                   else 'karlat.cre keeps INITDLG: another mod has BGSEKARL.bcs')
-        assert f'BGSE encounter: {message}' in output, output
-        assert 'BGSE encounter: 0 designed creatures changed, 0 lines added to dialogues, 0 new creatures made.' in output, output
-        assert karlat == old
-        assert installed.get('override/bgsekarl.bcs') == before.get('override/bgsekarl.bcs')
+    assert 'BGSE encounter: 1 designed creatures changed, 0 lines added to dialogues, 0 new creatures made.' in output, output
+    changed = 0x250 if variant == 'elsewhere' else 0x248
+    assert karlat[changed:changed + 8] == b'BGSEKARL'
+    assert karlat[:changed] + karlat[changed + 8:] == old[:changed] + old[changed + 8:]
+    assert _decompile(tmp_path, ['BGSEKARL'])['BGSEKARL'] == hook_rule.patch_talk(source, 'BGSEKARL', own=True)[0]
+    assert 'has no script INITDLG' not in output and 'another mod has BGSEKARL' not in output
     _install(tmp_path, '--force-uninstall-list', '0')
     assert _snapshot(tmp_path) == before
 
@@ -905,16 +897,20 @@ def _decompile_dlg(root: Path, name: str) -> str:
     return next(out.glob('*.d')).read_text(encoding='latin-1').replace('\r', '')
 
 
-@pytest.mark.parametrize('variant', ['plain', 'lacking'])
+@pytest.mark.parametrize('variant', ['plain', 'lacking', 'two'])
 def test_silke_prepares_in_her_cutscene_and_garrick_warns_of_her_songs(tmp_path: Path, variant: str) -> None:
     # Silke's entry (bgse/encounters.tpa): in SILKECUT, before her wait, she drinks her Potion of Invulnerability
     # and casts one of her Mirror Images at herself, the slot spent; Garrick's line follows the state that starts
-    # his cutscene and takes its transition over. 'lacking': a Silke without Mirror Image only drinks, and a
-    # Garrick whose offer starts no cutscene keeps his dialogue. Uninstall restores the files; the TLK keeps the
-    # game's strings as they were (WeiDU leaves a string it added in the TLK, unused).
+    # his cutscene and takes its transition over. 'lacking' has neither the potion nor Mirror Image, but is given
+    # the potion and casts the spell anyway; its Garrick starts no cutscene. 'two' has two matching dialogue
+    # states, and the first gets the line. Uninstall restores the files; the TLK keeps the game's strings as they
+    # were (WeiDU leaves a string it added in the TLK, unused).
     _fake_game(tmp_path)
     (tmp_path / 'fixture/b-hkcut.baf').write_text(SILKECUT, encoding='ascii')
-    garric = GARRIC if variant == 'plain' else GARRIC.replace(' StartCutSceneEx("Garrcut",FALSE)', '')
+    garric = GARRIC if variant != 'lacking' else GARRIC.replace(' StartCutSceneEx("Garrcut",FALSE)', '')
+    if variant == 'two':
+        garric += ('IF ~~ THEN BEGIN 3\n  SAY ~A second way to start the cutscene.~\n'
+                   '  IF ~~ THEN DO ~StartCutSceneEx("Garrcut",FALSE)~ EXIT\nEND\n')
     (tmp_path / 'fixture/garric.d').write_text(garric, encoding='ascii')
     (tmp_path / 'fixture/extra.tp2').write_text(
         'BACKUP ~fixture/backup-extra~\nAUTHOR ~BGSE test~\nBEGIN ~Silke and Garrick~\n'
@@ -922,33 +918,39 @@ def test_silke_prepares_in_her_cutscene_and_garrick_warns_of_her_songs(tmp_path:
     _run(tmp_path, 'fixture/extra.tp2', '--force-install-list', '0')
     compiled = next(p for p in (tmp_path / 'override').iterdir() if p.name.lower() == 'b-hkcut.bcs').read_bytes()
     (tmp_path / 'override/SILKECUT.BCS').write_bytes(compiled)
-    book = {(1, 1): ['SPWI112'], (1, 2): ['SPWI211', 'SPWI212', 'SPWI212'] if variant == 'plain' else ['SPWI211']}
-    (tmp_path / 'override/SILKE.CRE').write_bytes(_book_cre(book, 12, [('POTN11', 18)], 'SILKE'))
+    (tmp_path / 'override/POTN11.ITM').write_bytes(b'ITM V1  ' + bytes(0x72 - 8))
+    (tmp_path / 'override/SPWI212.SPL').write_bytes(_spl(1))
+    book = {(1, 1): ['SPWI112'], (1, 2): ['SPWI211', 'SPWI212', 'SPWI212'] if variant != 'lacking' else ['SPWI211']}
+    items = [('POTN11', 18)] if variant != 'lacking' else []
+    (tmp_path / 'override/SILKE.CRE').write_bytes(_book_cre(book, 12, items, 'SILKE'))
     tlk = tmp_path / 'lang/en_us/dialog.tlk'
     before, before_tlk = _snapshot(tmp_path), tlk.read_bytes()
     output = _install(tmp_path, '--force-install-list', '0')
     assert 'SUCCESSFULLY INSTALLED' in output, output
     installed = _snapshot(tmp_path)
-    assert installed['override/silke.cre'] == before['override/silke.cre']
+    if variant == 'lacking':
+        assert _items_of(installed['override/silke.cre'])[21] == 'POTN11'
+    else:
+        assert installed['override/silke.cre'] == before['override/silke.cre']
     # WeiDU's comments after names it shows (// POTN11) do not count.
     cut = re.sub(r' *//[^\n]*', '', _decompile(tmp_path, ['SILKECUT'])['SILKECUT'])
-    prep = '    UseItem("POTN11",Myself)\n'
-    if variant == 'plain':
-        prep += '    ForceSpellRES("SPWI212",Myself)\n    RemoveSpellRES("SPWI212")\n'
+    prep = '    UseItem("POTN11",Myself)\n    ForceSpellRES("SPWI212",Myself)\n    RemoveSpellRES("SPWI212")\n'
     assert '    MoveViewPoint([3522.2108],INSTANT)\n' + prep + '    Wait(6)\n' in cut, cut
     assert cut.count('UseItem(') == 1 and 'CutSceneId("Merchant1")\n    MoveToPoint([3522.2108])\nEND' in cut, cut
     dialogue = _decompile_dlg(tmp_path, 'GARRIC')
     line = 'And when she sings, folks forget their own minds. Best stay on her good side!'
-    if variant == 'plain':
+    if variant != 'lacking':
         assert ('BGSE encounter: 1 designed creatures changed, 1 lines added to dialogues, 0 new creatures made.') in output, output
         state2 = dialogue[dialogue.index('BEGIN 2'):]
-        assert 'IF ~~ THEN GOTO 3\nEND' in state2, dialogue
-        state3 = dialogue[dialogue.index('BEGIN 3'):]
-        assert line in state3 and 'StartCutSceneEx("Garrcut",FALSE)' in state3 and 'EXIT' in state3, dialogue
-        assert dialogue.count('StartCutSceneEx(') == 1, dialogue
+        new_state = 4 if variant == 'two' else 3
+        assert f'IF ~~ THEN GOTO {new_state}\nEND' in state2, dialogue
+        state = dialogue[dialogue.index(f'BEGIN {new_state}'):]
+        assert line in state and 'StartCutSceneEx("Garrcut",FALSE)' in state and 'EXIT' in state, dialogue
+        assert dialogue.count('StartCutSceneEx(') == (2 if variant == 'two' else 1), dialogue
+        assert 'has 2 states that do' not in output, output
     else:
         assert 'BGSE encounter: 1 designed creatures changed, 0 lines added to dialogues, 0 new creatures made.' in output, output
-        assert 'silke.cre neither carries SPWI212 nor has it memorized' in output, output
+        assert 'silke.cre neither carries SPWI212 nor has it memorized' not in output, output
         assert 'garric.dlg has 0 states that do StartCutSceneEx("Garrcut"' in output, output
         assert installed['override/garric.dlg'] == before['override/garric.dlg'] and line not in dialogue
     _install(tmp_path, '--force-uninstall-list', '0')
@@ -1002,15 +1004,15 @@ def _proficiencies(data: bytes):
     return found
 
 
-@pytest.mark.parametrize('variant', ['plain', 'short', 'bare'])
+@pytest.mark.parametrize('variant', ['plain', 'short', 'bare', 'taken'])
 def test_greywolf_brings_kestrel(tmp_path: Path, variant: str) -> None:
     # Greywolf's entry (bgse/encounters.tpa): two Kestrels made from the game's archers HUNTER and BAERIN, set as the
     # entry says (level, hit points, THAC0, dexterity, a warrior's saving throws at his level, neutral, his own
     # script over SCS's ranged one, no dialog, his death variable, only his own items and weapon proficiencies),
     # his script compiled, and in PRISMCUT, as Greywolf arrives, the line that has the engine bring the Kestrel the
     # difficulty calls for. 'short': the game's table of warriors' saving throws ends below level 6, so the seasoned
-    # Kestrel keeps his chassis's, with a warning. 'bare': a game without those archers makes neither, compiles
-    # nothing and leaves the cutscene as it is.
+    # Kestrel keeps his chassis's, with a warning. 'taken' overwrites an existing BGSEKES1. 'bare': a game without
+    # those archers makes neither, compiles nothing and leaves the cutscene as it is.
     _fake_game(tmp_path)
     (tmp_path / 'fixture/b-hkpcut.baf').write_text(PRISMCUT, encoding='ascii')
     (tmp_path / 'fixture/extra.tp2').write_text(
@@ -1031,8 +1033,10 @@ def test_greywolf_brings_kestrel(tmp_path: Path, variant: str) -> None:
             struct.pack_into('<II', data, 0x2C4, len(data), 1)
             data += struct.pack('<HBBiIBBI', 233, 1, 0, 2, 90, 9, 0, 0).ljust(48, b'\0')
             (tmp_path / f'override/{chassis}.CRE').write_bytes(bytes(data))
-        table = SAVEWAR if variant == 'plain' else re.sub(r' (?:\d5|\d6|5|6)(?= |\n|$)', '', SAVEWAR)
+        table = SAVEWAR if variant in ('plain', 'taken') else re.sub(r' (?:\d5|\d6|5|6)(?= |\n|$)', '', SAVEWAR)
         (tmp_path / 'override/SAVEWAR.2DA').write_text(table, encoding='ascii')
+    if variant == 'taken':
+        (tmp_path / 'override/BGSEKES1.CRE').write_bytes(_cre(['DW#OTHER', '', '', '', ''], []))
     tlk = tmp_path / 'lang/en_us/dialog.tlk'
     before = _snapshot(tmp_path)
     output = _install(tmp_path, '--force-install-list', '0')
@@ -1052,6 +1056,7 @@ def test_greywolf_brings_kestrel(tmp_path: Path, variant: str) -> None:
         kept = 'BGSE encounter: bgsekes2.cre keeps the saving throws of baerin.cre: this game has no table for its class at level 6'
         assert (kept in output) == (variant == 'short'), output
         assert 'bgsekes1.cre keeps the saving throws' not in output, output
+        assert 'another mod has bgsekes1.cre' not in output, output
         for name, (level, hp, thac0, dex, items, charges, profs) in KESTRELS.items():
             assert _proficiencies(installed[f'override/{name}.cre']) == profs, name
             data = installed[f'override/{name}.cre']

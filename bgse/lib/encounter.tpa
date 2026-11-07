@@ -3,23 +3,23 @@
 // bgse/encounters.tpa. The engine's side of the same design is combat-intent/encounters.lua.
 //
 // bgse_encounter changes one creature file (cre, without .cre), and only what its entry names:
-// - least ability scores (str, int, wis, dex, con, cha): raised to at least these, never lowered;
+// - ability scores (str, int, wis, dex, con, cha): set exactly as named;
 // - book: the memorized spells of each spell level it names, as ~priest1=SPPR111,SPPR117 priest2=SPPR201~
 //   (priest or wizard, and the spell level): those of that level go and these come, each as often as it
 //   is named and known once; other levels, kinds and the innate abilities stay;
-// - carries: items it gets in a free pack slot unless it carries one already, as ~POTN10~;
+// - carries: items it gets in a free pack slot, or in the last pack slot when full, unless it carries one
+//   already, as ~POTN10~;
 // - talk: its own copy of a talk script many creatures share, as ~INITDLG>BGSEKARL~ (the script in its
 //   slots, and the copy's name): the copy's talk on sight waits while the engine prepares the creature
 //   (bgse/lib/hook.tpa: bgse_talk_bcs), as SCS's talk-on-sight scripts do, and the creature's slot names the
 //   copy, so no other creature's talk changes;
 // - cutscene and prepare: in that cutscene, before the creature's first wait in its block, it drinks each
-//   item of prepare it carries and casts each spell of prepare it has memorized, the slot spent
+//   item of prepare (given first when needed) and casts each spell of prepare, the slot spent
 //   (bgse_encounter_cutscene).
-// A spell this game lacks, or whose file says another kind or level than its place in the book, and an
-// item this game lacks, are left out with a warning; the rest of the entry still applies, and a book level
-// none of whose spells this game has stays as it is. So does a talk the creature's slots do not name, a copy
-// name another mod has taken, and a script without a talk on sight; and in a cutscene, what the creature
-// neither carries nor has memorized. A creature file that is missing or no CRE V1.0 file is left out.
+// A spell or item this game lacks is left out with one log line; the rest of the entry still applies, and a
+// book level none of whose spells this game has stays as it is. A talk uses the first empty script slot when
+// the source is absent from its slots, or the override slot when none is empty; a source without a talk on
+// sight stays a dead end. A creature file that is missing or no CRE V1.0 file is left out.
 // bgse_changed is 1 when the creature or its cutscene changed.
 DEFINE_ACTION_FUNCTION bgse_encounter
   INT_VAR str = 0
@@ -45,13 +45,14 @@ BEGIN
         READ_ASCII 0 signature (8)
       END
       PATCH_IF (~%signature%~ STRING_EQUAL ~CRE V1.0~) BEGIN
-        LPF bgse_encounter_least INT_VAR str = str int = int wis = wis dex = dex con = con cha = cha RET bgse_raised END
+        LPF bgse_encounter_scores INT_VAR str = str int = int wis = wis dex = dex con = con cha = cha RET bgse_scored END
         LPF bgse_encounter_book STR_VAR cre = EVAL ~%cre%~ book = EVAL ~%book%~ RET bgse_booked END
         LPF bgse_encounter_carries STR_VAR cre = EVAL ~%cre%~ carries = EVAL ~%carries%~ RET bgse_given END
+        SET bgse_carried = bgse_given
         LPF bgse_encounter_talk STR_VAR cre = EVAL ~%cre%~ talk = EVAL ~%talk%~ RET bgse_talked END
         LPF bgse_encounter_cutscene STR_VAR cre = EVAL ~%cre%~ cutscene = EVAL ~%cutscene%~ prepare = EVAL ~%prepare%~
           RET bgse_prepared END
-        SET bgse_changed = (bgse_raised + bgse_booked + bgse_given + bgse_talked + bgse_prepared > 0) ? 1 : 0
+        SET bgse_changed = (bgse_scored + bgse_booked + bgse_carried + bgse_talked + bgse_prepared > 0) ? 1 : 0
       END ELSE BEGIN
         PATCH_PRINT ~BGSE encounter: %cre%.cre is no CRE V1.0 file, left as it is~
       END
@@ -61,30 +62,30 @@ BEGIN
   END
 END
 
-// The least ability scores of bgse_encounter: each score below its least is raised to it. bgse_raised
-// counts the scores raised.
-DEFINE_PATCH_FUNCTION bgse_encounter_least
+// The ability scores of bgse_encounter: each named score is written exactly. bgse_scored counts the scores
+// that changed.
+DEFINE_PATCH_FUNCTION bgse_encounter_scores
   INT_VAR str = 0
           int = 0
           wis = 0
           dex = 0
           con = 0
           cha = 0
-  RET bgse_raised
+  RET bgse_scored
 BEGIN
-  SET bgse_raised = 0
-  // 0x239 is the exceptional strength, which no least score names.
+  SET bgse_scored = 0
+  // 0x239 is the exceptional strength, which no score names.
   FOR (o = 0x238; o <= 0x23e; o += 1) BEGIN
-    SET least = 0
-    PATCH_IF (o = 0x238) BEGIN SET least = str END
-    PATCH_IF (o = 0x23a) BEGIN SET least = int END
-    PATCH_IF (o = 0x23b) BEGIN SET least = wis END
-    PATCH_IF (o = 0x23c) BEGIN SET least = dex END
-    PATCH_IF (o = 0x23d) BEGIN SET least = con END
-    PATCH_IF (o = 0x23e) BEGIN SET least = cha END
-    PATCH_IF (least > 0) AND (least <= 25) AND (BYTE_AT o < least) BEGIN
-      WRITE_BYTE o least
-      SET bgse_raised += 1
+    SET score = 0
+    PATCH_IF (o = 0x238) BEGIN SET score = str END
+    PATCH_IF (o = 0x23a) BEGIN SET score = int END
+    PATCH_IF (o = 0x23b) BEGIN SET score = wis END
+    PATCH_IF (o = 0x23c) BEGIN SET score = dex END
+    PATCH_IF (o = 0x23d) BEGIN SET score = con END
+    PATCH_IF (o = 0x23e) BEGIN SET score = cha END
+    PATCH_IF (score > 0) AND (score <= 25) AND (BYTE_AT o != score) BEGIN
+      WRITE_BYTE o score
+      SET bgse_scored += 1
     END
   END
 END
@@ -135,9 +136,8 @@ DEFINE_PATCH_FUNCTION bgse_encounter_level
 BEGIN
   SET bgse_changed_level = 0
   SET type = (~%kind%~ STRING_EQUAL ~wizard~) ? 1 : 0
-  SET file_type = (type = 1) ? 1 : 2
   SET row = level - 1
-  // The spells this game has, of the right kind and level, in the book's order.
+  // The spells this game has, in the book's order. The book decides their kind and level.
   TEXT_SPRINT wanted ~|~
   SET pos = 0
   WHILE (pos < STRING_LENGTH ~%list%~) BEGIN
@@ -147,33 +147,21 @@ BEGIN
     END
     SET pos = to + 1
     TO_UPPER spell
-    SET fits = 0
-    SET spell_type = 0 - 1
-    SET spell_level = 0 - 1
+    SET exists = 0
     PATCH_IF (STRING_LENGTH ~%spell%~ > 0) AND (STRING_LENGTH ~%spell%~ <= 8) BEGIN
       PATCH_IF (FILE_EXISTS_IN_GAME ~%spell%.spl~) BEGIN
-        INNER_PATCH_FILE ~%spell%.spl~ BEGIN
-          PATCH_IF (BUFFER_LENGTH >= 0x72) BEGIN
-            READ_ASCII 0 signature (8)
-            PATCH_IF (~%signature%~ STRING_EQUAL ~SPL V1  ~) BEGIN
-              READ_SHORT 0x1c spell_type
-              READ_LONG 0x34 spell_level
-            END
-          END
-        END
-        SET fits = ((spell_type = file_type) AND (spell_level = level)) ? 1 : 0
+        SET exists = 1
       END
     END
-    PATCH_IF (fits = 1) BEGIN
+    PATCH_IF (exists = 1) BEGIN
       TEXT_SPRINT wanted ~%wanted%%spell%|~
     END ELSE PATCH_IF (STRING_LENGTH ~%spell%~ > 0) BEGIN
-      PATCH_PRINT ~BGSE encounter: %cre%.cre leaves out %spell% (%kind% level %level%): this game lacks it, or its file says another kind or level~
+      PATCH_PRINT ~BGSE encounter: %cre%.cre leaves out %spell% (%kind% level %level%): this game lacks it~
     END
   END
   PATCH_IF (STRING_LENGTH ~%wanted%~ > 1) BEGIN
     // What the level holds now: its memorized spells, each once.
     TEXT_SPRINT had ~|~
-    TEXT_SPRINT had_all ~|~
     READ_LONG 0x2a8 info
     READ_LONG 0x2ac info_count
     READ_LONG 0x2b0 at
@@ -189,7 +177,6 @@ BEGIN
             PATCH_IF (at + 12 * j + 12 <= BUFFER_LENGTH) BEGIN
               READ_ASCII (at + 12 * j) spell (8) NULL
               TO_UPPER spell
-              TEXT_SPRINT had_all ~%had_all%%spell%|~
               PATCH_IF (STRING_LENGTH ~%spell%~ > 0) AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%spell%|~ ~%had%~) < 0) BEGIN
                 TEXT_SPRINT had ~%had%%spell%|~
               END
@@ -198,9 +185,8 @@ BEGIN
         END
       END
     END
-    PATCH_IF NOT (~%had_all%~ STRING_EQUAL ~%wanted%~) BEGIN
-      READ_ASCII 0 cre_bytes (BUFFER_LENGTH)
-      PATCH_TRY
+    READ_ASCII 0 cre_bytes (BUFFER_LENGTH)
+    PATCH_TRY
         // The level's spells go; those the book leaves out are forgotten too.
         SET p = 1
         WHILE (p < STRING_LENGTH ~%had%~) BEGIN
@@ -248,15 +234,14 @@ BEGIN
         WRITE_ASCIIE 0 ~%cre_bytes%~
         PATCH_PRINT ~BGSE encounter: %cre%.cre keeps its %kind% level %level% spells (WeiDU could not change them)~
       END
-    END
   END ELSE BEGIN
     PATCH_PRINT ~BGSE encounter: %cre%.cre keeps its %kind% level %level% spells: this game has none of the book's~
   END
 END
 
 // The talk of bgse_encounter (talk, ~SOURCE>COPY~): the copy of SOURCE, its talk on sight held as SCS's are,
-// named COPY in the first of the creature's script slots that names SOURCE. bgse_talked is 1 when the slot
-// changed.
+// named COPY in the first of the creature's script slots that names SOURCE, else the first empty slot or the
+// override slot. bgse_talked is 1 when the slot changed.
 DEFINE_PATCH_FUNCTION bgse_encounter_talk
   STR_VAR cre = ~~
           talk = ~~
@@ -275,32 +260,31 @@ BEGIN
     TO_UPPER source
     TO_UPPER copy
     SET slot = 0 - 1
+    SET empty = 0 - 1
     FOR (o = 0x248; o < 0x270; o += 8) BEGIN
       READ_ASCII o script (8) NULL
       PATCH_IF (slot < 0) AND (STRING_LENGTH ~%source%~ > 0) AND (~%script%~ STRING_EQUAL_CASE ~%source%~) BEGIN
         SET slot = o
       END
+      PATCH_IF (empty < 0) AND (STRING_LENGTH ~%script%~ = 0) BEGIN
+        SET empty = o
+      END
     END
     SET has_source = 0
-    SET has_copy = 0
     PATCH_IF (STRING_LENGTH ~%source%~ > 0) AND (STRING_LENGTH ~%source%~ <= 8) AND (STRING_LENGTH ~%copy%~ > 0)
         AND (STRING_LENGTH ~%copy%~ <= 8) BEGIN
       PATCH_IF (FILE_EXISTS_IN_GAME ~%source%.bcs~) BEGIN
         SET has_source = 1
       END
-      PATCH_IF (FILE_EXISTS_IN_GAME ~%copy%.bcs~) BEGIN
-        SET has_copy = 1
-      END
     END
     PATCH_IF (STRING_LENGTH ~%source%~ = 0) OR (STRING_LENGTH ~%source%~ > 8) OR (STRING_LENGTH ~%copy%~ > 8) BEGIN
       PATCH_PRINT ~BGSE encounter: %cre%.cre: "%talk%" names no script and copy, its talk stays as it is~
-    END ELSE PATCH_IF (slot < 0) BEGIN
-      PATCH_PRINT ~BGSE encounter: %cre%.cre has no script %source%, its talk stays as it is~
     END ELSE PATCH_IF (has_source = 0) BEGIN
       PATCH_PRINT ~BGSE encounter: %cre%.cre keeps %source%: this game lacks %source%.bcs~
-    END ELSE PATCH_IF (has_copy = 1) BEGIN
-      PATCH_PRINT ~BGSE encounter: %cre%.cre keeps %source%: another mod has %copy%.bcs~
     END ELSE BEGIN
+      PATCH_IF (slot < 0) BEGIN
+        SET slot = (empty >= 0) ? empty : 0x248
+      END
       TEXT_SPRINT name ~%copy%~
       TO_LOWER name
       SET bgse_talks = 0
@@ -322,8 +306,8 @@ END
 // The preparation of bgse_encounter in a cutscene (Christopher, 2026-11-04, for Silke: she plans the ambush
 // herself, so she is ready, and the party sees a real caster first): in the cutscene script's block for the
 // creature (CutSceneId with its script name), before the block's first wait, it drinks each item of prepare
-// it carries (UseItem) and casts each spell of prepare it has memorized at itself (ForceSpellRES, with its
-// casting, then RemoveSpellRES, so the slot is spent), in the order prepare names them. A cutscene that runs
+// (giving it first when it lacks it) and casts each spell of prepare at itself (ForceSpellRES, with its casting,
+// then RemoveSpellRES, so the slot is spent), in the order prepare names them. A cutscene that runs
 // without triggers cannot ask for the difficulty, so this holds on every difficulty. bgse_prepared is 1 when
 // the cutscene changed.
 DEFINE_PATCH_FUNCTION bgse_encounter_cutscene
@@ -335,27 +319,6 @@ BEGIN
   SET bgse_prepared = 0
   PATCH_IF (STRING_LENGTH ~%cutscene%~ > 0) AND (STRING_LENGTH ~%prepare%~ > 0) BEGIN
     READ_ASCII 0x280 who (32) NULL
-    // What it carries and the spells it has memorized, as |RESREF| entries.
-    TEXT_SPRINT carried ~|~
-    READ_LONG 0x2bc item_at
-    READ_LONG 0x2c0 item_count
-    FOR (i = 0; i < item_count; i += 1) BEGIN
-      PATCH_IF (item_at + 20 * i + 20 <= BUFFER_LENGTH) BEGIN
-        READ_ASCII (item_at + 20 * i) name (8) NULL
-        TO_UPPER name
-        TEXT_SPRINT carried ~%carried%%name%|~
-      END
-    END
-    TEXT_SPRINT ready ~|~
-    READ_LONG 0x2b0 at
-    READ_LONG 0x2b4 count
-    FOR (i = 0; i < count; i += 1) BEGIN
-      PATCH_IF (at + 12 * i + 12 <= BUFFER_LENGTH) BEGIN
-        READ_ASCII (at + 12 * i) name (8) NULL
-        TO_UPPER name
-        TEXT_SPRINT ready ~%ready%%name%|~
-      END
-    END
     TEXT_SPRINT actions ~~
     TEXT_SPRINT wanted ~~
     INNER_PATCH ~%prepare%~ BEGIN
@@ -371,12 +334,14 @@ BEGIN
       END
       SET pos = to + 1
       TO_UPPER res
-      PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%res%|~ ~%carried%~) >= 0) BEGIN
+      PATCH_IF (FILE_EXISTS_IN_GAME ~%res%.itm~) BEGIN
+        LPF bgse_encounter_carries STR_VAR cre = EVAL ~%cre%~ carries = EVAL ~%res%~ RET bgse_given END
+        SET bgse_prepared += bgse_given
         TEXT_SPRINT actions ~%actions%    UseItem("%res%",Myself)%LNL%~
-      END ELSE PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%res%|~ ~%ready%~) >= 0) BEGIN
+      END ELSE PATCH_IF (FILE_EXISTS_IN_GAME ~%res%.spl~) BEGIN
         TEXT_SPRINT actions ~%actions%    ForceSpellRES("%res%",Myself)%LNL%    RemoveSpellRES("%res%")%LNL%~
       END ELSE BEGIN
-        PATCH_PRINT ~BGSE encounter: %cre%.cre neither carries %res% nor has it memorized, so it does not use it in %cutscene%~
+        PATCH_PRINT ~BGSE encounter: %cre%.cre does not prepare %res% in %cutscene%: this game lacks its .itm and .spl files~
       END
     END
     PATCH_IF (STRING_LENGTH ~%actions%~ > 0) AND (STRING_LENGTH ~%who%~ > 0) BEGIN
@@ -387,7 +352,7 @@ BEGIN
             LPF bgse_cut_prep_bcs STR_VAR who = EVAL ~%who%~ actions = EVAL ~%actions%~ RET bgse_cut END
           BUT_ONLY_IF_IT_CHANGES
         END
-        SET bgse_prepared = bgse_cut
+        SET bgse_prepared = (bgse_prepared + bgse_cut > 0) ? 1 : 0
         PATCH_IF (bgse_cut = 0) BEGIN
           PATCH_PRINT ~BGSE encounter: %cutscene% has no block for %who%, so %cre%.cre does not prepare there~
         END
@@ -483,8 +448,8 @@ END
 // first of default this game has; no dialog; death variable dv; only the items of items, as
 // ~SLOT:RESREF[:charges]~ entries (armor, shield and weapons equipped); and, when profs names them, only these
 // weapon proficiencies, as ~PROFICIENCY:stars~ entries (WEAPPROF.IDS numbers, such as ~105:2~ for two stars in
-// the short bow), in place of the chassis's own. A chassis this game lacks, a name another mod has, and an item
-// this game lacks are left out, with a warning. bgse_born is 1 when the creature was made.
+// the short bow), in place of the chassis's own. A chassis or item this game lacks is left out with a warning.
+// bgse_born is 1 when the creature was made.
 DEFINE_ACTION_FUNCTION bgse_encounter_new
   INT_VAR level = 1
           hp = 1
@@ -517,8 +482,6 @@ BEGIN
   END
   ACTION_IF NOT (FILE_EXISTS_IN_GAME ~%chassis%.cre~) BEGIN
     PRINT ~BGSE encounter: this game lacks %chassis%.cre, so %cre%.cre is not made~
-  END ELSE ACTION_IF (FILE_EXISTS_IN_GAME ~%cre%.cre~) BEGIN
-    PRINT ~BGSE encounter: another mod has %cre%.cre, so it is not made~
   END ELSE BEGIN
     COPY_EXISTING ~%chassis%.cre~ ~override/%cre%.cre~
       SAY_EVALUATED 0x08 ~%name%~
@@ -678,7 +641,8 @@ END
 // A line a designed encounter adds to a dialogue (Christopher writes or approves each one): line, said in a new
 // state named state, which follows the state of dialogue dlg whose transition does after (the text of an action
 // there, such as ~StartCutSceneEx("Garrcut"~) and takes that transition over. The state is found by what it does,
-// not by its number; a dialogue where no state or more than one does it is left as it is, with a warning.
+// not by its number; when more than one state does it, the first takes the line. A dialogue with no state is
+// left as it is, with a warning.
 // bgse_said is 1 when the line went in.
 DEFINE_ACTION_FUNCTION bgse_encounter_line
   STR_VAR dlg = ~~
@@ -734,7 +698,7 @@ BEGIN
         END
       END
     BUT_ONLY_IF_IT_CHANGES
-    ACTION_IF (bgse_line_hits = 1) AND (bgse_line_from >= 0) AND (bgse_line_trans >= 0) BEGIN
+    ACTION_IF (bgse_line_hits > 0) AND (bgse_line_from >= 0) AND (bgse_line_trans >= 0) BEGIN
       OUTER_TEXT_SPRINT bgse_line_dlg ~%dlg%~
       OUTER_TEXT_SPRINT bgse_line_state ~%state%~
       OUTER_TEXT_SPRINT bgse_line_text ~%line%~
@@ -767,7 +731,8 @@ ALTER_TRANS ~%bgse_line_dlg%~ BEGIN %bgse_line_from% END BEGIN %bgse_line_trans%
 END
 >>>>>>>>
 
-// The items of bgse_encounter: each it does not carry yet, in a free pack slot. bgse_given counts them.
+// The items of bgse_encounter: each it does not carry yet, in a free pack slot, or in the last pack slot when
+// full. bgse_given counts them.
 DEFINE_PATCH_FUNCTION bgse_encounter_carries
   STR_VAR cre = ~~
           carries = ~~
@@ -816,10 +781,25 @@ BEGIN
         SET exists = 1
       END
     END
-    PATCH_IF (exists = 0) BEGIN
+    PATCH_IF (carried = 0) AND (exists = 0) BEGIN
       PATCH_PRINT ~BGSE encounter: %cre%.cre does not get %item%: this game lacks it~
     END ELSE PATCH_IF (carried = 0) AND (free = 0) BEGIN
-      PATCH_PRINT ~BGSE encounter: %cre%.cre does not get %item%: its pack is full~
+      // ADD_CRE_ITEM warns even when it is told to use INV16 on a full pack. Replace that slot's item
+      // record directly, so the pack stays full and the decided item is where it belongs.
+      SET last = 0 - 1
+      PATCH_IF (slots + 2 * 36 + 2 <= BUFFER_LENGTH) BEGIN
+        READ_SHORT (slots + 2 * 36) last
+      END
+      PATCH_IF (last >= 0) AND (last < item_count) AND (item_at + 20 * last + 20 <= BUFFER_LENGTH) BEGIN
+        WRITE_ASCIIE (item_at + 20 * last) ~%item%~ #8
+        WRITE_SHORT (item_at + 20 * last + 10) 0
+        WRITE_SHORT (item_at + 20 * last + 12) 0
+        WRITE_SHORT (item_at + 20 * last + 14) 0
+        WRITE_LONG (item_at + 20 * last + 16) 0
+        SET bgse_given += 1
+      END ELSE BEGIN
+        PATCH_PRINT ~BGSE encounter: %cre%.cre does not get %item%: its last pack slot is damaged~
+      END
     END ELSE PATCH_IF (carried = 0) BEGIN
       ADD_CRE_ITEM ~%item%~ #0 #0 #0 ~NONE~ ~INV1 INV2 INV3 INV4 INV5 INV6 INV7 INV8 INV9 INV10 INV11 INV12 INV13 INV14 INV15 INV16~
       SET bgse_given += 1

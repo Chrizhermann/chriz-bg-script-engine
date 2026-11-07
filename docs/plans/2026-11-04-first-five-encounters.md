@@ -25,8 +25,8 @@ Hard; Core and below play normally (Christopher, 2026-11-04).
 2. **Talk-on-sight preparation** (decided 2026-11-03 for SCS's talk-on-sight creatures, and wanted
    for Karlat and Neira): before the talk script starts the dialogue, the engine prepares the
    creature: SCS's own instant preparation (by setting `offscreenprep`, with SCS's difficulty
-   rules) and the designer's extras (a potion, instant copies of spells it has memorized, the slots
-   spent). Creatures without anything to prepare talk at once as before. Installer rule on the talk
+   rules) and the designer's named extras (a potion given first when absent, or a spell whether or
+   not it is memorized). Creatures without anything to prepare talk at once as before. Installer rule on the talk
    scripts (`DW#SHDLG`, `INITDLG`, `SHOUTDLG`), mirrored in Python with agreement tests. Probe in
    the lab first: the order of the script passes around `Dialog`/`StartDialogNoSet`.
 3. **Neira:** WIS 15; first level Armor of Faith, Protection From Good, Doom, Command, Bless; second
@@ -62,14 +62,14 @@ Python/WeiDU agreement check on both labs.
 - Step 2, the designer's extras (2026-11-04): orders `talkPrep` (a list of `'buff-potion'` or
   `{cast=…, spend=…}`) and `talkFrom` (lowest difficulty, 1 to 5). The installer puts one block of the
   engine's before the first talk block; after SCS's preparation it fires once and queues the extras
-  (`UseItem` of the best buff potion the creature carries; `ReallyForceSpellRES` of our instant copy
-  and `RemoveSpellRES` of the memorized spell, only while that spell is ready). The talk waits until
+  (`UseItem` of the named potion, given first when absent; `ForceSpellRES` of the named spell and
+  `RemoveSpellRES`, whether or not the spell was memorized). The talk waits until
   they ran, at most 120 ticks in all. WeiDU and Python agree on both EET labs.
 - Step 3, Neira (2026-11-04):
   - Her creature, from a data entry in `bgse/encounters.tpa` that a shared installer routine applies
-    (`bgse/lib/encounter.tpa`): WIS 15, Christopher's book, and a Potion of Invisibility in a free pack
-    slot. Checked on her real lab file: only WIS, the spell tables and the new item change, and uninstall
-    restores it.
+    (`bgse/lib/encounter.tpa`): WIS exactly 15, Christopher's book, and a Potion of Invisibility in a
+    pack slot (the last one when full). Checked on her real lab file: only WIS, the spell tables and the new
+    item change, and uninstall restores it.
   - Her orders: from Hard she casts her own Aid and Protection From Good at once before she speaks and
     spends them; SCS's own preparation adds Armor of Faith and the hammer.
   - Her opener, a new kind of order (FIGHT-01, Openers), from Hard: the potion, a 4-second watch from
@@ -83,8 +83,8 @@ Python/WeiDU agreement check on both labs.
   mode holds only the talk blocks of such a copy (HOOK-01, rule 13). Checked on his real lab files with
   the lab's IDS: the copy agrees with the Python rule, and uninstall restores him.
 - Step 5, Silke (2026-11-04): her entry puts her preparation into her cutscene (`cutscene = ~SILKECUT~`,
-  `prepare = ~POTN11 SPWI212~`: the potion she carries and one Mirror Image she has memorized, cast with its
-  casting and the slot spent), before her wait while the "thugs" walk up. The cutscene runs without
+  `prepare = ~POTN11 SPWI212~`: the potion she is given and one Mirror Image, cast with its casting and the
+  slot spent), before her wait while the "thugs" walk up. The cutscene runs without
   triggers, so this holds on every difficulty (BOSS-01). Garrick's line comes from a second kind of entry,
   `bgse_encounter_line`, which finds the state by what it does. Checked on the real lab files: both go in
   where planned, and uninstall restores them.

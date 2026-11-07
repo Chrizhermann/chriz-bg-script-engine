@@ -37,12 +37,12 @@ normally.
 | a first sequence in the fight | `encounters.lua` | `opener`: steps of a spell or item, a list of them (the best counts), or `{watch=seconds}` (only while invisible); `openerFrom` |
 | less of SCS's preparation | `encounters.lua` | `prep=false`, `prepSkip` |
 | guarding, hiding, doors, leaving, dispel insight, waiting for foes out of play | `encounters.lua` | `guard`, `hide`, `doors`, `leave`, `insight`, `await` |
-| least ability scores | `bgse/encounters.tpa` | `INT_VAR wis = 15` (and `str int dex con cha`) |
-| a spellbook | `bgse/encounters.tpa` | `book = ~priest1=SPPR111,SPPR117 priest2=SPPR201 wizard3=SPWI304~`: those levels' memorized spells become these |
-| items to carry | `bgse/encounters.tpa` | `carries = ~POTN10~` (a free pack slot, unless it carries one) |
+| ability scores | `bgse/encounters.tpa` | `INT_VAR wis = 15` (and `str int dex con cha`): each named score is exactly that value |
+| a spellbook | `bgse/encounters.tpa` | `book = ~priest1=SPPR111,SPPR117 priest2=SPPR201 wizard3=SPWI304~`: those levels' memorized spells become these whenever the spell file exists |
+| items to carry | `bgse/encounters.tpa` | `carries = ~POTN10~` (a free pack slot, or the last pack slot when full, unless it carries one) |
 | preparation before a talk whose script many creatures share (the game's `INITDLG`) | `bgse/encounters.tpa`, plus `talkPrep` in `encounters.lua` | `talk = ~INITDLG>BGSEKARL~`: the creature gets its own copy, whose talk waits while it prepares |
-| preparation in a cutscene, in sight of the party | `bgse/encounters.tpa` | `cutscene = ~SILKECUT~ prepare = ~POTN11 SPWI212~`: before its wait it drinks what it carries and casts what it has memorized (on every difficulty: such cutscenes check no triggers) |
-| a new line in a dialogue | `bgse/encounters.tpa` | `LAF bgse_encounter_line` with `dlg`, `after` (an action the state's transition does), `state` (a label) and `line`: the line follows that state and takes its transition over |
+| preparation in a cutscene, in sight of the party | `bgse/encounters.tpa` | `cutscene = ~SILKECUT~ prepare = ~POTN11 SPWI212~`: before its wait it is given and drinks each item, and casts each spell (on every difficulty: such cutscenes check no triggers) |
+| a new line in a dialogue | `bgse/encounters.tpa` | `LAF bgse_encounter_line` with `dlg`, `after` (an action the state's transition does), `state` (a label) and `line`: the line follows the first such state and takes its transition over |
 | a new creature | `bgse/encounters.tpa` | `LAF bgse_encounter_new` with `chassis` (a creature of the game that lends body, voice and its other effects), `cre`, `name`, `level`, `hp`, `thac0`, scores, `script`, `default` (the first script this game has), `dv`, `items = ~ARMOR:LEAT01 WEAPON1:BOW05 QUIVER1:AROW01:40~`, `profs = ~105:2 91:1~` (proficiency number from STATS.IDS, stars); its saving throws come from the game's table for its class at its level; `RET bgse_born` |
 | a line in a cutscene | `bgse/encounters.tpa` | `LAF bgse_encounter_cutline` with `cutscene`, `who` (the `CutSceneId` of the block), `before` (the action it goes before) and `line` |
 | a companion who comes with the creature, by difficulty | `bgse/encounters.tpa`, plus `companion` in `encounters.lua` | two creatures with `bgse_encounter_new`, a cutscene line `EEex_LuaAction("if BGSE_Companion then BGSE_Companion(EEex_LuaAction_Object) end")` with `bgse_encounter_cutline`, and `companion={weak=…, strong=…, strongFrom=4}` |
