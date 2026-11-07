@@ -427,6 +427,29 @@ def _gift_spell(installed, name):
             [(e['opcode'], e['timing'], e['duration'], e['res']) for e in ability['effects']])
 
 
+def test_recorder_installs_without_the_engine_component(tmp_path: Path) -> None:
+    _fake_game(tmp_path, lua_trigger=False)
+    before = _snapshot(tmp_path)
+    output = _install(tmp_path, '--force-install-list', '10')
+    assert 'SUCCESSFULLY INSTALLED' in output, output
+    installed = _snapshot(tmp_path)
+    assert installed['override/m_bgserc.lua'] == build_runtime.build_recorder().encode('utf-8')
+    assert 'override/m_bgse.lua' not in installed
+    assert (tmp_path / 'bgse-playtest').is_dir()
+    _install(tmp_path, '--force-uninstall-list', '10')
+    assert _snapshot(tmp_path) == before
+
+    # A normal engine install and recorder install can also coexist; component 10 itself only
+    # requires EEex, so this checks it does not accidentally depend on component 0's artefacts.
+    second = tmp_path / 'with-engine'
+    _fake_game(second)
+    output = _install(second, '--force-install-list', '0', '--force-install-list', '10')
+    assert 'SUCCESSFULLY INSTALLED' in output, output
+    installed = _snapshot(second)
+    assert 'override/m_bgse.lua' in installed and 'override/m_bgserc.lua' in installed
+    assert (second / 'bgse-playtest').is_dir()
+
+
 def test_installer_matches_reference_and_is_reversible(tmp_path: Path) -> None:
     _fake_game(tmp_path)
     before = _snapshot(tmp_path)
