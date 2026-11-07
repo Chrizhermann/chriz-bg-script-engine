@@ -625,6 +625,14 @@ def test_a_gift_is_the_innate_itself_or_its_innate_copy_named_by_its_spell_and_r
     assert hook_rule.grant_resref(resref, innate, recharge) == name
 
 
+def test_a_gift_copy_overwrites_a_taken_name_but_two_ours_do_not_share_one():
+    copies = {}
+    assert hook_rule.gift_copy_name('B-HKSHD', 30, copies) == 'BGB-HK0U'
+    # A game resource under BGB-HK0U is not an input to the reservation; this different source is.
+    assert hook_rule.gift_copy_name('B-HKSIL', 30, copies) is None
+    assert hook_rule.gift_copy_name('B-HKSHD', 30, copies) == 'BGB-HK0U'
+
+
 def test_creatures_get_their_scripts_gifts_but_keep_their_own_and_thieves_hide_by_skill():
     plain = ('SPWI206', 'plain', None, 6)
     improved = ('SPWI405', 'improved', None, 1000)

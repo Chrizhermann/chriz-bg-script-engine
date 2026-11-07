@@ -632,6 +632,19 @@ def grant_resref(resref, innate, recharge):
     return gift_name(resref, recharge)
 
 
+def gift_copy_name(resref, recharge, copies):
+    """Reserve this engine's copy name for resref in copies, or return None when a different
+    spell of ours already owns it. Existing game resources are not reservations: WeiDU overwrites
+    them when it writes its owned copy."""
+    name = gift_name(resref, recharge)
+    source = resref.upper()
+    previous = copies.get(name)
+    if previous is None:
+        copies[name] = source
+        return name
+    return name if previous == source else None
+
+
 def creature_gifts(scripts, gifts_of, thief, own, name, party):
     """The gifts a creature gets (each once, in the order of its script slots): those of its scripts
     (gifts_of maps hooked scripts, lower case, to their script_gifts), but no plain invisibility for a
