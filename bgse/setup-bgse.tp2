@@ -227,3 +227,15 @@ PRINT ~BGSE stay: %bgse_kept% SCS vanishing exits yield while the engine keeps t
 PRINT ~BGSE stay: %bgse_stayed% vanishing exits in the game's own scripts yield while the engine keeps the creature in the fight.~
 PRINT ~BGSE talk: %bgse_talked% SCS talk-on-sight blocks wait while the engine prepares the creature.~
 PRINT ~BGSE encounter: %bgse_designed% designed creatures changed, %bgse_lines% lines added to dialogues, %bgse_new% new creatures made.~
+
+BEGIN ~Chriz BG Script Engine: record a playtest (experimental, needs EEex)~
+  DESIGNATED 10
+  LABEL ~bgse-recorder~
+
+REQUIRE_PREDICATE (FILE_EXISTS ~override/M___EEex.lua~)
+  ~EEex is not installed.~
+
+// This component is deliberately independent of component 0. M_ files autoload through EEex,
+// so it only needs to place its own observer in override.
+MKDIR ~bgse-playtest~
+COPY ~bgse/lua/M_BGSERC.lua~ ~override~
