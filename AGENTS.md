@@ -1,7 +1,8 @@
 # Chriz BG Script Engine — Working Agreements
 
 Read this first. The current plan is
-[docs/plans/2026-10-14-combat-intent-on-scs.md](docs/plans/2026-10-14-combat-intent-on-scs.md).
+[docs/plans/2026-10-14-combat-intent-on-scs.md](docs/plans/2026-10-14-combat-intent-on-scs.md); the way to
+Christopher's first test is [docs/plans/2026-11-08-playground-and-parallel-work.md](docs/plans/2026-11-08-playground-and-parallel-work.md).
 What we know about EEex, SCS and the lab is in [docs/learned.md](docs/learned.md). Building a designed
 encounter starts at [docs/ENCOUNTERS.md](docs/ENCOUNTERS.md).
 
