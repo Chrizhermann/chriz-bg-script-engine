@@ -26,12 +26,11 @@ build them, and we refine afterwards. Agent and human keep testing meanwhile; th
    Artisan's Kitpack and Bardic Wonders; Christopher picks vanilla classes until our own kit mod exists. A fresh
    install without them takes about two hours and pays only if they get in the way.
 
-State at the pause of 2026-11-08 (Christopher's PC restart): nothing runs, every lab slot is free. Finished on their
-own branches, each with a green suite, not merged yet: `claude/overwrite` (71ed1f3), `claude/recorder` (7dc3bd0) and
-`claude/layers`. Next, in this order: review and merge the three here, full suite; put spell mod `6eeaf36` into
-`eet-magic`; `spell_diff.py` again; the recorder's three checks in a lab game (REC-01); `refresh_snapshot.py`, then
-`magic-v1`; then `tools/playground.py setup`. The fight list (FIGHTS-01) was stopped after two minutes with nothing
-written and starts anew.
+State of 2026-11-08, after the PC restart: `claude/overwrite`, `claude/recorder` and `claude/layers` are merged, and
+this branch is `main` now (Christopher's OK). Spell mod `6eeaf36` reads without a gap (no unknown effect, no partial
+spell). The recorder passed its checks in a hidden game (REC-01). **The Playground stands** (`docs/PLAYGROUND.md`,
+engine d8cbfda, spell mod 6eeaf36). Running: `magic-v1r` in `eet-magic`, the BG1 area tour in the second lab `eet-tour`
+(`.work/stepTour-lab`: every BG1 area with enemies, the PC next to them, the engine on), the fight list FIGHTS-01.
 
 ## What the fight census shows
 

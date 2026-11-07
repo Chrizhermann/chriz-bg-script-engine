@@ -24,7 +24,12 @@ file, flushes about once a second and at fight end, and starts another file afte
 Run `python -I tools/read_playtest.py bgse-playtest/<file>.jsonl` for a per-fight summary of
 length, action starts by member, spending, pause transitions and reloads before the fight.
 
-Not verified in a game yet
+Checked in a hidden lab game on 2026-11-08 (EET, SCS, Chriz BG Magic, EEex v1.3.1; `recorder-check.json`): the hidden
+menu ticked 1,053 times during 5 seconds of pause; an order given in pause showed as a `queue` row (action 23 with its
+point) and then the empty queue; one more load gave `loads` 1 and one `load` row; `pause`, `act`, `bar` and `eng` rows
+came too. Keys need a person at the keyboard and are not checked. The checks below are how to repeat this.
+
+Checks
 
 - Queue contents: while paused, give one party member a visible move and a spell/item order, then
   paste this in the lab remote console. A result listing the same action IDs, target instance and
