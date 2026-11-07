@@ -18,7 +18,8 @@ build them, and we refine afterwards. Agent and human keep testing meanwhile; th
    run `spell_diff.py` again for these. Then `0a035e5` (same branch) brought the Celestials: Deva, Fallen Deva,
    Planetar and Dark Planetar are creatures of their own (`CBMDEVAG`, `CBMDEVAE`, `CBMPLANG`, `CBMPLANE`), called
    through `SPDEVA`, `SPDEVA2`, `SPPLAN` and `SPPLAN2`. The party keeps at most one of each pair, enemy summoners
-   are not limited, and the player picks their spells.
+   are not limited, and the player picks their spells. `e200515` gives enemy celestials their fight script back
+   (see Beside it) and brings Lesser Restoration, which also ends attribute drain.
 2. **Installer under the overwrite rule** (`claude/overwrite`): decided results are written whatever stood
    there.
 3. **Playtest recorder** (`claude/recorder`, component 10, REC-01), then its three checks in a lab game.
@@ -35,7 +36,10 @@ spell). The recorder passed its checks in a hidden game (REC-01). **The Playgrou
 engine d8cbfda, spell mod 6eeaf36). At 06:45 it took spell mod `0a035e5` with engine 9220e12 (the same engine code) in
 four minutes, its first real `update`. The engine reads that spell mod without a gap as well (137 new spells, no
 unknown effect, no partial spell), and the six celestial summonings (`SPPR726`, `SPPR727`, `SPWI923`, `SPWI924`,
-`SPCL923`, `SPCL935`) read as summons of the new creatures. Running then: `magic-v1r` in `eet-magic`, the BG1 area tour in the second lab `eet-tour`
+`SPCL923`, `SPCL935`) read as summons of the new creatures. At 07:12 it took `e200515` (engine 86c9b5c, the same
+engine code), and so did the stack and tour labs (`magic_swap.py`). No partial spell there either; one part the engine
+cannot read: Lesser Restoration (`SPPR417`) ends attribute drain through the spell mod's Lua function `CBMLRES`
+(opcode 402). Running then: `magic-v1r` in `eet-magic`, the BG1 area tour in the second lab `eet-tour`
 (`.work/stepTour-lab`: every BG1 area with enemies, the PC next to them, the engine on), the fight list FIGHTS-01.
 
 **Stack batch `magic-v1r`** (2026-11-08, `.work/stepMagic-lab`, engine c114eac plus the recorder's fixed scan, spell mod
@@ -66,7 +70,7 @@ with scripts of their own (trolls, golems, wyverns, ankhegs, some of them also i
 - **General hook** for creatures without SCS scripts: not needed for his first test. Idea to probe: a script level
   the game keeps free (level 3), set at run time, so that story scripts above it still run first and nothing is
   patched in the creature files.
-- **Enemy celestials** (found 2026-11-08, the spell mod fixes it): under SCS the old celestials (`DEVAGOOD`, `PLANGOOD` and their
+- **Enemy celestials** (found 2026-11-08, the spell mod fixed its part in `e200515`): under SCS the old celestials (`DEVAGOOD`, `PLANGOOD` and their
   evil twins) ran SCS's own fight scripts, which the engine hooks, so enemy celestials cast their spells. The spell
   mod's own celestials run `CBMDEVAC` or `CBMPLANC` (one of each pair per party) and `BDSUM00`, which casts no spell.
   For the party that is right, the player picks. On the enemy side they would only swing now: 127 creatures know one
@@ -74,6 +78,17 @@ with scripts of their own (trolls, golems, wyverns, ankhegs, some of them also i
   The spell mod session fixes it on its side: `CBMDEVAC` and `CBMPLANC` give enemy celestials the game's celestial
   script on arrival (`ChangeAIScript` to the class slot: `DEVAGOOD`, `DEVAEVIL`, `PLANGOOD` for both Planetars). Under
   SCS that is SCS's script, which the installer hooks already (`DEVAGOOD`, `DEVAEVIL`, `PLANGOOD`, `PLANEVIL`,
-  `PLANET`), and the new celestials memorize 29 or 38 spells, so the engine needs no change. When that commit comes,
-  the Playground takes it and a lab check shows the engine driving an enemy Dark Planetar.
+  `PLANET`), and the new celestials memorize 29 or 38 spells. Lab check with `e200515` (2026-11-08, tour lab, Insane,
+  a hostile caster without scripts made to cast Summon Dark Planetar, then Summon Fallen Deva next to the protected
+  PC): both arrived on the enemy side with `PLANGOOD` or `DEVAEVIL` in the class slot and fought hard with SCS's
+  script (the PC lost 972 and 294 hit points in a minute; casts of `SPPR715`, `SPPR503` and `SPPR725`). The engine
+  took none of their rounds, and it never did, for the old celestials either: the gate declines a creature whose
+  hooked script has an unhooked one below it (`script-below`, HOOK-02), and `BDSUM00`, the game's script for
+  summons, sits in the default slot. That holds for 29 creature files with an SCS script: summons with `BDSUM00`
+  (the four celestials, two djinn, the phase spider summon, two tome golems) and some with shout or plot scripts
+  below. The census's placed foes are almost untouched: BG1 628 of 628 are driven, BG2 and ToB 846 of 854 (8 with
+  `DW#GITH1` or `SAHDIE` below). Proposal for Christopher: the engine may stand above `BDSUM00`, so that enemy
+  summons fight on the engine too.
+- **Lesser Restoration's `CBMLRES`:** worth an entry in `spells.lua`'s `luaEffects` once the engine senses drained
+  abilities on its allies; until then it reads as unknown, which costs nothing else.
 - **Later:** our own party AI script; our own classes, kits and races (see the main plan's ideas list).
