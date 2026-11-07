@@ -1292,6 +1292,26 @@ g13.add(armed(sprite(2,30,0,255),35,'TESTSWRD'))
 local wards=sense.wards(g13,warded,100,function() return {} end)
 assert(#wards==1 and wards[1].opcode==120 and wards[1].source=='TESTPFMW' and wards[1].secondary==7 and
     wards[1].power==8 and wards[1].level==15 and wards[1].dispellable and wards[1].timed and not wards[1].lasting)
+;(function()
+local block=pfmw()
+block.m_effectId=206;block.m_effectAmount=-1;block.m_dWFlags=0;block.m_res=str('scbrepay')
+block.m_sourceRes=str('scwall');block.m_secondaryType=41;block.m_flags=2
+warded.m_timedEffectList={block}
+local w=sense.wards(g13,warded,100,function(e) assert(e.res=='SCBREPAY');return {} end)[1]
+assert(w.res=='SCBREPAY' and w.source=='SCWALL' and w.opcode==206 and w.p1==-1 and w.p2==0 and not w.dispellable)
+block.m_effectId=101;block.m_dWFlags=58;block.m_res=str('')
+w=sense.wards(g13,warded,100,function() return {} end)[1]
+assert(w.opcode==101 and w.p2==58 and w.res=='')
+block.m_duration=115
+w=sense.wards(g13,warded,100,function() return {} end)[1]
+assert(w and w.left==1 and w.p2==58)
+block.m_effectId=206;block.m_res=str('SCBREPAY')
+assert(sense.wards(g13,warded,100,function() return {} end)[1].res=='SCBREPAY')
+assert(#sense.wards(g13,warded,115,function() return {} end)==0)
+block.m_effectId=120
+assert(#sense.wards(g13,warded,100,function() return {} end)==0)
+warded.m_timedEffectList={pfmw()}
+end)()
 local dir13=directors.new(g13,{reader=reader})
 local ch13=choices.new(g13,{reader=reader,director=dir13,seed=22})
 local rows13={}

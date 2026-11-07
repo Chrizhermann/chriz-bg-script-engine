@@ -547,13 +547,14 @@ function M.guard(g,sprite,tick,classify,level)
 end
 
 -- What a removal can take from a creature (combat-intent/removal.lua): each of its active effects
--- as plain values, in list order: its opcode and parameter 2, the spell or item it comes from
+-- as plain values, in list order: its opcode, parameters and resource, the spell or item it comes from
 -- (source), its school, secondary type, power and caster level, whether a dispel can take it
 -- (m_flags bit 0, as EEex's EEex_HasDispellableEffect tests), whether it runs on time (timed, with
 -- the seconds left), comes with an item (equipped) or lasts after death (lasting: timing 9, which
 -- removals by type and opcode leave), and its roles: classify(effect) of the effect alone, a plain
 -- effect record (callers may cache by its fields). Delivered effects (what they delivered is in the
--- list already) and ones about to end are left out.
+-- list already) and ones about to end are left out, except active removal screens: even a
+-- screen with less than a round left still absorbs a removal that lands now.
 function M.wards(g,sprite,tick,classify)
     local out={}
     for n,effects in ipairs({sprite.m_timedEffectList,sprite.m_equipedEffectList}) do
@@ -567,7 +568,8 @@ function M.wards(g,sprite,tick,classify)
             local timing,duration,left
             if kind==4096 then
                 left=(number(e.m_duration)-tick)/15
-                if left<M.expiring then return end
+                local screen=(op==101 and e.m_dWFlags==58) or (op==206 and name(e.m_res)~='')
+                if left<=0 or (left<M.expiring and not screen) then return end
                 timing,duration=0,math.floor(left)
             elseif kind==1 or kind==9 then timing,duration,left=1,0,math.huge
             elseif kind==2 then timing,duration,left=2,0,math.huge
@@ -576,7 +578,7 @@ function M.wards(g,sprite,tick,classify)
                 p2=number(e.m_dWFlags),p3=number(e.m_effectAmount2),p4=number(e.m_effectAmount3),timing=timing,
                 resist=0,duration=duration,prob1=100,prob2=0,res=name(e.m_res),
                 dice=number(e.m_numDice),sides=number(e.m_diceSize),save=0,saveBonus=0,special=number(e.m_special)}
-            out[#out+1]={opcode=op,p2=effect.p2,source=name(e.m_sourceRes),school=number(e.m_school),
+            out[#out+1]={opcode=op,p1=effect.p1,p2=effect.p2,res=effect.res,source=name(e.m_sourceRes),school=number(e.m_school),
                 secondary=number(e.m_secondaryType),power=number(e.m_spellLevel),level=number(e.m_casterLevel),
                 dispellable=band(g,number(e.m_flags),1)~=0,timed=n==1 and kind==4096,equipped=n==2,
                 lasting=kind==9,left=left,roles=classify(effect)}

@@ -225,6 +225,25 @@ other side of combat-intent/defence.lua:
   try at enemies no dispel has been tried at: until then each of their effects counts at least 49%
   ("generell ein mal zu casten, damit es AOE auf mehrere weg ist"). Orders `insight='exact'` give a
   special boss the engine's numbers; 'estimate', 'rough' and 'none' set the others by hand.
+- **Screens** (built 2026-11-08; Christopher's decisions of 2026-11-04): opcode 101 against
+  opcode 58 stops the dispel part, even one that always dispels. Opcode 206 against a spell the
+  removal delivers stops that branch. Other removals by secondary type, school or opcode still
+  work. The classifier can leave out blocked deliveries without making the spell partial; it
+  reads a relevant set once and keeps it, using only the plain records already read. A ward
+  unrelated to the spell needs no second classification. No screen spell or secondary type is
+  named in the policy. The adapter keeps these wards until they expire, also with less than
+  a round left: a removal that lands now still meets them.
+  A clever caster reads these wards, a normal one when it notices the tactic in that decision,
+  a dull one never. Exact insight reads them always. Missing a screen may waste a dispel; what
+  the group learns from its result stays as above.
+  Taking a screen down earns half (`removal.screenFollow=0.5`) of what the best next removal
+  still ready would open on that enemy. The current copy is spent first, a following area must
+  spare friends, surviving wards still protect, and the following removal looks no further.
+  What the first cast opens itself still counts, so Pierce Shield and Spellstrike can combine
+  that opening with the following Breach. The share is for tuning in batched lab fights.
+- **Dispel releases** (built 2026-11-08): a sequencer, contingency or trigger release with a
+  dispel gets one tenth of its removal worth (`removal.sequencerShare=0.1`), also when removal
+  accompanies an attack. It remains allowed; a release without a dispel keeps its worth.
 - **What it takes** (IESDP): a dispel each effect that can be dispelled; Breach's kind (opcodes
   220, 221) every effect of each spell or item with a matching effect, up to the power level, but
   those that last after death; Secret Word's kind (229, 230) the matching effects of the first
@@ -243,7 +262,7 @@ other side of combat-intent/defence.lua:
 - **Attacks that also remove** stay attacks and add their removal's worth on each enemy they hit:
   Chromatic Orb's haste removal, Disintegrate's destruction of some creatures.
 - **In game:** when a ready spell removes something from enemies, the adapter reads each enemy's
-  active effects (`sense.wards`: opcode, parameter 2, source, school, secondary type, power,
+  active effects (`sense.wards`: opcode, parameters 1 and 2, resource, source, school, secondary type, power,
   caster level, dispellable, timed, item, lasting after death, seconds left) and classifies each
   once by its fields. A removal is judged when it ends: did an enemy it was for lose effects,
   skins, images or its invisibility, or vanish (`strip` rows, counts `stripped`, `unstripped`). A
@@ -265,6 +284,37 @@ or True Seeing has no worth unless the caster sees them (they would need to be r
 removal claims nothing in the group: two casters may breach the same enemy while the first cast is
 under way. Debuff spells (Slow, Malison) are cast for their debuff since F2b (FIGHT-01), and a
 removal with a debuff (Spell Revisions' Slow) adds both.
+
+The spell mod's installed files were read on the host on 2026-11-08, without launching a game:
+Dispelling Screen (`SPWI510`) uses 101/58 and 206 against `SPWI513B`, both under its own
+secondary type (31 in that install). Dispel and Remove Magic end with 221 against that type;
+Breach delivers its old payload in `SPWI513B` and the screen removal in `SPWI513C`. Pierce
+Shield and Spellstrike carry their own removal of the same type. Those seven parent spells
+classify without a partial reading. The screen's number is read from data, not assumed by the AI.
+
+Pierce Magic (`SPWI608`) calls `CBMBPM` through opcode 402. Its installed Lua floors half the
+target's current magic resistance, clamps the reduction to 10..40 points and keeps it for 30
+seconds. `spells.lua` describes this known function, regardless of which spell calls it;
+`harm.weakened` counts its target-dependent reduction when the caster weighs an opening. An
+unknown function remains unknown. This is the one description of Lua behaviour that cannot be
+read from the SPL's effects alone.
+
+Host checks use renamed synthetic spells, secondary type 41, independent and lasting screens,
+blocked payloads and surviving branches, two ready copies and spent or unusable follow-ups,
+normal tactic draws, dull and exact insight, releases and a screened group. In the fixed example
+(level-15 caster, one fighter, a foe under Protection from Magical Weapons), unscreened Breach
+stays at 0.5905405405 and dispel at 0.2893648649. A screened dispel used to be rejected as
+protected (worth 0); it now takes only the screen and is worth 0.1446824324 when a second dispel
+is ready. That second dispel, after the screen is gone, is worth 0.2893648649. With no follow-up,
+the screen alone earns nothing. These are logic results, not measurements of a fight.
+
+Not yet in game: screen absorption, its timing, the resulting choices and both tuning shares.
+Entropy Shield and the protagonist's special petrification/imprisonment are not implemented
+here: once their files exist, read their delivered effects, breakable wards, target conditions
+and cures. If Entropy Shield uses new Lua functions or unclassified effects, those need meanings
+in the classifier and removal valuation. The protagonist's new states need recognition in the
+snapshot, targeting and threat valuation so the statue remains attackable at low priority,
+plus its cure and whole-party defeat rules. Neither can be inferred from spells not installed.
 
 ### Danger zones (D3e; built 2026-10-20)
 

@@ -961,7 +961,7 @@ Christopher's answers of 2026-11-03:
   double damage (BOSS-01, which also holds the fight sheets; Tarnesh first).
 
 Christopher's spell-mod decisions of 2026-11-04 that the engine must handle, passed on by the spell-mod
-session ("extrem wichtig"; design only, nothing built yet, values may change; live decision page
+session ("extrem wichtig"; values may change; live decision page
 <https://claude.ai/artifact/Wcd7apwRifKLPrANajWvU4>). They belong to the step on layered protections
 after the five encounters:
 - **Dispelling Screen replaces Spell Immunity** and takes its slot, so scrolls and enemy mages get it (SR's
@@ -969,10 +969,13 @@ after the five encounters:
   Magic or Breach and is gone; Pierce Shield and Spellstrike strip it without being absorbed. The engine
   counts the first Dispel Magic or Breach at a screened foe as spent on the screen, weighs taking the
   screen down first (Pierce Shield, Spellstrike, a cheap first dispel) and reads the screen from the
-  foe's effects, as it reads every protection.
+  foe's effects, as it reads every protection. **Built 2026-11-08:** effect-driven screen handling,
+  by wit, and one following removal at half worth (SUPPORT-01, "Screens"). Host tests only;
+  absorption, timing and choices still need the lab.
 - **Enemy dispel sequencers rarely or never** ("nicht zu oft oder überhaupt"): a Sequencer or Contingency
   full of Dispel Magic or Remove Magic gets little or no worth. Banning those spells from sequencers stays
-  only a fallback.
+  only a fallback. **Built 2026-11-08:** a dispel release gets one tenth of its removal worth,
+  without a ban (SUPPORT-01); not yet tuned in a fight.
 - **Entropy Shield** (Icewind Dale priest 6, coming with the IWD spells): the AI must be able and clever
   enough to break it; more ways to break it may come.
 - **The protagonist petrified or imprisoned:** the spell mod builds its own effects (no opcode 134 or
@@ -985,7 +988,10 @@ after the five encounters:
   protects), Chain Lightning with a save against spells, Cone of Cold and Sunfire with a save against
   breath, the Conjure Elementals' control check, Spirit Armor replaced by a new cast, Polymorph Self and
   Shapechange like SCS's, Web and every cloud as Conjuration. The engine reads all of this from the spell
-  files at run time; nothing is hard-coded.
+  files at run time; nothing is hard-coded. **Pierce Magic built 2026-11-08:** the classifier
+  describes its known opcode-402 function `CBMBPM`, which the SPL alone cannot explain: half
+  current MR, floored and clamped to 10..40 points for five rounds. Unknown functions stay unknown.
+  The other changes still follow their installed effects; this does not mark them lab-tested.
 - Ideas, not decided: the screen lingering about a second after its first absorb and eating every dispel
   in that window (bursts fail, layered breaching works; under the True Time Stop the window lasts the
   whole stop); an optional Time Stop component without hostile actions; most IWD spells in the spell mod.
