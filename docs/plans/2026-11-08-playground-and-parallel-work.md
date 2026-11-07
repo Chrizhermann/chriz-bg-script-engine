@@ -32,6 +32,12 @@ spell). The recorder passed its checks in a hidden game (REC-01). **The Playgrou
 engine d8cbfda, spell mod 6eeaf36). Running: `magic-v1r` in `eet-magic`, the BG1 area tour in the second lab `eet-tour`
 (`.work/stepTour-lab`: every BG1 area with enemies, the PC next to them, the engine on), the fight list FIGHTS-01.
 
+**BG1 area tour** (2026-11-08, `.work/stepTour-lab`, engine d8cbfda, spell mod 6eeaf36): the PC, kept alive, jumped next to
+the enemies of each BG1 area from the census at Insane. 80 of 99 areas ran, with about 5,300 rounds the engine took and
+8,400 actions: no engine error and no crash. 15 areas were not reached within 45 seconds and 4 at the end were not
+visited (a second stop at the game's death screen, which the lab cannot leave). It shows that the engine runs on
+BG1's creatures; it says nothing about how well they fight.
+
 ## What the fight census shows
 
 `tools/fight_census.py` read the whole game (2026-11-08, lab `eet-nosr-2`). Hostile placed creatures that run on
