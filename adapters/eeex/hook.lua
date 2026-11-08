@@ -35,7 +35,12 @@
 -- another block, and the game interrupts them in the same pass by its own rules (lab step W).
 -- Anything else in the creature's queue, a story's action added behind them for one, keeps it from
 -- happening. options.replaced(object, info) hears of each.
+-- Scripts without a hook below the deciding one keep the creature on the engine (Christopher,
+-- 2026-11-08): on each claim options.lower (adapters/eeex/lower.lua; false for none) walks them for
+-- the blocks that hold and do more than fight, and the hook's response queues those duties before the
+-- engine's own actions. Only the engine's own actions count as its own: the duties run to their end.
 local hook=require('kernel.hook')
+local lowerScripts=require('adapters.eeex.lower')
 local M={}
 M.keys={mage='Mages',priest='Priests',fighter='Fighters',monster='Monsters'}
 local function ini(g,key)
@@ -121,20 +126,32 @@ function M.install(g,options)
     local clock=options.now or function() return M.gameTime(g) end
     local director,choice,prepare,held=options.director,options.choice,options.prepare,options.held
     local replaced=options.replaced
+    local walker=options.lower
+    if walker==nil then
+        local ok,value=pcall(lowerScripts.new,g)
+        if ok then walker=value end
+    end
+    if walker==false then walker=nil end
+    local dutyFaults=0
     -- id -> the block that queued the hook's last response (sn, rs, rn) and the actions it queued;
     -- owned counts them (at most M.ownLimit: creatures that died with a record keep it until then).
     local mine,owned={},0
     local replacing={count=0,errors=0}
     local function drop(id) if mine[id]~=nil then mine[id]=nil;owned=owned-1 end end
-    -- Right after the hook's response queued a decision: when those actions are all the creature
-    -- has queued and a block of a script queued them, they are the engine's own.
-    local function remember(object,before)
+    -- Right after the hook's response queued a decision: when those actions, behind the lower scripts'
+    -- duties the same response queued first (skip of them), are all the creature has queued and a block
+    -- of a script queued them, they are the engine's own. The duties are not: release() lets the
+    -- engine's actions give way only once nothing but them is left.
+    local function remember(object,before,skip)
         local ok,own=pcall(function()
             local rs=object.m_curResponseSetNum
-            if before~=0 or type(rs)~='number' or rs<0 then return nil end
+            skip=skip or 0
+            if before~=skip or type(rs)~='number' or rs<0 then return nil end
             local ids=M.queued(g,object)
-            if #ids==0 then return nil end
-            return {sn=object.m_curScriptNum,rs=rs,rn=object.m_curResponseNum,ids=ids}
+            if #ids<=skip then return nil end
+            local mineIds={}
+            for i=skip+1,#ids do mineIds[#mineIds+1]=ids[i] end
+            return {sn=object.m_curScriptNum,rs=rs,rn=object.m_curResponseNum,ids=mineIds}
         end)
         local id=object.m_id
         drop(id)
@@ -184,17 +201,32 @@ function M.install(g,options)
             local object=sprite(g,id)
             if object then return M.stack(g,object) end
         end,
-        perform=function(a,decision)
+        owe=walker and function(id,scripts,tick,deciding)
+            local object=sprite(g,id)
+            if object then return walker.walk(object,deciding,scripts) end
+        end,
+        perform=function(a,decision,duties)
             local object=sprite(g,a.id)
-            if not object or type(decision.response)~='string' or #decision.response==0 then return false end
-            if prepare then
-                local ready=prepare(object,decision)
-                if ready=='skipped' then return 'skipped' end
-                if ready~=true then return false end
+            if not object then return false end
+            local hold=decision.hold==true
+            if not hold and (type(decision.response)~='string' or #decision.response==0) then return false end
+            local ready=true
+            if not hold and prepare then ready=prepare(object,decision) end
+            -- What the lower scripts owe goes first, as their blocks have it.
+            local skip=0
+            if duties and walker then
+                for _,record in ipairs(duties) do
+                    local ok,result,count=pcall(walker.run,object,record)
+                    if not ok then dutyFaults=dutyFaults+1
+                    elseif result=='queued' and type(count)=='number' then skip=skip+count end
+                end
             end
+            if hold then return true end
+            if ready=='skipped' then return 'skipped' end
+            if ready~=true then return false end
             local counted,before=pcall(function() return object.m_queuedActions.m_nCount end)
             g.EEex_Action_QueueResponseStringOnAIBase(decision.response,object)
-            if counted then remember(object,before) end
+            if counted then remember(object,before,skip) end
             return true
         end,
         held=held and function(a,decision,family)
@@ -228,12 +260,20 @@ function M.install(g,options)
     function root.inspect()
         local state=gate:inspect()
         state.replaced={count=replacing.count,errors=replacing.errors}
+        if walker then
+            local ok,value=pcall(walker.inspect)
+            state.lower=ok and value or {error=tostring(value)}
+            state.lower.faults=dutyFaults
+        end
         if director then state.director=director:inspect() end
         if choice then state.choice=choice:inspect() end
         return state
     end
     -- A load forgets which actions were the engine's own: object ids do not outlive the session.
-    function root.forget() mine,owned={},0 end
+    function root.forget()
+        mine,owned={},0
+        if walker then pcall(walker.reset) end
+    end
     g.BGSE=root
     local registered=options.hooked~=nil
     local function register()

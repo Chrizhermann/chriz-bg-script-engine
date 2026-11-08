@@ -161,9 +161,14 @@ factories["kernel.hook"]=function(require)
 -- A creature can carry hooked scripts in several slots (an SCS monster script above SCS's
 -- general AI, for example). Slots run from override down to default, and a lower script is
 -- reached only after the higher ones let the pass through, so the first hooked script that
--- asks in a pass decides for the creature; the others decline in that pass. The engine also
--- declines when a script that carries no hook sits below the deciding one: an engine round
--- would keep that script from ever running.
+-- asks in a pass decides for the creature; the others decline in that pass.
+-- Scripts without a hook below the deciding one (a summon's BDSUM00, shout, dialogue and plot
+-- scripts; Christopher 2026-11-08: the engine takes over every creature) no longer hand the creature
+-- back to SCS. An engine round keeps their blocks from running, so on every claim config.owe walks
+-- them as the game would (adapters/eeex/lower.lua) and names the blocks that hold now and do more than
+-- an ordinary combat round: their shouts, plot variables, dialogue starts and scripted powers. Those
+-- duties are owed until the hook's response runs, which hands them to config.perform before the
+-- engine's own actions.
 -- Nothing here raises to the caller and nothing in it survives a load.
 local values=require('kernel.manifest')
 local trace=require('kernel.trace')
@@ -184,6 +189,12 @@ function M.new(config)
     local decide,perform,observe,held=config.decide,config.perform,config.observe,config.held
     assert(observe==nil or type(observe)=='function')
     assert(held==nil or type(held)=='function')
+    -- owe(id, scripts, tick, deciding) (optional): the duty blocks of the creature's lower scripts
+    -- (scripts, in slot order below the deciding one) that hold now, as plain records with a unique
+    -- key; they stay owed for maxDutyAgeTicks at most.
+    local owe,dutyAge=config.owe,config.maxDutyAgeTicks or 90
+    assert(owe==nil or type(owe)=='function')
+    assert(count(dutyAge,1e6))
     -- hooked: script resref (lower case) -> family, from the install. below(id, script): the
     -- creature's non-empty script resrefs in the slots after script, or nil when script is not
     -- in its stack. stack(id) (optional): all its non-empty script resrefs, from the top slot down.
@@ -200,9 +211,10 @@ function M.new(config)
     below,stack=config.below,config.stack
     assert(below==nil or type(below)=='function')
     assert(stack==nil or type(stack)=='function')
-    local pending,blocked,answers={},{},{}
+    local pending,blocked,answers,owed={},{},{},{}
+    local owing=0
     local counts={reached=0,repeats=0,claimed=0,acted=0,held=0,renewed=0,skipped=0,stale=0,errors=0,observeErrors=0,
-        heldErrors=0}
+        heldErrors=0,owed=0,dutiesHanded=0,dutiesDropped=0,dutyErrors=0}
     local declines={}
     local log=trace.new(config.traceCapacity or 64)
     local api={}
@@ -222,6 +234,52 @@ function M.new(config)
         return not copied or type(result)~='table' or (result.hold~=nil and result.hold~=true) or
             (result.idle~=nil and (result.idle~=true or result.hold~=true))
     end
+    -- The creature's scripts below the deciding one that carry no hook, up to the next hooked one: a
+    -- pass reaches them only through every script above, and a hooked one ends it with its own blocks.
+    local function lower(rest)
+        local list={}
+        for _,name in ipairs(rest) do
+            if type(name)~='string' or #name==0 or hooked[name:lower()] then break end
+            list[#list+1]=name:lower()
+        end
+        return list
+    end
+    -- At most this many duties per creature and creatures that owe some; past the second limit
+    -- (creatures that died owing) every record goes.
+    local dutyLimit,owingLimit=8,1024
+    local function drop(id) if owed[id]~=nil then owed[id]=nil;owing=owing-1 end end
+    local function owes(id,found,tick)
+        if type(found)~='table' then return end
+        local list=owed[id]
+        for _,record in ipairs(found) do
+            local copied,item=pcall(values.copy,record)
+            if not copied or type(item)~='table' or type(item.key)~='string' then
+                bump(counts,'dutyErrors')
+            else
+                local known=false
+                for _,old in ipairs(list or {}) do if old.key==item.key then known=true;break end end
+                if not known and #(list or {})<dutyLimit then
+                    if not list then
+                        if owing>=owingLimit then owed,owing={},0 end
+                        list={};owed[id]=list;owing=owing+1
+                    end
+                    item.owedAt=tick;list[#list+1]=item;bump(counts,'owed')
+                end
+            end
+        end
+    end
+    -- The duties still fresh, oldest first; they are handed over once.
+    local function due(id,tick)
+        local list=owed[id]
+        drop(id)
+        if not list then return nil end
+        local fresh={}
+        for _,item in ipairs(list) do
+            if tick>=item.owedAt and tick-item.owedAt<=dutyAge then fresh[#fresh+1]=item
+            else bump(counts,'dutiesDropped') end
+        end
+        if #fresh>0 then return fresh end
+    end
     local function evaluate(id,actor,family,tick,script)
         if not enabled then return decline('disabled') end
         if not known[family] then return decline('unknown-family') end
@@ -231,9 +289,7 @@ function M.new(config)
         local found,rest=pcall(below,id,script)
         if not found then failed(id,family,'stack-error',tick);return decline('error') end
         if type(rest)~='table' then return decline('no-stack') end
-        for _,name in ipairs(rest) do
-            if type(name)~='string' or not hooked[name:lower()] then return decline('script-below') end
-        end
+        local under=lower(rest)
         -- A load restarts the tick count, so a backoff from before it no longer applies.
         if blocked[id] and tick<blocked[id] and blocked[id]-tick<=backoff then return decline('backoff') end
         blocked[id]=nil
@@ -254,6 +310,12 @@ function M.new(config)
         if bad(copied,result) then failed(id,family,'bad-decision',tick);return decline('error') end
         pending[id]={decision=result,tick=tick,family=family}
         bump(counts,'claimed')
+        -- The engine takes this pass: the lower scripts' blocks that hold now and do more than fight
+        -- are owed until the hook's response runs. A failing walk only costs those duties.
+        if owe and #under>0 then
+            local walked,found=pcall(owe,id,under,tick,script)
+            if walked then owes(id,found,tick) else bump(counts,'dutyErrors') end
+        end
         log:record({kind='claim',actorKey=tostring(id),family=family,
             reason=result.idle and 'idle' or result.hold and 'hold' or 'claimed',tick=tick})
         return true,result.idle and 'idle' or result.hold and 'hold' or 'decision'
@@ -289,6 +351,9 @@ function M.new(config)
     -- gone: config.held may answer such a hold with a new decision, performed here as a claimed one
     -- is ('renewed'). Its answer to an idle hold, or a hold, changes nothing; an answer that is no
     -- decision counts as one of its errors.
+    -- The duties owed by the lower scripts (still fresh, oldest first) go to config.perform as a third
+    -- argument, to be queued before the decision's own actions; a hold that is not renewed hands them
+    -- over alone, as perform(actor, {hold=true}, duties).
     function api:act(actor)
         local id=type(actor)=='table' and rawget(actor,'id')
         if not scalarId(id) then return false,'bad-actor' end
@@ -296,7 +361,13 @@ function M.new(config)
         if not p then return false,'no-pending' end
         local tick=now()
         if not tick or tick<p.tick or tick-p.tick>maxAge then bump(counts,'stale');return false,'stale' end
-        if not enabled or not families[p.family] then return false,'disabled' end
+        if not enabled or not families[p.family] then drop(id);return false,'disabled' end
+        -- What the lower scripts owe goes first, in the same response as the engine's own actions.
+        local duties=due(id,tick)
+        if duties then
+            for _ in ipairs(duties) do bump(counts,'dutiesHanded') end
+            log:record({kind='duty',actorKey=tostring(id),family=p.family,reason=duties[1].key,tick=tick})
+        end
         local decision,reason=p.decision,'performed'
         if decision.hold then
             bump(counts,'held')
@@ -312,6 +383,11 @@ function M.new(config)
                 elseif not result.hold then renewed=result end
             end
             if not renewed then
+                -- The hold's response runs once the creature has nothing left to do: the duties alone.
+                if duties and perform then
+                    local ok,done=pcall(function() return perform(values.copy(actor),{hold=true},duties) end)
+                    if not ok or done~=true then bump(counts,'dutyErrors') end
+                end
                 log:record({kind='act',actorKey=tostring(id),family=p.family,reason='held',tick=tick})
                 return true,'held'
             end
@@ -319,7 +395,7 @@ function M.new(config)
             decision,reason=renewed,'renewed'
         end
         if not perform then failed(id,p.family,'no-performer',tick);return false,'no-performer' end
-        local ok,done=pcall(function() return perform(values.copy(actor),values.copy(decision)) end)
+        local ok,done=pcall(function() return perform(values.copy(actor),values.copy(decision),duties) end)
         -- 'skipped': the decision no longer fits (its target died meanwhile); no error, no backoff.
         if ok and done=='skipped' then
             bump(counts,'skipped')
@@ -336,8 +412,9 @@ function M.new(config)
     -- Whether the gate's own switch is on (the engine's kill switch), for helpers outside any family.
     function api:on() return enabled end
     -- Whether the gate would ask the decider about this creature from this script now (its
-    -- switches, the registry, the scripts below it, a decider and no backoff after an error),
-    -- without asking.
+    -- switches, the registry, a readable script stack, a decider and no backoff after an error),
+    -- without asking. Scripts without a hook below change nothing: the engine drives the creature
+    -- and runs their duties.
     function api:drives(actor,family)
         local id=type(actor)=='table' and rawget(actor,'id')
         if not scalarId(id) then return false end
@@ -348,11 +425,7 @@ function M.new(config)
         if not tick then return false end
         if blocked[id] and tick<blocked[id] and blocked[id]-tick<=backoff then return false end
         local found,rest=pcall(below,id,script:lower())
-        if not found or type(rest)~='table' then return false end
-        for _,name in ipairs(rest) do
-            if type(name)~='string' or not hooked[name:lower()] then return false end
-        end
-        return true
+        return found and type(rest)=='table'
     end
     -- The family of the script that decides for the creature, when the gate would ask the
     -- decider from it now (api:drives), else nil; the actor names the script that asks, which must
@@ -384,7 +457,7 @@ function M.new(config)
     end
     function api:setEnabled(value)
         assert(type(value)=='boolean');enabled=value;answers={}
-        if not value then pending={} end
+        if not value then pending,owed,owing={},{},0 end
     end
     function api:setFamily(family,value)
         assert(known[family] and type(value)=='boolean');families[family]=value;answers={}
@@ -393,12 +466,12 @@ function M.new(config)
     function api:setDecider(fn) assert(fn==nil or type(fn)=='function');decide=fn;pending,answers={},{} end
     function api:setPerformer(fn) assert(fn==nil or type(fn)=='function');perform=fn;pending,answers={},{} end
     function api:setHooked(t) setHooked(t);answers={} end
-    function api:invalidate() pending,blocked,answers={},{},{} end
+    function api:invalidate() pending,blocked,answers,owed,owing={},{},{},{},0 end
     function api:inspect()
         local open=0;for _ in pairs(pending) do open=open+1 end
         local scripts=0;for _ in pairs(hooked or {}) do scripts=scripts+1 end
         return {enabled=enabled,families=values.copy(families),counts=values.copy(counts),
-            declines=values.copy(declines),pending=open,hookedScripts=hooked and scripts or nil,
+            declines=values.copy(declines),pending=open,owing=owing,hookedScripts=hooked and scripts or nil,
             trace=log:snapshot()}
     end
     return api
@@ -16425,6 +16498,232 @@ function M.new(g,options)
 end
 return M
 end
+factories["adapters.eeex.lower"]=function(require)
+-- The duties of a creature's lower scripts. Christopher, 2026-11-08: the engine takes over every
+-- creature, also one with a script without a hook below the script that decides for it (a summon's
+-- BDSUM00, shout, dialogue and plot scripts). The game reaches such a script in a pass only when every
+-- script above lets the pass through, and while the engine takes the creature's rounds it never does.
+-- So on each claim the gate (kernel/hook.lua) asks walk() which of its blocks would fire now, as the
+-- game would: slot by slot below the deciding script, block by block; the first block that holds ends
+-- the pass unless every response of it ends with Continue(). A block that holds and does more than an
+-- ordinary combat round is owed, by HOOK-02's rule for SCS's own blocks below the anchor: a shout, a
+-- plot variable, a dialogue start, turning hostile, a power cast without a spellbook entry (the
+-- ForceSpell family; SpellNoDec unless the response removes the spell). The engine's own choice
+-- replaces the rest: attacks, moves, spellbook casts, weapon switches, waiting and the creature's own
+-- bookkeeping (LOCALS variables, messages). A fight response that also writes a variable outside the
+-- creature's own keeps those writes: the world's state follows the story, the fight is the engine's.
+-- ApplySpell stays the engine's too: in these scripts it is SCS's free invisibility (DW#GITH1), which
+-- the engine replaces with a thief's real skill (F2f).
+-- run() queues an owed block's response, picked by weight as the game picks, without Continue().
+-- Engine objects never leave this module: records are plain, and the cache holds plain plans per
+-- script resref (one resref has the same blocks for the whole session).
+local M={}
+M.levels={0,1,2,4,5,6,7}
+M.planLimit=512
+M.recentLimit=24
+local function set(list)
+    local t={}
+    for _,name in ipairs(list) do t[name:upper()]=true end
+    return t
+end
+M.CONTINUE=set{'Continue'}
+M.UNGATED=set{'ForceSpell','ForceSpellRES','ReallyForceSpell','ReallyForceSpellRES','ForceSpellPoint',
+    'ForceSpellPointRES','ReallyForceSpellPoint','ReallyForceSpellPointRES'}
+M.NO_DECREMENT=set{'SpellNoDec','SpellNoDecRES'}
+M.REMOVES=set{'RemoveSpell','RemoveSpellRES'}
+M.VARIABLES=set{'SetGlobal','SetGlobalTimer','SetGlobalTimerRandom','IncrementGlobal'}
+-- HOOK-02's ordinary combat round (tools/hook_rule.py, COMBAT without the casts that use no spellbook
+-- entry, which are judged above; tests/unit/test_hook.py keeps the two lists equal).
+M.COMBAT=set{'Spell','SpellRES','SpellNoDec','SpellNoDecRES','SpellPoint','SpellPointRES',
+    'UseItem','Attack','AttackOneRound','AttackReevaluate','AttackNoSound',
+    'EquipMostDamagingMelee','EquipRanged','SelectWeaponAbility',
+    'MoveToObject','RunAwayFrom','RunAwayFromNoLeaveArea','RunAwayFromNoInterrupt',
+    'RunAwayFromNoInterruptNoLeaveArea','RandomWalk','RandomWalkContinuous','FaceObject',
+    'Turn','OpenDoor','Wait','SmallWait','NoAction','SetInterrupt','ClearActions',
+    'RemoveSpell','ApplySpellRES','ApplySpell',
+    'Continue','SetGlobal','SetGlobalTimer','SetGlobalTimerRandom','IncrementGlobal',
+    'DisplayString','DisplayStringHead','VerbalConstant','PlaySound'}
+local function lower(text) return type(text)=='string' and text:lower() or '' end
+function M.new(g,options)
+    options=options or {}
+    local random=options.random or math.random
+    -- ACTION.IDS: action number -> its names (upper case), and the first name, for the log.
+    local names,primary,broken
+    local plans,planCount={},0
+    local stats={walks=0,blocks=0,owed=0,runs=0,actions=0,fights=0,gone=0,errors=0}
+    local recent={}
+    local api={}
+    local function iterate(list,fn) g.EEex_Utility_IterateCPtrList(list,fn) end
+    local function known()
+        if names or broken then return names end
+        local ok,err=pcall(function()
+            local found,first,count={},{},0
+            g.EEex_Resource_IterateUnpackedIDSEntries(g.EEex_Resource_LoadIDS('ACTION'),function(id,line,start)
+                local name=type(start)=='string' and start:match('^%s*([%a_][%w_]*)') or
+                    type(line)=='string' and line:match('^%s*([%a_][%w_]*)') or nil
+                if type(id)=='number' and name then
+                    found[id]=found[id] or {}
+                    found[id][name:upper()]=true
+                    first[id]=first[id] or name
+                    count=count+1
+                end
+            end)
+            assert(count>0,'ACTION.IDS has no entries')
+            names,primary=found,first
+        end)
+        -- Without the action names nothing can be told apart, so nothing is owed: the engine fights alone.
+        if not ok then broken=tostring(err);stats.errors=stats.errors+1 end
+        return names
+    end
+    local function kind(action)
+        local list=names[action.m_actionID]
+        if not list then return 'duty' end
+        local function any(t)
+            for name in pairs(list) do if t[name] then return true end end
+            return false
+        end
+        if any(M.CONTINUE) then return 'continue' end
+        if any(M.UNGATED) then return 'special' end
+        if any(M.NO_DECREMENT) then return 'nodec' end
+        if any(M.REMOVES) then return 'remove' end
+        if any(M.VARIABLES) then
+            -- A compiled variable name starts with its scope: LOCALS, GLOBAL or an area.
+            return lower(action.m_string1.m_pchData:get()):sub(1,6)~='locals' and 'world' or 'fight'
+        end
+        if any(M.COMBAT) then return 'fight' end
+        return 'duty'
+    end
+    -- A response: 'duty' (it runs as written), 'world' (only its writes outside LOCALS run) or 'fight'.
+    local function judge(response)
+        local seen={}
+        iterate(response.m_actionList,function(action) seen[kind(action)]=true end)
+        local sort='fight'
+        if seen.duty or seen.special or (seen.nodec and not seen.remove) then sort='duty'
+        elseif seen.world then sort='world' end
+        return {weight=tonumber(response.m_weight) or 0,kind=sort,continues=seen.continue==true}
+    end
+    local function plan(name,script)
+        if plans[name] then return plans[name] end
+        local blocks={}
+        iterate(script.m_caList,function(cr)
+            local responses,owe,onward={},false,true
+            iterate(cr.m_responseSet.m_responseList,function(response)
+                local r=judge(response)
+                responses[#responses+1]=r
+                if r.kind~='fight' then owe=true end
+                if not r.continues then onward=false end
+            end)
+            if #responses==0 then onward=false end
+            blocks[#blocks+1]={owe=owe,onward=onward,responses=responses}
+        end)
+        if planCount>=M.planLimit then plans,planCount={},0 end
+        plans[name]={blocks=blocks};planCount=planCount+1
+        return plans[name]
+    end
+    -- True when the pass ends in this script.
+    local function walkScript(object,script,name,level,found)
+        local p=plan(name,script)
+        local index,stop=0,false
+        iterate(script.m_caList,function(cr)
+            index=index+1
+            local block=p.blocks[index]
+            if not block then stop=true;return true end
+            stats.blocks=stats.blocks+1
+            if cr.m_condition:Hold(object.m_pendingTriggers,object)~=0 then
+                if block.owe then found[#found+1]={key=name..':'..index,script=name,level=level,block=index} end
+                if not block.onward then stop=true;return true end
+            end
+        end)
+        return stop
+    end
+    -- The owed blocks of the scripts below deciding (the gate's list, in slot order, all without a hook),
+    -- as plain records {key, script, level, block}.
+    function api.walk(object,deciding,scripts)
+        stats.walks=stats.walks+1
+        local found={}
+        if type(deciding)~='string' or type(scripts)~='table' or #scripts==0 or not known() then return found end
+        deciding=deciding:lower()
+        local after,index=false,1
+        for _,level in ipairs(M.levels) do
+            if index>#scripts then break end
+            local name=lower(g.EEex_AIBase_GetScriptLevelResRef(object,level))
+            if not after then
+                if name==deciding then after=true end
+            elseif name~='' and name~='none' then
+                if name~=scripts[index] then break end
+                local script=g.EEex_AIBase_GetScriptLevel(object,level)
+                if not script or walkScript(object,script,name,level,found) then break end
+                index=index+1
+            end
+        end
+        stats.owed=stats.owed+#found
+        return found
+    end
+    local function nth(list,n)
+        local i,item=0,nil
+        iterate(list,function(value)
+            i=i+1
+            if i==n then item=value;return true end
+        end)
+        return item
+    end
+    local function pick(responses)
+        local total=0
+        for _,r in ipairs(responses) do total=total+math.max(0,r.weight) end
+        if total<=0 then return 1 end
+        local roll,last=random()*total,1
+        for i,r in ipairs(responses) do
+            if r.weight>0 then
+                last=i
+                roll=roll-r.weight
+                if roll<0 then return i end
+            end
+        end
+        return last
+    end
+    -- Queues an owed block's response on the creature: 'queued' and how many actions, 'fight' when the
+    -- pick is an ordinary combat round (the engine's choice stands for it), 'gone' when the creature no
+    -- longer runs that script.
+    function api.run(object,record)
+        if type(record)~='table' or not known() then return 'gone',0 end
+        local p=plans[record.script]
+        local block=p and p.blocks[record.block]
+        local script=block and lower(g.EEex_AIBase_GetScriptLevelResRef(object,record.level))==record.script and
+            g.EEex_AIBase_GetScriptLevel(object,record.level)
+        local cr=script and nth(script.m_caList,record.block)
+        if not cr then stats.gone=stats.gone+1;return 'gone',0 end
+        local chosen=pick(block.responses)
+        local wanted=block.responses[chosen]
+        if not wanted or wanted.kind=='fight' then stats.fights=stats.fights+1;return 'fight',0 end
+        local response=nth(cr.m_responseSet.m_responseList,chosen)
+        if not response then stats.gone=stats.gone+1;return 'gone',0 end
+        local queued={}
+        iterate(response.m_actionList,function(action)
+            local sort=kind(action)
+            if sort=='continue' or (wanted.kind=='world' and sort~='world') then return end
+            object:virtual_InsertAction(action)
+            queued[#queued+1]=primary[action.m_actionID] or tostring(action.m_actionID)
+        end)
+        stats.runs=stats.runs+1;stats.actions=stats.actions+#queued
+        if #recent>=M.recentLimit then table.remove(recent,1) end
+        recent[#recent+1]={script=record.script,block=record.block,response=chosen,actions=table.concat(queued,',')}
+        return 'queued',#queued
+    end
+    function api.inspect()
+        local copy={}
+        for key,value in pairs(stats) do copy[key]=value end
+        local runs={}
+        for i,row in ipairs(recent) do
+            runs[i]={script=row.script,block=row.block,response=row.response,actions=row.actions}
+        end
+        return {stats=copy,plans=planCount,broken=broken,recent=runs}
+    end
+    -- A load forgets the plans (a reinstall may have changed a script between sessions).
+    function api.reset() plans,planCount,recent={},0,{} end
+    return api
+end
+return M
+end
 factories["adapters.eeex.hook"]=function(require)
 -- EEex side of the BCS handoff. A hook block's trigger calls BGSE_Claim(object, family, script)
 -- and its response calls BGSE_Act(object); guarded copies of SCS blocks above the hook call
@@ -16463,7 +16762,12 @@ factories["adapters.eeex.hook"]=function(require)
 -- another block, and the game interrupts them in the same pass by its own rules (lab step W).
 -- Anything else in the creature's queue, a story's action added behind them for one, keeps it from
 -- happening. options.replaced(object, info) hears of each.
+-- Scripts without a hook below the deciding one keep the creature on the engine (Christopher,
+-- 2026-11-08): on each claim options.lower (adapters/eeex/lower.lua; false for none) walks them for
+-- the blocks that hold and do more than fight, and the hook's response queues those duties before the
+-- engine's own actions. Only the engine's own actions count as its own: the duties run to their end.
 local hook=require('kernel.hook')
+local lowerScripts=require('adapters.eeex.lower')
 local M={}
 M.keys={mage='Mages',priest='Priests',fighter='Fighters',monster='Monsters'}
 local function ini(g,key)
@@ -16549,20 +16853,32 @@ function M.install(g,options)
     local clock=options.now or function() return M.gameTime(g) end
     local director,choice,prepare,held=options.director,options.choice,options.prepare,options.held
     local replaced=options.replaced
+    local walker=options.lower
+    if walker==nil then
+        local ok,value=pcall(lowerScripts.new,g)
+        if ok then walker=value end
+    end
+    if walker==false then walker=nil end
+    local dutyFaults=0
     -- id -> the block that queued the hook's last response (sn, rs, rn) and the actions it queued;
     -- owned counts them (at most M.ownLimit: creatures that died with a record keep it until then).
     local mine,owned={},0
     local replacing={count=0,errors=0}
     local function drop(id) if mine[id]~=nil then mine[id]=nil;owned=owned-1 end end
-    -- Right after the hook's response queued a decision: when those actions are all the creature
-    -- has queued and a block of a script queued them, they are the engine's own.
-    local function remember(object,before)
+    -- Right after the hook's response queued a decision: when those actions, behind the lower scripts'
+    -- duties the same response queued first (skip of them), are all the creature has queued and a block
+    -- of a script queued them, they are the engine's own. The duties are not: release() lets the
+    -- engine's actions give way only once nothing but them is left.
+    local function remember(object,before,skip)
         local ok,own=pcall(function()
             local rs=object.m_curResponseSetNum
-            if before~=0 or type(rs)~='number' or rs<0 then return nil end
+            skip=skip or 0
+            if before~=skip or type(rs)~='number' or rs<0 then return nil end
             local ids=M.queued(g,object)
-            if #ids==0 then return nil end
-            return {sn=object.m_curScriptNum,rs=rs,rn=object.m_curResponseNum,ids=ids}
+            if #ids<=skip then return nil end
+            local mineIds={}
+            for i=skip+1,#ids do mineIds[#mineIds+1]=ids[i] end
+            return {sn=object.m_curScriptNum,rs=rs,rn=object.m_curResponseNum,ids=mineIds}
         end)
         local id=object.m_id
         drop(id)
@@ -16612,17 +16928,32 @@ function M.install(g,options)
             local object=sprite(g,id)
             if object then return M.stack(g,object) end
         end,
-        perform=function(a,decision)
+        owe=walker and function(id,scripts,tick,deciding)
+            local object=sprite(g,id)
+            if object then return walker.walk(object,deciding,scripts) end
+        end,
+        perform=function(a,decision,duties)
             local object=sprite(g,a.id)
-            if not object or type(decision.response)~='string' or #decision.response==0 then return false end
-            if prepare then
-                local ready=prepare(object,decision)
-                if ready=='skipped' then return 'skipped' end
-                if ready~=true then return false end
+            if not object then return false end
+            local hold=decision.hold==true
+            if not hold and (type(decision.response)~='string' or #decision.response==0) then return false end
+            local ready=true
+            if not hold and prepare then ready=prepare(object,decision) end
+            -- What the lower scripts owe goes first, as their blocks have it.
+            local skip=0
+            if duties and walker then
+                for _,record in ipairs(duties) do
+                    local ok,result,count=pcall(walker.run,object,record)
+                    if not ok then dutyFaults=dutyFaults+1
+                    elseif result=='queued' and type(count)=='number' then skip=skip+count end
+                end
             end
+            if hold then return true end
+            if ready=='skipped' then return 'skipped' end
+            if ready~=true then return false end
             local counted,before=pcall(function() return object.m_queuedActions.m_nCount end)
             g.EEex_Action_QueueResponseStringOnAIBase(decision.response,object)
-            if counted then remember(object,before) end
+            if counted then remember(object,before,skip) end
             return true
         end,
         held=held and function(a,decision,family)
@@ -16656,12 +16987,20 @@ function M.install(g,options)
     function root.inspect()
         local state=gate:inspect()
         state.replaced={count=replacing.count,errors=replacing.errors}
+        if walker then
+            local ok,value=pcall(walker.inspect)
+            state.lower=ok and value or {error=tostring(value)}
+            state.lower.faults=dutyFaults
+        end
         if director then state.director=director:inspect() end
         if choice then state.choice=choice:inspect() end
         return state
     end
     -- A load forgets which actions were the engine's own: object ids do not outlive the session.
-    function root.forget() mine,owned={},0 end
+    function root.forget()
+        mine,owned={},0
+        if walker then pcall(walker.reset) end
+    end
     g.BGSE=root
     local registered=options.hooked~=nil
     local function register()

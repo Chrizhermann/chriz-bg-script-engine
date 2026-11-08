@@ -87,8 +87,13 @@ with scripts of their own (trolls, golems, wyverns, ankhegs, some of them also i
   summons, sits in the default slot. That holds for 29 creature files with an SCS script: summons with `BDSUM00`
   (the four celestials, two djinn, the phase spider summon, two tome golems) and some with shout or plot scripts
   below. The census's placed foes are almost untouched: BG1 628 of 628 are driven, BG2 and ToB 846 of 854 (8 with
-  `DW#GITH1` or `SAHDIE` below). Proposal for Christopher: the engine may stand above `BDSUM00`, so that enemy
-  summons fight on the engine too.
+  `DW#GITH1` or `SAHDIE` below). Christopher (2026-11-08): no question, everything SCS steers goes to the engine.
+  Since then the gate drives all of them (all 29 creature files, among them Torgal, Bodhi in Spellhold, the
+  githyanki, the Sahuagin ambushers, SCS's abishai and every summon with `BDSUM00`) and runs the lower scripts'
+  duties itself (`adapters/eeex/lower.lua`, HOOK-02 rule 4): their shouts for help, plot variables, dialogue
+  starts and powers cast without a spellbook entry run before the engine's own actions; their fighting is the
+  engine's. Unit tests and a mutation check (16 of 16 killed) pass; the lab check (celestials and a shouting
+  githyanki on the engine, `celestialLab.lua`) runs after Christopher's stream.
 - **Lesser Restoration's `CBMLRES`:** worth an entry in `spells.lua`'s `luaEffects` once the engine senses drained
   abilities on its allies; until then it reads as unknown, which costs nothing else.
 - **Later:** our own party AI script; our own classes, kits and races (see the main plan's ideas list).

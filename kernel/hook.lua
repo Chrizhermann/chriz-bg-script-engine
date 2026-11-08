@@ -5,9 +5,14 @@
 -- A creature can carry hooked scripts in several slots (an SCS monster script above SCS's
 -- general AI, for example). Slots run from override down to default, and a lower script is
 -- reached only after the higher ones let the pass through, so the first hooked script that
--- asks in a pass decides for the creature; the others decline in that pass. The engine also
--- declines when a script that carries no hook sits below the deciding one: an engine round
--- would keep that script from ever running.
+-- asks in a pass decides for the creature; the others decline in that pass.
+-- Scripts without a hook below the deciding one (a summon's BDSUM00, shout, dialogue and plot
+-- scripts; Christopher 2026-11-08: the engine takes over every creature) no longer hand the creature
+-- back to SCS. An engine round keeps their blocks from running, so on every claim config.owe walks
+-- them as the game would (adapters/eeex/lower.lua) and names the blocks that hold now and do more than
+-- an ordinary combat round: their shouts, plot variables, dialogue starts and scripted powers. Those
+-- duties are owed until the hook's response runs, which hands them to config.perform before the
+-- engine's own actions.
 -- Nothing here raises to the caller and nothing in it survives a load.
 local values=require('kernel.manifest')
 local trace=require('kernel.trace')
@@ -28,6 +33,12 @@ function M.new(config)
     local decide,perform,observe,held=config.decide,config.perform,config.observe,config.held
     assert(observe==nil or type(observe)=='function')
     assert(held==nil or type(held)=='function')
+    -- owe(id, scripts, tick, deciding) (optional): the duty blocks of the creature's lower scripts
+    -- (scripts, in slot order below the deciding one) that hold now, as plain records with a unique
+    -- key; they stay owed for maxDutyAgeTicks at most.
+    local owe,dutyAge=config.owe,config.maxDutyAgeTicks or 90
+    assert(owe==nil or type(owe)=='function')
+    assert(count(dutyAge,1e6))
     -- hooked: script resref (lower case) -> family, from the install. below(id, script): the
     -- creature's non-empty script resrefs in the slots after script, or nil when script is not
     -- in its stack. stack(id) (optional): all its non-empty script resrefs, from the top slot down.
@@ -44,9 +55,10 @@ function M.new(config)
     below,stack=config.below,config.stack
     assert(below==nil or type(below)=='function')
     assert(stack==nil or type(stack)=='function')
-    local pending,blocked,answers={},{},{}
+    local pending,blocked,answers,owed={},{},{},{}
+    local owing=0
     local counts={reached=0,repeats=0,claimed=0,acted=0,held=0,renewed=0,skipped=0,stale=0,errors=0,observeErrors=0,
-        heldErrors=0}
+        heldErrors=0,owed=0,dutiesHanded=0,dutiesDropped=0,dutyErrors=0}
     local declines={}
     local log=trace.new(config.traceCapacity or 64)
     local api={}
@@ -66,6 +78,52 @@ function M.new(config)
         return not copied or type(result)~='table' or (result.hold~=nil and result.hold~=true) or
             (result.idle~=nil and (result.idle~=true or result.hold~=true))
     end
+    -- The creature's scripts below the deciding one that carry no hook, up to the next hooked one: a
+    -- pass reaches them only through every script above, and a hooked one ends it with its own blocks.
+    local function lower(rest)
+        local list={}
+        for _,name in ipairs(rest) do
+            if type(name)~='string' or #name==0 or hooked[name:lower()] then break end
+            list[#list+1]=name:lower()
+        end
+        return list
+    end
+    -- At most this many duties per creature and creatures that owe some; past the second limit
+    -- (creatures that died owing) every record goes.
+    local dutyLimit,owingLimit=8,1024
+    local function drop(id) if owed[id]~=nil then owed[id]=nil;owing=owing-1 end end
+    local function owes(id,found,tick)
+        if type(found)~='table' then return end
+        local list=owed[id]
+        for _,record in ipairs(found) do
+            local copied,item=pcall(values.copy,record)
+            if not copied or type(item)~='table' or type(item.key)~='string' then
+                bump(counts,'dutyErrors')
+            else
+                local known=false
+                for _,old in ipairs(list or {}) do if old.key==item.key then known=true;break end end
+                if not known and #(list or {})<dutyLimit then
+                    if not list then
+                        if owing>=owingLimit then owed,owing={},0 end
+                        list={};owed[id]=list;owing=owing+1
+                    end
+                    item.owedAt=tick;list[#list+1]=item;bump(counts,'owed')
+                end
+            end
+        end
+    end
+    -- The duties still fresh, oldest first; they are handed over once.
+    local function due(id,tick)
+        local list=owed[id]
+        drop(id)
+        if not list then return nil end
+        local fresh={}
+        for _,item in ipairs(list) do
+            if tick>=item.owedAt and tick-item.owedAt<=dutyAge then fresh[#fresh+1]=item
+            else bump(counts,'dutiesDropped') end
+        end
+        if #fresh>0 then return fresh end
+    end
     local function evaluate(id,actor,family,tick,script)
         if not enabled then return decline('disabled') end
         if not known[family] then return decline('unknown-family') end
@@ -75,9 +133,7 @@ function M.new(config)
         local found,rest=pcall(below,id,script)
         if not found then failed(id,family,'stack-error',tick);return decline('error') end
         if type(rest)~='table' then return decline('no-stack') end
-        for _,name in ipairs(rest) do
-            if type(name)~='string' or not hooked[name:lower()] then return decline('script-below') end
-        end
+        local under=lower(rest)
         -- A load restarts the tick count, so a backoff from before it no longer applies.
         if blocked[id] and tick<blocked[id] and blocked[id]-tick<=backoff then return decline('backoff') end
         blocked[id]=nil
@@ -98,6 +154,12 @@ function M.new(config)
         if bad(copied,result) then failed(id,family,'bad-decision',tick);return decline('error') end
         pending[id]={decision=result,tick=tick,family=family}
         bump(counts,'claimed')
+        -- The engine takes this pass: the lower scripts' blocks that hold now and do more than fight
+        -- are owed until the hook's response runs. A failing walk only costs those duties.
+        if owe and #under>0 then
+            local walked,found=pcall(owe,id,under,tick,script)
+            if walked then owes(id,found,tick) else bump(counts,'dutyErrors') end
+        end
         log:record({kind='claim',actorKey=tostring(id),family=family,
             reason=result.idle and 'idle' or result.hold and 'hold' or 'claimed',tick=tick})
         return true,result.idle and 'idle' or result.hold and 'hold' or 'decision'
@@ -133,6 +195,9 @@ function M.new(config)
     -- gone: config.held may answer such a hold with a new decision, performed here as a claimed one
     -- is ('renewed'). Its answer to an idle hold, or a hold, changes nothing; an answer that is no
     -- decision counts as one of its errors.
+    -- The duties owed by the lower scripts (still fresh, oldest first) go to config.perform as a third
+    -- argument, to be queued before the decision's own actions; a hold that is not renewed hands them
+    -- over alone, as perform(actor, {hold=true}, duties).
     function api:act(actor)
         local id=type(actor)=='table' and rawget(actor,'id')
         if not scalarId(id) then return false,'bad-actor' end
@@ -140,7 +205,13 @@ function M.new(config)
         if not p then return false,'no-pending' end
         local tick=now()
         if not tick or tick<p.tick or tick-p.tick>maxAge then bump(counts,'stale');return false,'stale' end
-        if not enabled or not families[p.family] then return false,'disabled' end
+        if not enabled or not families[p.family] then drop(id);return false,'disabled' end
+        -- What the lower scripts owe goes first, in the same response as the engine's own actions.
+        local duties=due(id,tick)
+        if duties then
+            for _ in ipairs(duties) do bump(counts,'dutiesHanded') end
+            log:record({kind='duty',actorKey=tostring(id),family=p.family,reason=duties[1].key,tick=tick})
+        end
         local decision,reason=p.decision,'performed'
         if decision.hold then
             bump(counts,'held')
@@ -156,6 +227,11 @@ function M.new(config)
                 elseif not result.hold then renewed=result end
             end
             if not renewed then
+                -- The hold's response runs once the creature has nothing left to do: the duties alone.
+                if duties and perform then
+                    local ok,done=pcall(function() return perform(values.copy(actor),{hold=true},duties) end)
+                    if not ok or done~=true then bump(counts,'dutyErrors') end
+                end
                 log:record({kind='act',actorKey=tostring(id),family=p.family,reason='held',tick=tick})
                 return true,'held'
             end
@@ -163,7 +239,7 @@ function M.new(config)
             decision,reason=renewed,'renewed'
         end
         if not perform then failed(id,p.family,'no-performer',tick);return false,'no-performer' end
-        local ok,done=pcall(function() return perform(values.copy(actor),values.copy(decision)) end)
+        local ok,done=pcall(function() return perform(values.copy(actor),values.copy(decision),duties) end)
         -- 'skipped': the decision no longer fits (its target died meanwhile); no error, no backoff.
         if ok and done=='skipped' then
             bump(counts,'skipped')
@@ -180,8 +256,9 @@ function M.new(config)
     -- Whether the gate's own switch is on (the engine's kill switch), for helpers outside any family.
     function api:on() return enabled end
     -- Whether the gate would ask the decider about this creature from this script now (its
-    -- switches, the registry, the scripts below it, a decider and no backoff after an error),
-    -- without asking.
+    -- switches, the registry, a readable script stack, a decider and no backoff after an error),
+    -- without asking. Scripts without a hook below change nothing: the engine drives the creature
+    -- and runs their duties.
     function api:drives(actor,family)
         local id=type(actor)=='table' and rawget(actor,'id')
         if not scalarId(id) then return false end
@@ -192,11 +269,7 @@ function M.new(config)
         if not tick then return false end
         if blocked[id] and tick<blocked[id] and blocked[id]-tick<=backoff then return false end
         local found,rest=pcall(below,id,script:lower())
-        if not found or type(rest)~='table' then return false end
-        for _,name in ipairs(rest) do
-            if type(name)~='string' or not hooked[name:lower()] then return false end
-        end
-        return true
+        return found and type(rest)=='table'
     end
     -- The family of the script that decides for the creature, when the gate would ask the
     -- decider from it now (api:drives), else nil; the actor names the script that asks, which must
@@ -228,7 +301,7 @@ function M.new(config)
     end
     function api:setEnabled(value)
         assert(type(value)=='boolean');enabled=value;answers={}
-        if not value then pending={} end
+        if not value then pending,owed,owing={},{},0 end
     end
     function api:setFamily(family,value)
         assert(known[family] and type(value)=='boolean');families[family]=value;answers={}
@@ -237,12 +310,12 @@ function M.new(config)
     function api:setDecider(fn) assert(fn==nil or type(fn)=='function');decide=fn;pending,answers={},{} end
     function api:setPerformer(fn) assert(fn==nil or type(fn)=='function');perform=fn;pending,answers={},{} end
     function api:setHooked(t) setHooked(t);answers={} end
-    function api:invalidate() pending,blocked,answers={},{},{} end
+    function api:invalidate() pending,blocked,answers,owed,owing={},{},{},{},0 end
     function api:inspect()
         local open=0;for _ in pairs(pending) do open=open+1 end
         local scripts=0;for _ in pairs(hooked or {}) do scripts=scripts+1 end
         return {enabled=enabled,families=values.copy(families),counts=values.copy(counts),
-            declines=values.copy(declines),pending=open,hookedScripts=hooked and scripts or nil,
+            declines=values.copy(declines),pending=open,owing=owing,hookedScripts=hooked and scripts or nil,
             trace=log:snapshot()}
     end
     return api

@@ -173,15 +173,16 @@ g:setDecider(function() return nil end);pass()
 assert(g:claim({id=7,script='tanari'},'monster')==false and g:claim({id=7,script='dw2ms2ge'},'fighter')==false)
 assert(g:inspect().declines['no-decision']==1 and g:inspect().declines['lower-script']==2)
 
--- 13. The script stack: hooked scripts below are fine, any other script below declines, and so
--- does a script that is not in the creature's stack or a stack reader that fails.
+-- 13. The script stack: no script below declines, hooked or not (the engine drives the creature and
+-- runs the lower scripts' duties, case 21); a script that is not in the creature's stack or a stack
+-- reader that fails still declines.
 local stacks={[7]={'dw2ms2ge'},[8]={'shoutdlg'},[9]={'DW2MS2GE','None'}}
 g=hook.new({now=clock,hooked={tanari='monster',dw2ms2ge='fighter',none='x'},
     below=function(id,script) if id==10 then error('freed') end;return stacks[id] end,
     decide=function() return {hold=true} end})
 pass()
 assert(g:claim({id=7,script='tanari'},'monster')==true)
-assert(g:claim({id=8,script='tanari'},'monster')==false and g:inspect().declines['script-below']==1)
+assert(g:claim({id=8,script='tanari'},'monster')==true and g:inspect().declines['script-below']==nil)
 assert(g:claim({id=9,script='tanari'},'monster')==true)
 assert(g:claim({id=11,script='tanari'},'monster')==false and g:inspect().declines['no-stack']==1)
 assert(g:claim({id=10,script='tanari'},'monster')==false and g:inspect().counts.errors==1)
@@ -233,16 +234,17 @@ pass()
 assert(g:claim(actor,'mage')==true and g:act(actor)==true and g:inspect().counts.acted==1)
 
 -- 17. drives() tells, without asking the decider, whether the gate would ask it: switches,
--- registry, the scripts below, a decider and no backoff after an error.
+-- registry, a readable stack (any scripts below), a decider and no backoff after an error.
 local drove=0
 g=hook.new({now=clock,decide=function(a)
     drove=drove+1
     if a.id==9 then error('decider broke') end
     return {hold=true}
-end,below=function(id) if id==8 then return {'other'} end;return {} end})
+end,below=function(id) if id==8 then return {'other'} end;if id==12 then return nil end;return {} end})
 pass()
 assert(g:drives(actor,'mage')==true and drove==0)
-assert(g:drives({id=8,script='s1'},'mage')==false and g:drives(nil,'mage')==false and g:drives({id=7},'mage')==false)
+assert(g:drives({id=8,script='s1'},'mage')==true and g:drives({id=12,script='s1'},'mage')==false)
+assert(g:drives(nil,'mage')==false and g:drives({id=7},'mage')==false)
 assert(g:drives(actor,'dragon')==false)
 g:setFamily('mage',false);assert(g:drives(actor,'mage')==false);g:setFamily('mage',true)
 g:setEnabled(false);assert(g:drives(actor,'mage')==false);g:setEnabled(true)
@@ -279,7 +281,8 @@ g:setFamily('monster',true)
 assert(g:driver({id=8,script='s1'})=='mage')
 assert(g:driver({id=8,script='OTHER'})=='mage' and g:driver({id=8,script='gone'})==nil)
 assert(g:driver({id=7,script='other'})==nil)
-assert(g:driver({id=9,script='s1'})==nil and g:driver({id=9,script='other'})==nil)
+-- A script without a hook below the deciding one no longer hands the creature back.
+assert(g:driver({id=9,script='s1'})=='mage' and g:driver({id=9,script='other'})=='mage')
 g:setFamily('mage',false);assert(g:driver({id=8,script='other'})==nil);g:setFamily('mage',true)
 assert(g:driver({id=10,script='S1'})=='mage' and g:driver({id=10,script='tanari'})==nil)
 assert(g:driver({id=11,script='s1'})==nil and g:driver({id=12,script='s1'})==nil and g:driver({id=13,script='s1'})==nil)
@@ -348,4 +351,71 @@ assert(g:inspect().counts.heldErrors==4 and g:inspect().counts.errors==0)
 reply={response='NoAction()',skip=true};pass()
 assert(g:claim(actor,'fighter')==true)
 ok,why=g:act(actor);assert(ok==false and why=='skipped' and g:inspect().counts.skipped==1 and g:inspect().counts.renewed==2)
-return 20
+
+-- 21. Scripts without a hook below the deciding one keep the creature on the engine (Christopher,
+-- 2026-11-08). On a claim, and only then, config.owe hears of them, up to the next hooked script, once
+-- a pass; the duty blocks it names are owed once each until the hook's response hands them to
+-- perform before the decision, or alone with a hold. Duties too old are dropped, bad records and a
+-- failing walk count as duty errors and change no answer.
+local walks,handed,found={},{},{}
+local lists={[7]={'bdsum00','gpshout'},[8]={'shout','DW2MS2GE','late'},[9]={},[10]={'broken'}}
+answer={response='Attack(NearestEnemyOf(Myself))'}
+g=raw.new({now=clock,hooked={tanari='monster',dw2ms2ge='fighter'},maxDutyAgeTicks=30,
+    below=function(id) return lists[id] end,
+    decide=function() return answer end,
+    owe=function(id,scripts)
+        walks[#walks+1]=id..':'..table.concat(scripts,',')
+        if id==10 then error('walk broke') end
+        return found[id]
+    end,
+    held=function() return nil end,
+    perform=function(a,d,duties)
+        local keys={}
+        for _,item in ipairs(duties or {}) do keys[#keys+1]=item.key end
+        handed[#handed+1]=(d.response or 'hold')..'|'..table.concat(keys,',')
+        return true
+    end})
+local tanari={id=7,script='tanari'}
+pass();found[7]={{key='bdsum00:3',level=7,block=3},{key='gpshout:2',level=5,block=2}}
+assert(g:claim(tanari,'monster')==true and walks[1]=='7:bdsum00,gpshout')
+assert(g:claim(tanari,'monster')==true and #walks==1)
+s=g:inspect();assert(s.counts.owed==2 and s.owing==1 and s.declines['script-below']==nil)
+pass();found[7]={{key='gpshout:2'},{key='gpshout:5'}}
+assert(g:claim(tanari,'monster')==true and #walks==2 and g:inspect().counts.owed==3)
+assert(g:act(tanari)==true)
+assert(handed[1]=='Attack(NearestEnemyOf(Myself))|bdsum00:3,gpshout:2,gpshout:5')
+s=g:inspect();assert(s.counts.dutiesHanded==3 and s.owing==0 and s.trace[#s.trace-1].kind=='duty')
+-- What was handed is owed no more.
+pass();found[7]=nil
+assert(g:claim(tanari,'monster')==true and g:act(tanari)==true and handed[2]=='Attack(NearestEnemyOf(Myself))|')
+-- A hooked script below ends the list; a decline walks nothing; nothing below, nothing to walk.
+pass()
+assert(g:claim({id=8,script='tanari'},'monster')==true and walks[#walks]=='8:shout')
+local before=#walks
+answer=nil;pass()
+assert(g:claim(tanari,'monster')==false and #walks==before)
+answer={hold=true};pass()
+assert(g:claim({id=9,script='tanari'},'monster')==true and #walks==before)
+-- A failing walk and bad records count, and the claim stands.
+assert(g:claim({id=10,script='tanari'},'monster')==true and g:inspect().counts.dutyErrors==1)
+pass();found[7]={{key=1},'text',{key='ok:1',f=function() end},{key='good:1'}}
+assert(g:claim(tanari,'monster')==true and g:inspect().counts.dutyErrors==4 and g:inspect().counts.errors==0)
+-- A hold that is not renewed hands the duties alone.
+ok,why=g:act(tanari);assert(ok==true and why=='held' and handed[#handed]=='hold|good:1')
+-- Duties older than maxDutyAgeTicks are dropped at the response.
+answer={response='NoAction()'};pass();found[7]={{key='old:1'}}
+assert(g:claim(tanari,'monster')==true)
+tick=tick+31;found[7]=nil
+assert(g:claim(tanari,'monster')==true and g:act(tanari)==true and handed[#handed]=='NoAction()|')
+assert(g:inspect().counts.dutiesDropped==1)
+-- At most eight duties a creature; the kill switch and a load forget them.
+pass();found[7]={}
+for i=1,10 do found[7][i]={key='many:'..i} end
+assert(g:claim(tanari,'monster')==true and g:inspect().counts.owed==13)
+g:setEnabled(false);assert(g:inspect().owing==0);g:setEnabled(true)
+pass();found[7]={{key='again:1'}}
+assert(g:claim(tanari,'monster')==true and g:inspect().owing==1)
+g:invalidate();assert(g:inspect().owing==0)
+rejects(function() raw.new({now=clock,owe=1}) end)
+rejects(function() raw.new({now=clock,maxDutyAgeTicks=-1}) end)
+return 21

@@ -116,8 +116,9 @@ holding.BGSE_Act(holding.objects[1])
 assert(#holding.queued==0 and #heldBy==1 and heldBy[1].object==holding.objects[1] and heldBy[1].own==true)
 
 -- 8. Script slots: read with EEex's accessor in the engine's order, case-insensitive; the
--- hooked list arrives with M_BGSEHK.lua, possibly after the runtime; a script below that
--- carries no hook declines; without the accessor the stack is unknown.
+-- hooked list arrives with M_BGSEHK.lua, possibly after the runtime; a script below that carries
+-- no hook keeps the creature on the engine (its duties: test_eeex_lower.lua); without the accessor
+-- the stack is unknown.
 local late=world();late.BGSE_HOOKED=nil
 local demon=creature(1,{[4]='TANARI',[7]='DW2MS2GE',[5]='NONE'})
 local names=adapter.scripts(late,demon)
@@ -131,7 +132,9 @@ assert(late.BGSE_Claim(demon,'monster','tanari')==false and late.BGSE.inspect().
 late.BGSE_HOOKED={TANARI='monster',dw2ms2ge='fighter'};late.ticks=51
 assert(late.BGSE_Claim(demon,'monster','tanari')==true)
 assert(late.BGSE_Claim(demon,'fighter','dw2ms2ge')==false and late.BGSE.inspect().declines['lower-script']==1)
-assert(late.BGSE_Claim(late.objects[2],'monster','tanari')==false and late.BGSE.inspect().declines['script-below']==1)
+assert(late.BGSE_Claim(late.objects[2],'monster','tanari')==true and late.BGSE.inspect().declines['script-below']==nil)
+-- Without ACTION.IDS in this fake the walk finds nothing to owe, and the claim stands.
+assert(late.BGSE.inspect().lower.broken~=nil and late.BGSE.inspect().counts.owed==0)
 late.objects[1].alive=false;late.ticks=52
 assert(late.BGSE_Claim(demon,'monster','tanari')==false and late.BGSE.inspect().declines['no-stack']==1)
 local bare=world();bare.EEex_AIBase_GetScriptLevelResRef=nil;bare.objects[1]=creature(1)
@@ -149,7 +152,8 @@ assert(adapter.stack(bare,bare.objects[1])==nil)
 -- passes the kind of free invisibility that asks; BGSE_Prep the kind, cast and spent spell of SCS's
 -- preparation, and BGSE_Prepped hands the same on for a creature the engine drives. BGSE_Stay (SCS's
 -- vanishing exits) goes the same way, and so do the game's own exits in a script without a hook above
--- the hooked one (no family); below it or without one they never stay.
+-- or below the hooked one (no family; below it they are walked as the lower script's duties and stand
+-- aside the same way); without a hooked script they never stay.
 local stacked=world()
 stacked.BGSE_HOOKED={s1='mage',dw1melas='fighter'}
 local prepped={}
@@ -177,7 +181,7 @@ assert(stacked.BGSE_Prep(over,'priest','s2','opener','SPWI212','')==false)
 assert(stacked.BGSE_Stay(over,'fighter','dw1melas')==true and stacked.BGSE_Stay(over,'mage','s1')==true)
 assert(stacked.BGSE_Stay(under,'mage','s1')==false and stacked.BGSE_Stay(over,'priest','s2')==false)
 assert(stacked.BGSE_Stay(own,'','ppmag01')==true and stacked.BGSE_Stay(own,'mage','s1')==true)
-assert(stacked.BGSE_Stay(low,'','ppmag01')==false and stacked.BGSE_Stay(lone,'','ppmag01')==false)
+assert(stacked.BGSE_Stay(low,'','ppmag01')==true and stacked.BGSE_Stay(lone,'','ppmag01')==false)
 assert(stacked.BGSE_Stay(own,'','other')==false)
 stacked.BGSE_Prepped(over,'fighter','dw1melas','prebuff','dwsw408','WIZARD_STONE_SKIN')
 stacked.BGSE_Prepped(over,'priest','s2','prebuff','dwsw408','WIZARD_STONE_SKIN')

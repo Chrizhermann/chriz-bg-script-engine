@@ -65,10 +65,18 @@ running. The mage, priest and general-AI scripts have no such blocks below their
    also writes `override/M_BGSEHK.lua` with every hooked script and its family; uninstalling
    removes it.
 4. At run time the first hooked script that asks in a pass decides for the creature, with its
-   own family; the other hooked scripts decline in that pass. The engine also declines when a
-   script that carries no hook sits below the deciding one, since an engine round would keep
-   it from running: 28 of the 4,050 creatures with a hooked script in the lab game have one
-   (summon scripts, shout and dialogue scripts). A dead creature's claim declines too.
+   own family; the other hooked scripts decline in that pass. Until 2026-11-08 the engine also
+   declined when a script that carries no hook sat below the deciding one, since an engine round
+   would keep it from running: 28 of the 4,050 creatures with a hooked script in the lab game have
+   one (summon scripts, shout and dialogue scripts). That handed them back to SCS, whose own script
+   above keeps the lower one from running just the same in a fight. Since 2026-11-08 (Christopher:
+   the engine takes over everything SCS steers) the engine drives them, and on each claim walks
+   the scripts below, up to the next hooked one, as the game would (`adapters/eeex/lower.lua`): the
+   first block that holds ends the pass unless all its responses continue, and a block that holds
+   and does more than an ordinary combat round, by this rule's `COMBAT` list, is owed. The hook's
+   response queues those duties before the engine's own actions: shouts, plot variables (writes
+   outside `LOCALS` also from fight responses), dialogue starts, turning hostile, casts without a
+   spellbook entry. A dead creature's claim declines too.
 
 ## Results
 
