@@ -20,6 +20,10 @@ It will ship as an optional, experimental CEBG component.
   creature.
 - **SCS is the base.** Every creature keeps its SCS identity: spellbook, items and personality.
   SCS's rough fight logic is the blueprint. Reuse SCS ideas, never SCS code or files.
+- **The engine takes over everything SCS steers** (Chris from the start; again 2026-10-20, 10-25 and
+  11-08). A place where SCS still steers a creature or a part of its fight is a gap to close now,
+  never a question for Chris. That includes a decline in our own code that hands a creature back to
+  SCS. Report what you found and that you are closing it.
 - **Whole fights over single spells.** Judge progress by mixed lab fights (fighters drinking
   potions, buffing priests, mages, monsters, several of each), then by community playtesting.
 - **Difficulty goal (Chris, 2026-10-29 and 2026-11-06).** Played as intended (Insane without double
