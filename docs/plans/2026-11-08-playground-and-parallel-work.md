@@ -73,9 +73,11 @@ with scripts of their own (trolls, golems, wyverns, ankhegs, some of them also i
   script, as the family its class gives it, and the script's other blocks (calls for help, story variables) keep
   running as duties. By the files that brings BG1 from 628 to all 727 hostile placed creatures (gnolls, xvarts,
   ankhegs, wyverns, basilisks, ettercaps, carrion crawlers, kobolds, wolves), BG2 and ToB to 1,007 of 1,025 and
-  Siege of Dragonspear to 1,125 of 1,140. Lab check: ten one-minute cases with BG1's monsters on the engine, no
-  error. A party member the enemy charmed stays the game's: whether the engine should play it is Christopher's to
-  decide. `[BGSE] Others=0` switches the own hook off.
+  Siege of Dragonspear to 1,125 of 1,140. Lab checks: ten one-minute cases with BG1's monsters on the engine, the
+  story counters of killed xvarts, gnolls and ankhegs, and the BG1 area tour again (98 of 99 areas), all without
+  an engine error. The Playground took it on 2026-11-10 at 07:47 (engine a504c36, 1,108 own hooks beside 1,140
+  SCS ones, spell mod e200515). A party member the enemy charmed stays the game's: whether the engine should play
+  it is Christopher's to decide. `[BGSE] Others=0` switches the own hook off.
 - **Enemy celestials** (found 2026-11-08, the spell mod fixed its part in `e200515`): under SCS the old celestials (`DEVAGOOD`, `PLANGOOD` and their
   evil twins) ran SCS's own fight scripts, which the engine hooks, so enemy celestials cast their spells. The spell
   mod's own celestials run `CBMDEVAC` or `CBMPLANC` (one of each pair per party) and `BDSUM00`, which casts no spell.

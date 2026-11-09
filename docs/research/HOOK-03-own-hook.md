@@ -79,7 +79,12 @@ in scripts, 4,865 and 1,543.
 - **BG1 area tour, first try:** 49 of 60 areas visited with 4,416 claimed rounds and 7,173 performed actions, no
   engine error; 11 areas not reached in 45 seconds. It ended at the game's death screen in the Spider Wood: a
   spider's Web Tangle held the PC, so the tour could not leave, and a Wraith Spider's bites took its Strength to
-  nothing (learned.md section 6). The lab's fault, not the build's; the tour runs again with a sturdier PC.
+  nothing (learned.md section 6). The lab's fault, not the build's.
+- **BG1 area tour, second try** (the PC immune to ability drain and to what holds it in place): 98 of 99 areas
+  visited in 35 minutes, one not reached (`BG2640`), with 1,767 claimed rounds and 3,128 performed actions; no
+  engine error, none in 12,052 logged rows, no crash, clean cleanup. Where the engine had no decision, the
+  creature had given up its search, saw no enemy or had no picture of the fight yet. The first tour of 2026-11-08
+  reached 80 of 99; the holds explain most of the difference.
 - Not shown here: a creature's fight against a real party, and how the monsters' choices read to a player.
 
 ## Limits
