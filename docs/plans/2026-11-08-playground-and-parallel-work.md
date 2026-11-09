@@ -101,7 +101,8 @@ with scripts of their own (trolls, golems, wyverns, ankhegs, some of them also i
   once). The lower scripts' blocks were checked 2,950 times from inside the hook's own trigger without a fault.
   Not seen in game yet: a dialogue start or a plot variable as a duty, and a group answering a shout. The PC
   cannot die there, so damage spells are worth nothing to the engine and its celestials mostly swing; that says
-  nothing about their choices against a real party.
+  nothing about their choices against a real party. The Playground took this engine (a76f88b, the same engine
+  code) on 2026-11-10 at 05:29 in five minutes; its spell mod stays e200515.
 - **Lesser Restoration's `CBMLRES`:** worth an entry in `spells.lua`'s `luaEffects` once the engine senses drained
   abilities on its allies; until then it reads as unknown, which costs nothing else.
 - **Later:** our own party AI script; our own classes, kits and races (see the main plan's ideas list).
