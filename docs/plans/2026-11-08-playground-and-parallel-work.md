@@ -67,9 +67,15 @@ with scripts of their own (trolls, golems, wyverns, ankhegs, some of them also i
 
 - **Fight list:** BG1's fights in story order (`docs/research/FIGHTS-01-bg1-fight-list.md`), rated `simple` or
   `worth designing`. Christopher goes through it in blocks; finished designs go to agents.
-- **General hook** for creatures without SCS scripts: not needed for his first test. Idea to probe: a script level
-  the game keeps free (level 3), set at run time, so that story scripts above it still run first and nothing is
-  patched in the creature files.
+- **The engine's own hook** for creatures without SCS scripts (built 2026-11-10,
+  [HOOK-03](../research/HOOK-03-own-hook.md)): every fight script a creature carries that is not SCS's gets one
+  hook block at its top; the engine drives such a creature when it is on the enemy side and carries no SCS-hooked
+  script, as the family its class gives it, and the script's other blocks (calls for help, story variables) keep
+  running as duties. By the files that brings BG1 from 628 to all 727 hostile placed creatures (gnolls, xvarts,
+  ankhegs, wyverns, basilisks, ettercaps, carrion crawlers, kobolds, wolves), BG2 and ToB to 1,007 of 1,025 and
+  Siege of Dragonspear to 1,125 of 1,140. Lab check: ten one-minute cases with BG1's monsters on the engine, no
+  error. A party member the enemy charmed stays the game's: whether the engine should play it is Christopher's to
+  decide. `[BGSE] Others=0` switches the own hook off.
 - **Enemy celestials** (found 2026-11-08, the spell mod fixed its part in `e200515`): under SCS the old celestials (`DEVAGOOD`, `PLANGOOD` and their
   evil twins) ran SCS's own fight scripts, which the engine hooks, so enemy celestials cast their spells. The spell
   mod's own celestials run `CBMDEVAC` or `CBMPLANC` (one of each pair per party) and `BDSUM00`, which casts no spell.

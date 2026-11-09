@@ -56,6 +56,25 @@ creatures 1,611 are SCS's, 1,419 come through the own hook and 33 carry no fight
 of 727. BG2 and ToB: 854 and 153 of 1,025. Siege of Dragonspear: 24 and 1,101 of 1,140. Of 6,476 creation lines
 in scripts, 4,865 and 1,543.
 
+## Lab check (2026-11-10, tour lab, engine 69f1e94, Insane)
+
+- **Install:** the own-hook pass reached 1,108 scripts. The whole engine install took 378 seconds in the tour lab
+  (233 before), still far below the 15-minute goal.
+- **Ten one-minute cases** next to the protected PC, each after a fresh load: no engine error, no fault in a walk,
+  clean cleanup. The engine chose every round of three gnolls (15 attack rounds; their `Help()` ran 40 times as a
+  duty), three xvarts (17), two ankhegs (18; the PC lost 517 hit points), a wyvern (11; 981), three kobolds (27;
+  `Help()` 27 times), a lesser basilisk (12), two ettercaps (24; 1,011), two wolves (14), the githyanki mage of
+  HOOK-02 again (9; its shouts 4 times) and an enemy Dark Planetar again (8): its SCS-hooked script decides above
+  `BDSUM00`, which now carries the own hook.
+- SCS's help script `DW#GPSHM` sits above the hooked script of the wyvern, the basilisk and the ettercaps and ran
+  as before: its shouts started by the game, before the hook is reached.
+- The kobolds started their script's own `Attack` twice before the engine's first claim; the hook's response
+  replaced it.
+- The scripts' blocks were checked 4,888 times from inside the hook's trigger without a fault. Creatures that are
+  not on the enemy side (Candlekeep's people) were declined about 300 times a minute, before any stack is read.
+- Not shown here: story notes on death, a creature's fight against a real party, and how the monsters' choices
+  read to a player.
+
 ## Limits
 
 - The engine attacks what it perceives. A hostile creature whose script waited for a story condition before it
