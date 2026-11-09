@@ -169,11 +169,18 @@ factories["kernel.hook"]=function(require)
 -- an ordinary combat round: their shouts, plot variables, dialogue starts and scripted powers. Those
 -- duties are owed until the hook's response runs, which hands them to config.perform before the
 -- engine's own actions.
+-- The engine's own hook (2026-11-10): a fight script that is not SCS's carries one hook block at its
+-- top, registered with the family 'auto'. It decides only for a creature none of whose scripts is
+-- SCS-hooked (those keep their SCS identity and their guarded blocks), with the family
+-- config.resolve gives the creature (by its side and class; nil for one the engine does not drive).
+-- The rest of such a script is walked like a lower script: its fight blocks are the engine's, its
+-- other blocks are duties.
 -- Nothing here raises to the caller and nothing in it survives a load.
 local values=require('kernel.manifest')
 local trace=require('kernel.trace')
 local M={}
 M.families={'mage','priest','fighter','monster'}
+M.AUTO='auto'
 local known={};for _,family in ipairs(M.families) do known[family]=true end
 local function scalarId(id) return type(id)=='number' and id>=0 and id<4294967296 and id%1==0 end
 local function count(value,limit) return type(value)=='number' and value>=0 and value<=limit and value%1==0 end
@@ -190,11 +197,16 @@ function M.new(config)
     assert(observe==nil or type(observe)=='function')
     assert(held==nil or type(held)=='function')
     -- owe(id, scripts, tick, deciding) (optional): the duty blocks of the creature's lower scripts
-    -- (scripts, in slot order below the deciding one) that hold now, as plain records with a unique
-    -- key; they stay owed for maxDutyAgeTicks at most.
-    local owe,dutyAge=config.owe,config.maxDutyAgeTicks or 90
+    -- (scripts, in slot order below the deciding one; first the deciding script itself when it
+    -- carries the engine's own hook) that hold now, as plain records with a unique key; they stay owed
+    -- for maxDutyAgeTicks after they last held (an action of the engine's can run for a round or longer
+    -- before the hook's response runs again).
+    local owe,dutyAge=config.owe,config.maxDutyAgeTicks or 300
     assert(owe==nil or type(owe)=='function')
     assert(count(dutyAge,1e6))
+    -- resolve(id) (optional): the family of a creature that asks from the engine's own hook, or nil.
+    local resolve=config.resolve
+    assert(resolve==nil or type(resolve)=='function')
     -- hooked: script resref (lower case) -> family, from the install. below(id, script): the
     -- creature's non-empty script resrefs in the slots after script, or nil when script is not
     -- in its stack. stack(id) (optional): all its non-empty script resrefs, from the top slot down.
@@ -234,12 +246,23 @@ function M.new(config)
         return not copied or type(result)~='table' or (result.hold~=nil and result.hold~=true) or
             (result.idle~=nil and (result.idle~=true or result.hold~=true))
     end
-    -- The creature's scripts below the deciding one that carry no hook, up to the next hooked one: a
-    -- pass reaches them only through every script above, and a hooked one ends it with its own blocks.
+    -- Whether a script carries SCS's hook (its own family), not the engine's own.
+    local function scs(name)
+        local family=type(name)=='string' and hooked[name:lower()]
+        return family~=nil and family~=false and family~=M.AUTO
+    end
+    local function familyOf(id)
+        if not resolve then return nil end
+        local ok,family=pcall(resolve,id)
+        if ok and known[family] then return family end
+    end
+    -- The creature's scripts below the deciding one that are walked for duties: those without a hook
+    -- and those with the engine's own, up to the next SCS-hooked one. A pass reaches them only through
+    -- every script above, and an SCS-hooked one ends it with its own blocks.
     local function lower(rest)
         local list={}
         for _,name in ipairs(rest) do
-            if type(name)~='string' or #name==0 or hooked[name:lower()] then break end
+            if type(name)~='string' or #name==0 or scs(name) then break end
             list[#list+1]=name:lower()
         end
         return list
@@ -257,7 +280,8 @@ function M.new(config)
                 bump(counts,'dutyErrors')
             else
                 local known=false
-                for _,old in ipairs(list or {}) do if old.key==item.key then known=true;break end end
+                -- A block that holds again stays owed from now.
+                for _,old in ipairs(list or {}) do if old.key==item.key then known=true;old.owedAt=tick;break end end
                 if not known and #(list or {})<dutyLimit then
                     if not list then
                         if owing>=owingLimit then owed,owing={},0 end
@@ -280,16 +304,22 @@ function M.new(config)
         end
         if #fresh>0 then return fresh end
     end
-    local function evaluate(id,actor,family,tick,script)
+    -- rest: the scripts below, when the claim read them already; auto: the script carries the engine's
+    -- own hook.
+    local function evaluate(id,actor,family,tick,script,rest,auto)
         if not enabled then return decline('disabled') end
         if not known[family] then return decline('unknown-family') end
         if not families[family] then return decline('family-off') end
         if not hooked then return decline('no-registry') end
         if not below then return decline('no-stack') end
-        local found,rest=pcall(below,id,script)
-        if not found then failed(id,family,'stack-error',tick);return decline('error') end
+        if not rest then
+            local found,list=pcall(below,id,script)
+            if not found then failed(id,family,'stack-error',tick);return decline('error') end
+            rest=list
+        end
         if type(rest)~='table' then return decline('no-stack') end
         local under=lower(rest)
+        if auto then table.insert(under,1,script) end
         -- A load restarts the tick count, so a backoff from before it no longer applies.
         if blocked[id] and tick<blocked[id] and blocked[id]-tick<=backoff then return decline('backoff') end
         blocked[id]=nil
@@ -330,6 +360,14 @@ function M.new(config)
         local script=rawget(actor,'script')
         if type(script)~='string' or #script==0 or #script>32 then return decline('bad-script') end
         script=script:lower()
+        local auto=false
+        if family==M.AUTO then
+            if not hooked then return decline('no-registry') end
+            if hooked[script]~=M.AUTO then return decline('unknown-family') end
+            family=familyOf(id)
+            if not family then return decline('no-family') end
+            auto=true
+        end
         local tick=now();if not tick then return decline('no-clock') end
         local seen=answers[id]
         if seen and seen.tick==tick then
@@ -338,7 +376,19 @@ function M.new(config)
             if seen.script~=script then return decline('lower-script') end
         end
         bump(counts,'reached')
-        local result,kind=evaluate(id,actor,family,tick,script)
+        -- The engine's own hook above an SCS-hooked script stands back without an answer: the SCS
+        -- script decides in this pass, with its guarded blocks.
+        local rest
+        if auto and below then
+            local found,list=pcall(below,id,script)
+            if found and type(list)=='table' then
+                for _,name in ipairs(list) do
+                    if scs(name) then return decline('scs-script') end
+                end
+                rest=list
+            end
+        end
+        local result,kind=evaluate(id,actor,family,tick,script,rest,auto)
         answers[id]={tick=tick,script=script,family=family,result=result,kind=kind}
         return result,kind
     end
@@ -442,18 +492,23 @@ function M.new(config)
         script=script:lower()
         local found,names=pcall(stack,id)
         if not found or type(names)~='table' then return nil end
-        local first,asks
+        -- The first SCS-hooked script decides; without one, the first with the engine's own hook, as
+        -- the family the creature resolves to.
+        local first,own,asks
         for _,name in ipairs(names) do
             if type(name)=='string' then
                 name=name:lower()
-                if not first and hooked[name] then first=name end
+                if scs(name) then first=first or name
+                elseif hooked[name]==M.AUTO then own=own or name end
                 if name==script then asks=true end
-                if first and asks then
-                    if api:drives({id=id,script=first},hooked[first]) then return hooked[first] end
-                    return nil
-                end
             end
         end
+        local decider=first or own
+        if not (asks and decider) then return nil end
+        local family
+        if first then family=hooked[first] else family=familyOf(id) end
+        if family and api:drives({id=id,script=decider},family) then return family end
+        return nil
     end
     function api:setEnabled(value)
         assert(type(value)=='boolean');enabled=value;answers={}
@@ -16514,7 +16569,13 @@ factories["adapters.eeex.lower"]=function(require)
 -- creature's own keeps those writes: the world's state follows the story, the fight is the engine's.
 -- ApplySpell stays the engine's too: in these scripts it is SCS's free invisibility (DW#GITH1), which
 -- the engine replaces with a thief's real skill (F2f).
--- run() queues an owed block's response, picked by weight as the game picks, without Continue().
+-- A script with the engine's own hook at its top (kernel/hook.lua, 'auto': the game's own fight
+-- scripts of gnolls, xvarts, ankhegs and the like) is walked the same way, the deciding script itself
+-- first: its attacks are the engine's, its calls for help, story variables and death notes are
+-- duties. Blocks that ask BGSE_Claim are the hook itself and are never evaluated here.
+-- run() queues an owed block's response, picked by weight as the game picks, without Continue() and
+-- without the response's ordinary fight actions (a gnoll's Help() runs, the Attack() beside it is the
+-- engine's); its notes (the creature's own variables, messages, interrupt switches) stay with it.
 -- Engine objects never leave this module: records are plain, and the cache holds plain plans per
 -- script resref (one resref has the same blocks for the whole session).
 local M={}
@@ -16543,6 +16604,12 @@ M.COMBAT=set{'Spell','SpellRES','SpellNoDec','SpellNoDecRES','SpellPoint','Spell
     'RemoveSpell','ApplySpellRES','ApplySpell',
     'Continue','SetGlobal','SetGlobalTimer','SetGlobalTimerRandom','IncrementGlobal',
     'DisplayString','DisplayStringHead','VerbalConstant','PlaySound'}
+-- The part of an ordinary combat round that only keeps notes: it stays with a duty response.
+M.NOTES=set{'SetGlobal','SetGlobalTimer','SetGlobalTimerRandom','IncrementGlobal','DisplayString',
+    'DisplayStringHead','VerbalConstant','PlaySound','SetInterrupt'}
+-- EEex_LuaTrigger, and the engine's question in a hook block.
+M.LUA_TRIGGER=0x410E
+M.CLAIM='BGSE_Claim'
 local function lower(text) return type(text)=='string' and text:lower() or '' end
 function M.new(g,options)
     options=options or {}
@@ -16588,24 +16655,37 @@ function M.new(g,options)
         if any(M.REMOVES) then return 'remove' end
         if any(M.VARIABLES) then
             -- A compiled variable name starts with its scope: LOCALS, GLOBAL or an area.
-            return lower(action.m_string1.m_pchData:get()):sub(1,6)~='locals' and 'world' or 'fight'
+            return lower(action.m_string1.m_pchData:get()):sub(1,6)~='locals' and 'world' or 'note'
         end
+        if any(M.NOTES) then return 'note' end
         if any(M.COMBAT) then return 'fight' end
         return 'duty'
     end
-    -- A response: 'duty' (it runs as written), 'world' (only its writes outside LOCALS run) or 'fight'.
+    -- A response: 'duty' (it runs without its fight actions), 'world' (only its writes outside LOCALS
+    -- run) or 'fight'; removes: it uses up a spellbook entry, so its SpellNoDec is a spellbook cast.
     local function judge(response)
         local seen={}
         iterate(response.m_actionList,function(action) seen[kind(action)]=true end)
         local sort='fight'
         if seen.duty or seen.special or (seen.nodec and not seen.remove) then sort='duty'
         elseif seen.world then sort='world' end
-        return {weight=tonumber(response.m_weight) or 0,kind=sort,continues=seen.continue==true}
+        return {weight=tonumber(response.m_weight) or 0,kind=sort,continues=seen.continue==true,
+            removes=seen.remove==true}
+    end
+    -- Whether a block is the engine's hook: one of its triggers asks BGSE_Claim.
+    local function asksEngine(cr)
+        local found=false
+        iterate(cr.m_condition.m_triggerList,function(trigger)
+            if trigger.m_triggerID==M.LUA_TRIGGER and
+                tostring(trigger.m_string1.m_pchData:get()):find(M.CLAIM,1,true) then found=true;return true end
+        end)
+        return found
     end
     local function plan(name,script)
         if plans[name] then return plans[name] end
         local blocks={}
         iterate(script.m_caList,function(cr)
+            if asksEngine(cr) then blocks[#blocks+1]={hook=true,responses={}};return end
             local responses,owe,onward={},false,true
             iterate(cr.m_responseSet.m_responseList,function(response)
                 local r=judge(response)
@@ -16628,6 +16708,7 @@ function M.new(g,options)
             index=index+1
             local block=p.blocks[index]
             if not block then stop=true;return true end
+            if block.hook then return end
             stats.blocks=stats.blocks+1
             if cr.m_condition:Hold(object.m_pendingTriggers,object)~=0 then
                 if block.owe then found[#found+1]={key=name..':'..index,script=name,level=level,block=index} end
@@ -16636,8 +16717,9 @@ function M.new(g,options)
         end)
         return stop
     end
-    -- The owed blocks of the scripts below deciding (the gate's list, in slot order, all without a hook),
-    -- as plain records {key, script, level, block}.
+    -- The owed blocks of the gate's list (scripts in slot order: the deciding script itself first when
+    -- it carries the engine's own hook, then those below it, none of them SCS-hooked), as plain records
+    -- {key, script, level, block}.
     function api.walk(object,deciding,scripts)
         stats.walks=stats.walks+1
         local found={}
@@ -16647,10 +16729,17 @@ function M.new(g,options)
         for _,level in ipairs(M.levels) do
             if index>#scripts then break end
             local name=lower(g.EEex_AIBase_GetScriptLevelResRef(object,level))
+            local walks=false
             if not after then
-                if name==deciding then after=true end
+                if name==deciding then
+                    after=true
+                    walks=scripts[index]==deciding
+                end
             elseif name~='' and name~='none' then
                 if name~=scripts[index] then break end
+                walks=true
+            end
+            if walks then
                 local script=g.EEex_AIBase_GetScriptLevel(object,level)
                 if not script or walkScript(object,script,name,level,found) then break end
                 index=index+1
@@ -16700,7 +16789,8 @@ function M.new(g,options)
         local queued={}
         iterate(response.m_actionList,function(action)
             local sort=kind(action)
-            if sort=='continue' or (wanted.kind=='world' and sort~='world') then return end
+            if sort=='continue' or sort=='fight' or sort=='remove' or (wanted.kind=='world' and sort~='world') or
+                (sort=='nodec' and wanted.removes) then return end
             object:virtual_InsertAction(action)
             queued[#queued+1]=primary[action.m_actionID] or tostring(action.m_actionID)
         end)
@@ -16766,10 +16856,22 @@ factories["adapters.eeex.hook"]=function(require)
 -- 2026-11-08): on each claim options.lower (adapters/eeex/lower.lua; false for none) walks them for
 -- the blocks that hold and do more than fight, and the hook's response queues those duties before the
 -- engine's own actions. Only the engine's own actions count as its own: the duties run to their end.
+-- The engine's own hook (family 'auto', at the top of the game's own fight scripts; 2026-11-10) asks
+-- for every creature that carries such a script. The engine answers for those on the enemy side, as
+-- the family their class gives them (M.CLASS_FAMILY, else a monster); [BGSE] Others=0 switches these
+-- creatures off and leaves them to their scripts.
 local hook=require('kernel.hook')
 local lowerScripts=require('adapters.eeex.lower')
 local M={}
 M.keys={mage='Mages',priest='Priests',fighter='Fighters',monster='Monsters'}
+-- CLASS.IDS numbers of the classes creatures share with players, by the family the engine fights them
+-- as: who casts wizard spells, who casts priest spells, who fights with weapons. Every other class
+-- (the game's monster classes) is a monster.
+M.CLASS_FAMILY={[1]='mage',[5]='mage',[7]='mage',[10]='mage',[13]='mage',[14]='mage',[17]='mage',[19]='mage',
+    [3]='priest',[8]='priest',[11]='priest',[15]='priest',[16]='priest',[18]='priest',[21]='priest',
+    [2]='fighter',[4]='fighter',[6]='fighter',[9]='fighter',[12]='fighter',[20]='fighter'}
+-- From this allegiance up a creature is on the enemy side (EA.IDS EVILCUTOFF; sense.EVIL_CUTOFF).
+M.EVIL_CUTOFF=200
 local function ini(g,key)
     local get=rawget(g,'Infinity_GetINIValue')
     if type(get)~='function' then return 1 end
@@ -16781,7 +16883,7 @@ M.ini=ini
 function M.settings(g)
     local families={}
     for family,key in pairs(M.keys) do families[family]=ini(g,key)~=0 end
-    return {enabled=ini(g,'Enabled')~=0,families=families}
+    return {enabled=ini(g,'Enabled')~=0,families=families,others=ini(g,'Others')~=0}
 end
 local function store(g,key,value)
     local set=rawget(g,'Infinity_SetINIValue')
@@ -16860,6 +16962,7 @@ function M.install(g,options)
     end
     if walker==false then walker=nil end
     local dutyFaults=0
+    local others=settings.others~=false
     -- id -> the block that queued the hook's last response (sn, rs, rn) and the actions it queued;
     -- owned counts them (at most M.ownLimit: creatures that died with a record keep it until then).
     local mine,owned={},0
@@ -16932,6 +17035,15 @@ function M.install(g,options)
             local object=sprite(g,id)
             if object then return walker.walk(object,deciding,scripts) end
         end,
+        -- A creature that asks from the engine's own hook: one on the enemy side, by its class.
+        resolve=function(id)
+            if not others then return nil end
+            local object=sprite(g,id)
+            if not object then return nil end
+            local t=object.m_typeAI
+            if type(t.m_EnemyAlly)~='number' or t.m_EnemyAlly<M.EVIL_CUTOFF then return nil end
+            return M.CLASS_FAMILY[t.m_Class] or 'monster'
+        end,
         perform=function(a,decision,duties)
             local object=sprite(g,a.id)
             if not object then return false end
@@ -16976,6 +17088,13 @@ function M.install(g,options)
     function root.setFamily(family,value,persist)
         gate:setFamily(family,value);if persist then store(g,M.keys[family],value) end
     end
+    -- Creatures that ask from the engine's own hook on or off (Baldur.lua [BGSE] Others); off leaves
+    -- them to their own scripts.
+    function root.setOthers(value,persist)
+        assert(type(value)=='boolean')
+        others=value;gate:invalidate()
+        if persist then store(g,'Others',value) end
+    end
     -- The engine's own choice on or off (Baldur.lua [BGSE] Choice); off leaves the rounds to
     -- SCS, with the director's advice.
     function root.setChoice(value,persist)
@@ -16987,6 +17106,7 @@ function M.install(g,options)
     function root.inspect()
         local state=gate:inspect()
         state.replaced={count=replacing.count,errors=replacing.errors}
+        state.others=others
         if walker then
             local ok,value=pcall(walker.inspect)
             state.lower=ok and value or {error=tostring(value)}

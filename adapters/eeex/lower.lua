@@ -13,7 +13,13 @@
 -- creature's own keeps those writes: the world's state follows the story, the fight is the engine's.
 -- ApplySpell stays the engine's too: in these scripts it is SCS's free invisibility (DW#GITH1), which
 -- the engine replaces with a thief's real skill (F2f).
--- run() queues an owed block's response, picked by weight as the game picks, without Continue().
+-- A script with the engine's own hook at its top (kernel/hook.lua, 'auto': the game's own fight
+-- scripts of gnolls, xvarts, ankhegs and the like) is walked the same way, the deciding script itself
+-- first: its attacks are the engine's, its calls for help, story variables and death notes are
+-- duties. Blocks that ask BGSE_Claim are the hook itself and are never evaluated here.
+-- run() queues an owed block's response, picked by weight as the game picks, without Continue() and
+-- without the response's ordinary fight actions (a gnoll's Help() runs, the Attack() beside it is the
+-- engine's); its notes (the creature's own variables, messages, interrupt switches) stay with it.
 -- Engine objects never leave this module: records are plain, and the cache holds plain plans per
 -- script resref (one resref has the same blocks for the whole session).
 local M={}
@@ -42,6 +48,12 @@ M.COMBAT=set{'Spell','SpellRES','SpellNoDec','SpellNoDecRES','SpellPoint','Spell
     'RemoveSpell','ApplySpellRES','ApplySpell',
     'Continue','SetGlobal','SetGlobalTimer','SetGlobalTimerRandom','IncrementGlobal',
     'DisplayString','DisplayStringHead','VerbalConstant','PlaySound'}
+-- The part of an ordinary combat round that only keeps notes: it stays with a duty response.
+M.NOTES=set{'SetGlobal','SetGlobalTimer','SetGlobalTimerRandom','IncrementGlobal','DisplayString',
+    'DisplayStringHead','VerbalConstant','PlaySound','SetInterrupt'}
+-- EEex_LuaTrigger, and the engine's question in a hook block.
+M.LUA_TRIGGER=0x410E
+M.CLAIM='BGSE_Claim'
 local function lower(text) return type(text)=='string' and text:lower() or '' end
 function M.new(g,options)
     options=options or {}
@@ -87,24 +99,37 @@ function M.new(g,options)
         if any(M.REMOVES) then return 'remove' end
         if any(M.VARIABLES) then
             -- A compiled variable name starts with its scope: LOCALS, GLOBAL or an area.
-            return lower(action.m_string1.m_pchData:get()):sub(1,6)~='locals' and 'world' or 'fight'
+            return lower(action.m_string1.m_pchData:get()):sub(1,6)~='locals' and 'world' or 'note'
         end
+        if any(M.NOTES) then return 'note' end
         if any(M.COMBAT) then return 'fight' end
         return 'duty'
     end
-    -- A response: 'duty' (it runs as written), 'world' (only its writes outside LOCALS run) or 'fight'.
+    -- A response: 'duty' (it runs without its fight actions), 'world' (only its writes outside LOCALS
+    -- run) or 'fight'; removes: it uses up a spellbook entry, so its SpellNoDec is a spellbook cast.
     local function judge(response)
         local seen={}
         iterate(response.m_actionList,function(action) seen[kind(action)]=true end)
         local sort='fight'
         if seen.duty or seen.special or (seen.nodec and not seen.remove) then sort='duty'
         elseif seen.world then sort='world' end
-        return {weight=tonumber(response.m_weight) or 0,kind=sort,continues=seen.continue==true}
+        return {weight=tonumber(response.m_weight) or 0,kind=sort,continues=seen.continue==true,
+            removes=seen.remove==true}
+    end
+    -- Whether a block is the engine's hook: one of its triggers asks BGSE_Claim.
+    local function asksEngine(cr)
+        local found=false
+        iterate(cr.m_condition.m_triggerList,function(trigger)
+            if trigger.m_triggerID==M.LUA_TRIGGER and
+                tostring(trigger.m_string1.m_pchData:get()):find(M.CLAIM,1,true) then found=true;return true end
+        end)
+        return found
     end
     local function plan(name,script)
         if plans[name] then return plans[name] end
         local blocks={}
         iterate(script.m_caList,function(cr)
+            if asksEngine(cr) then blocks[#blocks+1]={hook=true,responses={}};return end
             local responses,owe,onward={},false,true
             iterate(cr.m_responseSet.m_responseList,function(response)
                 local r=judge(response)
@@ -127,6 +152,7 @@ function M.new(g,options)
             index=index+1
             local block=p.blocks[index]
             if not block then stop=true;return true end
+            if block.hook then return end
             stats.blocks=stats.blocks+1
             if cr.m_condition:Hold(object.m_pendingTriggers,object)~=0 then
                 if block.owe then found[#found+1]={key=name..':'..index,script=name,level=level,block=index} end
@@ -135,8 +161,9 @@ function M.new(g,options)
         end)
         return stop
     end
-    -- The owed blocks of the scripts below deciding (the gate's list, in slot order, all without a hook),
-    -- as plain records {key, script, level, block}.
+    -- The owed blocks of the gate's list (scripts in slot order: the deciding script itself first when
+    -- it carries the engine's own hook, then those below it, none of them SCS-hooked), as plain records
+    -- {key, script, level, block}.
     function api.walk(object,deciding,scripts)
         stats.walks=stats.walks+1
         local found={}
@@ -146,10 +173,17 @@ function M.new(g,options)
         for _,level in ipairs(M.levels) do
             if index>#scripts then break end
             local name=lower(g.EEex_AIBase_GetScriptLevelResRef(object,level))
+            local walks=false
             if not after then
-                if name==deciding then after=true end
+                if name==deciding then
+                    after=true
+                    walks=scripts[index]==deciding
+                end
             elseif name~='' and name~='none' then
                 if name~=scripts[index] then break end
+                walks=true
+            end
+            if walks then
                 local script=g.EEex_AIBase_GetScriptLevel(object,level)
                 if not script or walkScript(object,script,name,level,found) then break end
                 index=index+1
@@ -199,7 +233,8 @@ function M.new(g,options)
         local queued={}
         iterate(response.m_actionList,function(action)
             local sort=kind(action)
-            if sort=='continue' or (wanted.kind=='world' and sort~='world') then return end
+            if sort=='continue' or sort=='fight' or sort=='remove' or (wanted.kind=='world' and sort~='world') or
+                (sort=='nodec' and wanted.removes) then return end
             object:virtual_InsertAction(action)
             queued[#queued+1]=primary[action.m_actionID] or tostring(action.m_actionID)
         end)

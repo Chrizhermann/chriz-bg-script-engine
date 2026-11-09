@@ -418,4 +418,73 @@ assert(g:claim(tanari,'monster')==true and g:inspect().owing==1)
 g:invalidate();assert(g:inspect().owing==0)
 rejects(function() raw.new({now=clock,owe=1}) end)
 rejects(function() raw.new({now=clock,maxDutyAgeTicks=-1}) end)
-return 21
+-- A duty whose block holds again stays owed from then: found at a tick, again 20 ticks later, handed
+-- 25 ticks after that (older than 30 since it was first found, not since it last held).
+g=raw.new({now=clock,hooked={tanari='monster'},maxDutyAgeTicks=30,below=function() return {'gpshout'} end,
+    decide=function() return {response='NoAction()'} end,owe=function() return found[7] end,
+    perform=function(a,d,duties) handed[#handed+1]=#(duties or {});return true end})
+pass();found[7]={{key='stays:1'}}
+assert(g:claim(tanari,'monster')==true)
+tick=tick+20
+assert(g:claim(tanari,'monster')==true)
+tick=tick+25;found[7]=nil
+assert(g:claim(tanari,'monster')==true and g:act(tanari)==true and handed[#handed]==1)
+assert(g:inspect().counts.dutiesDropped==0)
+
+-- 22. The engine's own hook: a script registered as 'auto' asks with the family 'auto' and decides as
+-- the family config.resolve gives the creature; one it gives none is declined. Above an SCS-hooked
+-- script it stands back without an answer, so the SCS script decides in the same pass. Its own
+-- remainder is walked first, then auto and unhooked scripts below it, up to an SCS-hooked one.
+local kinds={[7]='monster',[8]='fighter',[9]='mage'}
+local own={[7]={'wtasight','plain'},[8]={'plain','tanari','late'},[9]={},[10]={},[11]={'gnolldr','plain'}}
+walks,found={},{}
+local decided={}
+g=raw.new({now=clock,hooked={gnolldr='auto',wtasight='auto',tanari='monster'},
+    below=function(id) return own[id] end,
+    stack=function(id)
+        if id==11 then return {'tanari','gnolldr','plain'} end
+        local list={'gnolldr'}
+        for _,name in ipairs(own[id] or {}) do list[#list+1]=name end
+        return list
+    end,
+    resolve=function(id) if id==12 then error('gone') end;return kinds[id] end,
+    decide=function(a,family) decided[#decided+1]=a.id..':'..a.script..':'..family;return {hold=true} end,
+    owe=function(id,scripts,_,deciding) walks[#walks+1]=id..':'..deciding..'>'..table.concat(scripts,',') end})
+pass()
+local gnoll={id=7,script='GNOLLDR'}
+claimed,kind=g:claim(gnoll,'auto');assert(claimed==true and kind=='hold')
+assert(decided[1]=='7:gnolldr:monster' and walks[1]=='7:gnolldr>gnolldr,wtasight,plain')
+assert(g:claim(gnoll,'auto')==true and #decided==1 and g:inspect().counts.repeats==1)
+-- Its second auto script, reached in a pass the first one let through, declines as the lower script.
+assert(g:claim({id=7,script='wtasight'},'auto')==false and g:inspect().declines['lower-script']==1)
+-- By class a mage; nothing below, so only its own remainder is walked.
+assert(g:claim({id=9,script='gnolldr'},'auto')==true and decided[2]=='9:gnolldr:mage' and walks[2]=='9:gnolldr>gnolldr')
+-- No family (not on the enemy side, switched off, or a failing resolver): declined, nothing asked.
+assert(g:claim({id=10,script='gnolldr'},'auto')==false and g:claim({id=12,script='gnolldr'},'auto')==false)
+assert(g:inspect().declines['no-family']==2 and #decided==2)
+-- 'auto' from a script that is not registered so, and a concrete family from an auto script.
+assert(g:claim({id=7,script='tanari'},'auto')==false and g:inspect().declines['unknown-family']==1)
+-- Above an SCS-hooked script: no answer, and the SCS script decides in the same pass; what is
+-- walked for it ends at nothing (its lower list starts below it).
+assert(g:claim({id=8,script='gnolldr'},'auto')==false and g:inspect().declines['scs-script']==1)
+own[8]={'late'}
+assert(g:claim({id=8,script='tanari'},'monster')==true and decided[3]=='8:tanari:monster' and walks[3]=='8:tanari>late')
+own[8]={'plain','tanari','late'}
+-- An SCS-hooked script above walks auto scripts below it like unhooked ones.
+pass()
+assert(g:claim({id=11,script='tanari'},'monster')==true and walks[4]=='11:tanari>gnolldr,plain')
+-- driver: the first SCS-hooked script decides wherever it sits; without one the first auto script, as
+-- the creature's family; none for a creature without a family.
+assert(g:driver({id=7,script='plain'})=='monster' and g:driver({id=7,script='wtasight'})=='monster')
+assert(g:driver({id=9,script='gnolldr'})=='mage' and g:driver({id=10,script='gnolldr'})==nil)
+assert(g:driver({id=8,script='gnolldr'})=='monster' and g:driver({id=11,script='plain'})=='monster')
+g:setFamily('monster',false)
+assert(g:driver({id=7,script='plain'})==nil and g:driver({id=9,script='gnolldr'})=='mage')
+g:setFamily('monster',true)
+-- Without a resolver, or before the registry arrived, 'auto' is declined.
+local bare=raw.new({now=clock,hooked={gnolldr='auto'},below=function() return {} end,decide=function() return {hold=true} end})
+assert(bare:claim(gnoll,'auto')==false and bare:inspect().declines['no-family']==1)
+bare=raw.new({now=clock,below=function() return {} end,resolve=function() return 'monster' end})
+assert(bare:claim(gnoll,'auto')==false and bare:inspect().declines['no-registry']==1)
+rejects(function() raw.new({now=clock,resolve=1}) end)
+return 22

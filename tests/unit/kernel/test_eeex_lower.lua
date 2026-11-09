@@ -5,7 +5,8 @@ local lower=require('adapters.eeex.lower')
 local adapter=require('adapters.eeex.hook')
 local ACTIONS={{0,'NoAction'},{1,'Attack'},{3,'AttackOneRound'},{30,'SetGlobal'},{36,'Continue'},
     {106,'Shout'},{107,'Enemy'},{113,'ForceSpell'},{120,'MoveToObject'},{137,'StartDialogNoSet'},
-    {181,'SpellNoDec'},{182,'RemoveSpell'},{200,'ApplySpellRES'},{210,'DisplayStringHead'},{211,'Kill'}}
+    {181,'SpellNoDec'},{182,'RemoveSpell'},{200,'ApplySpellRES'},{210,'DisplayStringHead'},{211,'Kill'},
+    {40,'Help'},{122,'SetInterrupt'}}
 local function list(items)
     local head,last
     for _,item in ipairs(items) do
@@ -19,13 +20,21 @@ local function text(value) return {m_pchData={get=function() return value end}} 
 -- action(id, variable name with its scope)
 local function action(id,variable) return {m_actionID=id,m_string1=text(variable or '')} end
 local function response(weight,actions) return {m_weight=weight,m_actionList=list(actions)} end
--- A block: whether it holds (a value or a function), then its responses.
-local function block(holds,responses)
-    return {m_condition={Hold=function(_,pending,object)
+-- A block: whether it holds (a value or a function), then its responses; triggers (optional) as
+-- {id, text} for what the walker reads of them.
+local function block(holds,responses,triggers)
+    local read={}
+    for i,t in ipairs(triggers or {}) do read[i]={m_triggerID=t[1],m_string1=text(t[2])} end
+    return {m_condition={m_triggerList=list(read),Hold=function(_,pending,object)
         assert(pending=='pending' and object~=nil)
         local value=holds;if type(holds)=='function' then value=holds() end
         return value and 1 or 0
     end},m_responseSet={m_responseList=list(responses)}}
+end
+-- The engine's hook block: evaluating it here would ask the engine from inside its own answer.
+local function hookBlock(name)
+    return block(function() error('the hook block was evaluated') end,{response(100,{action(472)})},
+        {{0x410E,"return BGSE_Claim and BGSE_Claim(EEex_LuaTrigger_Object,'auto','"..name.."') or false"}})
 end
 local function script(name,blocks) return {cResRef={get=function() return name end},m_caList=list(blocks)} end
 local function world(entries)
@@ -124,6 +133,27 @@ found=walker.walk(both,'s1',{'other','shoutdlg'})
 assert(#found==0)
 assert(#walker.walk(both,'absent',{'going'})==0 and #walker.walk(both,nil,{'going'})==0)
 assert(#walker.walk(both,'s1',{})==0)
+-- A script with the engine's own hook is walked itself, first: the hook block is never evaluated, a
+-- gnoll's story variable and its call for help are owed, its plain attack ends the pass. Another such
+-- script below is walked after it while the pass goes on.
+local gnolldr=script('GNOLLDR',{
+    hookBlock('gnolldr'),
+    block(true,{response(100,{action(30,'GLOBALHelpDrizzt'),action(36)})}),
+    block(true,{response(100,{action(122),action(40),action(1),action(36)})}),
+    block(false,{response(100,{action(1)})}),
+    block(true,{response(100,{action(3)})}),
+    block(true,{response(100,{action(106)})})})
+local sight=script('WTASIGHT',{hookBlock('wtasight'),block(true,{response(100,{action(107)})})})
+local gnoll=creature(6,{[5]=gnolldr,[7]=sight})
+found=walker.walk(gnoll,'gnolldr',{'gnolldr','wtasight'})
+assert(#found==2 and found[1].key=='gnolldr:2' and found[2].key=='gnolldr:3' and found[1].level==5)
+gnolldr=script('GNOLLDR',{hookBlock('gnolldr'),block(true,{response(100,{action(40),action(36)})})})
+gnoll.scripts[5]=gnolldr;walker.reset()
+found=walker.walk(gnoll,'gnolldr',{'gnolldr','wtasight'})
+assert(#found==2 and found[1].key=='gnolldr:2' and found[2].key=='wtasight:2' and found[2].level==7)
+-- Without the deciding script in the list its own blocks stay out (an SCS script decides).
+found=walker.walk(gnoll,'gnolldr',{'wtasight'})
+assert(#found==1 and found[1].key=='wtasight:2')
 
 -- 2. run() queues the owed block's response, picked by weight, without Continue(); a world-only pick
 -- keeps only its writes outside LOCALS; a fight pick is the engine's; a changed stack is gone.
@@ -144,6 +174,20 @@ demon.scripts[4]=script('OTHER',{})
 assert(walker.run(demon,found[1])=='gone' and walker.run(demon,{key='x',script='demgaj',level=4,block=9})=='gone')
 assert(walker.run(demon,nil)=='gone' and walker.inspect().stats.gone==2)
 walker.reset();assert(walker.inspect().plans==0 and #walker.inspect().recent==0)
+-- A duty response runs without its fight actions: a gnoll's Help() and its interrupt switch run, the
+-- Attack() beside them is the engine's. One that removes the spell it casts keeps neither of the two,
+-- only its shout and its note.
+gnoll.scripts[5]=script('GNOLLDR',{hookBlock('gnolldr'),
+    block(true,{response(100,{action(122),action(40),action(1),action(36)})}),
+    block(true,{response(100,{action(106),action(181),action(182),action(30,'LOCALSx')})})})
+found=walker.walk(gnoll,'gnolldr',{'gnolldr'})
+assert(#found==2 and found[2].key=='gnolldr:3')
+result,count=walker.run(gnoll,found[1])
+assert(result=='queued' and count==2 and gnoll.inserted[1]==122 and gnoll.inserted[2]==40)
+result,count=walker.run(gnoll,found[2])
+assert(result=='queued' and count==2 and gnoll.inserted[3]==106 and gnoll.inserted[4]==30 and #gnoll.inserted==4)
+assert(walker.inspect().recent[2].actions=='Shout,SetGlobal')
+walker.reset()
 
 -- 3. Without ACTION.IDS nothing is owed, once counted.
 local blind=world({})
@@ -185,4 +229,47 @@ assert(plain.BGSE_Claim(plain.objects[7],'monster','deciding')==true and quiet.i
 assert(quiet.inspect().counts.owed==0)
 -- A walker that has not planned a script yet has nothing to run for it.
 assert(lower.new(g).run(gith,{key='gpshout:1',script='gpshout',level=5,block=1})=='gone')
-return 4
+
+-- 5. The engine's own hook through the adapter: a creature on the enemy side asks as the family its
+-- class gives it (a gnoll a monster, a shaman a priest), and its script's own call for help runs before
+-- the engine's attack. One that is not hostile, or with [BGSE] Others off, is left to its script.
+g=world();g.BGSE_HOOKED={gnolldr='auto',s1='mage'}
+local families={}
+local function own(id,ea,class)
+    local c=creature(id,{[5]=script('GNOLLDR',{hookBlock('gnolldr'),
+        block(true,{response(100,{action(40),action(1)})})})})
+    c.m_typeAI={m_EnemyAlly=ea,m_Class=class}
+    g.objects[id]=c
+    return c
+end
+local foe,shaman,mage,fighter,neutral=own(1,255,119),own(2,255,21),own(3,200,19),own(4,255,12),own(5,128,119)
+root=adapter.install(g,{decide=function(a,family)
+    families[a.id]=family
+    return {response='AttackOneRound(NearestEnemyOf(Myself))'}
+end})
+assert(g.BGSE_Claim(foe,'auto','gnolldr')==true and families[1]=='monster')
+assert(g.BGSE_Claim(shaman,'auto','GNOLLDR')==true and families[2]=='priest')
+assert(g.BGSE_Claim(mage,'auto','gnolldr')==true and families[3]=='mage')
+assert(g.BGSE_Claim(fighter,'auto','gnolldr')==true and families[4]=='fighter')
+assert(g.BGSE_Claim(neutral,'auto','gnolldr')==false and families[5]==nil)
+s=root.inspect();assert(s.declines['no-family']==1 and s.counts.owed==4 and s.others==true)
+g.BGSE_Act(foe)
+assert(#foe.inserted==2 and foe.inserted[1]==40 and foe.inserted[2]==3)
+-- BGSE_Stay and its like go by the creature's family too.
+local asked={}
+root=adapter.install(g,{decide=function() return {hold=true} end,
+    choice={attach=function() end,inspect=function() return {} end,
+        stays=function(_,family,id) asked[#asked+1]=family..':'..id;return true end}})
+assert(g.BGSE_Stay(shaman,'','gnolldr')==true and asked[1]=='priest:2' and g.BGSE_Stay(neutral,'','gnolldr')==false)
+-- Switched off: nobody asks from the engine's own hook; SCS-hooked scripts are not touched by it.
+g.ticks=20
+root.setOthers(false)
+assert(g.BGSE_Claim(foe,'auto','gnolldr')==false and root.inspect().others==false)
+root.setOthers(true)
+assert(g.BGSE_Claim(foe,'auto','gnolldr')==true)
+local quietWorld=world();quietWorld.BGSE_HOOKED={gnolldr='auto'}
+quietWorld.Infinity_GetINIValue=function(_,key,default) if key=='Others' then return 0 end;return default end
+local off=creature(1,foe.scripts);off.m_typeAI=foe.m_typeAI;quietWorld.objects[1]=off
+local silent=adapter.install(quietWorld,{decide=function() return {hold=true} end})
+assert(quietWorld.BGSE_Claim(off,'auto','gnolldr')==false and silent.inspect().others==false)
+return 5

@@ -39,10 +39,22 @@
 -- 2026-11-08): on each claim options.lower (adapters/eeex/lower.lua; false for none) walks them for
 -- the blocks that hold and do more than fight, and the hook's response queues those duties before the
 -- engine's own actions. Only the engine's own actions count as its own: the duties run to their end.
+-- The engine's own hook (family 'auto', at the top of the game's own fight scripts; 2026-11-10) asks
+-- for every creature that carries such a script. The engine answers for those on the enemy side, as
+-- the family their class gives them (M.CLASS_FAMILY, else a monster); [BGSE] Others=0 switches these
+-- creatures off and leaves them to their scripts.
 local hook=require('kernel.hook')
 local lowerScripts=require('adapters.eeex.lower')
 local M={}
 M.keys={mage='Mages',priest='Priests',fighter='Fighters',monster='Monsters'}
+-- CLASS.IDS numbers of the classes creatures share with players, by the family the engine fights them
+-- as: who casts wizard spells, who casts priest spells, who fights with weapons. Every other class
+-- (the game's monster classes) is a monster.
+M.CLASS_FAMILY={[1]='mage',[5]='mage',[7]='mage',[10]='mage',[13]='mage',[14]='mage',[17]='mage',[19]='mage',
+    [3]='priest',[8]='priest',[11]='priest',[15]='priest',[16]='priest',[18]='priest',[21]='priest',
+    [2]='fighter',[4]='fighter',[6]='fighter',[9]='fighter',[12]='fighter',[20]='fighter'}
+-- From this allegiance up a creature is on the enemy side (EA.IDS EVILCUTOFF; sense.EVIL_CUTOFF).
+M.EVIL_CUTOFF=200
 local function ini(g,key)
     local get=rawget(g,'Infinity_GetINIValue')
     if type(get)~='function' then return 1 end
@@ -54,7 +66,7 @@ M.ini=ini
 function M.settings(g)
     local families={}
     for family,key in pairs(M.keys) do families[family]=ini(g,key)~=0 end
-    return {enabled=ini(g,'Enabled')~=0,families=families}
+    return {enabled=ini(g,'Enabled')~=0,families=families,others=ini(g,'Others')~=0}
 end
 local function store(g,key,value)
     local set=rawget(g,'Infinity_SetINIValue')
@@ -133,6 +145,7 @@ function M.install(g,options)
     end
     if walker==false then walker=nil end
     local dutyFaults=0
+    local others=settings.others~=false
     -- id -> the block that queued the hook's last response (sn, rs, rn) and the actions it queued;
     -- owned counts them (at most M.ownLimit: creatures that died with a record keep it until then).
     local mine,owned={},0
@@ -205,6 +218,15 @@ function M.install(g,options)
             local object=sprite(g,id)
             if object then return walker.walk(object,deciding,scripts) end
         end,
+        -- A creature that asks from the engine's own hook: one on the enemy side, by its class.
+        resolve=function(id)
+            if not others then return nil end
+            local object=sprite(g,id)
+            if not object then return nil end
+            local t=object.m_typeAI
+            if type(t.m_EnemyAlly)~='number' or t.m_EnemyAlly<M.EVIL_CUTOFF then return nil end
+            return M.CLASS_FAMILY[t.m_Class] or 'monster'
+        end,
         perform=function(a,decision,duties)
             local object=sprite(g,a.id)
             if not object then return false end
@@ -249,6 +271,13 @@ function M.install(g,options)
     function root.setFamily(family,value,persist)
         gate:setFamily(family,value);if persist then store(g,M.keys[family],value) end
     end
+    -- Creatures that ask from the engine's own hook on or off (Baldur.lua [BGSE] Others); off leaves
+    -- them to their own scripts.
+    function root.setOthers(value,persist)
+        assert(type(value)=='boolean')
+        others=value;gate:invalidate()
+        if persist then store(g,'Others',value) end
+    end
     -- The engine's own choice on or off (Baldur.lua [BGSE] Choice); off leaves the rounds to
     -- SCS, with the director's advice.
     function root.setChoice(value,persist)
@@ -260,6 +289,7 @@ function M.install(g,options)
     function root.inspect()
         local state=gate:inspect()
         state.replaced={count=replacing.count,errors=replacing.errors}
+        state.others=others
         if walker then
             local ok,value=pcall(walker.inspect)
             state.lower=ok and value or {error=tostring(value)}

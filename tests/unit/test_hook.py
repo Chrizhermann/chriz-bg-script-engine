@@ -12,14 +12,14 @@ ROOT = Path(__file__).resolve().parents[2]
 def test_hook_gate(backend):
     runtime = importlib.import_module('lupa.' + backend).LuaRuntime()
     runtime.execute("package.path=... .. '/?.lua;' .. package.path", ROOT.as_posix())
-    assert runtime.execute((ROOT / 'tests/unit/kernel/test_hook.lua').read_text(encoding='utf-8')) == 21
+    assert runtime.execute((ROOT / 'tests/unit/kernel/test_hook.lua').read_text(encoding='utf-8')) == 22
 
 
 @pytest.mark.parametrize('backend', ['lua51', 'luajit21'])
 def test_eeex_lower_scripts(backend):
     runtime = importlib.import_module('lupa.' + backend).LuaRuntime()
     runtime.execute("package.path=... .. '/?.lua;' .. package.path", ROOT.as_posix())
-    assert runtime.execute((ROOT / 'tests/unit/kernel/test_eeex_lower.lua').read_text(encoding='utf-8')) == 4
+    assert runtime.execute((ROOT / 'tests/unit/kernel/test_eeex_lower.lua').read_text(encoding='utf-8')) == 5
 
 
 def test_lower_scripts_follow_the_hook_rule():
@@ -37,6 +37,7 @@ def test_lower_scripts_follow_the_hook_rule():
     assert names('COMBAT') == hook_rule.COMBAT - hook_rule.UNGATED_CAST
     assert names('VARIABLES') == {'SetGlobal', 'SetGlobalTimer', 'SetGlobalTimerRandom', 'IncrementGlobal'}
     assert names('VARIABLES') <= hook_rule.COMBAT
+    assert names('VARIABLES') < names('NOTES') <= hook_rule.COMBAT
 
 
 @pytest.mark.parametrize('backend', ['lua51', 'luajit21'])

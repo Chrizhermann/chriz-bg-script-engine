@@ -13,11 +13,18 @@
 -- an ordinary combat round: their shouts, plot variables, dialogue starts and scripted powers. Those
 -- duties are owed until the hook's response runs, which hands them to config.perform before the
 -- engine's own actions.
+-- The engine's own hook (2026-11-10): a fight script that is not SCS's carries one hook block at its
+-- top, registered with the family 'auto'. It decides only for a creature none of whose scripts is
+-- SCS-hooked (those keep their SCS identity and their guarded blocks), with the family
+-- config.resolve gives the creature (by its side and class; nil for one the engine does not drive).
+-- The rest of such a script is walked like a lower script: its fight blocks are the engine's, its
+-- other blocks are duties.
 -- Nothing here raises to the caller and nothing in it survives a load.
 local values=require('kernel.manifest')
 local trace=require('kernel.trace')
 local M={}
 M.families={'mage','priest','fighter','monster'}
+M.AUTO='auto'
 local known={};for _,family in ipairs(M.families) do known[family]=true end
 local function scalarId(id) return type(id)=='number' and id>=0 and id<4294967296 and id%1==0 end
 local function count(value,limit) return type(value)=='number' and value>=0 and value<=limit and value%1==0 end
@@ -34,11 +41,16 @@ function M.new(config)
     assert(observe==nil or type(observe)=='function')
     assert(held==nil or type(held)=='function')
     -- owe(id, scripts, tick, deciding) (optional): the duty blocks of the creature's lower scripts
-    -- (scripts, in slot order below the deciding one) that hold now, as plain records with a unique
-    -- key; they stay owed for maxDutyAgeTicks at most.
-    local owe,dutyAge=config.owe,config.maxDutyAgeTicks or 90
+    -- (scripts, in slot order below the deciding one; first the deciding script itself when it
+    -- carries the engine's own hook) that hold now, as plain records with a unique key; they stay owed
+    -- for maxDutyAgeTicks after they last held (an action of the engine's can run for a round or longer
+    -- before the hook's response runs again).
+    local owe,dutyAge=config.owe,config.maxDutyAgeTicks or 300
     assert(owe==nil or type(owe)=='function')
     assert(count(dutyAge,1e6))
+    -- resolve(id) (optional): the family of a creature that asks from the engine's own hook, or nil.
+    local resolve=config.resolve
+    assert(resolve==nil or type(resolve)=='function')
     -- hooked: script resref (lower case) -> family, from the install. below(id, script): the
     -- creature's non-empty script resrefs in the slots after script, or nil when script is not
     -- in its stack. stack(id) (optional): all its non-empty script resrefs, from the top slot down.
@@ -78,12 +90,23 @@ function M.new(config)
         return not copied or type(result)~='table' or (result.hold~=nil and result.hold~=true) or
             (result.idle~=nil and (result.idle~=true or result.hold~=true))
     end
-    -- The creature's scripts below the deciding one that carry no hook, up to the next hooked one: a
-    -- pass reaches them only through every script above, and a hooked one ends it with its own blocks.
+    -- Whether a script carries SCS's hook (its own family), not the engine's own.
+    local function scs(name)
+        local family=type(name)=='string' and hooked[name:lower()]
+        return family~=nil and family~=false and family~=M.AUTO
+    end
+    local function familyOf(id)
+        if not resolve then return nil end
+        local ok,family=pcall(resolve,id)
+        if ok and known[family] then return family end
+    end
+    -- The creature's scripts below the deciding one that are walked for duties: those without a hook
+    -- and those with the engine's own, up to the next SCS-hooked one. A pass reaches them only through
+    -- every script above, and an SCS-hooked one ends it with its own blocks.
     local function lower(rest)
         local list={}
         for _,name in ipairs(rest) do
-            if type(name)~='string' or #name==0 or hooked[name:lower()] then break end
+            if type(name)~='string' or #name==0 or scs(name) then break end
             list[#list+1]=name:lower()
         end
         return list
@@ -101,7 +124,8 @@ function M.new(config)
                 bump(counts,'dutyErrors')
             else
                 local known=false
-                for _,old in ipairs(list or {}) do if old.key==item.key then known=true;break end end
+                -- A block that holds again stays owed from now.
+                for _,old in ipairs(list or {}) do if old.key==item.key then known=true;old.owedAt=tick;break end end
                 if not known and #(list or {})<dutyLimit then
                     if not list then
                         if owing>=owingLimit then owed,owing={},0 end
@@ -124,16 +148,22 @@ function M.new(config)
         end
         if #fresh>0 then return fresh end
     end
-    local function evaluate(id,actor,family,tick,script)
+    -- rest: the scripts below, when the claim read them already; auto: the script carries the engine's
+    -- own hook.
+    local function evaluate(id,actor,family,tick,script,rest,auto)
         if not enabled then return decline('disabled') end
         if not known[family] then return decline('unknown-family') end
         if not families[family] then return decline('family-off') end
         if not hooked then return decline('no-registry') end
         if not below then return decline('no-stack') end
-        local found,rest=pcall(below,id,script)
-        if not found then failed(id,family,'stack-error',tick);return decline('error') end
+        if not rest then
+            local found,list=pcall(below,id,script)
+            if not found then failed(id,family,'stack-error',tick);return decline('error') end
+            rest=list
+        end
         if type(rest)~='table' then return decline('no-stack') end
         local under=lower(rest)
+        if auto then table.insert(under,1,script) end
         -- A load restarts the tick count, so a backoff from before it no longer applies.
         if blocked[id] and tick<blocked[id] and blocked[id]-tick<=backoff then return decline('backoff') end
         blocked[id]=nil
@@ -174,6 +204,14 @@ function M.new(config)
         local script=rawget(actor,'script')
         if type(script)~='string' or #script==0 or #script>32 then return decline('bad-script') end
         script=script:lower()
+        local auto=false
+        if family==M.AUTO then
+            if not hooked then return decline('no-registry') end
+            if hooked[script]~=M.AUTO then return decline('unknown-family') end
+            family=familyOf(id)
+            if not family then return decline('no-family') end
+            auto=true
+        end
         local tick=now();if not tick then return decline('no-clock') end
         local seen=answers[id]
         if seen and seen.tick==tick then
@@ -182,7 +220,19 @@ function M.new(config)
             if seen.script~=script then return decline('lower-script') end
         end
         bump(counts,'reached')
-        local result,kind=evaluate(id,actor,family,tick,script)
+        -- The engine's own hook above an SCS-hooked script stands back without an answer: the SCS
+        -- script decides in this pass, with its guarded blocks.
+        local rest
+        if auto and below then
+            local found,list=pcall(below,id,script)
+            if found and type(list)=='table' then
+                for _,name in ipairs(list) do
+                    if scs(name) then return decline('scs-script') end
+                end
+                rest=list
+            end
+        end
+        local result,kind=evaluate(id,actor,family,tick,script,rest,auto)
         answers[id]={tick=tick,script=script,family=family,result=result,kind=kind}
         return result,kind
     end
@@ -286,18 +336,23 @@ function M.new(config)
         script=script:lower()
         local found,names=pcall(stack,id)
         if not found or type(names)~='table' then return nil end
-        local first,asks
+        -- The first SCS-hooked script decides; without one, the first with the engine's own hook, as
+        -- the family the creature resolves to.
+        local first,own,asks
         for _,name in ipairs(names) do
             if type(name)=='string' then
                 name=name:lower()
-                if not first and hooked[name] then first=name end
+                if scs(name) then first=first or name
+                elseif hooked[name]==M.AUTO then own=own or name end
                 if name==script then asks=true end
-                if first and asks then
-                    if api:drives({id=id,script=first},hooked[first]) then return hooked[first] end
-                    return nil
-                end
             end
         end
+        local decider=first or own
+        if not (asks and decider) then return nil end
+        local family
+        if first then family=hooked[first] else family=familyOf(id) end
+        if family and api:drives({id=id,script=decider},family) then return family end
+        return nil
     end
     function api:setEnabled(value)
         assert(type(value)=='boolean');enabled=value;answers={}
