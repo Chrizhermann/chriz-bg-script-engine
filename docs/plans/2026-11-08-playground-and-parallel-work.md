@@ -92,8 +92,16 @@ with scripts of their own (trolls, golems, wyverns, ankhegs, some of them also i
   githyanki, the Sahuagin ambushers, SCS's abishai and every summon with `BDSUM00`) and runs the lower scripts'
   duties itself (`adapters/eeex/lower.lua`, HOOK-02 rule 4): their shouts for help, plot variables, dialogue
   starts and powers cast without a spellbook entry run before the engine's own actions; their fighting is the
-  engine's. Unit tests and a mutation check (16 of 16 killed) pass; the lab check (celestials and a shouting
-  githyanki on the engine, `celestialLab.lua`) runs after Christopher's stream.
+  engine's. Unit tests and a mutation check (16 of 16 killed) pass. Lab check (2026-11-10, tour lab, engine
+  740c9d4, spell mod e200515, Insane, `celestialLab.lua`, one minute a case next to the protected PC): the engine
+  drove all three, with no engine error and a clean cleanup. The Dark Planetar took eight rounds (Hold Person at
+  the PC, then its sword; the PC lost 737 hit points, 972 under SCS), the Fallen Deva eight (272, 294 under
+  SCS), and a githyanki mage (`GITH04`, SCS's help script `DW#GITH1` below its hooked one) ten, while its help
+  script's shouts ran four times as duties (the call for help every three rounds, the shout on seeing the PC
+  once). The lower scripts' blocks were checked 2,950 times from inside the hook's own trigger without a fault.
+  Not seen in game yet: a dialogue start or a plot variable as a duty, and a group answering a shout. The PC
+  cannot die there, so damage spells are worth nothing to the engine and its celestials mostly swing; that says
+  nothing about their choices against a real party.
 - **Lesser Restoration's `CBMLRES`:** worth an entry in `spells.lua`'s `luaEffects` once the engine senses drained
   abilities on its allies; until then it reads as unknown, which costs nothing else.
 - **Later:** our own party AI script; our own classes, kits and races (see the main plan's ideas list).

@@ -137,8 +137,12 @@ SCS's test switch `dw_test_vampire_tricks` set so it takes rat form). Each phase
 
 ## Limits
 
-- One lab batch, five monsters, a lone protected PC. The engine only declined or held; no
-  real decision has run. The slot order comes from SCRLEV.IDS and EEex's documentation and
+- Lower scripts in game (2026-11-10, engine 740c9d4): an enemy Dark Planetar and Fallen Deva (`BDSUM00`
+  below) and a githyanki mage (`DW#GITH1` below) fought on the engine for a minute each; the githyanki's
+  help shouts ran as duties four times, and 2,950 block checks from inside the hook's trigger raised no
+  fault. No dialogue start or plot variable was among the duties, and no group heard the shouts.
+- The first lab batch (2026-10-15): five monsters, a lone protected PC. The engine only declined or held; no
+  real decision had run. The slot order comes from SCRLEV.IDS and EEex's documentation and
   was consistent with one creature in the lab.
 - A monster script asks the engine up to about 17 times a pass (its copies and the hook).
   Only the first ask in a pass is evaluated, the rest get the stored answer, and the first one
