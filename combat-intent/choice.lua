@@ -163,6 +163,18 @@
 -- first, as the game's attack actions do, and is no option against an enemy that keeps its
 -- missiles off (weapons.missileBlocked). A magic weapon in hand stays there, as the game keeps it.
 --
+-- Body weapons (Christopher, 2026-11-10: a creature the engine takes over must not become simpler
+-- than it was, and keeps what it was known for; the game's own scripts of ankhegs, wyverns, ettercaps
+-- and basilisks picked one of their two attacks by chance, 40 to 60 or the like): a weapon the
+-- creature cannot lay down (arms.body, combat-intent/arsenal.lua: a bite and a spit, a sting, a gaze)
+-- is part of it, and it uses them all. Taking one up costs no time. When its best attack is made with
+-- one of them, it takes that one as often as it takes its best option at all (mind.best, by its wit),
+-- and otherwise draws among the best attacks of each of them, each as likely as its worth's share
+-- (M.varied; mind.bodyMix scales it, 0 for always the best). So a wyvern stings and bites, the
+-- deadlier attack more often, a clever creature the best one most. One that shoots (a spit, a gaze)
+-- steps back from melee to use it whatever its wit (mind.bodyRetreat), as an ankheg and a basilisk
+-- did by their scripts; for other creatures the step stays a tactic (kiting, below).
+--
 -- Kiting (F2c; SCS's ranged fighters run from an enemy within 6 for four seconds, once in
 -- eighteen, then stand and fight, [src] genai/ssl/retreat.ssl, dw#range.ssl): a creature with a
 -- missile weapon it can shoot steps away from the melee enemies close to it, worth the hits it keeps
@@ -788,11 +800,11 @@ function M.arsenal(caster)
 end
 -- Whether the caster carries a missile weapon (M.arsenal) it could shoot an enemy with: one alive
 -- and seen, without sanctuary, in its range or a walk away, not immune to the weapon and not
--- keeping its missiles off.
-local function shooting(input)
+-- keeping its missiles off. body: only a weapon that is part of the creature (arms.body).
+local function shooting(input,body)
     local caster=input.frame.self
     for _,arms in ipairs(M.arsenal(caster)) do
-        if arms.ranged then
+        if arms.ranged and (not body or arms.body) then
             for _,e in ipairs(input.frame.enemies) do
                 local ok,why=weapons.reachable(caster,e,input.mind,arms)
                 if (ok or why=='out-of-reach') and not weapons.immuneTo(e,arms) and not weapons.missileBlocked(e,arms) then
@@ -1448,8 +1460,9 @@ end
 -- enemy what breaking its spell is worth with the hits that come after those. Cost: for melee, the
 -- hit points the caster loses to the weapons around the target that round, times caution. A weapon
 -- not in hand carries its slot, ability number (abilityNum, for SelectWeaponAbility) and
--- ammunition. Not while the caster holds a touch charge (the strike decides where that goes), in
--- its own Time Stop or under Improved Alacrity.
+-- ammunition; each option names its weapon's place in the arsenal (arm) and whether it is part of the
+-- creature (body), which takes no time to take up. Not while the caster holds a touch charge (the
+-- strike decides where that goes), in its own Time Stop or under Improved Alacrity.
 function M.weaponOptions(input,rejected)
     local out={}
     local function reject(why) if rejected then rejected[why]=(rejected[why] or 0)+1 end end
@@ -1458,8 +1471,10 @@ function M.weaponOptions(input,rejected)
     if type(caster.charge)=='table' or weaponsOut(input) then return out end
     local mind=input.mind
     local maxHp=number(caster.maxHp) and caster.maxHp>0 and caster.maxHp or nil
-    for _,arms in ipairs(M.arsenal(caster)) do
+    for n,arms in ipairs(M.arsenal(caster)) do
         local switch=arms~=caster.weapon
+        -- A weapon that is part of the creature takes no time to take up.
+        local taking=switch and not arms.body and weapons.switchSeconds or 0
         for _,e in ipairs(frame.enemies) do
             local ok,why=weapons.reachable(caster,e,mind,arms)
             -- A missile walks into its range first, as the game's attack actions do.
@@ -1480,13 +1495,14 @@ function M.weaponOptions(input,rejected)
                         walk=weapons.walk(caster,e)
                         if maxHp then cost=mind.caution*weapons.exposure(frame,e)/maxHp end
                     end
-                    local delay=walk+(switch and weapons.switchSeconds or 0)
+                    local delay=walk+taking
                     worth=worth*weapons.paced(delay)
                     local stop=expected>0 and M.interruption(input,e,{from=delay,rate=raw,absorbed=absorbed}) or 0
                     worth=worth+stop
                     out[#out+1]={resref=arms.item or 'WEAPON',kind='weapon',mode='creature',target=e.id,worth=worth,
                         cost=cost,score=worth-cost,hits={e.id},slack=0,expected={[e.id]=expected},speed=0,
                         melee=not arms.ranged or nil,swing=not arms.ranged and arms.swing or nil,
+                        arm=n,body=arms.body and true or nil,
                         walk=walk>0 and walk or nil,interrupt=stop>0 and stop or nil,
                         slot=switch and arms.slot or nil,abilityNum=switch and arms.abilityNum or nil,
                         ammo=switch and arms.ammo or nil,backstab=bs and bs.chance or nil}
@@ -1496,6 +1512,34 @@ function M.weaponOptions(input,rejected)
     end
     table.sort(out,better)
     return out
+end
+
+-- The attack to make of swings (best first): the best one, but for a creature whose best attack is
+-- made with a body weapon and that has another body weapon to hurt an enemy with (see the top). It
+-- takes the best one as often as it takes its best option at all (mind.best), less often by
+-- mind.bodyMix; otherwise it draws among the best attack of each of its body weapons, each as likely
+-- as its worth's share. Without input.rng: the best one.
+function M.varied(input,swings)
+    local best=swings[1]
+    local rng,mind=input.rng,input.mind
+    local mix=number(mind.bodyMix) and mind.bodyMix or 0
+    if not best or not rng or mix<=0 or best.kind~='weapon' or not best.body then return best end
+    local pool,seen,total={},{},0
+    for _,o in ipairs(swings) do
+        if o.kind=='weapon' and o.body and o.arm~=nil and not seen[o.arm] and number(o.worth) and o.worth>0 then
+            seen[o.arm]=true
+            pool[#pool+1]=o;total=total+o.worth
+        end
+    end
+    if #pool<2 then return best end
+    local stay=clamp(1-(1-(number(mind.best) and mind.best or 1))*mix,0,1)
+    if rng:nextInt(1,1000)<=math.floor(stay*1000+0.5) then return best end
+    local roll=rng:nextInt(1,1000000)/1000000*total
+    for _,o in ipairs(pool) do
+        roll=roll-o.worth
+        if roll<=0 then return o end
+    end
+    return pool[#pool]
 end
 
 -- Going behind (see the top): for an invisible caster that can backstab, a walk to the spot behind
@@ -1606,7 +1650,8 @@ end
 -- stands, the casting beginning when its casting aura frees. None for a creature that cannot walk,
 -- is invisible, holds a touch charge, is in its own Time Stop or under Improved Alacrity, has
 -- neither a missile weapon to shoot an enemy with (shooting) nor such a cast as its best choice,
--- does not see the tactic (M.tactical), found no open step lately (input.blocked) or stepped away
+-- does not see the tactic (M.tactical; a creature whose body shoots needs no wit for it,
+-- mind.bodyRetreat), found no open step lately (input.blocked) or stepped away
 -- within kiteGap seconds (input.kited, by input.tick). The option names the cast (cast) and the
 -- chances it breaks here and after the step (breaks). rejected (a table, optional) counts why there
 -- is none: 'kite-' and the reason.
@@ -1621,7 +1666,9 @@ function M.kite(input,rejected,best)
     if #close==0 then return nil end
     local cast=breakable(best) and best or nil
     if not cast and not shooting(input) then reject('no-ranged');return nil end
-    if not M.tactical(input) then reject('unnoticed');return nil end
+    -- A creature whose body shoots steps back to use it by its kind, not by its wit.
+    local instinct=input.mind.bodyRetreat==true and shooting(input,true)
+    if not instinct and not M.tactical(input) then reject('unnoticed');return nil end
     if blocked(input,'kite') then reject('blocked');return nil end
     if number(input.kited) and not (number(input.tick) and input.tick-input.kited>=M.kiteGap*M.ticksPerSecond) then
         reject('recent');return nil
@@ -1950,7 +1997,8 @@ local function pick(input)
     -- An order to always attack an enemy keeps the attacks on it while one reaches it.
     options,swings=orders.keep(input,options,swings)
     table.sort(options,better)
-    local swing=swings[1]
+    -- A creature uses all its body's weapons (M.varied).
+    local swing=M.varied(input,swings)
     local function all()
         local list={}
         for _,o in ipairs(options) do list[#list+1]=o end

@@ -16,14 +16,14 @@ ROOT = Path(__file__).resolve().parents[2]
 def test_weapons(backend):
     runtime = importlib.import_module('lupa.' + backend).LuaRuntime()
     runtime.execute("package.path=... .. '/?.lua;' .. package.path", ROOT.as_posix())
-    assert runtime.execute((ROOT / 'tests/unit/combat_intent/test_weapons.lua').read_text(encoding='utf-8')) == 16
+    assert runtime.execute((ROOT / 'tests/unit/combat_intent/test_weapons.lua').read_text(encoding='utf-8')) == 17
 
 
 @pytest.mark.parametrize('backend', ['lua51', 'luajit21'])
 def test_arsenal(backend):
     runtime = importlib.import_module('lupa.' + backend).LuaRuntime()
     runtime.execute("package.path=... .. '/?.lua;' .. package.path", ROOT.as_posix())
-    assert runtime.execute((ROOT / 'tests/unit/combat_intent/test_arsenal.lua').read_text(encoding='utf-8')) == 7
+    assert runtime.execute((ROOT / 'tests/unit/combat_intent/test_arsenal.lua').read_text(encoding='utf-8')) == 8
 
 
 @pytest.mark.parametrize('backend', ['lua51', 'luajit21'])

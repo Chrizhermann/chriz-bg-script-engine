@@ -19,6 +19,10 @@
 -- config.resolve gives the creature (by its side and class; nil for one the engine does not drive).
 -- The rest of such a script is walked like a lower script: its fight blocks are the engine's, its
 -- other blocks are duties.
+-- Story targets (Christopher, 2026-11-10: a creature the engine takes over keeps what it was known
+-- for): while a creature such a script attacks by name is there (xvarts going for Hulrik's cow, gnolls
+-- for Drizzt; config.yields), the creature is its script's, as the game had the encounter. The gate
+-- asks again every storyTicks, and the engine takes the creature once the answer is no.
 -- Nothing here raises to the caller and nothing in it survives a load.
 local values=require('kernel.manifest')
 local trace=require('kernel.trace')
@@ -51,6 +55,12 @@ function M.new(config)
     -- resolve(id) (optional): the family of a creature that asks from the engine's own hook, or nil.
     local resolve=config.resolve
     assert(resolve==nil or type(resolve)=='function')
+    -- yields(id, scripts, tick, deciding) (optional), for a creature that asks from the engine's own
+    -- hook, with owe's list: true while a creature those scripts attack by name is there. The answer
+    -- stands for storyTicks.
+    local yields,storyTicks=config.yields,config.storyTicks or 45
+    assert(yields==nil or type(yields)=='function')
+    assert(count(storyTicks,1e6))
     -- hooked: script resref (lower case) -> family, from the install. below(id, script): the
     -- creature's non-empty script resrefs in the slots after script, or nil when script is not
     -- in its stack. stack(id) (optional): all its non-empty script resrefs, from the top slot down.
@@ -69,8 +79,11 @@ function M.new(config)
     assert(stack==nil or type(stack)=='function')
     local pending,blocked,answers,owed={},{},{},{}
     local owing=0
+    -- id -> the tick the creature's story target was last found there; storied counts them (past
+    -- owingLimit, creatures that died on their story, every record goes).
+    local stories,storied={},0
     local counts={reached=0,repeats=0,claimed=0,acted=0,held=0,renewed=0,skipped=0,stale=0,errors=0,observeErrors=0,
-        heldErrors=0,owed=0,dutiesHanded=0,dutiesDropped=0,dutyErrors=0}
+        heldErrors=0,owed=0,dutiesHanded=0,dutiesDropped=0,dutyErrors=0,stories=0,storyErrors=0}
     local declines={}
     local log=trace.new(config.traceCapacity or 64)
     local api={}
@@ -148,6 +161,29 @@ function M.new(config)
         end
         if #fresh>0 then return fresh end
     end
+    -- Whether the script keeps a creature that asks from the engine's own hook for its story (see the
+    -- top): its story target was there within storyTicks, or is there now.
+    local function story(id,under,tick,script)
+        local last=stories[id]
+        if last and tick>=last and tick-last<=storyTicks then return true end
+        local held=false
+        if yields and #under>0 then
+            local ok,answer=pcall(yields,id,under,tick,script)
+            if not ok then bump(counts,'storyErrors') else held=answer==true end
+        end
+        if held then
+            if last==nil then
+                if storied>=owingLimit then stories,storied={},0 end
+                storied=storied+1
+            end
+            stories[id]=tick
+            bump(counts,'stories')
+            log:record({kind='story',actorKey=tostring(id),reason=script,tick=tick})
+            return true
+        end
+        if last~=nil then stories[id]=nil;storied=storied-1 end
+        return false
+    end
     -- rest: the scripts below, when the claim read them already; auto: the script carries the engine's
     -- own hook.
     local function evaluate(id,actor,family,tick,script,rest,auto)
@@ -167,6 +203,9 @@ function M.new(config)
         -- A load restarts the tick count, so a backoff from before it no longer applies.
         if blocked[id] and tick<blocked[id] and blocked[id]-tick<=backoff then return decline('backoff') end
         blocked[id]=nil
+        -- A story target keeps the creature with its script: no check-in, no decision, and what the
+        -- engine queued for it gives way to the script's block by the game's own rules.
+        if auto and story(id,under,tick,script) then pending[id]=nil;return decline('story') end
         -- An observer (the fight director's check-in) sees every creature the gate would ask
         -- the decider about; its errors never change the answer.
         if observe and not pcall(function()
@@ -365,12 +404,12 @@ function M.new(config)
     function api:setDecider(fn) assert(fn==nil or type(fn)=='function');decide=fn;pending,answers={},{} end
     function api:setPerformer(fn) assert(fn==nil or type(fn)=='function');perform=fn;pending,answers={},{} end
     function api:setHooked(t) setHooked(t);answers={} end
-    function api:invalidate() pending,blocked,answers,owed,owing={},{},{},{},0 end
+    function api:invalidate() pending,blocked,answers,owed,owing,stories,storied={},{},{},{},0,{},0 end
     function api:inspect()
         local open=0;for _ in pairs(pending) do open=open+1 end
         local scripts=0;for _ in pairs(hooked or {}) do scripts=scripts+1 end
         return {enabled=enabled,families=values.copy(families),counts=values.copy(counts),
-            declines=values.copy(declines),pending=open,owing=owing,hookedScripts=hooked and scripts or nil,
+            declines=values.copy(declines),pending=open,owing=owing,storied=storied,hookedScripts=hooked and scripts or nil,
             trace=log:snapshot()}
     end
     return api

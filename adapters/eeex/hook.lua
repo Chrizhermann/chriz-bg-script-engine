@@ -42,7 +42,9 @@
 -- The engine's own hook (family 'auto', at the top of the game's own fight scripts; 2026-11-10) asks
 -- for every creature that carries such a script. The engine answers for those on the enemy side, as
 -- the family their class gives them (M.CLASS_FAMILY, else a monster); [BGSE] Others=0 switches these
--- creatures off and leaves them to their scripts.
+-- creatures off and leaves them to their scripts. One whose script attacks a creature by name (xvarts
+-- Hulrik's cow, gnolls Drizzt) stays with its script while that creature is alive in its area
+-- (Christopher, 2026-11-10: what a creature was known for stays).
 local hook=require('kernel.hook')
 local lowerScripts=require('adapters.eeex.lower')
 local M={}
@@ -120,6 +122,9 @@ function M.below(g,object,script)
 end
 -- How many creatures' records of the engine's own actions are kept at most.
 M.ownLimit=1024
+-- Ticks for which a look that found nobody a creature's script attacks by name stands (the gate's
+-- storyTicks for a yes).
+M.storyLookTicks=45
 -- The action numbers in the creature's queue, in order.
 function M.queued(g,object)
     local ids={}
@@ -153,6 +158,8 @@ function M.install(g,options)
     -- id -> the block that queued the hook's last response (sn, rs, rn) and the actions it queued;
     -- owned counts them (at most M.ownLimit: creatures that died with a record keep it until then).
     local mine,owned={},0
+    -- id -> the tick a look found nobody its script attacks by name (at most M.ownLimit records).
+    local absent,absentCount={},0
     local replacing={count=0,errors=0}
     local function drop(id) if mine[id]~=nil then mine[id]=nil;owned=owned-1 end end
     -- Right after the hook's response queued a decision: when those actions, behind the lower scripts'
@@ -221,6 +228,24 @@ function M.install(g,options)
         owe=walker and function(id,scripts,tick,deciding)
             local object=sprite(g,id)
             if object then return walker.walk(object,deciding,scripts) end
+        end,
+        -- A creature whose script attacks someone by name keeps that script while that one is there.
+        -- That nobody of that name is there stands for M.storyLookTicks, as the gate lets a yes stand:
+        -- the look goes over every creature of the area.
+        yields=walker and function(id,scripts,tick,deciding)
+            local last=absent[id]
+            if last and tick>=last and tick-last<=M.storyLookTicks then return false end
+            local object=sprite(g,id)
+            if not object then return false end
+            local story,why=walker.story(object,deciding,scripts)
+            if why=='absent' then
+                if last==nil then
+                    if absentCount>=M.ownLimit then absent,absentCount={},0 end
+                    absentCount=absentCount+1
+                end
+                absent[id]=tick
+            elseif last~=nil then absent[id]=nil;absentCount=absentCount-1 end
+            return story
         end,
         -- A creature that asks from the engine's own hook: one on the enemy side, by its class.
         resolve=function(id)
@@ -307,6 +332,7 @@ function M.install(g,options)
     -- A load forgets which actions were the engine's own: object ids do not outlive the session.
     function root.forget()
         mine,owned={},0
+        absent,absentCount={},0
         if walker then pcall(walker.reset) end
     end
     g.BGSE=root

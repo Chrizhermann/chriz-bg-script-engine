@@ -198,4 +198,18 @@ hit,damage=arsenal.might(nil,18,50)
 assert(hit==1 and damage==3 and select(2,arsenal.might({},22,0))==10)
 groups=groups+1
 
+-- 8. Body weapons (Christopher, 2026-11-10): a weapon whose item cannot be dropped (item flag bit 2
+-- clear, as the game's monster attacks have it: a wyvern's bite 0x60, an ankheg's spit 0x20) is part
+-- of the creature; a sword (0x2c) is not, and an item whose flags were not read says nothing.
+c=fighter(35,0,{apr=2,thac0Right=0,damageRight=0})
+c.items[35]={resref='BITE',record=item({flags=0x60,enchantment=2},{ability({dice=2,sides=8})})}
+c.items[36]={resref='BLADE',record=item({flags=0x2c,proficiency=89},{ability({dice=1,sides=6})})}
+c.items[37]={resref='SPIT',record=item({flags=0x20},{ability({attackType=2,dice=4,sides=4,range=40,damageType=4,projectile=108})})}
+c.items[38]={resref='ODD',record=item({flags=false},{ability({dice=1,sides=4})})}
+hand=arsenal.hand(TABLES,c)
+others=arsenal.others(TABLES,c)
+assert(hand.item=='BITE' and hand.body==true and find(others,'SPIT').body==true and find(others,'SPIT').ranged==true)
+assert(find(others,'BLADE').body==nil and find(others,'ODD').body==nil and arsenal.DROPPABLE==4)
+groups=groups+1
+
 return groups

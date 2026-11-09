@@ -17,8 +17,10 @@ local function list(items)
     return {m_pNodeHead=head,m_nCount=#items}
 end
 local function text(value) return {m_pchData={get=function() return value end}} end
--- action(id, variable name with its scope)
-local function action(id,variable) return {m_actionID=id,m_string1=text(variable or '')} end
+-- action(id, variable name with its scope, the name its object was written with)
+local function action(id,variable,target)
+    return {m_actionID=id,m_string1=text(variable or ''),m_acteeID={m_name=text(target or '')}}
+end
 local function response(weight,actions) return {m_weight=weight,m_actionList=list(actions)} end
 -- A block: whether it holds (a value or a function), then its responses; triggers (optional) as
 -- {id, text} for what the walker reads of them.
@@ -274,4 +276,84 @@ quietWorld.Infinity_GetINIValue=function(_,key,default) if key=='Others' then re
 local off=creature(1,foe.scripts);off.m_typeAI=foe.m_typeAI;quietWorld.objects[1]=off
 local silent=adapter.install(quietWorld,{decide=function() return {hold=true} end})
 assert(quietWorld.BGSE_Claim(off,'auto','gnolldr')==false and silent.inspect().others==false)
-return 5
+
+-- 6. Story targets (Christopher, 2026-11-10: what a creature was known for stays). A script that
+-- attacks a creature by name (xvarts Hulrik's cow) keeps its creature while one of that name is alive
+-- in its area, standing or lying; a dead one, or one elsewhere, does not count. A script that names no
+-- one costs no look at the area; a cast at a named creature is no story (a heal for a friend); a name
+-- that cannot be read counts as none.
+g=world();g.BGSE_HOOKED={xvarth='auto'}
+local cow={m_id=50,alive=true,m_scriptName={get=function() return 'HulriksCow\0\0' end}}
+local farmer={m_id=51,alive=true,m_scriptName={get=function() return 'Hulrik' end}}
+g.objects[50],g.objects[51]=cow,farmer
+local field={m_lVertSort=list({51,1,50}),m_lVertSortBack=list({})}
+local function at(c,ea)
+    c.m_typeAI={m_EnemyAlly=ea or 255,m_Class=119}
+    c.m_pArea=field
+    g.objects[c.m_id]=c
+    return c
+end
+local xvart=at(creature(1,{[5]=script('XVARTH',{hookBlock('xvarth'),
+    block(false,{response(100,{action(3,nil,'HULRIKSCOW')})}),
+    block(true,{response(100,{action(1)})})})}))
+walker=lower.new(g)
+local story,who=walker.story(xvart,'xvarth',{'xvarth'})
+s=walker.inspect().stats
+assert(story==true and who=='hulrikscow' and s.storyLooks==1 and s.stories==1 and s.nameErrors==0)
+cow.alive=false
+assert(walker.story(xvart,'xvarth',{'xvarth'})==false and walker.inspect().stats.stories==1)
+cow.alive=true
+field.m_lVertSort,field.m_lVertSortBack=list({51,1}),list({50})
+assert(walker.story(xvart,'xvarth',{'xvarth'})==true)
+field.m_lVertSortBack=list({})
+assert(walker.story(xvart,'xvarth',{'xvarth'})==false)
+field.m_lVertSort=list({51,1,50})
+-- The creature is not its own story: an xvart that carries the cow's name finds no one but itself.
+local alone=at(creature(50,xvart.scripts))
+alone.alive,alone.m_scriptName=true,cow.m_scriptName
+g.objects[50]=alone
+assert(walker.story(alone,'xvarth',{'xvarth'})==false)
+g.objects[50]=cow
+local looks=walker.inspect().stats.storyLooks
+local plain=at(creature(2,{[5]=script('PLAINFGT',{block(true,{response(100,{action(1)})})})}))
+local healer=at(creature(3,{[5]=script('HEALER',{block(true,{response(100,{action(181,nil,'HulriksCow')})})})}))
+assert(walker.story(plain,'plainfgt',{'plainfgt'})==false and walker.story(healer,'healer',{'healer'})==false)
+assert(walker.inspect().stats.storyLooks==looks)
+local odd=at(creature(4,{[5]=script('ODD',{block(true,{response(100,{{m_actionID=1,m_string1=text('')}})})})}))
+assert(walker.story(odd,'odd',{'odd'})==false and walker.inspect().stats.nameErrors==1)
+assert(walker.story(xvart,nil,{'xvarth'})==false and walker.story(xvart,'xvarth',{})==false)
+-- Through the hook: while the cow lives the xvart's script has it, and the engine is not asked; once
+-- it is dead the engine takes the xvart, at the next look (45 ticks after the last).
+local asks=0
+root=adapter.install(g,{decide=function() asks=asks+1;return {response='AttackOneRound(NearestEnemyOf(Myself))'} end})
+assert(g.BGSE_Claim(xvart,'auto','xvarth')==false and asks==0)
+s=root.inspect();assert(s.declines.story==1 and s.storied==1 and s.lower.stats.stories==1)
+cow.alive=false
+g.ticks=g.ticks+45
+assert(g.BGSE_Claim(xvart,'auto','xvarth')==false and asks==0)
+g.ticks=g.ticks+1
+assert(g.BGSE_Claim(xvart,'auto','xvarth')==true and asks==1 and root.inspect().storied==0)
+-- A plain fighter next to the living cow is the engine's from the start.
+cow.alive=true
+g.BGSE_HOOKED.plainfgt='auto'
+root=adapter.install(g,{decide=function() asks=asks+1;return {hold=true} end})
+assert(g.BGSE_Claim(plain,'auto','plainfgt')==true and root.inspect().declines.story==nil)
+-- An xvart without the cow around is the engine's, and the look over the area is not repeated for 45
+-- ticks; then it is, and finds the cow that came meanwhile. A load forgets that nobody was there.
+cow.alive=false
+g.ticks=g.ticks+100
+assert(g.BGSE_Claim(xvart,'auto','xvarth')==true and root.inspect().lower.stats.storyLooks==1)
+cow.alive=true
+g.ticks=g.ticks+45
+assert(g.BGSE_Claim(xvart,'auto','xvarth')==true and root.inspect().lower.stats.storyLooks==1)
+g.ticks=g.ticks+1
+assert(g.BGSE_Claim(xvart,'auto','xvarth')==false and root.inspect().lower.stats.storyLooks==2)
+assert(root.inspect().declines.story==1)
+cow.alive=false
+g.ticks=g.ticks+46
+assert(g.BGSE_Claim(xvart,'auto','xvarth')==true and root.inspect().lower.stats.storyLooks==3)
+cow.alive=true
+g.listeners[1]()
+g.ticks=g.ticks+1
+assert(g.BGSE_Claim(xvart,'auto','xvarth')==false and root.inspect().lower.stats.storyLooks==4)
+return 6

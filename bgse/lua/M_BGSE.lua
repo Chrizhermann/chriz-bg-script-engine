@@ -175,6 +175,10 @@ factories["kernel.hook"]=function(require)
 -- config.resolve gives the creature (by its side and class; nil for one the engine does not drive).
 -- The rest of such a script is walked like a lower script: its fight blocks are the engine's, its
 -- other blocks are duties.
+-- Story targets (Christopher, 2026-11-10: a creature the engine takes over keeps what it was known
+-- for): while a creature such a script attacks by name is there (xvarts going for Hulrik's cow, gnolls
+-- for Drizzt; config.yields), the creature is its script's, as the game had the encounter. The gate
+-- asks again every storyTicks, and the engine takes the creature once the answer is no.
 -- Nothing here raises to the caller and nothing in it survives a load.
 local values=require('kernel.manifest')
 local trace=require('kernel.trace')
@@ -207,6 +211,12 @@ function M.new(config)
     -- resolve(id) (optional): the family of a creature that asks from the engine's own hook, or nil.
     local resolve=config.resolve
     assert(resolve==nil or type(resolve)=='function')
+    -- yields(id, scripts, tick, deciding) (optional), for a creature that asks from the engine's own
+    -- hook, with owe's list: true while a creature those scripts attack by name is there. The answer
+    -- stands for storyTicks.
+    local yields,storyTicks=config.yields,config.storyTicks or 45
+    assert(yields==nil or type(yields)=='function')
+    assert(count(storyTicks,1e6))
     -- hooked: script resref (lower case) -> family, from the install. below(id, script): the
     -- creature's non-empty script resrefs in the slots after script, or nil when script is not
     -- in its stack. stack(id) (optional): all its non-empty script resrefs, from the top slot down.
@@ -225,8 +235,11 @@ function M.new(config)
     assert(stack==nil or type(stack)=='function')
     local pending,blocked,answers,owed={},{},{},{}
     local owing=0
+    -- id -> the tick the creature's story target was last found there; storied counts them (past
+    -- owingLimit, creatures that died on their story, every record goes).
+    local stories,storied={},0
     local counts={reached=0,repeats=0,claimed=0,acted=0,held=0,renewed=0,skipped=0,stale=0,errors=0,observeErrors=0,
-        heldErrors=0,owed=0,dutiesHanded=0,dutiesDropped=0,dutyErrors=0}
+        heldErrors=0,owed=0,dutiesHanded=0,dutiesDropped=0,dutyErrors=0,stories=0,storyErrors=0}
     local declines={}
     local log=trace.new(config.traceCapacity or 64)
     local api={}
@@ -304,6 +317,29 @@ function M.new(config)
         end
         if #fresh>0 then return fresh end
     end
+    -- Whether the script keeps a creature that asks from the engine's own hook for its story (see the
+    -- top): its story target was there within storyTicks, or is there now.
+    local function story(id,under,tick,script)
+        local last=stories[id]
+        if last and tick>=last and tick-last<=storyTicks then return true end
+        local held=false
+        if yields and #under>0 then
+            local ok,answer=pcall(yields,id,under,tick,script)
+            if not ok then bump(counts,'storyErrors') else held=answer==true end
+        end
+        if held then
+            if last==nil then
+                if storied>=owingLimit then stories,storied={},0 end
+                storied=storied+1
+            end
+            stories[id]=tick
+            bump(counts,'stories')
+            log:record({kind='story',actorKey=tostring(id),reason=script,tick=tick})
+            return true
+        end
+        if last~=nil then stories[id]=nil;storied=storied-1 end
+        return false
+    end
     -- rest: the scripts below, when the claim read them already; auto: the script carries the engine's
     -- own hook.
     local function evaluate(id,actor,family,tick,script,rest,auto)
@@ -323,6 +359,9 @@ function M.new(config)
         -- A load restarts the tick count, so a backoff from before it no longer applies.
         if blocked[id] and tick<blocked[id] and blocked[id]-tick<=backoff then return decline('backoff') end
         blocked[id]=nil
+        -- A story target keeps the creature with its script: no check-in, no decision, and what the
+        -- engine queued for it gives way to the script's block by the game's own rules.
+        if auto and story(id,under,tick,script) then pending[id]=nil;return decline('story') end
         -- An observer (the fight director's check-in) sees every creature the gate would ask
         -- the decider about; its errors never change the answer.
         if observe and not pcall(function()
@@ -521,12 +560,12 @@ function M.new(config)
     function api:setDecider(fn) assert(fn==nil or type(fn)=='function');decide=fn;pending,answers={},{} end
     function api:setPerformer(fn) assert(fn==nil or type(fn)=='function');perform=fn;pending,answers={},{} end
     function api:setHooked(t) setHooked(t);answers={} end
-    function api:invalidate() pending,blocked,answers,owed,owing={},{},{},{},0 end
+    function api:invalidate() pending,blocked,answers,owed,owing,stories,storied={},{},{},{},0,{},0 end
     function api:inspect()
         local open=0;for _ in pairs(pending) do open=open+1 end
         local scripts=0;for _ in pairs(hooked or {}) do scripts=scripts+1 end
         return {enabled=enabled,families=values.copy(families),counts=values.copy(counts),
-            declines=values.copy(declines),pending=open,owing=owing,hookedScripts=hooked and scripts or nil,
+            declines=values.copy(declines),pending=open,owing=owing,storied=storied,hookedScripts=hooked and scripts or nil,
             trace=log:snapshot()}
     end
     return api
@@ -3013,6 +3052,14 @@ M.default={
     -- that cost only chooses between targets (Christopher, 2026-10-25): fighters and monsters
     -- (M.FAMILIES). Casters weigh it.
     alwaysAttack=false,
+    -- Body weapons (a bite and a spit, a sting, a gaze: weapons the creature cannot lay down,
+    -- combat-intent/arsenal.lua): how much of the times it does not take its best option it draws
+    -- among all of them by their worth (combat-intent/choice.lua, M.varied), and whether it steps back
+    -- from melee to use one that shoots, whatever its wit. 0 and false: always the best one, and a
+    -- step back only as a tactic. Christopher, 2026-11-10: a creature the engine takes over keeps what
+    -- it was known for.
+    bodyMix=1,
+    bodyRetreat=true,
     -- Summons (D3c): no more summoning once this many summoned allies are in view (the game's own
     -- limit for summoned creatures is five).
     summonCap=5,
@@ -3049,7 +3096,8 @@ end
 local CHECKS={coordination=share,best=share,band=share,economy=amount,minValue=amount,
     focusBonus=amount,killBonus=amount,interrupt=amount,tactics=share,caution=amount,horizon=amount,redefend=amount,acute=share,
     castCost=amount,allySpells=resrefs,slowSpeed=amount,touchReach=amount,summonCap=amount,fightCap=amount,
-    searchPatience=amount,
+    searchPatience=amount,bodyMix=share,
+    bodyRetreat=function(v) return type(v)=='boolean' end,
     openers=function(v) return type(v)=='boolean' end,
     touch=function(v) return type(v)=='boolean' end,
     weapons=function(v) return type(v)=='boolean' end,
@@ -3919,6 +3967,10 @@ M.LAUNCHER={[1]=15,[2]=27,[3]=18}
 M.STRENGTH_HIT=0x9
 M.STRENGTH_DAMAGE=0x5
 M.MAGICAL=0x40
+-- The item flag "droppable" (IESDP, ITM, bit 2). A weapon without it cannot be laid down: it is part of
+-- the creature's body (an ankheg's bite and its spit, a wyvern's sting, a basilisk's gaze), where a
+-- sword or a bow has it. The choice mixes a creature's body weapons (combat-intent/choice.lua).
+M.DROPPABLE=0x4
 -- Item ability attack types: melee, ranged (thrown or ammunition), launcher.
 M.MELEE,M.RANGED,M.LAUNCHES=1,2,4
 -- The item's usability bit "unusable by thieves" (IESDP, ITM). A backstab lands only with a melee
@@ -4157,7 +4209,8 @@ end
 -- strengthDamage), for buffs that change its strength (combat-intent/defence.lua), the weapon's
 -- own damage dice and its ammunition's (rolls: {dice, sides} each), for luck on base weapon damage
 -- (threat.luckGain), and a melee weapon's own range (swing: a Quarterstaff's or Halberd's 2, a Long
--- Sword's 1), which sets how far it strikes (adapters/eeex/choice.lua, M.pairReach).
+-- Sword's 1), which sets how far it strikes (adapters/eeex/choice.lua, M.pairReach); body: the weapon
+-- cannot be laid down (M.DROPPABLE).
 local function attack(c,s,hit,damage)
     local stats=c.stats
     local melee=not s.ranged
@@ -4171,6 +4224,7 @@ local function attack(c,s,hit,damage)
         end
     end
     if melee and number(s.record.usability) and not targeting.has(s.record.usability,M.THIEF) then out.backstab=true end
+    if number(s.record.flags) and not targeting.has(s.record.flags,M.DROPPABLE) then out.body=true end
     out.thac0=value(stats.thac0)-hit-value(stats.hitBonus)-value(melee and stats.meleeHit or stats.missileHit)
     out.damage=math.max(0,damage+value(stats.damageBonus)+value(melee and stats.meleeDamage or stats.missileDamage))
     local hitting=s.ammoRecord or s.record
@@ -7650,6 +7704,18 @@ factories["combat-intent.choice"]=function(require)
 -- first, as the game's attack actions do, and is no option against an enemy that keeps its
 -- missiles off (weapons.missileBlocked). A magic weapon in hand stays there, as the game keeps it.
 --
+-- Body weapons (Christopher, 2026-11-10: a creature the engine takes over must not become simpler
+-- than it was, and keeps what it was known for; the game's own scripts of ankhegs, wyverns, ettercaps
+-- and basilisks picked one of their two attacks by chance, 40 to 60 or the like): a weapon the
+-- creature cannot lay down (arms.body, combat-intent/arsenal.lua: a bite and a spit, a sting, a gaze)
+-- is part of it, and it uses them all. Taking one up costs no time. When its best attack is made with
+-- one of them, it takes that one as often as it takes its best option at all (mind.best, by its wit),
+-- and otherwise draws among the best attacks of each of them, each as likely as its worth's share
+-- (M.varied; mind.bodyMix scales it, 0 for always the best). So a wyvern stings and bites, the
+-- deadlier attack more often, a clever creature the best one most. One that shoots (a spit, a gaze)
+-- steps back from melee to use it whatever its wit (mind.bodyRetreat), as an ankheg and a basilisk
+-- did by their scripts; for other creatures the step stays a tactic (kiting, below).
+--
 -- Kiting (F2c; SCS's ranged fighters run from an enemy within 6 for four seconds, once in
 -- eighteen, then stand and fight, [src] genai/ssl/retreat.ssl, dw#range.ssl): a creature with a
 -- missile weapon it can shoot steps away from the melee enemies close to it, worth the hits it keeps
@@ -8275,11 +8341,11 @@ function M.arsenal(caster)
 end
 -- Whether the caster carries a missile weapon (M.arsenal) it could shoot an enemy with: one alive
 -- and seen, without sanctuary, in its range or a walk away, not immune to the weapon and not
--- keeping its missiles off.
-local function shooting(input)
+-- keeping its missiles off. body: only a weapon that is part of the creature (arms.body).
+local function shooting(input,body)
     local caster=input.frame.self
     for _,arms in ipairs(M.arsenal(caster)) do
-        if arms.ranged then
+        if arms.ranged and (not body or arms.body) then
             for _,e in ipairs(input.frame.enemies) do
                 local ok,why=weapons.reachable(caster,e,input.mind,arms)
                 if (ok or why=='out-of-reach') and not weapons.immuneTo(e,arms) and not weapons.missileBlocked(e,arms) then
@@ -8935,8 +9001,9 @@ end
 -- enemy what breaking its spell is worth with the hits that come after those. Cost: for melee, the
 -- hit points the caster loses to the weapons around the target that round, times caution. A weapon
 -- not in hand carries its slot, ability number (abilityNum, for SelectWeaponAbility) and
--- ammunition. Not while the caster holds a touch charge (the strike decides where that goes), in
--- its own Time Stop or under Improved Alacrity.
+-- ammunition; each option names its weapon's place in the arsenal (arm) and whether it is part of the
+-- creature (body), which takes no time to take up. Not while the caster holds a touch charge (the
+-- strike decides where that goes), in its own Time Stop or under Improved Alacrity.
 function M.weaponOptions(input,rejected)
     local out={}
     local function reject(why) if rejected then rejected[why]=(rejected[why] or 0)+1 end end
@@ -8945,8 +9012,10 @@ function M.weaponOptions(input,rejected)
     if type(caster.charge)=='table' or weaponsOut(input) then return out end
     local mind=input.mind
     local maxHp=number(caster.maxHp) and caster.maxHp>0 and caster.maxHp or nil
-    for _,arms in ipairs(M.arsenal(caster)) do
+    for n,arms in ipairs(M.arsenal(caster)) do
         local switch=arms~=caster.weapon
+        -- A weapon that is part of the creature takes no time to take up.
+        local taking=switch and not arms.body and weapons.switchSeconds or 0
         for _,e in ipairs(frame.enemies) do
             local ok,why=weapons.reachable(caster,e,mind,arms)
             -- A missile walks into its range first, as the game's attack actions do.
@@ -8967,13 +9036,14 @@ function M.weaponOptions(input,rejected)
                         walk=weapons.walk(caster,e)
                         if maxHp then cost=mind.caution*weapons.exposure(frame,e)/maxHp end
                     end
-                    local delay=walk+(switch and weapons.switchSeconds or 0)
+                    local delay=walk+taking
                     worth=worth*weapons.paced(delay)
                     local stop=expected>0 and M.interruption(input,e,{from=delay,rate=raw,absorbed=absorbed}) or 0
                     worth=worth+stop
                     out[#out+1]={resref=arms.item or 'WEAPON',kind='weapon',mode='creature',target=e.id,worth=worth,
                         cost=cost,score=worth-cost,hits={e.id},slack=0,expected={[e.id]=expected},speed=0,
                         melee=not arms.ranged or nil,swing=not arms.ranged and arms.swing or nil,
+                        arm=n,body=arms.body and true or nil,
                         walk=walk>0 and walk or nil,interrupt=stop>0 and stop or nil,
                         slot=switch and arms.slot or nil,abilityNum=switch and arms.abilityNum or nil,
                         ammo=switch and arms.ammo or nil,backstab=bs and bs.chance or nil}
@@ -8983,6 +9053,34 @@ function M.weaponOptions(input,rejected)
     end
     table.sort(out,better)
     return out
+end
+
+-- The attack to make of swings (best first): the best one, but for a creature whose best attack is
+-- made with a body weapon and that has another body weapon to hurt an enemy with (see the top). It
+-- takes the best one as often as it takes its best option at all (mind.best), less often by
+-- mind.bodyMix; otherwise it draws among the best attack of each of its body weapons, each as likely
+-- as its worth's share. Without input.rng: the best one.
+function M.varied(input,swings)
+    local best=swings[1]
+    local rng,mind=input.rng,input.mind
+    local mix=number(mind.bodyMix) and mind.bodyMix or 0
+    if not best or not rng or mix<=0 or best.kind~='weapon' or not best.body then return best end
+    local pool,seen,total={},{},0
+    for _,o in ipairs(swings) do
+        if o.kind=='weapon' and o.body and o.arm~=nil and not seen[o.arm] and number(o.worth) and o.worth>0 then
+            seen[o.arm]=true
+            pool[#pool+1]=o;total=total+o.worth
+        end
+    end
+    if #pool<2 then return best end
+    local stay=clamp(1-(1-(number(mind.best) and mind.best or 1))*mix,0,1)
+    if rng:nextInt(1,1000)<=math.floor(stay*1000+0.5) then return best end
+    local roll=rng:nextInt(1,1000000)/1000000*total
+    for _,o in ipairs(pool) do
+        roll=roll-o.worth
+        if roll<=0 then return o end
+    end
+    return pool[#pool]
 end
 
 -- Going behind (see the top): for an invisible caster that can backstab, a walk to the spot behind
@@ -9093,7 +9191,8 @@ end
 -- stands, the casting beginning when its casting aura frees. None for a creature that cannot walk,
 -- is invisible, holds a touch charge, is in its own Time Stop or under Improved Alacrity, has
 -- neither a missile weapon to shoot an enemy with (shooting) nor such a cast as its best choice,
--- does not see the tactic (M.tactical), found no open step lately (input.blocked) or stepped away
+-- does not see the tactic (M.tactical; a creature whose body shoots needs no wit for it,
+-- mind.bodyRetreat), found no open step lately (input.blocked) or stepped away
 -- within kiteGap seconds (input.kited, by input.tick). The option names the cast (cast) and the
 -- chances it breaks here and after the step (breaks). rejected (a table, optional) counts why there
 -- is none: 'kite-' and the reason.
@@ -9108,7 +9207,9 @@ function M.kite(input,rejected,best)
     if #close==0 then return nil end
     local cast=breakable(best) and best or nil
     if not cast and not shooting(input) then reject('no-ranged');return nil end
-    if not M.tactical(input) then reject('unnoticed');return nil end
+    -- A creature whose body shoots steps back to use it by its kind, not by its wit.
+    local instinct=input.mind.bodyRetreat==true and shooting(input,true)
+    if not instinct and not M.tactical(input) then reject('unnoticed');return nil end
     if blocked(input,'kite') then reject('blocked');return nil end
     if number(input.kited) and not (number(input.tick) and input.tick-input.kited>=M.kiteGap*M.ticksPerSecond) then
         reject('recent');return nil
@@ -9437,7 +9538,8 @@ local function pick(input)
     -- An order to always attack an enemy keeps the attacks on it while one reaches it.
     options,swings=orders.keep(input,options,swings)
     table.sort(options,better)
-    local swing=swings[1]
+    -- A creature uses all its body's weapons (M.varied).
+    local swing=M.varied(input,swings)
     local function all()
         local list={}
         for _,o in ipairs(options) do list[#list+1]=o end
@@ -14585,6 +14687,7 @@ function M.new(g,options)
         return {item=a.item,damage=a.damage,damageType=a.damageType,apr=a.apr or weapons.baseApr,thac0=a.thac0,
             ranged=a.ranged==true,range=a.range,swing=a.swing,flags=a.flags,enchantment=a.enchantment,strike=strike,fist=a.fist,
             slot=a.slot,abilityNum=a.abilityNum,ammo=a.ammo,projectile=a.projectile,backstab=a.backstab,itemType=a.itemType,
+            body=a.body,
             str=a.str,strExtra=a.strExtra,strengthHit=a.strengthHit,strengthDamage=a.strengthDamage}
     end
     -- The 'arms' row (see the top) when the weapon in the creature's hand (a, sense.arsenal's) is
@@ -15673,6 +15776,10 @@ function M.new(g,options)
         judge(tick)
         local looked,lookError=pcall(look,sprite,tick,family)
         if not looked then zoneFailed('zone-look',lookError) end
+        -- A creature in panic is not the engine's (Christopher, 2026-11-10: what a creature did before
+        -- stays): it runs as the game and its script have it (the game's own scripts open with a
+        -- block for it), and the engine decides again once the panic is over.
+        if targeting.has(g.EEex_Sprite_GetState(sprite),targeting.STATE.panic) then return decline('panic') end
         local p=pending[id]
         if p then
             -- A cast queued while the casting aura (the round of the creature's last cast) runs
@@ -16576,6 +16683,11 @@ factories["adapters.eeex.lower"]=function(require)
 -- run() queues an owed block's response, picked by weight as the game picks, without Continue() and
 -- without the response's ordinary fight actions (a gnoll's Help() runs, the Attack() beside it is the
 -- engine's); its notes (the creature's own variables, messages, interrupt switches) stay with it.
+-- Story targets (Christopher, 2026-11-10: a creature the engine takes over keeps what it was known
+-- for): story() tells whether a creature its script attacks by name (xvarts "HulriksCow", gnolls
+-- "Drizzt") is alive in its area; the gate then leaves the creature to its script (kernel/hook.lua),
+-- pauses and all, as the game had the encounter. A script that attacks no one by name (nearly all)
+-- costs a table lookup.
 -- Engine objects never leave this module: records are plain, and the cache holds plain plans per
 -- script resref (one resref has the same blocks for the whole session).
 local M={}
@@ -16607,6 +16719,9 @@ M.COMBAT=set{'Spell','SpellRES','SpellNoDec','SpellNoDecRES','SpellPoint','Spell
 -- The part of an ordinary combat round that only keeps notes: it stays with a duty response.
 M.NOTES=set{'SetGlobal','SetGlobalTimer','SetGlobalTimerRandom','IncrementGlobal','DisplayString',
     'DisplayStringHead','VerbalConstant','PlaySound','SetInterrupt'}
+-- Attacks: at a creature the script calls by name, they follow the story. Casts do not count: a cast
+-- at a named friend is a heal, and one without a spellbook entry runs as a duty anyway.
+M.AIMED=set{'Attack','AttackOneRound','AttackReevaluate','AttackNoSound'}
 -- EEex_LuaTrigger, and the engine's question in a hook block.
 M.LUA_TRIGGER=0x410E
 M.CLAIM='BGSE_Claim'
@@ -16617,7 +16732,8 @@ function M.new(g,options)
     -- ACTION.IDS: action number -> its names (upper case), and the first name, for the log.
     local names,primary,broken
     local plans,planCount={},0
-    local stats={walks=0,blocks=0,owed=0,runs=0,actions=0,fights=0,gone=0,errors=0}
+    local stats={walks=0,blocks=0,owed=0,runs=0,actions=0,fights=0,gone=0,errors=0,stories=0,storyLooks=0,
+        nameErrors=0}
     local recent={}
     local api={}
     local function iterate(list,fn) g.EEex_Utility_IterateCPtrList(list,fn) end
@@ -16661,11 +16777,30 @@ function M.new(g,options)
         if any(M.COMBAT) then return 'fight' end
         return 'duty'
     end
+    -- The name of the creature an action attacks, lower case, when the script calls it by name (a
+    -- compiled object carries the name it was written with; the game's own object kinds, Player1 or
+    -- NearestEnemyOf(Myself), carry none); else nil. A name that cannot be read counts as none.
+    local function named(action)
+        local list=names[action.m_actionID]
+        if not list then return nil end
+        local aimed=false
+        for name in pairs(list) do if M.AIMED[name] then aimed=true;break end end
+        if not aimed then return nil end
+        local ok,text=pcall(function() return action.m_acteeID.m_name.m_pchData:get() end)
+        if not ok then stats.nameErrors=stats.nameErrors+1;return nil end
+        text=type(text)=='string' and text:match('^[^%z]*'):lower() or ''
+        if text~='' then return text end
+    end
     -- A response: 'duty' (it runs without its fight actions), 'world' (only its writes outside LOCALS
     -- run) or 'fight'; removes: it uses up a spellbook entry, so its SpellNoDec is a spellbook cast.
-    local function judge(response)
+    -- targets (optional) gets the names of the creatures it attacks by name.
+    local function judge(response,targets)
         local seen={}
-        iterate(response.m_actionList,function(action) seen[kind(action)]=true end)
+        iterate(response.m_actionList,function(action)
+            seen[kind(action)]=true
+            local name=targets and named(action)
+            if name then targets[name]=true end
+        end)
         local sort='fight'
         if seen.duty or seen.special or (seen.nodec and not seen.remove) then sort='duty'
         elseif seen.world then sort='world' end
@@ -16683,12 +16818,12 @@ function M.new(g,options)
     end
     local function plan(name,script)
         if plans[name] then return plans[name] end
-        local blocks={}
+        local blocks,targets={},{}
         iterate(script.m_caList,function(cr)
             if asksEngine(cr) then blocks[#blocks+1]={hook=true,responses={}};return end
             local responses,owe,onward={},false,true
             iterate(cr.m_responseSet.m_responseList,function(response)
-                local r=judge(response)
+                local r=judge(response,targets)
                 responses[#responses+1]=r
                 if r.kind~='fight' then owe=true end
                 if not r.continues then onward=false end
@@ -16696,8 +16831,12 @@ function M.new(g,options)
             if #responses==0 then onward=false end
             blocks[#blocks+1]={owe=owe,onward=onward,responses=responses}
         end)
+        -- The creatures the script attacks by name, or nil.
+        local story
+        for target in pairs(targets) do story=story or {};story[#story+1]=target end
+        if story then table.sort(story) end
         if planCount>=M.planLimit then plans,planCount={},0 end
-        plans[name]={blocks=blocks};planCount=planCount+1
+        plans[name]={blocks=blocks,story=story};planCount=planCount+1
         return plans[name]
     end
     -- True when the pass ends in this script.
@@ -16717,13 +16856,10 @@ function M.new(g,options)
         end)
         return stop
     end
-    -- The owed blocks of the gate's list (scripts in slot order: the deciding script itself first when
-    -- it carries the engine's own hook, then those below it, none of them SCS-hooked), as plain records
-    -- {key, script, level, block}.
-    function api.walk(object,deciding,scripts)
-        stats.walks=stats.walks+1
-        local found={}
-        if type(deciding)~='string' or type(scripts)~='table' or #scripts==0 or not known() then return found end
+    -- The scripts of the gate's list as the creature carries them now, in the order a pass runs them:
+    -- visit(script, name, level) for each, until it answers true or the creature's slots no longer
+    -- match the list.
+    local function each(object,deciding,scripts,visit)
         deciding=deciding:lower()
         local after,index=false,1
         for _,level in ipairs(M.levels) do
@@ -16741,12 +16877,54 @@ function M.new(g,options)
             end
             if walks then
                 local script=g.EEex_AIBase_GetScriptLevel(object,level)
-                if not script or walkScript(object,script,name,level,found) then break end
+                if not script or visit(script,name,level) then break end
                 index=index+1
             end
         end
+    end
+    -- The owed blocks of the gate's list (scripts in slot order: the deciding script itself first when
+    -- it carries the engine's own hook, then those below it, none of them SCS-hooked), as plain records
+    -- {key, script, level, block}.
+    function api.walk(object,deciding,scripts)
+        stats.walks=stats.walks+1
+        local found={}
+        if type(deciding)~='string' or type(scripts)~='table' or #scripts==0 or not known() then return found end
+        each(object,deciding,scripts,function(script,name,level)
+            return walkScript(object,script,name,level,found)
+        end)
         stats.owed=stats.owed+#found
         return found
+    end
+    -- Whether a creature that the scripts of the gate's list attack by name is alive in the creature's
+    -- area (see the top), and its name; false and 'absent' when they name someone who is not there.
+    -- Scripts that name no one (nearly all) cost no look at the area.
+    function api.story(object,deciding,scripts)
+        if type(deciding)~='string' or type(scripts)~='table' or #scripts==0 or not known() then return false end
+        local wanted
+        each(object,deciding,scripts,function(script,name)
+            for _,target in ipairs(plan(name,script).story or {}) do
+                wanted=wanted or {}
+                wanted[target]=true
+            end
+        end)
+        if not wanted then return false end
+        stats.storyLooks=stats.storyLooks+1
+        local area=object.m_pArea
+        if not area then return false,'absent' end
+        local found
+        for _,list in ipairs({'m_lVertSort','m_lVertSortBack'}) do
+            if found then break end
+            iterate(area[list],function(id)
+                local other=id~=object.m_id and g.EEex_GameObject_Get(id)
+                if other and g.EEex_GameObject_IsSprite(other,false) then
+                    local ok,name=pcall(function() return lower(other.m_scriptName:get()):match('^[^%z]*') end)
+                    if ok and wanted[name] then found=name;return true end
+                end
+            end)
+        end
+        if not found then return false,'absent' end
+        stats.stories=stats.stories+1
+        return true,found
     end
     local function nth(list,n)
         local i,item=0,nil
@@ -16859,7 +17037,9 @@ factories["adapters.eeex.hook"]=function(require)
 -- The engine's own hook (family 'auto', at the top of the game's own fight scripts; 2026-11-10) asks
 -- for every creature that carries such a script. The engine answers for those on the enemy side, as
 -- the family their class gives them (M.CLASS_FAMILY, else a monster); [BGSE] Others=0 switches these
--- creatures off and leaves them to their scripts.
+-- creatures off and leaves them to their scripts. One whose script attacks a creature by name (xvarts
+-- Hulrik's cow, gnolls Drizzt) stays with its script while that creature is alive in its area
+-- (Christopher, 2026-11-10: what a creature was known for stays).
 local hook=require('kernel.hook')
 local lowerScripts=require('adapters.eeex.lower')
 local M={}
@@ -16937,6 +17117,9 @@ function M.below(g,object,script)
 end
 -- How many creatures' records of the engine's own actions are kept at most.
 M.ownLimit=1024
+-- Ticks for which a look that found nobody a creature's script attacks by name stands (the gate's
+-- storyTicks for a yes).
+M.storyLookTicks=45
 -- The action numbers in the creature's queue, in order.
 function M.queued(g,object)
     local ids={}
@@ -16970,6 +17153,8 @@ function M.install(g,options)
     -- id -> the block that queued the hook's last response (sn, rs, rn) and the actions it queued;
     -- owned counts them (at most M.ownLimit: creatures that died with a record keep it until then).
     local mine,owned={},0
+    -- id -> the tick a look found nobody its script attacks by name (at most M.ownLimit records).
+    local absent,absentCount={},0
     local replacing={count=0,errors=0}
     local function drop(id) if mine[id]~=nil then mine[id]=nil;owned=owned-1 end end
     -- Right after the hook's response queued a decision: when those actions, behind the lower scripts'
@@ -17038,6 +17223,24 @@ function M.install(g,options)
         owe=walker and function(id,scripts,tick,deciding)
             local object=sprite(g,id)
             if object then return walker.walk(object,deciding,scripts) end
+        end,
+        -- A creature whose script attacks someone by name keeps that script while that one is there.
+        -- That nobody of that name is there stands for M.storyLookTicks, as the gate lets a yes stand:
+        -- the look goes over every creature of the area.
+        yields=walker and function(id,scripts,tick,deciding)
+            local last=absent[id]
+            if last and tick>=last and tick-last<=M.storyLookTicks then return false end
+            local object=sprite(g,id)
+            if not object then return false end
+            local story,why=walker.story(object,deciding,scripts)
+            if why=='absent' then
+                if last==nil then
+                    if absentCount>=M.ownLimit then absent,absentCount={},0 end
+                    absentCount=absentCount+1
+                end
+                absent[id]=tick
+            elseif last~=nil then absent[id]=nil;absentCount=absentCount-1 end
+            return story
         end,
         -- A creature that asks from the engine's own hook: one on the enemy side, by its class.
         resolve=function(id)
@@ -17124,6 +17327,7 @@ function M.install(g,options)
     -- A load forgets which actions were the engine's own: object ids do not outlive the session.
     function root.forget()
         mine,owned={},0
+        absent,absentCount={},0
         if walker then pcall(walker.reset) end
     end
     g.BGSE=root

@@ -33,6 +33,10 @@ M.LAUNCHER={[1]=15,[2]=27,[3]=18}
 M.STRENGTH_HIT=0x9
 M.STRENGTH_DAMAGE=0x5
 M.MAGICAL=0x40
+-- The item flag "droppable" (IESDP, ITM, bit 2). A weapon without it cannot be laid down: it is part of
+-- the creature's body (an ankheg's bite and its spit, a wyvern's sting, a basilisk's gaze), where a
+-- sword or a bow has it. The choice mixes a creature's body weapons (combat-intent/choice.lua).
+M.DROPPABLE=0x4
 -- Item ability attack types: melee, ranged (thrown or ammunition), launcher.
 M.MELEE,M.RANGED,M.LAUNCHES=1,2,4
 -- The item's usability bit "unusable by thieves" (IESDP, ITM). A backstab lands only with a melee
@@ -271,7 +275,8 @@ end
 -- strengthDamage), for buffs that change its strength (combat-intent/defence.lua), the weapon's
 -- own damage dice and its ammunition's (rolls: {dice, sides} each), for luck on base weapon damage
 -- (threat.luckGain), and a melee weapon's own range (swing: a Quarterstaff's or Halberd's 2, a Long
--- Sword's 1), which sets how far it strikes (adapters/eeex/choice.lua, M.pairReach).
+-- Sword's 1), which sets how far it strikes (adapters/eeex/choice.lua, M.pairReach); body: the weapon
+-- cannot be laid down (M.DROPPABLE).
 local function attack(c,s,hit,damage)
     local stats=c.stats
     local melee=not s.ranged
@@ -285,6 +290,7 @@ local function attack(c,s,hit,damage)
         end
     end
     if melee and number(s.record.usability) and not targeting.has(s.record.usability,M.THIEF) then out.backstab=true end
+    if number(s.record.flags) and not targeting.has(s.record.flags,M.DROPPABLE) then out.body=true end
     out.thac0=value(stats.thac0)-hit-value(stats.hitBonus)-value(melee and stats.meleeHit or stats.missileHit)
     out.damage=math.max(0,damage+value(stats.damageBonus)+value(melee and stats.meleeDamage or stats.missileDamage))
     local hitting=s.ammoRecord or s.record

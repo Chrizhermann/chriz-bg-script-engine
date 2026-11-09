@@ -20,6 +20,11 @@
 -- run() queues an owed block's response, picked by weight as the game picks, without Continue() and
 -- without the response's ordinary fight actions (a gnoll's Help() runs, the Attack() beside it is the
 -- engine's); its notes (the creature's own variables, messages, interrupt switches) stay with it.
+-- Story targets (Christopher, 2026-11-10: a creature the engine takes over keeps what it was known
+-- for): story() tells whether a creature its script attacks by name (xvarts "HulriksCow", gnolls
+-- "Drizzt") is alive in its area; the gate then leaves the creature to its script (kernel/hook.lua),
+-- pauses and all, as the game had the encounter. A script that attacks no one by name (nearly all)
+-- costs a table lookup.
 -- Engine objects never leave this module: records are plain, and the cache holds plain plans per
 -- script resref (one resref has the same blocks for the whole session).
 local M={}
@@ -51,6 +56,9 @@ M.COMBAT=set{'Spell','SpellRES','SpellNoDec','SpellNoDecRES','SpellPoint','Spell
 -- The part of an ordinary combat round that only keeps notes: it stays with a duty response.
 M.NOTES=set{'SetGlobal','SetGlobalTimer','SetGlobalTimerRandom','IncrementGlobal','DisplayString',
     'DisplayStringHead','VerbalConstant','PlaySound','SetInterrupt'}
+-- Attacks: at a creature the script calls by name, they follow the story. Casts do not count: a cast
+-- at a named friend is a heal, and one without a spellbook entry runs as a duty anyway.
+M.AIMED=set{'Attack','AttackOneRound','AttackReevaluate','AttackNoSound'}
 -- EEex_LuaTrigger, and the engine's question in a hook block.
 M.LUA_TRIGGER=0x410E
 M.CLAIM='BGSE_Claim'
@@ -61,7 +69,8 @@ function M.new(g,options)
     -- ACTION.IDS: action number -> its names (upper case), and the first name, for the log.
     local names,primary,broken
     local plans,planCount={},0
-    local stats={walks=0,blocks=0,owed=0,runs=0,actions=0,fights=0,gone=0,errors=0}
+    local stats={walks=0,blocks=0,owed=0,runs=0,actions=0,fights=0,gone=0,errors=0,stories=0,storyLooks=0,
+        nameErrors=0}
     local recent={}
     local api={}
     local function iterate(list,fn) g.EEex_Utility_IterateCPtrList(list,fn) end
@@ -105,11 +114,30 @@ function M.new(g,options)
         if any(M.COMBAT) then return 'fight' end
         return 'duty'
     end
+    -- The name of the creature an action attacks, lower case, when the script calls it by name (a
+    -- compiled object carries the name it was written with; the game's own object kinds, Player1 or
+    -- NearestEnemyOf(Myself), carry none); else nil. A name that cannot be read counts as none.
+    local function named(action)
+        local list=names[action.m_actionID]
+        if not list then return nil end
+        local aimed=false
+        for name in pairs(list) do if M.AIMED[name] then aimed=true;break end end
+        if not aimed then return nil end
+        local ok,text=pcall(function() return action.m_acteeID.m_name.m_pchData:get() end)
+        if not ok then stats.nameErrors=stats.nameErrors+1;return nil end
+        text=type(text)=='string' and text:match('^[^%z]*'):lower() or ''
+        if text~='' then return text end
+    end
     -- A response: 'duty' (it runs without its fight actions), 'world' (only its writes outside LOCALS
     -- run) or 'fight'; removes: it uses up a spellbook entry, so its SpellNoDec is a spellbook cast.
-    local function judge(response)
+    -- targets (optional) gets the names of the creatures it attacks by name.
+    local function judge(response,targets)
         local seen={}
-        iterate(response.m_actionList,function(action) seen[kind(action)]=true end)
+        iterate(response.m_actionList,function(action)
+            seen[kind(action)]=true
+            local name=targets and named(action)
+            if name then targets[name]=true end
+        end)
         local sort='fight'
         if seen.duty or seen.special or (seen.nodec and not seen.remove) then sort='duty'
         elseif seen.world then sort='world' end
@@ -127,12 +155,12 @@ function M.new(g,options)
     end
     local function plan(name,script)
         if plans[name] then return plans[name] end
-        local blocks={}
+        local blocks,targets={},{}
         iterate(script.m_caList,function(cr)
             if asksEngine(cr) then blocks[#blocks+1]={hook=true,responses={}};return end
             local responses,owe,onward={},false,true
             iterate(cr.m_responseSet.m_responseList,function(response)
-                local r=judge(response)
+                local r=judge(response,targets)
                 responses[#responses+1]=r
                 if r.kind~='fight' then owe=true end
                 if not r.continues then onward=false end
@@ -140,8 +168,12 @@ function M.new(g,options)
             if #responses==0 then onward=false end
             blocks[#blocks+1]={owe=owe,onward=onward,responses=responses}
         end)
+        -- The creatures the script attacks by name, or nil.
+        local story
+        for target in pairs(targets) do story=story or {};story[#story+1]=target end
+        if story then table.sort(story) end
         if planCount>=M.planLimit then plans,planCount={},0 end
-        plans[name]={blocks=blocks};planCount=planCount+1
+        plans[name]={blocks=blocks,story=story};planCount=planCount+1
         return plans[name]
     end
     -- True when the pass ends in this script.
@@ -161,13 +193,10 @@ function M.new(g,options)
         end)
         return stop
     end
-    -- The owed blocks of the gate's list (scripts in slot order: the deciding script itself first when
-    -- it carries the engine's own hook, then those below it, none of them SCS-hooked), as plain records
-    -- {key, script, level, block}.
-    function api.walk(object,deciding,scripts)
-        stats.walks=stats.walks+1
-        local found={}
-        if type(deciding)~='string' or type(scripts)~='table' or #scripts==0 or not known() then return found end
+    -- The scripts of the gate's list as the creature carries them now, in the order a pass runs them:
+    -- visit(script, name, level) for each, until it answers true or the creature's slots no longer
+    -- match the list.
+    local function each(object,deciding,scripts,visit)
         deciding=deciding:lower()
         local after,index=false,1
         for _,level in ipairs(M.levels) do
@@ -185,12 +214,54 @@ function M.new(g,options)
             end
             if walks then
                 local script=g.EEex_AIBase_GetScriptLevel(object,level)
-                if not script or walkScript(object,script,name,level,found) then break end
+                if not script or visit(script,name,level) then break end
                 index=index+1
             end
         end
+    end
+    -- The owed blocks of the gate's list (scripts in slot order: the deciding script itself first when
+    -- it carries the engine's own hook, then those below it, none of them SCS-hooked), as plain records
+    -- {key, script, level, block}.
+    function api.walk(object,deciding,scripts)
+        stats.walks=stats.walks+1
+        local found={}
+        if type(deciding)~='string' or type(scripts)~='table' or #scripts==0 or not known() then return found end
+        each(object,deciding,scripts,function(script,name,level)
+            return walkScript(object,script,name,level,found)
+        end)
         stats.owed=stats.owed+#found
         return found
+    end
+    -- Whether a creature that the scripts of the gate's list attack by name is alive in the creature's
+    -- area (see the top), and its name; false and 'absent' when they name someone who is not there.
+    -- Scripts that name no one (nearly all) cost no look at the area.
+    function api.story(object,deciding,scripts)
+        if type(deciding)~='string' or type(scripts)~='table' or #scripts==0 or not known() then return false end
+        local wanted
+        each(object,deciding,scripts,function(script,name)
+            for _,target in ipairs(plan(name,script).story or {}) do
+                wanted=wanted or {}
+                wanted[target]=true
+            end
+        end)
+        if not wanted then return false end
+        stats.storyLooks=stats.storyLooks+1
+        local area=object.m_pArea
+        if not area then return false,'absent' end
+        local found
+        for _,list in ipairs({'m_lVertSort','m_lVertSortBack'}) do
+            if found then break end
+            iterate(area[list],function(id)
+                local other=id~=object.m_id and g.EEex_GameObject_Get(id)
+                if other and g.EEex_GameObject_IsSprite(other,false) then
+                    local ok,name=pcall(function() return lower(other.m_scriptName:get()):match('^[^%z]*') end)
+                    if ok and wanted[name] then found=name;return true end
+                end
+            end)
+        end
+        if not found then return false,'absent' end
+        stats.stories=stats.stories+1
+        return true,found
     end
     local function nth(list,n)
         local i,item=0,nil

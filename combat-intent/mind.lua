@@ -74,6 +74,14 @@ M.default={
     -- that cost only chooses between targets (Christopher, 2026-10-25): fighters and monsters
     -- (M.FAMILIES). Casters weigh it.
     alwaysAttack=false,
+    -- Body weapons (a bite and a spit, a sting, a gaze: weapons the creature cannot lay down,
+    -- combat-intent/arsenal.lua): how much of the times it does not take its best option it draws
+    -- among all of them by their worth (combat-intent/choice.lua, M.varied), and whether it steps back
+    -- from melee to use one that shoots, whatever its wit. 0 and false: always the best one, and a
+    -- step back only as a tactic. Christopher, 2026-11-10: a creature the engine takes over keeps what
+    -- it was known for.
+    bodyMix=1,
+    bodyRetreat=true,
     -- Summons (D3c): no more summoning once this many summoned allies are in view (the game's own
     -- limit for summoned creatures is five).
     summonCap=5,
@@ -110,7 +118,8 @@ end
 local CHECKS={coordination=share,best=share,band=share,economy=amount,minValue=amount,
     focusBonus=amount,killBonus=amount,interrupt=amount,tactics=share,caution=amount,horizon=amount,redefend=amount,acute=share,
     castCost=amount,allySpells=resrefs,slowSpeed=amount,touchReach=amount,summonCap=amount,fightCap=amount,
-    searchPatience=amount,
+    searchPatience=amount,bodyMix=share,
+    bodyRetreat=function(v) return type(v)=='boolean' end,
     openers=function(v) return type(v)=='boolean' end,
     touch=function(v) return type(v)=='boolean' end,
     weapons=function(v) return type(v)=='boolean' end,

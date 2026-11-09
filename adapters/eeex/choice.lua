@@ -897,6 +897,7 @@ function M.new(g,options)
         return {item=a.item,damage=a.damage,damageType=a.damageType,apr=a.apr or weapons.baseApr,thac0=a.thac0,
             ranged=a.ranged==true,range=a.range,swing=a.swing,flags=a.flags,enchantment=a.enchantment,strike=strike,fist=a.fist,
             slot=a.slot,abilityNum=a.abilityNum,ammo=a.ammo,projectile=a.projectile,backstab=a.backstab,itemType=a.itemType,
+            body=a.body,
             str=a.str,strExtra=a.strExtra,strengthHit=a.strengthHit,strengthDamage=a.strengthDamage}
     end
     -- The 'arms' row (see the top) when the weapon in the creature's hand (a, sense.arsenal's) is
@@ -1985,6 +1986,10 @@ function M.new(g,options)
         judge(tick)
         local looked,lookError=pcall(look,sprite,tick,family)
         if not looked then zoneFailed('zone-look',lookError) end
+        -- A creature in panic is not the engine's (Christopher, 2026-11-10: what a creature did before
+        -- stays): it runs as the game and its script have it (the game's own scripts open with a
+        -- block for it), and the engine decides again once the panic is over.
+        if targeting.has(g.EEex_Sprite_GetState(sprite),targeting.STATE.panic) then return decline('panic') end
         local p=pending[id]
         if p then
             -- A cast queued while the casting aura (the round of the creature's last cast) runs

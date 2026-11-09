@@ -109,11 +109,12 @@ local records={
     TESTHEAL=spl('TESTHEAL',4,{fx(17,{p1=20})})}
 local POTION={kind='ITM',resref='TESTPOTN',flags=0,abilities={{form=3,flags=0,location=3,target=5,range=1,speed=0,
     projectile=1,effects={fx(17,{p1=20,target=1})}}}}
--- Weapons: a magical long sword, a bow (item category 15) and its arrows (launcher 1, a bow).
+-- Weapons: a magical long sword, a bow (item category 15) and its arrows (launcher 1, a bow). They can
+-- be dropped (item flag 0x4), as weapons that are no part of a creature's body can.
 local function weapon(resref,fields,ability)
     local a={location=1,attackType=1,dice=1,sides=8,damageBonus=0,range=1,thac0=0,effects={}}
     for k,v in pairs(ability or {}) do a[k]=v end
-    local r={kind='ITM',resref=resref,flags=0x40,enchantment=0,abilities={a}}
+    local r={kind='ITM',resref=resref,flags=0x44,enchantment=0,abilities={a}}
     for k,v in pairs(fields or {}) do r[k]=v end
     return r
 end
@@ -308,6 +309,10 @@ m1.state=0x1000
 assert(claim(m1,'mage','s1',451)==true and root.inspect().choice.reasons['no-option']==nil)
 local w6=last('wait')
 assert(w6.tick==451 and w6.reason=='no-option' and w6.seconds==intent.idle and w6.rejected~=nil)
+m1.state=0
+-- A creature in panic is not the engine's: its script has the round until the panic is over.
+m1.state=0x4
+assert(claim(m1,'mage','s1',452)==false and root.inspect().choice.reasons.panic==1)
 m1.state=0
 m1.castTimer=40
 assert(claim(m1,'mage','s1',467)==true and last('wait').tick==467 and last('wait').reason=='aura')
@@ -2858,6 +2863,39 @@ for _,r in ipairs(rows5) do
     if r.kind=='choice' then kinds[#kinds+1]=r.castKind end
 end
 assert(blocks==1 and #kinds==1 and kinds[1]=='weapon' and draws==1)
+-- Body weapons (Christopher, 2026-11-10): a wyvern's sting and its bite are items that cannot be
+-- dropped (item flag 0x4 clear), so they are parts of it and it uses both. A dull one whose draws all
+-- come up high strays from its best attack and takes the bite, taken up without a second's loss. The
+-- same two as weapons that could be laid down are no body weapons: the best one, and no draw.
+ITEMS.TESTSTNG=weapon('TESTSTNG',{flags=0x60},{dice=2,sides=8})
+ITEMS.TESTBITE=weapon('TESTBITE',{flags=0x60},{dice=1,sides=4})
+ITEMS.TESTSTN2=weapon('TESTSTN2',{flags=0x64},{dice=2,sides=8})
+ITEMS.TESTBIT2=weapon('TESTBIT2',{flags=0x64},{dice=1,sides=4})
+local function beast(first,second)
+    local g6=world()
+    tablesOf(g6)
+    local wyvern=g6.add(armed(sprite(2,5000,5000,255),35,first))
+    wyvern.items[36]={cResRef=str(second)}
+    g6.add(sturdy(sprite(13,5050,5000,2)))
+    local draws6=0
+    local dir6=directors.new(g6,{reader=reader9})
+    local ch6=choices.new(g6,{reader=reader9,director=dir6,rng={nextInt=function(_,_,hi) draws6=draws6+1;return hi end},
+        mindFor=function() return profiles.withWit(profiles.forFamily(profiles.new(),'monster'),{step='dull',danger=1}) end})
+    local rows6={}
+    ch6:setSink(function(row) rows6[#rows6+1]=row end)
+    runtime.install(g6,{director=dir6,choice=ch6,version='test'})
+    g6.ticks=400
+    assert(g6.BGSE_Claim(wyvern,'mage','s1')==true)
+    local picked
+    for _,r in ipairs(rows6) do if r.kind=='choice' then picked=r end end
+    g6.BGSE_Act(wyvern)
+    return picked,draws6,g6.queued[#g6.queued].text
+end
+local c6,n6,q6=beast('TESTSTNG','TESTBITE')
+assert(c6.castKind=='weapon' and c6.spell=='TESTBITE' and c6.slot==36 and n6==2)
+assert(q6=='SelectWeaponAbility(36,0)\nAttackOneRound(EEex_Target("BGSE"))')
+c6,n6=beast('TESTSTN2','TESTBIT2')
+assert(c6.castKind=='weapon' and c6.spell=='TESTSTN2' and c6.slot==nil and n6==0)
 end)()
 groups=groups+1
 

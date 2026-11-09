@@ -487,4 +487,56 @@ assert(bare:claim(gnoll,'auto')==false and bare:inspect().declines['no-family']=
 bare=raw.new({now=clock,below=function() return {} end,resolve=function() return 'monster' end})
 assert(bare:claim(gnoll,'auto')==false and bare:inspect().declines['no-registry']==1)
 rejects(function() raw.new({now=clock,resolve=1}) end)
-return 22
+
+-- 23. Story targets (Christopher, 2026-11-10: what a creature was known for stays). While a creature
+-- that asks from the engine's own hook has the one its script attacks by name around (config.yields,
+-- with owe's list), the script keeps it: declined as 'story' before the observer and the decider hear
+-- of it, and a decision claimed before is dropped. The answer stands for storyTicks; then the gate
+-- asks again, and the engine takes the creature once the answer is no. A failing yields costs
+-- nothing; an SCS-hooked script is never asked.
+local there,asked,seen23,decided23={[7]=true},{},{},{}
+g=raw.new({now=clock,hooked={xvarth='auto',tanari='monster'},storyTicks=45,
+    below=function(id) return id==8 and {'tanari'} or id==9 and {'xvarth'} or {} end,
+    resolve=function() return 'monster' end,
+    observe=function(a) seen23[#seen23+1]=a.id end,
+    decide=function(a) decided23[#decided23+1]=a.id;return {response='Attack'} end,
+    perform=function() return true end,
+    yields=function(id,scripts,_,deciding)
+        asked[#asked+1]=id..':'..deciding..'>'..table.concat(scripts,',')
+        if id==6 then error('gone') end
+        return there[id]
+    end})
+pass()
+local xvart={id=7,script='XVARTH'}
+assert(g:claim(xvart,'auto')==false and g:inspect().declines.story==1 and asked[1]=='7:xvarth>xvarth')
+assert(#seen23==0 and #decided23==0 and g:inspect().counts.stories==1 and g:inspect().storied==1)
+assert(g:act(xvart)==false)
+-- The answer stands: within 45 ticks nobody is asked again, also once the cow is dead.
+there[7]=nil
+tick=tick+45
+assert(g:claim(xvart,'auto')==false and #asked==1 and g:inspect().declines.story==2)
+-- Past them the gate asks again: the cow is gone, the engine decides.
+pass()
+assert(g:claim(xvart,'auto')==true and #asked==2 and decided23[1]==7 and seen23[1]==7 and g:inspect().storied==0)
+assert(g:act(xvart)==true)
+-- The cow is back (another one of that name): the script has the creature again, and the claim of
+-- this pass is not performed.
+pass()
+there[7]=true
+assert(g:claim(xvart,'auto')==false and g:inspect().counts.stories==2 and g:act(xvart)==false)
+-- A yields that fails, or answers anything but true, leaves the creature to the engine.
+there[5]='yes'
+assert(g:claim({id=6,script='xvarth'},'auto')==true and g:inspect().counts.storyErrors==1)
+assert(g:claim({id=5,script='xvarth'},'auto')==true and g:inspect().counts.stories==2)
+-- An SCS-hooked script, also above an auto one, is never asked; nor is an auto script above an SCS one.
+local count23=#asked
+assert(g:claim({id=9,script='tanari'},'monster')==true and g:claim({id=8,script='xvarth'},'auto')==false)
+assert(#asked==count23 and g:inspect().declines['scs-script']==1)
+-- A load forgets the stories.
+g:invalidate()
+there[7]=nil
+pass()
+assert(g:claim(xvart,'auto')==true and g:inspect().storied==0)
+rejects(function() raw.new({now=clock,yields=1}) end)
+rejects(function() raw.new({now=clock,storyTicks=-1}) end)
+return 23

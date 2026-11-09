@@ -909,4 +909,105 @@ i.kited=i.tick-17*15
 assert(choice.decide(i).resref=='TESTSLOW')
 groups=groups+1
 
+-- 17. Body weapons (Christopher, 2026-11-10: a creature the engine takes over keeps what it was known
+-- for). A wyvern's sting (two hits of 9) and its bite (two of 3) are parts of it (body): taking the
+-- other one up costs no time, and it uses both. A dull one (it takes its best option 4 times in 10)
+-- stings on a draw up to 400; past that it draws between the two by their worth, the sting three
+-- times in four. Without a draw (no rng) it takes the best one.
+do
+    local function part(item,damage,slot,fields)
+        local w={item=item,damage=damage,damageType=1,apr=2,thac0=10,ranged=false,flags=0,enchantment=0,slot=slot,
+            abilityNum=0,body=true}
+        for k,v in pairs(fields or {}) do w[k]=v end
+        return w
+    end
+    local STING,BITE=part('TESTSTNG',9,35),part('TESTBITE',3,36)
+    local beast=mind.forFamily(mind.new(),'monster')
+    local dull=mind.withWit(beast,{step='dull',danger=1})
+    local function wyvern(m)
+        local w=input({mind=m or dull,family='monster'})
+        w.frame.self.x,w.frame.self.y=1000,1000
+        w.frame.self.weapon=STING
+        w.frame.self.arsenal={BITE}
+        w.frame.enemies={foe(11,1050)}
+        return w
+    end
+    local calls
+    local function seq(values)
+        calls=0
+        return {nextInt=function() calls=calls+1;return values[calls] or values[#values] end}
+    end
+    local w=wyvern()
+    local both=choice.weaponOptions(w)
+    assert(#both==2 and both[1].resref=='TESTSTNG' and both[1].body==true and both[1].arm==1 and both[1].slot==nil)
+    assert(both[2].resref=='TESTBITE' and both[2].body==true and both[2].arm==2 and both[2].slot==36)
+    assert(near(both[1].worth,1.6*9/60) and near(both[2].worth,1.6*3/60))
+    assert(choice.varied(w,both)==both[1] and choice.decide(w).resref=='TESTSTNG')
+    assert(near(dull.best,0.4) and dull.bodyMix==1)
+    w.rng=seq({400})
+    assert(choice.decide(w).resref=='TESTSTNG' and calls==1)
+    w.rng=seq({401,740000})
+    assert(choice.decide(w).resref=='TESTSTNG' and calls==2)
+    w.rng=seq({401,760000})
+    local d2,why2=choice.decide(w)
+    assert(why2=='weapon' and d2.resref=='TESTBITE' and d2.slot==36 and d2.abilityNum==0 and calls==2)
+    w.rng=seq({401,1000000})
+    assert(choice.decide(w).resref=='TESTBITE')
+    -- A clever one takes its best attack 8 times in 10; half the mix, and the dull one 7 in 10; none,
+    -- and it always stings, without a draw.
+    local clever=wyvern(mind.withWit(beast,{step='clever',danger=1}))
+    clever.rng=seq({800})
+    assert(choice.decide(clever).resref=='TESTSTNG' and calls==1)
+    clever.rng=seq({801,1000000})
+    assert(choice.decide(clever).resref=='TESTBITE')
+    local half=mind.withWit(mind.forFamily(mind.new({bodyMix=0.5}),'monster'),{step='dull',danger=1})
+    w.mind=half
+    w.rng=seq({700})
+    assert(choice.decide(w).resref=='TESTSTNG' and calls==1)
+    w.rng=seq({701,1000000})
+    assert(choice.decide(w).resref=='TESTBITE')
+    w.mind=mind.withWit(mind.forFamily(mind.new({bodyMix=0}),'monster'),{step='dull',danger=1})
+    w.rng=seq({1000,1000000})
+    assert(choice.decide(w).resref=='TESTSTNG' and calls==0)
+    assert(mind.new().bodyMix==1 and mind.new().bodyRetreat==true and mind.new({bodyMix=2})==nil and
+        mind.new({bodyRetreat=1})==nil)
+    -- Only its body's weapons: with a sword that it could lay down as its other weapon, or as its best
+    -- one, nothing is drawn; nor when the other body weapon can hurt no one (the enemy is immune to it).
+    w=wyvern()
+    w.frame.self.arsenal={edge(3)}
+    w.rng=seq({1000,1000000})
+    assert(choice.decide(w).resref=='TESTSTNG' and calls==0)
+    w.frame.self.weapon,w.frame.self.arsenal=edge(20),{BITE}
+    assert(choice.decide(w).resref=='TESTSWRD' and calls==0)
+    w=wyvern()
+    w.frame.self.arsenal={part('TESTBITE',3,36,{enchantment=0})}
+    w.frame.enemies={foe(11,1050,{protections={{opcode=120,p1=0,p2=2}}})}
+    w.frame.self.weapon=part('TESTSTNG',9,35,{enchantment=1,flags=0x40})
+    w.rng=seq({1000,1000000})
+    assert(choice.decide(w).resref=='TESTSTNG' and calls==0)
+    -- A sword not in hand still takes its second to take up; a body weapon none (above).
+    w=wyvern()
+    w.frame.self.arsenal={edge(3)}
+    assert(near(choice.weaponOptions(w)[2].worth,1.6*3/60*6/7))
+    -- An ankheg's spit (it shoots, and is part of it) and its bite: next to an ogre it steps back to
+    -- spit although it is dull, by its kind; a dull archer does not (group 13), nor the ankheg with
+    -- that switched off.
+    local SPIT=part('TESTSPIT',10,35,{ranged=true,range=400,damageType=4,projectile=2})
+    local a=wyvern()
+    a.frame.self.weapon=SPIT
+    a.frame.enemies={foe(11,1050,{attack={apr=3,thac0=1,damage=20}})}
+    rejected={}
+    local step=choice.kite(a,rejected)
+    assert(step and step.kind=='kite' and step.point.x==600 and rejected['kite-unnoticed']==nil)
+    assert(choice.decide(a).kind=='kite')
+    a.mind=mind.withWit(mind.forFamily(mind.new({bodyRetreat=false}),'monster'),{step='dull',danger=1})
+    rejected={}
+    assert(choice.kite(a,rejected)==nil and rejected['kite-unnoticed']==1 and choice.decide(a).kind=='weapon')
+    a.mind=dull
+    a.frame.self.weapon,a.frame.self.arsenal=BOW,{BITE}
+    rejected={}
+    assert(choice.kite(a,rejected)==nil and rejected['kite-unnoticed']==1)
+end
+groups=groups+1
+
 return groups
