@@ -85,18 +85,25 @@ def creature(data, resref, tlk):
     return row
 
 
-def _script_status(data):
-    """The installer rule, with hook_rule's family names rather than a second family matcher."""
+def _script_status(data, fight_ids=frozenset()):
+    """The installer rule, with hook_rule's family names rather than a second family matcher: SCS's scripts by
+    SCS's marks, and the engine's own hook ('own', the family by the creature's class) on any other script that
+    holds a fight action. Every script asked about here is one a creature carries."""
     if data and b'castspell' in data and b'DMWW_' in data:
         family = hook_rule.family(data.decode('latin-1'))
         return 'scs', family or 'monster'
+    if data and hook_rule.wants_own(data, fight_ids):
+        return 'own', hook_rule.OWN
     return 'other', ''
 
 
 def _effective_status(scripts, script_statuses):
     statuses = [script_statuses.get(script, ('other', '')) for script in scripts if script]
     hooked = [family for kind, family in statuses if kind == 'scs']
-    return ('scs', hooked[0]) if hooked else ('other', '')
+    if hooked:
+        return 'scs', hooked[0]
+    # Without an SCS script, a script with the engine's own hook decides (kernel/hook.lua).
+    return ('own', hook_rule.OWN) if any(kind == 'own' for kind, _ in statuses) else ('other', '')
 
 
 def _area_rows(game, tlk, catalogue, script_statuses, classes, races, allegiances, problems):
@@ -208,8 +215,9 @@ def census(game, tlk):
     problems = []
     catalogue = {resref: creature(game.get(resref, 'CRE'), resref, tlk) for resref in game.names('CRE')}
     script_statuses = {}
+    fight_ids = hook_rule.fight_ids((game.get('ACTION', 'IDS') or b'').decode('latin-1'))
     for name in game.names('BCS'):
-        script_statuses[name] = _script_status(game.get(name, 'BCS'))
+        script_statuses[name] = _script_status(game.get(name, 'BCS'), fight_ids)
     created = _create_actions(game)
     created_by = defaultdict(list)
     for resref, source in created:
@@ -267,13 +275,14 @@ def _summary(data):
     lines = ['# Fight census', '', 'This is a static read of the installed resources.  A placed actor or a possible '
              'spawn may still be gated by schedule, story or script conditions.', '']
     lines.append(f'Hostile placed actors: {len(actors)} ({_count(actors, "hook", "scs")} SCS, '
-                 f'{_count(actors, "hook", "other")} other).')
+                 f'{_count(actors, "hook", "own")} own hook, {_count(actors, "hook", "other")} other).')
     lines.append(f'Hostile spawn entries: {len(spawn_entries)} ({spawn_entries.count("scs")} SCS-only, '
-                 f'{spawn_entries.count("other")} other-only, {spawn_entries.count("mixed")} mixed); their '
-                 f'{len(spawn_choices)} creature choices are {_count(spawn_choices, "hook", "scs")} SCS and '
+                 f'{spawn_entries.count("own")} own-hook-only, {spawn_entries.count("other")} other-only, '
+                 f'{spawn_entries.count("mixed")} mixed); their {len(spawn_choices)} creature choices are '
+                 f'{_count(spawn_choices, "hook", "scs")} SCS, {_count(spawn_choices, "hook", "own")} own hook and '
                  f'{_count(spawn_choices, "hook", "other")} other.')
     lines.append(f'Hostile script-created creatures: {len(made)} ({_count(made, "hook", "scs")} SCS, '
-                 f'{_count(made, "hook", "other")} other).')
+                 f'{_count(made, "hook", "own")} own hook, {_count(made, "hook", "other")} other).')
     lines += ['', '## Hostile placement records by campaign, source and SCS family', '',
               '| Campaign | Source | Hook | Family | Records |', '| --- | --- | --- | --- | ---: |']
     grouped = Counter((row['campaign'], row['source'], row['hook'], row['family'] or '-') for row in occurrences)

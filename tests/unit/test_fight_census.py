@@ -64,12 +64,15 @@ def game(root):
     files = {
         'MAGE.CRE': cre(255, 1, 12, 'SCSSCR'),
         'TOWN.CRE': cre(128, 2, 2, 'OTHER'),
+        'GNOLL.CRE': cre(255, 2, 3, 'OWNSCR'),
         'BGTEST.ARE': area(cre(200, 2, 4, 'SCSSCR')),
         'SCSSCR.BCS': b'SC\ncastspell DMWW_mage_difficulty\nSC\n',
         'OTHER.BCS': b'SC\nNoAction()\nSC\n',
+        # A fight script that is not SCS's: its compiled form holds an attack (ACTION.IDS number 3).
+        'OWNSCR.BCS': b'SC\nCR\nCO\nTR\nCO\nRS\nRE\n100AC\n3OB\n0 0 0 0 0"" "" AC\nRE\nRS\nCR\nSC\n',
         'MAKE.BCS': b'SC\nAC\n7OB\n0 0 0 0 0"MAGE" "" AC\nRE\nSC\n',
         'MAKEDLG.DLG': dialog(),
-        'ACTION.IDS': b'IDS V1.0\n7 CreateCreature(S:NewObject*,P:Location*,I:Face*DIR)\n',
+        'ACTION.IDS': b'IDS V1.0\n3 Attack(O:Target*)\n7 CreateCreature(S:NewObject*,P:Location*,I:Face*DIR)\n',
         'CLASS.IDS': b'IDS V1.0\n1 MAGE\n2 FIGHTER\n',
         'RACE.IDS': b'IDS V1.0\n1 HUMAN\n',
     }
@@ -92,6 +95,10 @@ def test_census_uses_actor_and_embedded_creatures_and_finds_script_creations(tmp
     assert (mage['class'], mage['level'], mage['int'], mage['wis']) == ('MAGE', 12, 17, 12)
     assert mage['script_create_count'] == 2
     assert mage['script_created_by'] == 'BCS:MAKE; DLG:MAKEDLG'
+    # The engine's own hook reaches a fight script that is not SCS's; a script without a fight action stays other.
+    gnoll, town = data['creatures']['GNOLL'], data['creatures']['TOWN']
+    assert (gnoll['hook'], gnoll['family'], town['hook']) == ('own', 'auto', 'other')
+    assert (mage['hook'], mage['family']) == ('scs', 'mage')
 
 
 def test_census_writes_the_three_reports(tmp_path):
@@ -106,5 +113,5 @@ def test_census_writes_the_three_reports(tmp_path):
         mage = next(row for row in csv.DictReader(stream) if row['resref'] == 'MAGE')
     assert mage['default_script'] == 'SCSSCR' and mage['script_create_count'] == '2'
     summary = (out / 'summary.md').read_text(encoding='utf-8')
-    assert 'Hostile placed actors: 2 (1 SCS, 1 other).' in summary
-    assert 'Hostile script-created creatures: 2 (2 SCS, 0 other).' in summary
+    assert 'Hostile placed actors: 2 (1 SCS, 0 own hook, 1 other).' in summary
+    assert 'Hostile script-created creatures: 2 (2 SCS, 0 own hook, 0 other).' in summary
