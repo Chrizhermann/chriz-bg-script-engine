@@ -304,6 +304,7 @@ Credit: SCS is by DavidW, Spell Revisions by Demivrgvs and Gibberlings Three con
   (2026-11-08) met the area tour's files, as a parallel start had met another's before; nothing was staged either time.
   A spell mod swap in a clean lab goes outside a run (`magic_swap.py <ref>` in the stack and tour lab folders), since
   a run's cleanup checks the lab against what staging recorded. (plan, Playground)
+- **[lab]** A protected PC dies of ability drain, and a held PC cannot leave an area. In the own-hook tour (2026-11-10) a spider's Web Tangle (`SPIN148`) held the PC in the Spider Wood (BG3000), the tour's area change never ran ("not reached"), and a Wraith Spider's bites (`SPIDWR1`: Strength -5 for 300 seconds, save vs spell at -2) took its Strength to nothing within a minute: the death screen with a hit point left, 39 areas unvisited. The tour's PC is now immune to ability and level drains (opcodes 6, 10, 15, 19, 44, 49, 216) and to what holds it in place (5, 24, 39, 45, 109, 128, 154, 157, 158, 175, 185, 241); some of the first tour's 15 areas "not reached" may have been the same hold. Before blaming the build for a death screen, read the last rows (`tour-rows.txt` tags them with the area the PC was sent to) and the attackers' item effects. (HOOK-03)
 
 ## 7. What works today (small, authored test scenes on one stack)
 

@@ -72,8 +72,15 @@ in scripts, 4,865 and 1,543.
   replaced it.
 - The scripts' blocks were checked 4,888 times from inside the hook's trigger without a fault. Creatures that are
   not on the enemy side (Candlekeep's people) were declined about 300 times a minute, before any stack is read.
-- Not shown here: story notes on death, a creature's fight against a real party, and how the monsters' choices
-  read to a player.
+- **Story notes on death** (second launch, same build): two xvarts, two of Drizzt's gnolls and one of Gerde's
+  ankhegs fought on the engine for ten seconds and were then killed. `XvartsDead` went from 0 to 2, `DrizztGnolls`
+  from 0 to 2, `AnkhKills` and `HelpGerde` from 0 to 1: a dead creature is not claimed, so its script's death
+  blocks run as the game runs them.
+- **BG1 area tour, first try:** 49 of 60 areas visited with 4,416 claimed rounds and 7,173 performed actions, no
+  engine error; 11 areas not reached in 45 seconds. It ended at the game's death screen in the Spider Wood: a
+  spider's Web Tangle held the PC, so the tour could not leave, and a Wraith Spider's bites took its Strength to
+  nothing (learned.md section 6). The lab's fault, not the build's; the tour runs again with a sturdier PC.
+- Not shown here: a creature's fight against a real party, and how the monsters' choices read to a player.
 
 ## Limits
 
