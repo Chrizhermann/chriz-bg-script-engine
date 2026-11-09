@@ -21,7 +21,13 @@ FIXTURES = ROOT / 'tests/fixtures/hook'
 HOOKED = {'B-HKMAG': ('mage', 7), 'B-HKPRI': ('priest', 2), 'B-HKRNG': ('fighter', 0),
           'B-HKMON': ('monster', 9), 'B-HKTHF': ('fighter', 3), 'B-HKFEN': ('monster', 0), 'B-HKPRP': ('mage', 0),
           'B-HKEXT': ('monster', 6)}
-UNTOUCHED = ('B-HKNOA', 'B-HKOLD', 'B-HKCST', 'B-HKNON', 'B-HKVAN', 'B-HKTLX')
+UNTOUCHED = ('B-HKNOA', 'B-HKOLD', 'B-HKCST', 'B-HKNON', 'B-HKVAN', 'B-HKTLX', 'B-HKPLT')
+# Scripts that are not SCS's and that a creature carries: a fight script in a creature file's slot (with a talk
+# script that does not fight, B-HKPLT), one only an area's actor names and one only a creature stored in the area
+# names. They get the engine's own hook. The fight scripts nobody carries (B-HKNON and others above) do not.
+OWN = ('B-HKGEN', 'B-HKACT', 'B-HKEMB')
+OWN_CREATURE = ('B-HKGNL', ['B-HKPLT', '', 'B-HKGEN', '', ''])
+OWN_AREA = ('B-HKARE', ['', '', 'B-HKACT', '', '', ''], ['', 'B-HKEMB', '', '', ''])
 # The fake game's spells that move their caster: the monster's chase and jump spells, and a
 # creature's own innate teleport.
 TELEPORTS = frozenset({'B-HKFIT', 'INNATE_FIEND_TELEPORT', 'B-HKBLK'})
@@ -260,6 +266,19 @@ def _cre(scripts, memorized, cls=0, levels=(0, 0, 0), kit=0, hide=0, silent=0, n
     return bytes(head) + known + info + spells + slots
 
 
+def _are(actor_scripts, stored_scripts) -> bytes:
+    """An area with one actor: its six script slots (override, general, class, race, default, specific) and
+    a creature stored in the area with its own five."""
+    head, actor = bytearray(0x11C), bytearray(0x110)
+    head[:8] = b'AREAV1.0'
+    for i, script in enumerate(actor_scripts):
+        actor[0x50 + 8 * i:0x58 + 8 * i] = script.encode('ascii').ljust(8, b'\0')
+    stored = _cre(stored_scripts, [])
+    struct.pack_into('<IH', head, 0x54, len(head), 1)
+    struct.pack_into('<II', actor, 0x88, len(head) + len(actor), len(stored))
+    return bytes(head) + bytes(actor) + stored
+
+
 def _spells(data: bytes, table: int):
     """(resref, two words) of a creature's known (0x2A0) or memorized (0x2B0) spells."""
     offset, count = struct.unpack_from('<II', data, table)
@@ -326,6 +345,8 @@ def _fake_game(root: Path, eeex: bool = True, lua_trigger: bool = True, fiend_te
         (root / f'override/{name}.CRE').write_bytes(_cre(scripts, [], cls, levels, kit, hide, silent, script_name))
     for name, (scripts, memorized, cls, levels, script_name) in FIENDS.items():
         (root / f'override/{name}.CRE').write_bytes(_cre(scripts, memorized, cls, levels, name=script_name))
+    (root / f'override/{OWN_CREATURE[0]}.CRE').write_bytes(_cre(OWN_CREATURE[1], []))
+    (root / f'override/{OWN_AREA[0]}.ARE').write_bytes(_are(OWN_AREA[1], OWN_AREA[2]))
     for name, text in TABLES.items():
         (root / f'override/{name}.2DA').write_text(text, encoding='ascii')
     (root / 'fixture').mkdir()
@@ -456,9 +477,11 @@ def test_installer_matches_reference_and_is_reversible(tmp_path: Path) -> None:
     originals = _decompile(tmp_path, HOOKED)
     own = _decompile(tmp_path, ['B-HKOWN'])['B-HKOWN']
     talk = _decompile(tmp_path, ['B-HKTLK'])['B-HKTLK']
+    carried = _decompile(tmp_path, OWN)
 
     output = _install(tmp_path, '--force-install-list', '0')
     assert 'SUCCESSFULLY INSTALLED' in output, output
+    assert "BGSE own: 3 fight scripts that are not SCS's ask the engine first." in output, output
     assert ('BGSE hook: 8 SCS scripts hooked, 27 SCS blocks guarded, 5 SCS cloud blocks yield to the engine, '
             "14 SCS hunting blocks yield to the engine's search, 3 left as they are.") in output, output
     assert ("BGSE teleport: 1 SCS jumps into the fight yield to the creatures' own teleports, 1 creatures that "
@@ -485,8 +508,25 @@ def test_installer_matches_reference_and_is_reversible(tmp_path: Path) -> None:
     # The registry lists exactly the hooked scripts, in lower case, with their family.
     registry = installed['override/m_bgsehk.lua'].decode('ascii')
     entries = sorted(line.strip() for line in registry.splitlines() if line.strip().startswith("['"))
-    assert entries == sorted(f"['{n.lower()}']='{f}'," for n, (f, _) in HOOKED.items()), registry
+    assert entries == sorted([f"['{n.lower()}']='{f}'," for n, (f, _) in HOOKED.items()] +
+                             [f"['{n.lower()}']='auto'," for n in OWN]), registry
     assert 'BGSE_HOOKED={' in registry
+    # The engine's own hook: the fight scripts creatures carry that are not SCS's have it at their top and are
+    # otherwise as they were, as tools/hook_rule.py says of their compiled form; the talk script beside one, the
+    # fight scripts nobody carries and the SCS-hooked ones (which ask already) are not touched (UNTOUCHED, HOOKED
+    # below). The creature file and the area that name them stay as they are.
+    ids = hook_rule.fight_ids(ACTION + '472 EEex_LuaAction(S:Chunk*)\n')
+    assert ids == {5, 6, 7, 8, 17, 22, 23, 28}
+    with_hook = _decompile(tmp_path, OWN)
+    for name in OWN:
+        assert hook_rule.wants_own(before[f'override/{name.casefold()}.bcs'], ids), name
+        assert not hook_rule.wants_own(installed[f'override/{name.casefold()}.bcs'], ids), name
+        assert with_hook[name] == hook_rule.patch_auto(carried[name], name), name
+    assert not hook_rule.fights(before['override/b-hkplt.bcs'], ids)
+    assert hook_rule.wants_own(before['override/b-hknon.bcs'], ids)
+    assert not any(hook_rule.wants_own(installed[f'override/{name.casefold()}.bcs'], ids) for name in HOOKED)
+    for name in (f'{OWN_CREATURE[0]}.cre', f'{OWN_AREA[0]}.are'):
+        assert installed[f'override/{name.casefold()}'] == before[f'override/{name.casefold()}'], name
     # The creature that teleports only by script got the innate teleport, known and memorized;
     # the one with a teleport of its own and the one whose scripts do not teleport did not.
     fiend = installed['override/b-hkfnd.cre']

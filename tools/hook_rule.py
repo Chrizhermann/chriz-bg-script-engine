@@ -316,6 +316,43 @@ def hook_block(family, script):
             '    EEex_LuaAction("if BGSE_Act then BGSE_Act(EEex_LuaAction_Object) end")\nEND\n\n')
 
 
+# The engine's own hook (2026-11-10): a script that is not SCS's gets one hook block at its top when a creature
+# carries it and it holds a fight action, an attack or a cast. The family 'auto' stands for the creature's own,
+# by its class (kernel/hook.lua). The installer adds the block to the compiled script (EXTEND_TOP), so the rule
+# reads the compiled form too.
+OWN = 'auto'
+FIGHT_ACTIONS = ('Attack', 'AttackNoSound', 'AttackOneRound', 'AttackReevaluate', 'Spell', 'SpellRES', 'SpellPoint',
+                 'SpellPointRES', 'ForceSpell', 'ForceSpellRES', 'ForceSpellPoint', 'ForceSpellPointRES',
+                 'ReallyForceSpell', 'ReallyForceSpellRES', 'ReallyForceSpellPoint', 'ReallyForceSpellPointRES',
+                 'SpellNoDec', 'SpellNoDecRES', 'SpellPointNoDec', 'SpellPointNoDecRES')
+IDS_LINE = re.compile(r'^\s*(0[xX][0-9A-Fa-f]+|\d+)\s+([A-Za-z_][A-Za-z0-9_]*)', re.M)
+
+
+def fight_ids(action_ids):
+    """The numbers the game's ACTION.IDS (its text) gives the fight actions."""
+    wanted = {name.lower() for name in FIGHT_ACTIONS}
+    return frozenset(int(number, 0) for number, name in IDS_LINE.findall(action_ids) if name.lower() in wanted)
+
+
+def fights(bcs, ids):
+    """Whether a compiled script (its bytes) holds a fight action: AC, a line break, one of the numbers, OB."""
+    if not ids:
+        return False
+    numbers = b'|'.join(str(number).encode('ascii') for number in sorted(ids))
+    return re.search(rb'AC\n(?:' + numbers + rb')OB', bcs) is not None
+
+
+def wants_own(bcs, ids):
+    """Whether a compiled script a creature carries gets the engine's own hook: it fights and does not ask the
+    engine yet."""
+    return b'BGSE_Claim' not in bcs and fights(bcs, ids)
+
+
+def patch_auto(text, script):
+    """A decompiled script with the engine's own hook at its top."""
+    return hook_block(OWN, script.lower()) + text
+
+
 def blocks(text):
     """(start, end) of every block: from its IF line up to and including its END line."""
     spans, pos = [], 0

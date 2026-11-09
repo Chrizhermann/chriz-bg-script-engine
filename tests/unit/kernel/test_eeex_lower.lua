@@ -252,7 +252,9 @@ assert(g.BGSE_Claim(shaman,'auto','GNOLLDR')==true and families[2]=='priest')
 assert(g.BGSE_Claim(mage,'auto','gnolldr')==true and families[3]=='mage')
 assert(g.BGSE_Claim(fighter,'auto','gnolldr')==true and families[4]=='fighter')
 assert(g.BGSE_Claim(neutral,'auto','gnolldr')==false and families[5]==nil)
-s=root.inspect();assert(s.declines['no-family']==1 and s.counts.owed==4 and s.others==true)
+-- A party member the enemy charmed stays the game's.
+assert(g.BGSE_Claim(own(6,254,1),'auto','gnolldr')==false and families[6]==nil)
+s=root.inspect();assert(s.declines['no-family']==2 and s.counts.owed==4 and s.others==true)
 g.BGSE_Act(foe)
 assert(#foe.inserted==2 and foe.inserted[1]==40 and foe.inserted[2]==3)
 -- BGSE_Stay and its like go by the creature's family too.

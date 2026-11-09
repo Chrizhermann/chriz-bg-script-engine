@@ -696,6 +696,34 @@ BEGIN
   END
 END
 
+// The compiled form of a fight action, for the engine's own hook (setup-bgse.tp2; tools/hook_rule.py: fights):
+// AC and the number the game's ACTION.IDS gives an attack or a cast (the RES forms share their numbers).
+// Empty when the game has none of them.
+DEFINE_ACTION_FUNCTION bgse_fight_pattern
+  RET bgse_fight
+BEGIN
+  OUTER_TEXT_SPRINT fight ~~
+  ACTION_FOR_EACH name IN ~Attack~ ~AttackNoSound~ ~AttackOneRound~ ~AttackReevaluate~ ~Spell~ ~SpellRES~ ~SpellPoint~
+      ~SpellPointRES~ ~ForceSpell~ ~ForceSpellRES~ ~ForceSpellPoint~ ~ForceSpellPointRES~ ~ReallyForceSpell~
+      ~ReallyForceSpellRES~ ~ReallyForceSpellPoint~ ~ReallyForceSpellPointRES~ ~SpellNoDec~ ~SpellNoDecRES~
+      ~SpellPointNoDec~ ~SpellPointNoDecRES~ BEGIN
+    OUTER_SET id = IDS_OF_SYMBOL (~ACTION~ ~%name%~)
+    ACTION_IF (id >= 0) AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%id%|~ ~|%fight%|~) < 0) BEGIN
+      ACTION_IF (STRING_LENGTH ~%fight%~ > 0) BEGIN
+        OUTER_TEXT_SPRINT fight ~%fight%|~
+      END
+      OUTER_TEXT_SPRINT fight ~%fight%%id%~
+    END
+  END
+  OUTER_TEXT_SPRINT bgse_fight ~~
+  ACTION_IF (STRING_LENGTH ~%fight%~ > 0) BEGIN
+    OUTER_INNER_PATCH_SAVE fight ~%fight%~ BEGIN
+      REPLACE_TEXTUALLY CASE_SENSITIVE EXACT_MATCH ~|~ ~\|~
+    END
+    OUTER_TEXT_SPRINT bgse_fight ~AC%LNL%\(%fight%\)OB~
+  END
+END
+
 // The game's own vanishing exits in the BCS in the patch buffer (bgse_own_baf); bgse_script is its resref in
 // lower case. The spells of its casts and applications at the creature itself are looked up in the game once
 // each (bgse_look_spell), and the lists come back with them. A script that fails to decompile, patch or compile

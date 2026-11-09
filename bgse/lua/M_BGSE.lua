@@ -16872,6 +16872,10 @@ M.CLASS_FAMILY={[1]='mage',[5]='mage',[7]='mage',[10]='mage',[13]='mage',[14]='m
     [2]='fighter',[4]='fighter',[6]='fighter',[9]='fighter',[12]='fighter',[20]='fighter'}
 -- From this allegiance up a creature is on the enemy side (EA.IDS EVILCUTOFF; sense.EVIL_CUTOFF).
 M.EVIL_CUTOFF=200
+-- A party member the enemy charmed (EA.IDS CHARMED_PC). The game plays it; whether the engine should,
+-- with the member's own spells against its party, is Christopher's to decide, so the own hook leaves
+-- it alone.
+M.CHARMED_PC=254
 local function ini(g,key)
     local get=rawget(g,'Infinity_GetINIValue')
     if type(get)~='function' then return 1 end
@@ -17041,7 +17045,8 @@ function M.install(g,options)
             local object=sprite(g,id)
             if not object then return nil end
             local t=object.m_typeAI
-            if type(t.m_EnemyAlly)~='number' or t.m_EnemyAlly<M.EVIL_CUTOFF then return nil end
+            local ea=t.m_EnemyAlly
+            if type(ea)~='number' or ea<M.EVIL_CUTOFF or ea==M.CHARMED_PC then return nil end
             return M.CLASS_FAMILY[t.m_Class] or 'monster'
         end,
         perform=function(a,decision,duties)
