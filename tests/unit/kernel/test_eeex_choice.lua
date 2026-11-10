@@ -834,6 +834,41 @@ do
         mage.stats[18],mage.stats[2],mage.stats[88]=mr,ac,skins
         mage.m_pos=at;mage.m_baseStats.m_hitPoints=hp
     end
+    -- A memory given the game's table sees whether any of a creature's timed effects runs out or waits to
+    -- begin. One whose effects are all permanent ones (its creature file's, other mods' markers) is as
+    -- settled as one with none: five seconds. A timed or a delayed effect among them: a second. So without
+    -- the game's table, with more effects than are looked at, and with a list that cannot be walked.
+    do
+        local kept=swordA.m_timedEffectList
+        local function worn(list) list.m_nCount=#list;swordA.m_timedEffectList=list end
+        local function stands(memory,tick)
+            swordA.stats[7]=10
+            local first=sense.attack(g7,swordA,reader,memory,tick)
+            swordA.stats[7]=3
+            assert(first.thac0==10 and sense.attack(g7,swordA,reader,memory,tick+14)==first)
+            if sense.attack(g7,swordA,reader,memory,tick+15)~=first then return 15 end
+            assert(sense.attack(g7,swordA,reader,memory,tick+74)==first and sense.attack(g7,swordA,reader,memory,tick+75).thac0==3)
+            return 75
+        end
+        local sees=sense.memory(g7)
+        worn({effect(0,0,1),effect(0,0,9),effect(0,0,2)})
+        assert(stands(sees,1000)==75)
+        for n,kind in ipairs({4096,3,0,10}) do
+            worn({effect(0,0,1),effect(0,90000,kind),effect(0,0,9)})
+            assert(stands(sees,1000+200*n)==15)
+        end
+        worn({effect(0,0,1),effect(0,0,9),effect(0,0,2)})
+        assert(stands(sense.memory(),3000)==15)
+        local most=sense.maxEffects
+        sense.maxEffects=2
+        assert(stands(sense.memory(g7),3200)==15)
+        sense.maxEffects=3
+        assert(stands(sense.memory(g7),3400)==75)
+        sense.maxEffects=most
+        assert(stands(sense.memory({EEex_Utility_IterateCPtrList=function() error('freed') end}),3600)==15)
+        swordA.m_timedEffectList=kept
+        swordA.stats[7]=10
+    end
     -- The memory is bounded: full, it starts again.
     local limit=sense.memoryLimit
     sense.memoryLimit=2
@@ -2895,7 +2930,13 @@ do
     local g,ch,root,last,claim=setup(49)
     -- Their area's back list tells its length: the check-in walks it, the decisions take it from memory.
     local area={m_resref=str('AR0049'),m_lVertSortBack={m_nCount=0}}
-    local function counted(s) s.m_timedEffectList.m_nCount,s.m_equipedEffectList.m_nCount=0,0;s.m_pArea=area;return s end
+    -- Each carries a permanent effect, as creatures do from their files: the memory, which has the game's
+    -- table, sees that nothing on them runs out and keeps what it read of them for five seconds.
+    local function counted(s)
+        s.m_timedEffectList={effect(999,0,1),m_nCount=1}
+        s.m_equipedEffectList.m_nCount=0;s.m_pArea=area
+        return s
+    end
     local one=g.add(counted(armed(sprite(1,0,0,255,{levels={[7]='S3'}}),35,'TESTSWRD')))
     local two=g.add(counted(armed(sprite(2,0,60,255,{levels={[7]='S3'}}),35,'TESTSWRD')))
     g.add(counted(sprite(11,60,0,2)))
@@ -2912,9 +2953,15 @@ do
     -- All of it from memory but the first creature's weapon, which only its friend asks for.
     assert(second.hits==14 and second.reads==14 and second.actorHits==4 and second.kept==3 and second.unsigned==0)
     assert(second.areaReads==1 and second.areaHits==3)
+    -- Two seconds on nothing is read again.
+    assert(claim(one,131,'fighter','s3')==true and ch:inspect().readings.reads==second.reads)
     ch:invalidate()
     local none=ch:inspect().readings
     assert(none.kept==0 and none.reads==0 and none.hits==0 and none.areaReads==0 and none.areaHits==0 and none.actorHits==0)
+    -- The memory after the load sees as much.
+    assert(claim(one,300,'fighter','s3')==true and claim(two,301,'fighter','s3')==true)
+    local again=ch:inspect().readings.reads
+    assert(again>0 and claim(one,331,'fighter','s3')==true and ch:inspect().readings.reads==again)
 end
 end)()
 groups=groups+1

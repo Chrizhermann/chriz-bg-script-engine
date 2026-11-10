@@ -618,7 +618,7 @@ function M.new(g,options)
     local moves,zoneRead,zoneSpells,zoneSpellCount,zoneBroken={},nil,{},0,false
     -- What creatures' effects and weapons say and what lies in an area's lists, read once for all who
     -- look (sense.memory).
-    local readings=sense.memory()
+    local readings=sense.memory(g)
     -- waits: each creature's wait while it is held, and its last one until the creature's next
     -- decision, so that a wait renewed for the same reason logs no new row.
     local waits={}
@@ -2860,7 +2860,7 @@ function M.new(g,options)
         openings,openingCount={},0
         companions,companionCount={},0
         outside,outsideCount={},0
-        readings=sense.memory()
+        readings=sense.memory(g)
         seeker:invalidate()
         hider:invalidate()
     end

@@ -100,10 +100,17 @@ M.expiring=6
 -- more than half of the engine's time. A second is also what the engine allows itself for a
 -- creature beyond its frame (adapters/eeex/choice.lua, knownTicks).
 M.knownTicks=15
--- A creature without any timed effect has none that begins after a delay or is about to end: what its
+-- A creature none of whose effects runs out or waits to begin (settled: each is permanent or lasts while
+-- its item is worn, M.lasting) has none that begins after a delay or is about to end: what its effects,
 -- gear and weapon say stands for settledTicks, as long as its lists stay as they are. (A change to its
--- base values that leaves no effect behind is seen then at the latest.)
+-- base values that leaves no effect behind is seen then at the latest.) Most creatures of a crowd are
+-- such: the effects of their creature files and of other mods' markers are permanent ones in the list
+-- of timed effects (lab prof-camp-5, 2026-11-10: with "no timed effect at all" as the rule the 43
+-- creatures of the Bandit Camp were still read every second).
 M.settledTicks=75
+-- An effect's kinds of duration (m_durationType) that time does not change: permanent (1), while its
+-- item is worn (2) and permanent past death (9).
+M.lasting={[1]=true,[2]=true,[9]=true}
 M.memoryLimit=1024
 -- Opcodes that deliver other effects; what they delivered is in the list already.
 M.delivered={[146]=true,[148]=true,[177]=true,[272]=true,[283]=true,[326]=true,[333]=true,[366]=true}
@@ -292,16 +299,31 @@ end
 -- areaHits, areaReads and areaUnsigned count the same for them.
 -- And each creature as others saw it in the current tick (M.actor): actors, with actorHits for the looks
 -- it spared.
-function M.memory()
+-- With the game's table (g) it can walk a creature's timed effects to see whether any runs out or waits
+-- (settled); without, only a creature with no timed effect at all counts as settled.
+function M.memory(g)
     return {entries={},count=0,hits=0,reads=0,unsigned=0,areas={},areaCount=0,areaHits=0,areaReads=0,areaUnsigned=0,
-        actors={},actorCount=0,actorHits=0}
+        actors={},actorCount=0,actorHits=0,game=type(g)=='table' and g or nil}
+end
+-- Whether none of a creature's timed effects (count of them: t) runs out or waits to begin (M.lasting). A
+-- list that cannot be walked counts as one that has such an effect.
+local function settled(memory,timed,t)
+    if t==0 then return true end
+    local iterate=memory.game and memory.game.EEex_Utility_IterateCPtrList
+    if type(iterate)~='function' then return false end
+    local all,seen=true,0
+    local ok=pcall(iterate,timed,function(e)
+        seen=seen+1
+        if seen>M.maxEffects or not M.lasting[e.m_durationType] then all=false;return true end
+    end)
+    return ok and all
 end
 -- One part ('standing', 'details', 'level', 'protections', 'guard' or 'attack') of what a creature's effects and
 -- weapon say, read
 -- with read() or taken from memory: the same answer while its two effect lists keep their lengths
 -- (a spell that lands, ends or is dispelled changes one), its hand keeps its weapon and ability, and
--- knownTicks have not passed since the first part was read (settledTicks for a creature without a timed
--- effect). What comes back is shared between the
+-- knownTicks have not passed since the first part was read (settledTicks for a creature none of whose
+-- effects runs out or waits: settled). What comes back is shared between the
 -- frames of all who look: the policy modules read it and never change it. Without a memory, or for
 -- a creature whose lists do not tell their length, it is read every time. An error in read() goes
 -- to the caller, and nothing is kept.
@@ -324,13 +346,13 @@ function recall(memory,sprite,tick,part,read)
         end
         local equipment=sprite.m_equipment
         local w,a=equipment and equipment.m_selectedWeapon,equipment and equipment.m_selectedWeaponAbility
-        local stands=t==0 and M.settledTicks or M.knownTicks
+        local stands=k and k.settled and M.settledTicks or M.knownTicks
         if not k or k.t~=t or k.e~=e or k.w~=w or k.a~=a or tick<k.tick or tick-k.tick>=stands then
             if not k then
                 if memory.count>=M.memoryLimit then memory.entries,memory.count={},0 end
                 memory.count=memory.count+1
             end
-            k={tick=tick,t=t,e=e,w=w,a=a,parts={}}
+            k={tick=tick,t=t,e=e,w=w,a=a,parts={},settled=settled(memory,timed,t)}
             memory.entries[id]=k
         end
         k.checked=tick
