@@ -748,12 +748,19 @@ do
     assert(walks==18)
     sense.guard(g7,mage,209+14,effectsOf,nil,memory)
     assert(walks==20)
-    -- A weapon's reading is kept the same way: the sword's THAC0 as it was read, until its second ends.
+    -- A weapon's reading is kept the same way: the sword's THAC0 as it was read. Its bearer has no timed
+    -- effect, so none that begins after a delay: its reading stands for five seconds (settledTicks).
     swordA.m_timedEffectList.m_nCount,swordA.m_equipedEffectList.m_nCount=0,0
     local hand=sense.attack(g7,swordA,reader,memory,300)
     swordA.stats[7]=4
     assert(sense.attack(g7,swordA,reader,memory,310)==hand and hand.thac0==10 and memory.count==2)
-    assert(sense.attack(g7,swordA,reader,memory,315).thac0==4)
+    assert(sense.attack(g7,swordA,reader,memory,374)==hand and sense.attack(g7,swordA,reader,memory,375).thac0==4)
+    -- With a timed effect on it, a second.
+    swordA.m_timedEffectList.m_nCount=1
+    hand=sense.attack(g7,swordA,reader,memory,400)
+    swordA.stats[7]=6
+    assert(sense.attack(g7,swordA,reader,memory,414)==hand and hand.thac0==4 and sense.attack(g7,swordA,reader,memory,415).thac0==6)
+    swordA.m_timedEffectList.m_nCount=0
     swordA.stats[7]=10
     -- A read that fails is not kept: the next one reads again.
     local broken=0

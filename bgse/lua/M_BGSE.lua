@@ -11725,6 +11725,10 @@ M.expiring=6
 -- more than half of the engine's time. A second is also what the engine allows itself for a
 -- creature beyond its frame (adapters/eeex/choice.lua, knownTicks).
 M.knownTicks=15
+-- A creature without any timed effect has none that begins after a delay or is about to end: what its
+-- gear and weapon say stands for settledTicks, as long as its lists stay as they are. (A change to its
+-- base values that leaves no effect behind is seen then at the latest.)
+M.settledTicks=75
 M.memoryLimit=1024
 -- Opcodes that deliver other effects; what they delivered is in the list already.
 M.delivered={[146]=true,[148]=true,[177]=true,[272]=true,[283]=true,[326]=true,[333]=true,[366]=true}
@@ -11884,7 +11888,8 @@ end
 -- One part ('standing', 'protections', 'guard' or 'attack') of what a creature's effects and weapon say, read
 -- with read() or taken from memory: the same answer while its two effect lists keep their lengths
 -- (a spell that lands, ends or is dispelled changes one), its hand keeps its weapon and ability, and
--- knownTicks have not passed since the first part was read. What comes back is shared between the
+-- knownTicks have not passed since the first part was read (settledTicks for a creature without a timed
+-- effect). What comes back is shared between the
 -- frames of all who look: the policy modules read it and never change it. Without a memory, or for
 -- a creature whose lists do not tell their length, it is read every time. An error in read() goes
 -- to the caller, and nothing is kept.
@@ -11900,7 +11905,8 @@ function recall(memory,sprite,tick,part,read)
     local w,a=equipment and equipment.m_selectedWeapon,equipment and equipment.m_selectedWeaponAbility
     local id=sprite.m_id
     local k=memory.entries[id]
-    if not k or k.t~=t or k.e~=e or k.w~=w or k.a~=a or tick<k.tick or tick-k.tick>=M.knownTicks then
+    local stands=t==0 and M.settledTicks or M.knownTicks
+    if not k or k.t~=t or k.e~=e or k.w~=w or k.a~=a or tick<k.tick or tick-k.tick>=stands then
         if not k then
             if memory.count>=M.memoryLimit then memory.entries,memory.count={},0 end
             memory.count=memory.count+1
