@@ -477,8 +477,9 @@ Python, and `tests/integration/test_hook_installer.py` checks they agree.
     attack 1,716 times, a walk 4 times and never a cast. Under SCS alone the same shouts end SCS's own attack actions. The shouts
     stay SCS's for now: a neutral member of the group still turns hostile on them, and how a group
     calls for help is part of the group design Christopher keeps for later (2026-11-10: the whole
-    map as one group "passt wahrscheinlich für viele Szenarien schon"). Still open: the engine's
-    answers took about 230 ms a second with 37 creatures fighting at once.
+    map as one group "passt wahrscheinlich für viele Szenarien schon"). The engine's answers took
+    234 ms a second with 37 creatures fighting at once; 96 since 4fb6fa4 (`docs/learned.md`
+    section 4).
 15. SCS's idle gate (2026-11-10, found in the lab check of rule 14). Above the hook, SCS's mage and
     priest scripts end the pass doing nothing while the creature detects no enemy, is unhurt and is not
     in a fight (`!Detect(NearestEnemyOf(Myself))`, `!HPPercentLT(Myself,100)`,

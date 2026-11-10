@@ -100,8 +100,8 @@ with scripts of their own (trolls, golems, wyverns, ankhegs, some of them also i
   camp's brawl (215 times in 90 seconds) is SCS's own call for help, every three rounds a creature: the engine
   decides anew in the same tick, no cast was ever cut, and the shouts stay SCS's for now. How far a group should
   hear (today: the whole map) is fine for many scenes as it is, a better design comes later (Christopher,
-  2026-11-10). Open: the engine's answers take about 230 ms a second there with 37 creatures fighting. The Playground took that engine on 2026-11-10 at 11:07 (engine f032f2d, three and a
-  half minutes; spell mod e200515 as before).
+  2026-11-10). The engine's answers took 234 ms a second there with 37 creatures fighting; since 4fb6fa4 they take 96 (the engine remembers what it read of creatures and of the area's lists; docs/learned.md section 4), with the same fight, and a search walk that got on its way no longer counts its spot as searched (310b0de). The Playground took that engine on 2026-11-10 at 19:40 (engine 4fb6fa4, four minutes; spell mod
+  e200515 as before).
 - **Enemy celestials** (found 2026-11-08, the spell mod fixed its part in `e200515`): under SCS the old celestials (`DEVAGOOD`, `PLANGOOD` and their
   evil twins) ran SCS's own fight scripts, which the engine hooks, so enemy celestials cast their spells. The spell
   mod's own celestials run `CBMDEVAC` or `CBMPLANC` (one of each pair per party) and `BDSUM00`, which casts no spell.
