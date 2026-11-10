@@ -418,14 +418,46 @@ Python, and `tests/integration/test_hook_installer.py` checks they agree.
     comes running), and only who walks the creature changed. Whether such a group should know where the
     party is at all is a question of each fight's design, not of this rule.
 
-    In the tour lab without the engine 360 of 8,588 compiled scripts pass the pre-check; 178 hold such
-    walks, 315 in all, and WeiDU and Python agree on all 360 (`tools/hook_agree.py`, its sixth
-    argument). 61 of the 178 hold no fight action: SCS's four helpers, `HOBGOBC`, `BPSIGHT`, `HALL1` to
-    `HALL6`, `BDFINAL`, `OHBGREST` and messengers who walk up to the party to speak. In an install the
-    scripts the SCS rule hooked are skipped (their walks are rule 7's), so the count there is lower. A
-    script with fight actions that creatures carry gets the engine's own hook on top afterwards
+    SCS's calls for help are such walks too, and the largest group: its help scripts (`DW#GPSHT`,
+    `DW#GPHLP`, `DW#PRSHT`, `GPSHOUT`, `SHOUT`, `GENSHT01` and their kin, twelve walks each) send a
+    creature that hears a group member's call and sees no enemy to the party members, a thief among
+    them with a free Invisibility (`dw#silin`) on the way. For a creature the engine drives the walk and
+    that Invisibility stand aside with the block; the engine walks, and a thief hides with its own skill
+    (rule 9). SCS's spiders, vampire mist and Sahuagin ambushers, whose scripts rule 1 leaves alone
+    (`DW#SPIDG`, `DW#SPIDS`, `DW#VMMIN`, `SAHAMB02`, `SAHAMB05`: no round timer), hold chase walks and
+    walks at the party out of a cloud, which take the condition as well.
+
+    In the tour lab's install (2026-11-10) 204 scripts hold such walks, 657 in all; the scripts the SCS
+    rule hooked are skipped there (their walks are rule 7's). A first census without the engine had
+    found 178 scripts with 315 walks: its own pre-filter was narrower than the installer's and missed
+    the help scripts, so the figure of an install is the one to go by. WeiDU and Python agree on that
+    census's 360 scripts and on the 204 of the install (`tools/hook_agree.py`). A script with fight
+    actions that creatures carry gets the engine's own hook on top afterwards
     ([HOOK-03](HOOK-03-own-hook.md)); its walk then asks from below that hook, and the call reaches the
-    engine's next pass.
+    engine's next pass (a call stands for three seconds: a creature the player does not see gets a
+    pass every 16 ticks only).
+15. SCS's idle gate (2026-11-10, found in the lab check of rule 14). Above the hook, SCS's mage and
+    priest scripts end the pass doing nothing while the creature detects no enemy, is unhurt and is not
+    in a fight (`!Detect(NearestEnemyOf(Myself))`, `!HPPercentLT(Myself,100)`,
+    `!Global("inafight","LOCALS",1)`, `NoAction()`); some monster scripts hold the like with an empty
+    action list. SCS's fighters have no such gate: they join on a group member's shout. So a caster that
+    had not seen an enemy itself never asked the engine. It stood while its group's fighters walked to a
+    clue, healed no friend that came back hurt, and in the lab SCS's assassins' priests and mage stood
+    where they had appeared once their helper's walk gave way, while the fighters went for the party.
+    Each gate above the anchor (`is_idle`: every response `NoAction()` alone, a not-in-a-fight trigger
+    and `!See` or `!Detect` of the nearest enemy) gets the hook's own question as its last condition,
+    `!EEex_LuaTrigger(...BGSE_Claim...)`. Where the engine has a decision (a walk to a clue or to the
+    member its script calls it to, a heal for a friend, a step out of a danger zone) the gate stands
+    aside and the pass goes on to the hook, past the copies above it, which answer with the same claim.
+    Where it has none, the gate holds as before, so SCS's script below it still does not run for an idle
+    creature. A creature that is no enemy never reaches the gate (SCS's own check stands above it).
+
+    In the tour lab 948 of the 1,145 SCS scripts hold such a gate: 884 the casters' (all 584 mage and
+    297 priest scripts and three others), 45 and 11 a monster's with an empty action list, 8 one with
+    the two conditions alone. What this changes in play: SCS's casters now come along when their group
+    goes for the party, as its fighters always did. The group is everyone of the enemy's side on the
+    map whom the engine drives, which is wider than SCS's shouts reach; how far a group should hear is
+    a question for the fights' design (FIGHT-01, "Searching").
 
 `BGSE_Zones`, `BGSE_Search`, `BGSE_Hide`, `BGSE_Prep`, `BGSE_Stay` and `BGSE_Hunt` go by the script that decides for the creature: the
 first hooked script in its stack, since a lower script runs only after every higher one let the

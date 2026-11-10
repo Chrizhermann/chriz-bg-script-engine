@@ -38,12 +38,12 @@ ACTION_BASH_FOR ~%argv[1]%~ ~^.+\.baf$~ BEGIN
     LPF bgse_hook_baf STR_VAR bgse_baf = EVAL ~%baf%~ bgse_script = EVAL ~%script%~ bgse_teleports = ~TELEPORTS~
         bgse_invisible = ~INVISIBLE~ bgse_improved = ~IMPROVED~ bgse_innate = ~INNATE~ bgse_vanish = ~VANISH~
         bgse_times = ~TIMES~
-      RET bgse_result bgse_family bgse_copies bgse_clouds bgse_hunts bgse_jumps bgse_hides bgse_preps bgse_exits bgse_teleporter
-          bgse_hider bgse_gifts bgse_baf END
+      RET bgse_result bgse_family bgse_copies bgse_clouds bgse_hunts bgse_jumps bgse_hides bgse_preps bgse_exits bgse_idles
+          bgse_teleporter bgse_hider bgse_gifts bgse_baf END
     DELETE_BYTES 0 BUFFER_LENGTH
     INSERT_BYTES 0 (STRING_LENGTH ~%bgse_baf%~)
     WRITE_ASCIIE 0 ~%bgse_baf%~
-    PATCH_PRINT ~AGREE|%BASH_FOR_RES%|%bgse_result%|%bgse_family%|%bgse_copies%|%bgse_clouds%|%bgse_hunts%|%bgse_jumps%|%bgse_teleporter%|%bgse_hides%|%bgse_hider%|%bgse_preps%|%bgse_exits%|%bgse_gifts%~
+    PATCH_PRINT ~AGREE|%BASH_FOR_RES%|%bgse_result%|%bgse_family%|%bgse_copies%|%bgse_clouds%|%bgse_hunts%|%bgse_jumps%|%bgse_teleporter%|%bgse_hides%|%bgse_hider%|%bgse_preps%|%bgse_exits%|%bgse_idles%|%bgse_gifts%~
   COPY ~%BASH_FOR_FILESPEC%~ ~%argv[3]%/%BASH_FOR_RES%.baf~
     READ_ASCII 0 baf (BUFFER_LENGTH)
     TEXT_SPRINT script ~%BASH_FOR_RES%~
@@ -85,7 +85,7 @@ def gift_list(gifts):
 
 def reference(text, stem, teleports=frozenset(), hides=None, innates=frozenset(), times=None, vanishing=frozenset()):
     """The Python rule's (patched or stripped text, result, family, copies, clouds, hunts, jumps,
-    teleporter, hides, hider, preps, exits, gifts)."""
+    teleporter, hides, hider, preps, exits, idles, gifts)."""
     hides = hides or {}
     patched, reason, fam, copies = hook_rule.patch(text, stem, teleports, hides, vanishing)
     text = text.replace('\r', '')
@@ -97,9 +97,10 @@ def reference(text, stem, teleports=frozenset(), hides=None, innates=frozenset()
     hidden = len(hook_rule.hiding(text, spans, hides)) if patched else 0
     preps = len(hook_rule.preparations(text, spans, anchor)) if patched else 0
     exits = len(hook_rule.exits(text, spans, vanishing)) if patched else 0
+    idles = len(hook_rule.idles(text, spans, anchor)) if patched else 0
     gifts = gift_list(hook_rule.script_gifts(text, hides, innates, times) if patched else [])
     return (patched if patched is not None else text), (reason, fam, copies, clouds, hunts, jumps, teleporter, hidden,
-                                                        int(hidden > 0), preps, exits, gifts)
+                                                        int(hidden > 0), preps, exits, idles, gifts)
 
 
 def main():
@@ -145,11 +146,11 @@ def main():
             _, res, count = line.split('|', 2)
             talk_rows[res.lower()] = int(count)
         if line.startswith('AGREE|'):
-            _, res, result, fam, copies, clouds, hunts, jumps, teleporter, hidden, hider, preps, exits, gifts = line.split(
-                '|', 13)
+            _, res, result, fam, copies, clouds, hunts, jumps, teleporter, hidden, hider, preps, exits, idles, gifts = (
+                line.split('|', 14))
             # Python's gifts do not say how each spell is written (resref or SPELL.IDS name).
             weidu_rows[res.lower()] = (result, fam or None, int(copies), int(clouds), int(hunts), int(jumps),
-                                       int(teleporter), int(hidden), int(hider), int(preps), int(exits),
+                                       int(teleporter), int(hidden), int(hider), int(preps), int(exits), int(idles),
                                        re.sub(r'\|[RI]:', '|', gifts))
     outcomes, mismatches = Counter(), []
     paths = sorted(folder.glob('*.baf'))
@@ -208,9 +209,11 @@ def main():
     hiders = sum(row[8] for row in weidu_rows.values())
     preps = sum(row[9] for row in weidu_rows.values())
     exits = sum(row[10] for row in weidu_rows.values())
-    gifts = Counter(gift for row in weidu_rows.values() for gift in row[11].strip('|').split('|') if gift)
+    idles = sum(row[11] for row in weidu_rows.values())
+    gifts = Counter(gift for row in weidu_rows.values() for gift in row[12].strip('|').split('|') if gift)
     print(f'jumps {jumps}, teleporting scripts {teleporters}, free invisibility blocks {hidden} in {hiders} scripts, '
-          f'preparation blocks {preps}, vanishing exits {exits}, the game\'s own vanishing exits {own_exits} in '
+          f'preparation blocks {preps}, vanishing exits {exits}, idle gates {idles} in '
+          f'{sum(1 for row in weidu_rows.values() if row[11])} scripts, the game\'s own vanishing exits {own_exits} in '
           f'{sum(1 for n in own_rows.values() if n)} scripts, talks on sight {talks} in '
           f'{sum(1 for n in talk_rows.values() if n)} scripts, walks at party members {walks} in '
           f'{sum(1 for n in hunt_rows.values() if n)} scripts')

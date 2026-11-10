@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / 'tests/fixtures/hook'
 HOOKED = {'B-HKMAG': ('mage', 7), 'B-HKPRI': ('priest', 2), 'B-HKRNG': ('fighter', 0),
           'B-HKMON': ('monster', 9), 'B-HKTHF': ('fighter', 3), 'B-HKFEN': ('monster', 0), 'B-HKPRP': ('mage', 0),
-          'B-HKEXT': ('monster', 6)}
+          'B-HKEXT': ('monster', 6), 'B-HKGAT': ('priest', 0)}
 UNTOUCHED = ('B-HKNOA', 'B-HKOLD', 'B-HKCST', 'B-HKNON', 'B-HKVAN', 'B-HKTLX', 'B-HKPLT')
 # Scripts that are not SCS's and that a creature carries: a fight script in a creature file's slot (with a talk
 # script that does not fight, B-HKPLT), one only an area's actor names and one only a creature stored in the area
@@ -485,7 +485,7 @@ def test_installer_matches_reference_and_is_reversible(tmp_path: Path) -> None:
     assert "BGSE own: 3 fight scripts that are not SCS's ask the engine first." in output, output
     assert ('BGSE hunt: 3 walks at party members a creature does not perceive, in scripts the SCS rule did not hook, '
             "yield to the engine's search.") in output, output
-    assert ('BGSE hook: 8 SCS scripts hooked, 27 SCS blocks guarded, 5 SCS cloud blocks yield to the engine, '
+    assert ('BGSE hook: 9 SCS scripts hooked, 27 SCS blocks guarded, 5 SCS cloud blocks yield to the engine, '
             "14 SCS hunting blocks yield to the engine's search, 3 left as they are.") in output, output
     assert ("BGSE teleport: 1 SCS jumps into the fight yield to the creatures' own teleports, 1 creatures that "
             'teleport only by script got the innate teleport BGSETELE.') in output, output
@@ -499,6 +499,8 @@ def test_installer_matches_reference_and_is_reversible(tmp_path: Path) -> None:
     assert ("BGSE stay: 2 vanishing exits in the game's own scripts yield while the engine keeps the creature in the "
             'fight.') in output, output
     assert 'BGSE talk: 4 SCS talk-on-sight blocks wait while the engine prepares the creature.' in output, output
+    assert ('BGSE idle: 2 SCS idle gates (no enemy perceived, not in a fight: do nothing) ask the engine first.'
+            ) in output, output
     for name, reason in (('B-HKNOA', 'no-anchor'), ('B-HKOLD', 'already-hooked'), ('B-HKCST', 'no-castspell')):
         assert f'left {name} as it is ({reason})'.casefold() in output.casefold(), output
     installed = _snapshot(tmp_path)
@@ -610,6 +612,12 @@ def test_installer_matches_reference_and_is_reversible(tmp_path: Path) -> None:
     # the fight; not an ally's walk after the party.
     for name, count in (('B-HKMAG', 6), ('B-HKRNG', 3), ('B-HKPRI', 1), ('B-HKMON', 5)):
         assert hooked[name].count(hook_rule.search_guard(HOOKED[name][0], name.lower())) == count, name
+    # SCS's idle gates hold only when the engine has no decision: the caster's gate and the monster's take the
+    # hook's own question last. The gate of a creature that is no enemy, a block that notes something out of a
+    # fight and a gate below the hook stay as they are, and no other script has one.
+    for name in HOOKED:
+        asks = hooked[name].count('  !' + hook_rule.guard(HOOKED[name][0], name.lower()))
+        assert asks == {'B-HKGAT': 2}.get(name, 0), name
     # SCS's vanishing exits wait while the engine keeps the creature in the fight, in place and in their
     # copies: the exit script's escapes above the hook (a flayer's and one whose triggers end in an OR
     # group that lacks a member) and below it (an Erinyes' and a Balor's gate away), and the monster's
@@ -696,7 +704,7 @@ def test_without_the_fiend_teleport_the_jump_stays_and_the_innate_overwrites_a_t
     before = _snapshot(tmp_path)
     originals = _decompile(tmp_path, ['B-HKMON'])
     output = _install(tmp_path, '--force-install-list', '0')
-    assert ('BGSE hook: 8 SCS scripts hooked, 28 SCS blocks guarded, 5 SCS cloud blocks yield to the engine, '
+    assert ('BGSE hook: 9 SCS scripts hooked, 28 SCS blocks guarded, 5 SCS cloud blocks yield to the engine, '
             "14 SCS hunting blocks yield to the engine's search, 3 left as they are.") in output, output
     assert ("BGSE teleport: 0 SCS jumps into the fight yield to the creatures' own teleports, 1 creatures that "
             'teleport only by script got the innate teleport BGSETELE.') in output, output

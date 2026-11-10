@@ -53,6 +53,9 @@ OUTER_TEXT_SPRINT bgse_vanish ~|~
 OUTER_SET bgse_kept = 0
 // SCS's talk-on-sight blocks that wait while the engine prepares the creature (Christopher, 2026-11-03).
 OUTER_SET bgse_talked = 0
+// SCS's idle gates (a caster that perceives no enemy and is not in a fight does nothing) that ask the engine
+// first (2026-11-10).
+OUTER_SET bgse_idle = 0
 LAF bgse_times_list RET bgse_times END
 ACTION_BASH_FOR ~override~ ~^.+\.bcs$~ BEGIN
   COPY_EXISTING ~%BASH_FOR_FILE%~ ~override~
@@ -65,8 +68,9 @@ ACTION_BASH_FOR ~override~ ~^.+\.bcs$~ BEGIN
           bgse_checked = EVAL ~%bgse_checked%~ bgse_invisible = EVAL ~%bgse_invisible%~
           bgse_improved = EVAL ~%bgse_improved%~ bgse_innate = EVAL ~%bgse_innate%~ bgse_vanish = EVAL ~%bgse_vanish%~
           bgse_looked = EVAL ~%bgse_looked%~ bgse_times = EVAL ~%bgse_times%~
-        RET bgse_result bgse_family bgse_copies bgse_clouds bgse_hunts bgse_jumps bgse_hides bgse_preps bgse_exits bgse_teleporter
-            bgse_hider bgse_gifts bgse_teleports bgse_checked bgse_invisible bgse_improved bgse_innate bgse_vanish bgse_looked END
+        RET bgse_result bgse_family bgse_copies bgse_clouds bgse_hunts bgse_jumps bgse_hides bgse_preps bgse_exits bgse_idles
+            bgse_teleporter bgse_hider bgse_gifts bgse_teleports bgse_checked bgse_invisible bgse_improved bgse_innate bgse_vanish
+            bgse_looked END
       PATCH_IF (~%bgse_result%~ STRING_EQUAL_CASE ~hooked~) BEGIN
         SET bgse_hooked += 1
         SET bgse_copied += bgse_copies
@@ -76,6 +80,7 @@ ACTION_BASH_FOR ~override~ ~^.+\.bcs$~ BEGIN
         SET bgse_hidden += bgse_hides
         SET bgse_prepared += bgse_preps
         SET bgse_kept += bgse_exits
+        SET bgse_idle += bgse_idles
         TEXT_SPRINT bgse_registry ~%bgse_registry%  ['%bgse_script%']='%bgse_family%',%LNL%~
         PATCH_IF (bgse_teleporter = 1) BEGIN
           TEXT_SPRINT bgse_teleporters ~%bgse_teleporters%%bgse_script%|~
@@ -88,7 +93,7 @@ ACTION_BASH_FOR ~override~ ~^.+\.bcs$~ BEGIN
             TEXT_SPRINT bgse_gifts_of ~%bgse_gifts_of%%bgse_script%>%MATCH1%|~
           END ~%MATCH0%~
         END
-        PATCH_LOG ~BGSE hook: %BASH_FOR_RES% (%bgse_family%, %bgse_copies% guarded SCS blocks, %bgse_clouds% SCS cloud blocks, %bgse_hunts% SCS hunting blocks, %bgse_jumps% SCS jumps, %bgse_hides% SCS free invisibility blocks, %bgse_preps% SCS preparation blocks, %bgse_exits% SCS vanishing exits)~
+        PATCH_LOG ~BGSE hook: %BASH_FOR_RES% (%bgse_family%, %bgse_copies% guarded SCS blocks, %bgse_clouds% SCS cloud blocks, %bgse_hunts% SCS hunting blocks, %bgse_jumps% SCS jumps, %bgse_hides% SCS free invisibility blocks, %bgse_preps% SCS preparation blocks, %bgse_exits% SCS vanishing exits, %bgse_idles% SCS idle gates)~
       END ELSE PATCH_IF NOT (~%bgse_result%~ STRING_EQUAL_CASE ~not-scs~) BEGIN
         SET bgse_skipped += 1
         PATCH_PRINT ~BGSE hook: left %BASH_FOR_RES% as it is (%bgse_result%)~
@@ -338,6 +343,7 @@ PRINT ~BGSE gift: %bgse_gifted% creatures SCS makes invisible for free got real 
 PRINT ~BGSE prep: %bgse_prepared% SCS preparation blocks (prebuffs, contingencies, chains, first-round casts) ask the engine and tell it what ran.~
 PRINT ~BGSE stay: %bgse_kept% SCS vanishing exits yield while the engine keeps the creature in the fight.~
 PRINT ~BGSE stay: %bgse_stayed% vanishing exits in the game's own scripts yield while the engine keeps the creature in the fight.~
+PRINT ~BGSE idle: %bgse_idle% SCS idle gates (no enemy perceived, not in a fight: do nothing) ask the engine first.~
 PRINT ~BGSE hunt: %bgse_called% walks at party members a creature does not perceive, in scripts the SCS rule did not hook, yield to the engine's search.~
 PRINT ~BGSE talk: %bgse_talked% SCS talk-on-sight blocks wait while the engine prepares the creature.~
 PRINT ~BGSE encounter: %bgse_designed% designed creatures changed, %bgse_lines% lines added to dialogues, %bgse_new% new creatures made.~

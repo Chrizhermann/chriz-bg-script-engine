@@ -2528,8 +2528,8 @@ do
     assert(claim(assassin,140)==true and ch:inspect().search.counts.reaims==1)
     g.BGSE_Act(assassin)
     assert(g.queued[#g.queued].text=='MoveToPoint([3000.0])' and calls()==1)
-    -- A call that is not renewed is forgotten after a second: without it nothing is left to go on, and
-    -- a call later is a new one.
+    -- A call that is not renewed is forgotten after three seconds (a creature out of the player's sight
+    -- gets a pass every 16 ticks only): without it nothing is left to go on, and a call later is a new one.
     assassin.m_curAction={m_actionID=0}
     assert(claim(assassin,200)==false)
     g.ticks=201
@@ -2577,29 +2577,31 @@ do
     assert(seeker:call(me,'Player1',100)==true and calls()==1)
     -- The first call of a tick stands: the helper's next block names another member in the same pass.
     assert(seeker:call(me,'Player2',100)==true and calls()==1 and called(100)==11)
-    -- Another member in a later pass is a new call; the same one is, once more than a second passed
-    -- without a call.
+    -- Another member in a later pass is a new call; the same one is, once more than three seconds passed
+    -- without a call (not after the 16 ticks between the passes of a creature out of the player's sight).
     assert(seeker:call(me,'Player2',105)==true and calls()==2 and rows[#rows].clue=='called' and rows[#rows].target==12)
-    assert(seeker:call(me,'Player2',110)==true and calls()==2)
-    assert(seeker:call(me,'Player2',126)==true and calls()==3 and called(126)==12)
+    assert(seeker:call(me,'Player2',121)==true and calls()==2 and called(121)==12)
+    assert(seeker:call(me,'Player2',166)==true and calls()==2)
+    assert(called(211)==12 and called(212)==false)
+    assert(seeker:call(me,'Player2',258)==true and calls()==3 and called(258)==12)
     -- A member the group took out of play (charmed, in a maze) is not gone for, however often the
     -- script calls; once it is back, the next call counts again.
-    away={{id=12,kind='charm',x=1000,y=0,since=120,lastTick=128}}
-    assert(seeker:call(me,'Player2',127)==true and called(127)==false)
+    away={{id=12,kind='charm',x=1000,y=0,since=250,lastTick=260}}
+    assert(seeker:call(me,'Player2',259)==true and called(259)==false)
     -- The calls that follow are nothing new either: no search begins on them.
     local hunts=seeker:inspect().counts.hunts
-    assert(seeker:call(me,'Player2',128)==true and called(128)==false and seeker:inspect().counts.hunts==hunts)
+    assert(seeker:call(me,'Player2',260)==true and called(260)==false and seeker:inspect().counts.hunts==hunts)
     away={}
-    assert(seeker:call(me,'Player2',129)==true and called(129)==12 and seeker:inspect().counts.hunts==hunts+1)
+    assert(seeker:call(me,'Player2',261)==true and called(261)==12 and seeker:inspect().counts.hunts==hunts+1)
     -- Nor one that has left the area since the call.
     other.m_pArea=elsewhere.m_pArea
-    assert(called(130)==false)
+    assert(called(262)==false)
     other.m_pArea=me.m_pArea
-    assert(seeker:call(me,'Player2',131)==true and calls()==3 and called(131)==12)
+    assert(seeker:call(me,'Player2',263)==true and calls()==3 and called(263)==12)
     -- A fight ends the search and its call: afterwards only a new call counts.
-    seeker:fight(me,{area='AR0001',self={id=1,x=0,y=0,hp=40,maxHp=40,ea=255},enemies={{id=12}}},132,nil)
-    assert(called(133)==false)
-    assert(seeker:call(me,'Player2',134)==true and calls()==4 and called(134)==12)
+    seeker:fight(me,{area='AR0001',self={id=1,x=0,y=0,hp=40,maxHp=40,ea=255},enemies={{id=12}}},264,nil)
+    assert(called(265)==false)
+    assert(seeker:call(me,'Player2',266)==true and calls()==4 and called(266)==12)
 end
 end)()
 groups=groups+1

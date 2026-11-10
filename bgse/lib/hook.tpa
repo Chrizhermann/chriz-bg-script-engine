@@ -1881,7 +1881,8 @@ END
 // unsafe-name, no-castspell, already-hooked or no-anchor; only "hooked" changes bgse_baf. bgse_clouds
 // counts the cloud blocks that stand aside, bgse_hunts the hunting blocks, bgse_jumps the scripted
 // jumps into the fight, bgse_hides the blocks that give the creature free invisibility, bgse_preps
-// SCS's preparation blocks, bgse_exits its vanishing exits; bgse_teleporter is 1 when a hooked script
+// SCS's preparation blocks, bgse_exits its vanishing exits, bgse_idles its idle gates that ask the engine
+// first; bgse_teleporter is 1 when a hooked script
 // teleports its creature by script, bgse_hider when it makes its creature invisible for free, and
 // bgse_gifts lists the real abilities that stand in for that (bgse_block_gifts), each once, in the
 // order of its blocks.
@@ -1894,7 +1895,7 @@ DEFINE_PATCH_FUNCTION bgse_hook_baf
           bgse_innate = ~|~
           bgse_vanish = ~|~
           bgse_times = ~|~
-  RET bgse_result bgse_family bgse_copies bgse_clouds bgse_hunts bgse_jumps bgse_hides bgse_preps bgse_exits
+  RET bgse_result bgse_family bgse_copies bgse_clouds bgse_hunts bgse_jumps bgse_hides bgse_preps bgse_exits bgse_idles
       bgse_teleporter bgse_hider bgse_gifts bgse_baf
 BEGIN
   TEXT_SPRINT bgse_result ~not-scs~
@@ -1906,6 +1907,7 @@ BEGIN
   SET bgse_hides = 0
   SET bgse_preps = 0
   SET bgse_exits = 0
+  SET bgse_idles = 0
   SET bgse_teleporter = 0
   SET bgse_hider = 0
   TEXT_SPRINT bgse_gifts ~|~
@@ -1944,7 +1946,7 @@ BEGIN
     // own: each function call copies every variable, so the thousands of a big script would slow
     // down every call. A block's flags are the bits of one number: 1 book, 2 items, 4 special, 8 pick,
     // 16 lastseen, 32 encounter, 64 copy, 128 cloud, 256 hunt, 512 jump, 1024 and 2048 plain and
-    // improved free invisibility, 4096 maybe SCS's preparation, 8192 vanishing exit. plan has a record
+    // improved free invisibility, 4096 maybe SCS's preparation, 8192 vanishing exit, 16384 idle gate. plan has a record
     // for each block from the anchor on with flags (the others have none), its number, start, end and
     // flags as longs; edits and tail_edits one for each block above the anchor and from it that stands
     // aside or, above it, may be the preparation, its start, end and flags.
@@ -2049,6 +2051,22 @@ BEGIN
                 PATCH_IF (still_parts > 0) AND (((still_actions = still_parts) AND (still_waits = still_parts))
                     OR ((still_runs = still_parts) AND (still_actions = still_runs + still_switches))) BEGIN
                   SET flags = flags BOR 128
+                END
+              END
+              // SCS's idle gate (tools/hook_rule.py: is_idle): the creature perceives no enemy, is not in a
+              // fight, and every response is NoAction() alone; only those above the anchor change.
+              PATCH_IF ((~%trig%~ STRING_CONTAINS_REGEXP ~%LNL% +!Global("inafight","LOCALS",1)~) = 0)
+                  AND ((~%trig%~ STRING_CONTAINS_REGEXP ~%LNL% +!\(See\|Detect\)(NearestEnemyOf(Myself))~) = 0) BEGIN
+                SET idle_parts = 0
+                SET idle_actions = 0
+                SET idle_waits = 0
+                INNER_PATCH ~%resp%~ BEGIN
+                  COUNT_REGEXP_INSTANCES CASE_SENSITIVE EXACT_MATCH ~%LNL%  RESPONSE #~ idle_parts
+                  COUNT_REGEXP_INSTANCES CASE_SENSITIVE ~^    [A-Za-z_][A-Za-z0-9_]*(~ idle_actions
+                  COUNT_REGEXP_INSTANCES CASE_SENSITIVE ~^    NoAction()~ idle_waits
+                END
+                PATCH_IF (idle_parts > 0) AND (idle_actions = idle_parts) AND (idle_waits = idle_parts) BEGIN
+                  SET flags = flags BOR 16384
                 END
               END
             END
@@ -2326,6 +2344,14 @@ BEGIN
               TEXT_SPRINT lines ~%lines%%stay_line%~
               SET bgse_exits += 1
             END
+            // SCS's idle gate holds only when the engine has no decision: the hook's own question.
+            PATCH_IF (part = 0) AND ((flags BAND 16384) = 16384) BEGIN
+              PATCH_IF (STRING_LENGTH ~%lines%~ > 0) BEGIN
+                TEXT_SPRINT lines ~%lines%%LNL%~
+              END
+              TEXT_SPRINT lines ~%lines%  !%guard%~
+              SET bgse_idles += 1
+            END
             INNER_PATCH_SAVE block ~%block%~ BEGIN
               PATCH_IF (STRING_LENGTH ~%lines%~ > 0) BEGIN
                 LPF bgse_aside INT_VAR bgse_from = 0 bgse_to = BUFFER_LENGTH STR_VAR bgse_lines = EVAL ~%lines%~ END
@@ -2398,8 +2424,9 @@ DEFINE_PATCH_FUNCTION bgse_hook_bcs
           bgse_vanish = ~|~
           bgse_looked = ~|~
           bgse_times = ~|~
-  RET bgse_result bgse_family bgse_copies bgse_clouds bgse_hunts bgse_jumps bgse_hides bgse_preps bgse_exits bgse_teleporter
-      bgse_hider bgse_gifts bgse_teleports bgse_checked bgse_invisible bgse_improved bgse_innate bgse_vanish bgse_looked
+  RET bgse_result bgse_family bgse_copies bgse_clouds bgse_hunts bgse_jumps bgse_hides bgse_preps bgse_exits bgse_idles
+      bgse_teleporter bgse_hider bgse_gifts bgse_teleports bgse_checked bgse_invisible bgse_improved bgse_innate bgse_vanish
+      bgse_looked
 BEGIN
   TEXT_SPRINT bgse_result ~failed~
   TEXT_SPRINT bgse_family ~~
@@ -2410,6 +2437,7 @@ BEGIN
   SET bgse_hides = 0
   SET bgse_preps = 0
   SET bgse_exits = 0
+  SET bgse_idles = 0
   SET bgse_teleporter = 0
   SET bgse_hider = 0
   TEXT_SPRINT bgse_gifts ~|~
@@ -2448,8 +2476,8 @@ BEGIN
     LPF bgse_hook_baf STR_VAR bgse_baf = EVAL ~%baf%~ bgse_script = EVAL ~%bgse_script%~ bgse_teleports = EVAL ~%bgse_teleports%~
         bgse_invisible = EVAL ~%bgse_invisible%~ bgse_improved = EVAL ~%bgse_improved%~ bgse_innate = EVAL ~%bgse_innate%~
         bgse_vanish = EVAL ~%bgse_vanish%~ bgse_times = EVAL ~%bgse_times%~
-      RET bgse_result bgse_family bgse_copies bgse_clouds bgse_hunts bgse_jumps bgse_hides bgse_preps bgse_exits bgse_teleporter
-          bgse_hider bgse_gifts bgse_baf END
+      RET bgse_result bgse_family bgse_copies bgse_clouds bgse_hunts bgse_jumps bgse_hides bgse_preps bgse_exits bgse_idles
+          bgse_teleporter bgse_hider bgse_gifts bgse_baf END
     PATCH_IF (~%bgse_result%~ STRING_EQUAL_CASE ~hooked~) BEGIN
       DELETE_BYTES 0 BUFFER_LENGTH
       INSERT_BYTES 0 (STRING_LENGTH ~%bgse_baf%~)
@@ -2465,6 +2493,7 @@ BEGIN
     SET bgse_hides = 0
     SET bgse_preps = 0
     SET bgse_exits = 0
+    SET bgse_idles = 0
     SET bgse_teleporter = 0
     SET bgse_hider = 0
     TEXT_SPRINT bgse_gifts ~|~

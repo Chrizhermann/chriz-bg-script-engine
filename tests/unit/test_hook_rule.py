@@ -1133,3 +1133,54 @@ def test_a_designed_creatures_own_talk_script_holds_only_its_talk():
         '  NumTimesTalkedTo(0)\n  !' + hook_rule.talk_guard('', 'bgsekarl') + '\nTHEN\n') in second, second
     assert hook_rule.patch_talk(patched, 'bgsekarl', own=True) == (None, 0)
     assert hook_rule.patch_talk(text('B-HKOWN'), 'bgsekarl', own=True) == (None, 0)
+
+@pytest.mark.parametrize('triggers,responses,idle', [
+    # SCS's casters: no enemy perceived, unhurt, not in a fight. Its monsters: no enemy seen, not in a fight, idle.
+    (['!Detect(NearestEnemyOf(Myself))', '!HPPercentLT(Myself,100)', '!Global("inafight","LOCALS",1)'], [['NoAction()']], True),
+    (['!See(NearestEnemyOf(Myself))', '!Global("inafight","LOCALS",1)', 'ActionListEmpty()'], [['NoAction()']], True),
+    (['!Detect(NearestEnemyOf(Myself))', '!Global("inafight","LOCALS",1)'], [['NoAction()'], ['NoAction()']], True),
+    # One of the two alone, a creature in a fight, one that perceives an enemy, one that does not see the party.
+    (['!Global("inafight","LOCALS",1)'], [['NoAction()']], False),
+    (['!Detect(NearestEnemyOf(Myself))'], [['NoAction()']], False),
+    (['!Detect(NearestEnemyOf(Myself))', 'Global("inafight","LOCALS",1)'], [['NoAction()']], False),
+    (['Detect(NearestEnemyOf(Myself))', '!Global("inafight","LOCALS",1)'], [['NoAction()']], False),
+    (['!Detect([PC])', '!Global("inafight","LOCALS",1)'], [['NoAction()']], False),
+    # A block that does anything else is no gate.
+    (['!Detect(NearestEnemyOf(Myself))', '!Global("inafight","LOCALS",1)'], [['SetGlobal("x","LOCALS",1)', 'NoAction()']], False),
+    (['!Detect(NearestEnemyOf(Myself))', '!Global("inafight","LOCALS",1)'], [['NoAction()'], ['RandomWalk()']], False),
+    (['!Detect(NearestEnemyOf(Myself))', '!Global("inafight","LOCALS",1)'], [['NoAction()', 'Continue()']], False),
+])
+def test_the_idle_gate_is_a_block_that_does_nothing_out_of_a_fight(triggers, responses, idle):
+    block = 'IF\n' + ''.join(f'  {t}\n' for t in triggers) + 'THEN\n' + ''.join(
+        '  RESPONSE #100\n' + ''.join(f'    {a}\n' for a in r) for r in responses) + 'END\n'
+    assert hook_rule.is_idle(block) is idle
+
+
+def test_idle_gates_ask_the_engine_first():
+    # SCS's casters end the pass above the hook while they perceive no enemy and are not in a fight (lab ambush-1,
+    # 2026-11-10: the assassins' priests and mage stood where they appeared while the fighters walked to the
+    # party). The gates above the hook take the hook's own question last: they hold only when the engine has no
+    # decision. The gate of a creature that is no enemy, a block that notes something and a gate below the hook
+    # stay as they are.
+    source = text('B-HKGAT')
+    spans, anchor, copies = hook_rule.plan(source)
+    assert (anchor, copies) == (5, []) and hook_rule.idles(source, spans, anchor) == [1, 3]
+    assert hook_rule.idles(source, spans, None) == []
+    patched, reason, fam, count = hook_rule.patch(source, 'B-HKGAT')
+    assert (reason, fam, count) == ('hooked', 'priest', 0)
+    ask = '  !' + hook_rule.guard('priest', 'b-hkgat')
+    for i, (a, b) in enumerate(spans):
+        block = source[a:b]
+        wanted = hook_rule.aside(block, [ask]) if i in (1, 3) else block
+        assert patched.count(wanted) == 1, i
+        assert wanted.index('!Global("inafight","LOCALS",1)') < wanted.index('THEN') if i in (1, 3, 4, 6) else True
+    assert patched.count(ask) == 2
+    # The question comes after the gate's own conditions, and the hook stands below the gates, right above the round.
+    gate = hook_rule.aside(source[spans[3][0]:spans[3][1]], [ask])
+    assert gate.index('ActionListEmpty()') < gate.index(ask) < gate.index('THEN')
+    hook = hook_rule.hook_block('priest', 'b-hkgat')
+    assert patched.index(gate) < patched.index(hook) < patched.index(source[spans[5][0]:spans[5][1]])
+    # A script without a gate has no such question.
+    for name in ('B-HKMAG', 'B-HKPRI', 'B-HKRNG', 'B-HKMON'):
+        fixed, _, family, _ = hook_rule.patch(text(name), name)
+        assert '  !' + hook_rule.guard(family, name.lower()) not in fixed, name

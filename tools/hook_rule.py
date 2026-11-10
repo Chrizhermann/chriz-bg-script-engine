@@ -109,7 +109,16 @@ member it does not perceive, so while nobody is in sight the pass never reaches 
 (party_walk: a pursuit whose response walks to Player1 to Player6 or [PC]) gets a last condition that holds
 when BGSE_Hunt says no, naming that member. For a creature the engine drives it says yes, and the engine's
 search goes for that member itself; any other creature keeps its walk (the assassins before their talk, a
-messenger on its way to the party).
+messenger on its way to the party). SCS's calls for help are such walks too (DW#GPSHT and its kin: a group
+member that hears the call and sees no enemy walks to the party members).
+
+SCS's idle gate (is_idle; 2026-11-10): above the hook, SCS's mage and priest scripts and some monster scripts
+end the pass with NoAction() while the creature perceives no enemy and is not in a fight (the casters' also
+needs full hit points). So a caster that had not seen an enemy itself never asked the engine: it stood while
+the fighters of its group walked to a clue, and SCS's assassins' casters stood once their helper's walk gave
+way. The gate gets the hook's own question as a last condition and holds only when the engine has no
+decision: where the engine has one (a walk to a clue or to the member its script calls it to, a heal for a
+friend, a step out of a danger zone), the pass goes on to the hook, past the copies above it.
 
 Run it on a folder of decompiled scripts to see what an install would do:
     python tools/hook_rule.py <folder-with-baf> [report.json] [teleports.txt] [hides.txt] [innates.txt]
@@ -197,6 +206,8 @@ ALLY = re.compile(r'^ +Allegiance\(Myself,GOODCUTOFF\)', re.M)
 # A walk to a party member, by its place in the party or as the nearest one (party_walk).
 PARTY_WALK = re.compile(r'^ {4}(?:MoveToObject|MoveToObjectFollow|MoveToObjectNoInterrupt)\((Player[1-6]|\[PC\])\) *$',
                         re.M)
+IDLE_FLAG = re.compile(r'^ +!Global\("inafight","LOCALS",1\)', re.M)
+IDLE_BLIND = re.compile(r'^ +!(?:See|Detect)\(NearestEnemyOf\(Myself\)\)', re.M)
 PUZZLED = re.compile(r'^ +GlobalTimerNotExpired\("whatthe","LOCALS"\)', re.M)
 WANDER = re.compile(r'^ {4}RandomWalk(?:Continuous)?\(', re.M)
 # A spellbook-free cast: the RES forms name the resource first, the others the target (a point
@@ -445,6 +456,23 @@ def clouds(text, spans, anchor):
     if anchor is None:
         return []
     return [i for i in range(anchor) if is_cloud(text[spans[i][0]:spans[i][1]])]
+
+
+def is_idle(block):
+    """SCS's idle gate: the creature perceives no enemy (!See or !Detect of NearestEnemyOf(Myself)), is not in a
+    fight (!Global("inafight","LOCALS",1)) and every response is NoAction() alone. SCS's casters hold it with a
+    check for full hit points, some monsters with an empty action list."""
+    trig, _ = split(block)
+    rs = responses(block)
+    return bool(rs) and all(r == ['NoAction'] for r in rs) and bool(IDLE_FLAG.search(trig)) and bool(
+        IDLE_BLIND.search(trig))
+
+
+def idles(text, spans, anchor):
+    """Indices of the idle gates above the anchor."""
+    if anchor is None:
+        return []
+    return [i for i in range(anchor) if is_idle(text[spans[i][0]:spans[i][1]])]
 
 
 def is_pursuit(block):
@@ -1102,13 +1130,16 @@ def patch(text, script, teleports=frozenset(), hides=None, vanishing=frozenset()
     cloudy = set(clouds(text, spans, anchor))
     hunting = set(hunts(text, spans)) | set(jumps(text, spans, teleports))
     preps = preparations(text, spans, anchor)
+    idle = set(idles(text, spans, anchor))
     # From the last one up, so the blocks before keep their offsets.
     for i in reversed(range(len(spans))):
         conditions = ([f'  !{zones_guard(fam, script)}'] if i in cloudy else []) + (
             [f'  !{search_guard(fam, script)}'] if i in hunting else []) + (
             [f'  !{hide_guard(fam, script, hidden[i])}'] if i in hidden else []) + (
             [f'  !{prep_guard(fam, script, *preps[i])}'] if i in preps else []) + (
-            [f'  !{stay_guard(fam, script)}'] if i in leaving else [])
+            [f'  !{stay_guard(fam, script)}'] if i in leaving else []) + (
+            # SCS's idle gate holds only when the engine has no decision: the hook's own question.
+            [f'  !{guard(fam, script)}'] if i in idle else [])
         if conditions:
             a, b = spans[i]
             block = aside(text[a:b], conditions)
@@ -1173,6 +1204,7 @@ def main():
         leaving = len(exits(text, spans, vanishing)) if patched else 0
         rows.append({'script': path.stem, 'family': fam, 'result': reason, 'copies': copies, 'clouds': cloudy,
                      'hunts': hunting, 'jumps': jumping, 'hides': hidden, 'preps': preps, 'exits': leaving,
+                     'idles': len(idles(text, spans, anchor)) if patched else 0,
                      'own_exits': patch_own(text, path.stem, vanishing)[1],
                      'talks': patch_talk(text, path.stem)[1],
                      'teleporter': bool(patched) and teleporter(text, teleports),

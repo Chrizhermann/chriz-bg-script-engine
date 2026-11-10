@@ -1,0 +1,67 @@
+// A caster's script with SCS's idle gate above its round: while it perceives no enemy, is unhurt and not in a
+// fight, the pass ends doing nothing, so the hook below was never asked.
+IF
+  INI("DMWW_priest_difficulty",0)
+  Global("inafight","LOCALS",0)
+  See(NearestEnemyOf(Myself))
+THEN
+  RESPONSE #100
+    SetGlobal("inafight","LOCALS",1)
+    Continue()
+END
+
+// The casters' gate.
+IF
+  !Detect(NearestEnemyOf(Myself))
+  !HPPercentLT(Myself,100)
+  !Global("inafight","LOCALS",1)
+THEN
+  RESPONSE #100
+    NoAction()
+END
+
+// A creature that is no enemy does nothing: this stays as it is.
+IF
+  !Allegiance(Myself,ENEMY)
+THEN
+  RESPONSE #100
+    NoAction()
+END
+
+// A monster's gate: no enemy seen, not in a fight, nothing to do.
+IF
+  !See(NearestEnemyOf(Myself))
+  !Global("inafight","LOCALS",1)
+  ActionListEmpty()
+THEN
+  RESPONSE #100
+    NoAction()
+END
+
+// Out of a fight it notes something: no gate, it stays as it is.
+IF
+  !Detect(NearestEnemyOf(Myself))
+  !Global("inafight","LOCALS",1)
+THEN
+  RESPONSE #100
+    SetGlobal("B-HKREST","LOCALS",1)
+    NoAction()
+END
+
+IF
+  See(NearestEnemyOf(Myself))
+  !GlobalTimerNotExpired("castspell","LOCALS")
+THEN
+  RESPONSE #100
+    SetGlobalTimer("castspell","LOCALS",6)
+    AttackReevaluate(NearestEnemyOf(Myself),30)
+END
+
+// Below its round the hook has been asked already: this stays as it is.
+IF
+  !Detect(NearestEnemyOf(Myself))
+  !Global("inafight","LOCALS",1)
+THEN
+  RESPONSE #100
+    NoAction()
+END

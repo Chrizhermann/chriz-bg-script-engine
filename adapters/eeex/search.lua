@@ -78,11 +78,13 @@ M.stealthMode=3
 M.progress=32
 M.stuckLimit=2
 M.cacheLimit=1024
--- A script's call to a party member (seeker:call) stands for callTicks: the script calls in the same
--- pass the engine decides in. A walk for a call aims anew once the member stands callDrift from the
--- walk's spot (more than members keep apart when they spread out), callAgain ticks after it began at
--- the earliest.
-M.callTicks=15
+-- A script's call to a party member (seeker:call) stands for callTicks. The script calls in every pass,
+-- and a creature the player does not see gets a pass every 16 ticks only (lab ambush-1, 2026-11-10: with
+-- 15 ticks each pass's call was a new one, and a call made below the hook would have run out before
+-- the hook's next question); three seconds cover a slow pass too. A walk for a call aims anew once the
+-- member stands callDrift from the walk's spot (more than members keep apart when they spread out),
+-- callAgain ticks after it began at the earliest.
+M.callTicks=45
 M.callDrift=240
 M.callAgain=30
 
