@@ -1009,6 +1009,55 @@ def test_own_exits_wait_while_the_engine_keeps_the_creature_in_the_fight():
     assert hook_rule.patch_own(source, 'B-HKOWN')[1] == 1
 
 
+@pytest.mark.parametrize('triggers,actions,target', [
+    # SCS's helper for its assassins: a party member it does not perceive, with no enemy in sight.
+    (['!See(NearestEnemyOf(Myself))', '!Detect(Player1)'], ['MoveToObject(Player1)'], 'Player1'),
+    (['!See(NearestEnemyOf(Myself))', '!Detect(Player6)', 'ActionListEmpty()'], ['MoveToObject(Player6)'], 'Player6'),
+    (['!See([PC])'], ['MoveToObjectNoInterrupt([PC])  // the nearest'], '[PC]'),
+    (['!Detect(Player2)'], ['SetGlobal("x","LOCALS",1)', 'MoveToObjectFollow(Player2)'], 'Player2'),
+    # One it sees, an ally's walk after the party, a walk elsewhere and a jump are none.
+    (['See(Player1)', '!See(NearestEnemyOf(Myself))'], ['MoveToObject(Player1)'], None),
+    (['Allegiance(Myself,GOODCUTOFF)', '!See(Player1)'], ['MoveToObject(Player1)'], None),
+    (['!See(NearestEnemyOf(Myself))'], ['MoveToObject(NearestDoor)'], None),
+    (['!See(NearestEnemyOf(Myself))'], ['MoveToObject("Drizzt")'], None),
+    (['!See(NearestEnemyOf(Myself))', '!Detect(Player1)'], ['JumpToObject(Player1)'], None),
+    (['Global("x","GLOBAL",1)'], ['MoveToObject(Player1)'], None),
+])
+def test_walks_at_party_members_a_creature_does_not_perceive(triggers, actions, target):
+    lines = ''.join(f'  {t}\n' for t in triggers)
+    block = f'IF\n{lines}THEN\n  RESPONSE #100\n' + ''.join(f'    {a}\n' for a in actions) + 'END\n'
+    assert hook_rule.party_walk(block) == target
+
+
+def test_walks_at_party_members_ask_the_engine_first():
+    # The helper above a combat script (as SCS's helpers for its ambushes; Christopher, 2026-11-10: the ambushes
+    # are taken over as they are for now): each walk at a party member the creature does not perceive takes
+    # BGSE_Hunt's condition last, without a family, naming that member; the rest stays as it is. A script the SCS
+    # rule hooked, one patched before, one without such a walk and one whose name cannot go into Lua text stay as
+    # they are.
+    source = text('B-HKHLP')
+    spans = hook_rule.blocks(source)
+    walks = {i: hook_rule.party_walk(source[a:b]) for i, (a, b) in enumerate(spans)}
+    assert [walks[i] for i in sorted(walks)] == ['Player1', 'Player2', '[PC]', None, None, None]
+    patched, count = hook_rule.patch_hunt(source, 'B-HKHLP')
+    assert count == 3
+    assert '  !' + hook_rule.hunt_guard('b-hkhlp', 'Player2') == (
+        "  !EEex_LuaTrigger(\"return BGSE_Hunt and BGSE_Hunt(EEex_LuaTrigger_Object,'','b-hkhlp','Player2') or false\")")
+    for i, (a, b) in enumerate(spans):
+        block = source[a:b]
+        wanted = hook_rule.aside(block, ['  !' + hook_rule.hunt_guard('b-hkhlp', walks[i])]) if walks[i] else block
+        assert patched.count(wanted) == 1, i
+    assert patched.count('BGSE_Hunt(') == 3
+    assert hook_rule.patch_hunt(patched, 'B-HKHLP') == (None, 0)
+    assert hook_rule.patch_hunt(source.replace('\n', '\r\n'), 'b-hkhlp') == (patched, 3)
+    assert hook_rule.patch_hunt(source, "b-hk'hlp") == (None, 0)
+    assert hook_rule.patch_hunt(text('B-HKPLT'), 'B-HKPLT') == (None, 0)
+    # A script the SCS rule hooked keeps BGSE_Search's condition on its own walks at the party.
+    hooked = hook_rule.patch(text('B-HKMON'), 'B-HKMON', TELEPORTS)[0]
+    assert 'MoveToObject(Player1)' in hooked and hook_rule.patch_hunt(hooked, 'B-HKMON') == (None, 0)
+    assert hook_rule.patch_hunt(text('B-HKMON'), 'B-HKMON')[1] > 0
+
+
 @pytest.mark.parametrize('triggers, responses, talks', [
     # SCS's talk on sight: a party member it sees and has not talked to, the talk with that party member.
     (['See([PC])', 'NumTimesTalkedTo(0)'], [['Dialog([PC])']], True),

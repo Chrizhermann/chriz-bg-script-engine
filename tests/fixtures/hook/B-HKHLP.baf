@@ -1,0 +1,56 @@
+// A helper that sits above a creature's combat script, as SCS's helpers for its ambushes do: it walks the
+// creature to each party member it does not perceive. Not SCS's combat script, and it holds no fight action.
+IF
+  !See(NearestEnemyOf(Myself))
+  !Detect(Player1)
+THEN
+  RESPONSE #100
+    MoveToObject(Player1)
+END
+
+IF
+  !See(NearestEnemyOf(Myself))
+  !Detect(Player2)
+  ActionListEmpty()
+  Global("B-HKALERT","GLOBAL",1)
+THEN
+  RESPONSE #100
+    MoveToObject(Player2)
+END
+
+// The nearest party member, as an area's guards go for it once the alarm sounds.
+IF
+  !See([PC])
+  OR(2)
+    Global("B-HKALERT","GLOBAL",1)
+    Global("B-HKALERT","GLOBAL",2)
+THEN
+  RESPONSE #100
+    MoveToObject([PC])
+END
+
+// A party member it sees: no pursuit, it stays as it is.
+IF
+  See(Player1)
+  !See(NearestEnemyOf(Myself))
+THEN
+  RESPONSE #100
+    MoveToObject(Player1)
+END
+
+// On the party's side (an ally following the party): it stays as it is.
+IF
+  Allegiance(Myself,GOODCUTOFF)
+  !See(Player1)
+THEN
+  RESPONSE #100
+    MoveToObject(Player1)
+END
+
+IF
+  Global("B-HKHOSTILE","GLOBAL",0)
+  Allegiance(Myself,ENEMY)
+THEN
+  RESPONSE #100
+    SetGlobal("B-HKHOSTILE","GLOBAL",1)
+END

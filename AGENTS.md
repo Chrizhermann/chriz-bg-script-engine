@@ -102,4 +102,5 @@ It will ship as an optional, experimental CEBG component.
 - Tests: `powershell -NoProfile -File scripts/test.ps1 -Suite all`. The bridge-installer test
   needs `BGSE_WEIDU` set to a WeiDU executable. After a change to decision logic, run the whole
   suite, not only the tests of the file you changed. Mutation checks: `tools/mutation_check.py`,
-  which refuses a red baseline (on one, every mutation looks caught).
+  which refuses a red baseline (on one, every mutation looks caught) and a mutation that changes
+  nothing (it would look like a survivor). Close every real survivor with a test or remove the line.

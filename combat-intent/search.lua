@@ -41,6 +41,14 @@
 --   left, looks behind a closed door nearby; in a fight, indoors, with nothing to go on at all, it
 --   looks behind the nearest closed door near it, as SCS does (Christopher, 2026-11-03). A locked door
 --   it opens with its key, by picking the lock, with Knock or by bashing it (doors.way).
+-- - set pieces (Christopher, 2026-11-10: SCS's ambushes are taken over as they are for now, the
+--   groups come straight at the party; made cooler when the fights are gone through one by one): a
+--   creature whose script walks it to a party member it does not perceive (SCS's assassins, the
+--   Bandit Camp once the alarm sounds; the installer's hunt guard asks BGSE_Hunt in such a block)
+--   gets that party member's place as a clue ('called'), new with every call. It ranks below what
+--   the group perceived, never runs out while the script calls, and takes a guard from its post
+--   too. The walk there is the engine's: members spread out around the spot, casters stay behind
+--   fighters, doors are opened, a teleport shortens a long way.
 -- Inputs are plain values; nothing here touches the engine.
 local targeting=require('combat-intent.targeting')
 local doors=require('combat-intent.doors')
@@ -57,8 +65,9 @@ M.giveUpShare=0.5
 -- Clues older than this are forgotten (the director forgets enemies after 30 seconds), unless the
 -- creature's patience lasts longer: a patient creature keeps its clues while it searches.
 M.memorySeconds=30
--- The best clue: by kind, then the newest, then the nearest.
-M.PRIORITY={sighted=4,hit=3,vanished=2,seen=1}
+-- The best clue: by kind, then the newest, then the nearest. 'called' is where the creature's script
+-- sends it (see the top): after everything the group perceived.
+M.PRIORITY={sighted=4,hit=3,vanished=2,seen=1,called=0}
 -- A tactical creature leads a moving enemy by up to leadSeconds of its last heading, at most
 -- leadMax world units.
 M.leadSeconds=2
@@ -646,7 +655,8 @@ function M.decide(input)
             return {kind='modal',clue=clue.kind,target=clue.id,key=key}
         end
     end
-    if input.guard and post and targeting.distance(post,clue)>M.guardRadius then
+    -- A guard keeps near its post, unless its script calls it to a party member.
+    if input.guard and post and clue.kind~='called' and targeting.distance(post,clue)>M.guardRadius then
         if targeting.distance(self,post)>M.postSlack and not self.rooted then return {kind='return',point=whole(post)} end
         return {kind='look',key=key,guard=true}
     end

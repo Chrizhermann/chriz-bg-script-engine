@@ -2478,6 +2478,129 @@ local la=seeker47:decide(s40,fa,300,'mage',clever,{},{},nil)
 assert(la.kind=='look' and la.point.x==160 and la.point.y==400)
 db=seeker47:decide(s47,fb,400,'mage',clever,{},{},nil)
 assert(db.kind=='guard' and db.point.x==230 and db.point.y==273)
+
+-- The ambush (Christopher, 2026-11-10: SCS's ambushes are taken over as they are for now). An assassin
+-- that never saw the party carries SCS's helper above its combat script; the helper would walk it to
+-- Player1, whom it does not perceive, and asks BGSE_Hunt first (the installer's hunt guard). The engine
+-- takes the walk: the call is a clue ('called'), and the assassin walks to where Player1 stands. While
+-- it walks the call renews; once Player1 has moved away from the walk's spot the walk aims anew.
+do
+    local g,ch,root,last,claim=setup(48)
+    local assassin=g.add(sprite(1,0,0,255))
+    assassin.levels={[0]='HELPER',[7]='S1'}
+    local hero=g.add(sprite(11,2000,0,2))
+    g.EEex_Object_EvalStringAsAIBase=function(text,from,back)
+        assert(from==assassin and back==false)
+        if text=='Player1' then return hero end
+        if text=='broken' then error('no such object') end
+    end
+    local function calls() return ch:inspect().search.counts.calls end
+    -- Nothing to go on yet: its own life goes on.
+    assert(claim(assassin,100)==false and ch:inspect().reasons['no-enemy']==1)
+    g.ticks=101
+    assert(g.BGSE_Hunt(assassin,'','helper','Player1')==true and calls()==1)
+    local c=last('clue')
+    assert(c.clue=='called' and c.target==11 and c.as=='Player1' and c.member==1)
+    -- The helper's other blocks ask in the same pass: one call a tick.
+    assert(g.BGSE_Hunt(assassin,'','helper','Player2')==true and calls()==1)
+    assert(claim(assassin,101)==true)
+    g.BGSE_Act(assassin)
+    assert(g.queued[#g.queued].text=='MoveToPoint([2000.0])' and last('search').clue=='called' and last('search').target==11)
+    -- Held while it walks; the renewed call is no new one.
+    assassin.m_curAction={m_actionID=23}
+    g.ticks=110
+    assert(g.BGSE_Hunt(assassin,'','helper','Player1')==true and calls()==1)
+    local holds=ch:inspect().counts.holds
+    assert(claim(assassin,110)==true and ch:inspect().counts.holds==holds+1)
+    -- Player1 walks on. The walk keeps its spot for its first 30 ticks, and after that while Player1
+    -- stays within 240 of it; then it aims anew, at where Player1 stands now.
+    hero.m_pos={x=3000,y=0}
+    g.ticks=120
+    assert(g.BGSE_Hunt(assassin,'','helper','Player1')==true)
+    assert(claim(assassin,120)==true and ch:inspect().search.counts.reaims==0)
+    hero.m_pos={x=2200,y=0}
+    g.ticks=131
+    assert(g.BGSE_Hunt(assassin,'','helper','Player1')==true)
+    assert(claim(assassin,131)==true and ch:inspect().search.counts.reaims==0)
+    hero.m_pos={x=3000,y=0}
+    g.ticks=140
+    assert(g.BGSE_Hunt(assassin,'','helper','Player1')==true)
+    assert(claim(assassin,140)==true and ch:inspect().search.counts.reaims==1)
+    g.BGSE_Act(assassin)
+    assert(g.queued[#g.queued].text=='MoveToPoint([3000.0])' and calls()==1)
+    -- A call that is not renewed is forgotten after a second: without it nothing is left to go on, and
+    -- a call later is a new one.
+    assassin.m_curAction={m_actionID=0}
+    assert(claim(assassin,200)==false)
+    g.ticks=201
+    assert(g.BGSE_Hunt(assassin,'','helper','Player1')==true and calls()==2)
+    -- A target that is not there, or cannot be read, still leaves the round to the engine, without a call.
+    g.ticks=300
+    assert(g.BGSE_Hunt(assassin,'','helper','Player4')==true and g.BGSE_Hunt(assassin,'','helper','broken')==true)
+    assert(calls()==2 and ch:inspect().search.counts.callFailures==1)
+    g.EEex_Object_EvalStringAsAIBase=nil
+    g.ticks=301
+    assert(g.BGSE_Hunt(assassin,'','helper','Player1')==true and calls()==2)
+    -- A neutral one (before its talk) keeps the script's walk, as one does that carries no hooked script,
+    -- one whose script is not in its stack, and every creature with the choice off.
+    assassin.m_typeAI.m_EnemyAlly=128
+    assert(g.BGSE_Hunt(assassin,'','helper','Player1')==false)
+    assassin.m_typeAI.m_EnemyAlly=255
+    assert(g.BGSE_Hunt(assassin,'','other','Player1')==false and g.BGSE_Hunt(assassin,'','helper',nil)==false)
+    assassin.levels={[0]='HELPER'}
+    assert(g.BGSE_Hunt(assassin,'','helper','Player1')==false)
+    assassin.levels={[0]='HELPER',[7]='S1'}
+    root.setChoice(false)
+    assert(g.BGSE_Hunt(assassin,'','helper','Player1')==false)
+end
+-- The call on the seeker itself: who counts as called, what makes a call a new one, and what ends it.
+do
+    local g=world()
+    local me=g.add(sprite(1,0,0,255))
+    local hero=g.add(sprite(11,2000,0,2))
+    local other=g.add(sprite(12,1000,0,2))
+    local elsewhere=g.add(sprite(13,500,0,2,{m_pArea={m_resref=str('AR0009'),m_lVertSortBack={}}}))
+    local named={Player1=hero,Player2=other,Player3=elsewhere,Myself=me}
+    g.EEex_Object_EvalStringAsAIBase=function(text) return named[text] end
+    local away,rows={},{}
+    local seeker=seekers.new(g,{director={clues=function() return {} end,group=function() return {} end,
+        away=function() return away end},record=function(row) rows[#rows+1]=row end})
+    local frame={area='AR0001',self={id=1,x=0,y=0,hp=40,maxHp=40,ea=255},enemies={}}
+    local function called(tick)
+        local d=seeker:decide(me,frame,tick,'fighter',{wit='normal',tactics=0.5},{},{},nil)
+        return d and d.kind=='search' and d.clue=='called' and d.target or false
+    end
+    local function calls() return seeker:inspect().counts.calls end
+    -- The creature itself and a creature in another area are no one to go to.
+    assert(seeker:call(me,'Myself',100)==false and seeker:call(me,'Player3',100)==false and calls()==0)
+    assert(called(100)==false)
+    assert(seeker:call(me,'Player1',100)==true and calls()==1)
+    -- The first call of a tick stands: the helper's next block names another member in the same pass.
+    assert(seeker:call(me,'Player2',100)==true and calls()==1 and called(100)==11)
+    -- Another member in a later pass is a new call; the same one is, once more than a second passed
+    -- without a call.
+    assert(seeker:call(me,'Player2',105)==true and calls()==2 and rows[#rows].clue=='called' and rows[#rows].target==12)
+    assert(seeker:call(me,'Player2',110)==true and calls()==2)
+    assert(seeker:call(me,'Player2',126)==true and calls()==3 and called(126)==12)
+    -- A member the group took out of play (charmed, in a maze) is not gone for, however often the
+    -- script calls; once it is back, the next call counts again.
+    away={{id=12,kind='charm',x=1000,y=0,since=120,lastTick=128}}
+    assert(seeker:call(me,'Player2',127)==true and called(127)==false)
+    -- The calls that follow are nothing new either: no search begins on them.
+    local hunts=seeker:inspect().counts.hunts
+    assert(seeker:call(me,'Player2',128)==true and called(128)==false and seeker:inspect().counts.hunts==hunts)
+    away={}
+    assert(seeker:call(me,'Player2',129)==true and called(129)==12 and seeker:inspect().counts.hunts==hunts+1)
+    -- Nor one that has left the area since the call.
+    other.m_pArea=elsewhere.m_pArea
+    assert(called(130)==false)
+    other.m_pArea=me.m_pArea
+    assert(seeker:call(me,'Player2',131)==true and calls()==3 and called(131)==12)
+    -- A fight ends the search and its call: afterwards only a new call counts.
+    seeker:fight(me,{area='AR0001',self={id=1,x=0,y=0,hp=40,maxHp=40,ea=255},enemies={{id=12}}},132,nil)
+    assert(called(133)==false)
+    assert(seeker:call(me,'Player2',134)==true and calls()==4 and called(134)==12)
+end
 end)()
 groups=groups+1
 

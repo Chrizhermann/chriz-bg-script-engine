@@ -386,4 +386,40 @@ assert(search.mazeLeft(0,4,0)==nil and search.mazeLeft(4,0,0)==nil and search.ma
 assert(search.mazeLeft(2.5,4,0)==nil and near(search.mazeLeft(4,4,nil),60))
 groups=groups+1
 
+-- 13. Set pieces (Christopher, 2026-11-10: SCS's ambushes are taken over as they are for now). A
+-- creature its script calls to a party member it does not perceive ('called', where that member
+-- stands, new with every call) walks there, a dull one too. What the group perceived comes first.
+-- A call never runs out: the newest clue is the call. A guard leaves its post for it; with a newer
+-- call than its giving up it searches again. The walk is the engine's own: two members spread
+-- around the spot.
+do
+    local called={kind='called',id=21,x=2200,y=1400,tick=3000}
+    local dull={wit='dull',tactics=0}
+    d=search.decide(input({clues={called},mind=dull}))
+    assert(d.kind=='search' and d.clue=='called' and d.target==21 and d.point.x==2200 and d.point.y==1400)
+    assert(d.key=='called:21:3000')
+    d=search.decide(input({clues={called,seen},mind=dull}))
+    assert(d.clue=='seen' and d.target==11)
+    d=search.decide(input({clues={called,seen},mind=dull,searched={['seen:11:2950']=true}}))
+    assert(d.clue=='called')
+    -- The old sighting is long forgotten and the dull one's patience over: the call still stands.
+    d=search.decide(input({clues={called,{kind='seen',id=11,x=1300,y=1000,tick=3000-60*15}},mind=dull,since=1000,
+        post={x=600,y=1000}}))
+    assert(d.kind=='search' and d.clue=='called')
+    d=search.decide(input({clues={called},guard=true,post={x=1000,y=1000}}))
+    assert(d.kind=='search' and d.clue=='called' and d.point.x==2200)
+    d=search.decide(input({clues={called},gaveUp=2990,post={x=600,y=1000}}))
+    assert(d.kind=='search' and d.clue=='called')
+    d=search.decide(input({clues={called},gaveUp=3000,post={x=600,y=1000}}))
+    assert(d.kind=='return')
+    -- Next to the party member and still not seeing it: the spot is looked at, and the next call is new.
+    d=search.decide(input({clues={{kind='called',id=21,x=1020,y=1000,tick=3000}}}))
+    assert(d.kind=='look' and d.searched=='called:21:3000')
+    -- A second member that searches the same spot: the creature keeps off to the side.
+    d=search.decide(input({clues={called},group={{id=2,family='fighter',point={x=2200,y=1400}}},family='fighter'}))
+    assert(d.kind=='search' and (d.point.x~=2200 or d.point.y~=1400))
+    assert(search.PRIORITY.called==0 and search.PRIORITY.seen>search.PRIORITY.called)
+end
+groups=groups+1
+
 return groups

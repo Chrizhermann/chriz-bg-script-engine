@@ -48,15 +48,16 @@ for these fights. NPC-mod interjections and Item Randomiser's later item placeme
   skill or Knock; bashing is pending. Travel between areas and scripted entry restrictions remain with
   the game's scripts. No general formation or bodyguard behavior holds a front line for a caster.
 
-**A specific hook gap affects these expectations.** `DW#C3AS1`, `DW#C3AS2`, `BANDIT` and `DW#C3HST`
-contain offscreen walks to party members, above the creatures' combat scripts. The current installer
-does not hook those helpers: they lack the combat timer that selects a script for rewriting.
-Read-only checks with `tools/hook_rule.py` recognized six pursuit blocks in each but returned
-`not-scs` for the script. Their pursuit can therefore override the engine's fair search, and can
-prevent lower combat scripts from running while nobody is visible. This is a source-proven coverage
-gap; its timing in these fights is untested. A fix needs installer work. The special talk scripts of
-Mulahey, Lamalha, Molkar and Drasus also receive no current pre-talk wrapper; new group preparation
-before their conversations needs a dedicated hook.
+**A hook gap that affected these expectations is closed (2026-11-10).** `DW#C3AS1`, `DW#C3AS2`,
+`BANDIT` and `DW#C3HST` walk their creatures to party members out of sight, from above the creatures'
+combat scripts; the installer did not hook those helpers, so SCS steered the walk and the pass never
+reached the engine while nobody was visible. Since the engine after 06efb6a each such walk asks the
+engine first: for a creature the engine drives it stands aside and the engine's search goes for that
+party member itself; on sight the fight is the engine's
+([HOOK-01](HOOK-01-scs-hook-placement.md), rule 14). A neutral creature (Molkar, Lamalha before their
+talk) keeps its walk up to the party. The special talk scripts of Mulahey, Lamalha, Molkar and Drasus
+still receive no pre-talk wrapper; new group preparation before their conversations needs a dedicated
+hook.
 
 **SCS random potions**, decoded from this lab's `RNDTRES.2DA`. The sheet's `R02`, for example, means
 `DW#RND02`; the game draws it when creating the creature. U means undroppable, D droppable.
@@ -244,6 +245,9 @@ the cost of both priests' group preparation.
 3. Hard priest roles: normal choices, or Zeela summons while Lamalha opens with Silence (orders)?
 4. Thieves: missiles with opportunistic hiding, or deliberate retreats to hide (new engine work)?
 5. Hunting (also for sheets 3 and 4): both assassin parties and the camp's bandits walk to the party unseen, as SCS has it, from a script the engine leaves alone. They were sent after the party, so keep that, or let them go only by what they perceive (new installer work)?
+   **Answered, Christopher 2026-11-10:** taken over as it is for now. The groups come straight at the
+   party and surround it, as with SCS; the engine does the walk (rule 14 of HOOK-01). Each ambush gets
+   cooler later, in its own design round.
 
 ## 3. Molkar, Drakar, Halacan and Morvin
 

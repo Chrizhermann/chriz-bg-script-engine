@@ -477,11 +477,14 @@ def test_installer_matches_reference_and_is_reversible(tmp_path: Path) -> None:
     originals = _decompile(tmp_path, HOOKED)
     own = _decompile(tmp_path, ['B-HKOWN'])['B-HKOWN']
     talk = _decompile(tmp_path, ['B-HKTLK'])['B-HKTLK']
+    helper = _decompile(tmp_path, ['B-HKHLP'])['B-HKHLP']
     carried = _decompile(tmp_path, OWN)
 
     output = _install(tmp_path, '--force-install-list', '0')
     assert 'SUCCESSFULLY INSTALLED' in output, output
     assert "BGSE own: 3 fight scripts that are not SCS's ask the engine first." in output, output
+    assert ('BGSE hunt: 3 walks at party members a creature does not perceive, in scripts the SCS rule did not hook, '
+            "yield to the engine's search.") in output, output
     assert ('BGSE hook: 8 SCS scripts hooked, 27 SCS blocks guarded, 5 SCS cloud blocks yield to the engine, '
             "14 SCS hunting blocks yield to the engine's search, 3 left as they are.") in output, output
     assert ("BGSE teleport: 1 SCS jumps into the fight yield to the creatures' own teleports, 1 creatures that "
@@ -628,6 +631,18 @@ def test_installer_matches_reference_and_is_reversible(tmp_path: Path) -> None:
     assert talks == 4 and expected_talk.count(hook_rule.talk_guard('', 'b-hktlk')) == 4
     assert 'IF\n  !' + hook_rule.talk_guard('', 'b-hktlk') + '\n  NumTimesTalkedTo(0)\n' in expected_talk
     assert _decompile(tmp_path, ['B-HKTLK'])['B-HKTLK'] == expected_talk
+    # The helper above a combat script (as SCS's helpers for its ambushes): its three walks at party members the
+    # creature does not perceive ask the engine first, with no family and naming the member; the walk to the
+    # nearest one, whose triggers end in a full OR group, takes the condition last as well. Its walk to a party
+    # member it sees, an ally's walk and its bookkeeping stay as they are. The SCS-hooked scripts' own walks at
+    # the party keep BGSE_Search's condition and get none of this.
+    expected_helper, walks = hook_rule.patch_hunt(helper, 'B-HKHLP')
+    assert walks == 3 and [expected_helper.count(hook_rule.hunt_guard('b-hkhlp', t)) for t in (
+        'Player1', 'Player2', '[PC]')] == [1, 1, 1]
+    assert ('    Global("B-HKALERT","GLOBAL",2)\n  !' + hook_rule.hunt_guard('b-hkhlp', '[PC]') + '\nTHEN\n'
+            ) in expected_helper
+    assert _decompile(tmp_path, ['B-HKHLP'])['B-HKHLP'] == expected_helper
+    assert not any('BGSE_Hunt' in text for text in hooked.values())
     # SCS's preparation above the hook asks the engine first and tells it what ran, once in each response
     # that casts: the mage's prebuff and first-round cast, and the preparation script's two prebuffs (one
     # spends a spell by its file, one casts a name SCS left unfilled), contingency, chain at the party and

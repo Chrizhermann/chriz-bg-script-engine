@@ -10,7 +10,9 @@
 -- first-round casts) asks BGSE_Prep(object, family, script, kind, cast, spent) the same way, and a
 -- prebuff, contingency or chain that ran calls BGSE_Prepped with the same names from its response.
 -- SCS's vanishing exits ask BGSE_Stay(object, family, script) the same way: the engine keeps every
--- creature it drives in the fight unless its orders let it leave.
+-- creature it drives in the fight unless its orders let it leave. A walk at a party member the
+-- creature does not perceive, in a script that is not SCS's combat script (SCS's helpers for its
+-- ambushes), asks BGSE_Hunt(object, family, script, target): the engine's search goes for that member.
 -- All go by the script that decides for the creature (kernel/hook.lua, driver), which for a creature
 -- with two hooked scripts is the higher one, also in the lower one's blocks.
 -- Switches live in the player's Baldur.lua under [BGSE] (Enabled, Mages, Priests, Fighters,
@@ -375,6 +377,20 @@ function M.install(g,options)
             local a=actor(object,script)
             local driver=gate:driver(a)
             return choice~=nil and driver~=nil and choice:searches(driver,a.id)==true
+        end)
+        return ok and result==true
+    end
+    -- True for every creature the engine drives and searches for (gate:driver, choice:hunts), from a
+    -- block that would walk it to a party member it does not perceive (target, as the script names
+    -- it): the walk stands aside, and the engine's search goes for that member (Christopher,
+    -- 2026-11-10: SCS's ambushes are taken over as they are for now). The script that asks need not be
+    -- hooked itself: SCS's helpers for it sit above the combat script. Any error is false.
+    g.BGSE_Hunt=function(object,family,script,target)
+        local ok,result=pcall(function()
+            register()
+            local a=actor(object,script)
+            local driver=gate:driver(a)
+            return choice~=nil and driver~=nil and choice:hunts(driver,a.id,target)==true
         end)
         return ok and result==true
     end

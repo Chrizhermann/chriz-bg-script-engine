@@ -2561,6 +2561,19 @@ function M.new(g,options)
         local sprite=get(id)
         return sprite~=nil and sense.side(sprite.m_typeAI.m_EnemyAlly)=='evil'
     end
+    -- Whether the engine goes for the party member a creature's script would walk it to (BGSE_Hunt: a
+    -- walk at a party member the creature does not perceive, in a script that is not SCS's combat
+    -- script, stands aside for it; Christopher, 2026-11-10: SCS's ambushes are taken over as they are
+    -- for now, the groups come straight at the party): for every creature the engine searches for
+    -- (api:searches). target is that member as the script names it; when it is there, its place
+    -- becomes a clue of the creature's search (seeker:call). Any other creature (neutral before its
+    -- talk, charmed) keeps the script's walk.
+    function api:hunts(family,id,target)
+        if type(target)~='string' or not api:searches(family,id) then return false end
+        local ok,err=pcall(function() seeker:call(get(id),target,now()) end)
+        if not ok then failed('hunts',err) end
+        return true
+    end
     -- Whether the engine hides creature id of family its own way (BGSE_Hide: SCS's free invisibility
     -- of that kind stands aside for it), for a creature the engine drives, as for its search, whatever
     -- its wit (a dull one does not think of it): plain invisibility (kind 'plain') when it can hide by

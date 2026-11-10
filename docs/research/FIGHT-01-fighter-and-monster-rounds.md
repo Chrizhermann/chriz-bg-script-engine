@@ -259,6 +259,14 @@ The engine searches with what the creature and its group perceived instead
   walking enemy the spot it would have reached by now (`vanished`: likely invisible). The best clue
   is the strongest kind (sighted, hit, vanished, last seen), then the newest, then the nearest.
   Clues are kept 30 seconds, or longer while the creature's patience lasts.
+- **Called to the party (2026-11-10).** A set piece is the one case where a creature goes for a
+  party member nobody perceived: SCS's assassins and the Bandit Camp's alarm walk their creatures at
+  the party from a helper script (Christopher, 2026-11-10: taken over as they are for now). That
+  walk asks the engine first ([HOOK-01](HOOK-01-scs-hook-placement.md), rule 14), and for a creature
+  the engine drives the member's place becomes a clue of the weakest kind (`called`), fresh while
+  the script keeps calling. It does not run out and takes a guard from its post; the walk aims anew
+  once the member has moved more than 240 away. Anything the creature or its group perceived goes
+  first.
 - **The walk.** `MoveToPoint` to the open spot nearest the clue, held while the creature walks it
   (at most twice the straight walk plus 2 seconds) and ended at once when an enemy shows or the
   creature is hurt. A spot inside a danger zone counts as searched. On a searched spot the creature

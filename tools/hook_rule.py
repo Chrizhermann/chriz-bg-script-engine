@@ -102,6 +102,15 @@ BGSE_Stay goes by the script that decides for the creature, the first hooked one
 driver), and answers no wherever there is none. Any other trigger may tie the exit to a story (Terminsel's
 Death variable, Lady Yuth's theft), so such an exit stays as it is.
 
+Walks at party members in scripts the SCS rule did not hook (patch_hunt; Christopher, 2026-11-10: SCS's
+ambushes are taken over as they are for now, the groups come straight at the party): SCS's helpers for its
+assassins and for the Bandit Camp sit above the creatures' combat scripts and walk the creature to each party
+member it does not perceive, so while nobody is in sight the pass never reaches the hook. Each such block
+(party_walk: a pursuit whose response walks to Player1 to Player6 or [PC]) gets a last condition that holds
+when BGSE_Hunt says no, naming that member. For a creature the engine drives it says yes, and the engine's
+search goes for that member itself; any other creature keeps its walk (the assassins before their talk, a
+messenger on its way to the party).
+
 Run it on a folder of decompiled scripts to see what an install would do:
     python tools/hook_rule.py <folder-with-baf> [report.json] [teleports.txt] [hides.txt] [innates.txt]
         [gtimes.ids] [vanishing.txt]
@@ -185,6 +194,9 @@ PURSUIT = re.compile(
     r'ReallyForceSpell|ReallyForceSpellRES|Spell|SpellRES|SpellNoDec|SpellNoDecRES|UseItem|Attack|AttackOneRound|'
     r'AttackReevaluate|AttackNoSound)\((.*)\) *$', re.M)
 ALLY = re.compile(r'^ +Allegiance\(Myself,GOODCUTOFF\)', re.M)
+# A walk to a party member, by its place in the party or as the nearest one (party_walk).
+PARTY_WALK = re.compile(r'^ {4}(?:MoveToObject|MoveToObjectFollow|MoveToObjectNoInterrupt)\((Player[1-6]|\[PC\])\) *$',
+                        re.M)
 PUZZLED = re.compile(r'^ +GlobalTimerNotExpired\("whatthe","LOCALS"\)', re.M)
 WANDER = re.compile(r'^ {4}RandomWalk(?:Continuous)?\(', re.M)
 # A spellbook-free cast: the RES forms name the resource first, the others the target (a point
@@ -288,6 +300,11 @@ def prep_guard(family, script, kind, cast, spent):
 def stay_guard(family, script):
     return ('EEex_LuaTrigger("return BGSE_Stay and BGSE_Stay(EEex_LuaTrigger_Object,'
             f"'{family}','{script}') or false\")")
+
+
+def hunt_guard(script, target):
+    return ('EEex_LuaTrigger("return BGSE_Hunt and BGSE_Hunt(EEex_LuaTrigger_Object,'
+            f"'','{script}','{target}') or false\")")
 
 
 def talk_guard(family, script):
@@ -892,6 +909,37 @@ def patch_own(text, script, vanishing=frozenset()):
         a, b = spans[i]
         text = text[:a] + aside(text[a:b], [f'  !{stay_guard("", script)}']) + text[b:]
     return (text if leaving else None), len(leaving)
+
+
+def party_walk(block):
+    """The party member a block walks its creature to without perceiving it, as the script names it (Player1 to
+    Player6 or [PC]), or None: the block is a pursuit (is_pursuit) and a response walks there (MoveToObject,
+    MoveToObjectFollow or MoveToObjectNoInterrupt); the first such walk. Comments do not count."""
+    if not is_pursuit(block):
+        return None
+    found = PARTY_WALK.search(COMMENT.sub('', block))
+    return found.group(1) if found else None
+
+
+def patch_hunt(text, script):
+    """Return (patched text or None, number of walks) for a script the SCS rule did not hook (no BGSE_Claim in it)
+    and that was not patched before (no BGSE_Hunt in it): each block that walks its creature to a party member it
+    does not perceive (party_walk) gets BGSE_Hunt's condition with no family, naming that member: last, first when
+    its triggers end in an OR group that lacks members (aside). SCS's helpers for its ambushes are such scripts
+    (dw#c3as1 above an assassin's combat script, bandit in the Bandit Camp); Christopher, 2026-11-10: the ambushes
+    are taken over as they are for now, the groups come straight at the party. BGSE_Hunt goes by the script that
+    decides for the creature (kernel/hook.lua, driver), so a creature the engine does not drive (neutral before its
+    talk, a messenger) keeps its walk. A script whose name cannot go into Lua text stays as it is."""
+    text = text.replace('\r', '')
+    script = script.lower()
+    if 'BGSE_Claim' in text or 'BGSE_Hunt' in text or any(c in script for c in '\'"\\'):
+        return None, 0
+    spans = blocks(text)
+    walks = [(i, target) for i, (a, b) in enumerate(spans) for target in [party_walk(text[a:b])] if target]
+    for i, target in reversed(walks):
+        a, b = spans[i]
+        text = text[:a] + aside(text[a:b], [f'  !{hunt_guard(script, target)}']) + text[b:]
+    return (text if walks else None), len(walks)
 
 
 def is_talk(block):

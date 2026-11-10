@@ -10472,6 +10472,14 @@ factories["combat-intent.search"]=function(require)
 --   left, looks behind a closed door nearby; in a fight, indoors, with nothing to go on at all, it
 --   looks behind the nearest closed door near it, as SCS does (Christopher, 2026-11-03). A locked door
 --   it opens with its key, by picking the lock, with Knock or by bashing it (doors.way).
+-- - set pieces (Christopher, 2026-11-10: SCS's ambushes are taken over as they are for now, the
+--   groups come straight at the party; made cooler when the fights are gone through one by one): a
+--   creature whose script walks it to a party member it does not perceive (SCS's assassins, the
+--   Bandit Camp once the alarm sounds; the installer's hunt guard asks BGSE_Hunt in such a block)
+--   gets that party member's place as a clue ('called'), new with every call. It ranks below what
+--   the group perceived, never runs out while the script calls, and takes a guard from its post
+--   too. The walk there is the engine's: members spread out around the spot, casters stay behind
+--   fighters, doors are opened, a teleport shortens a long way.
 -- Inputs are plain values; nothing here touches the engine.
 local targeting=require('combat-intent.targeting')
 local doors=require('combat-intent.doors')
@@ -10488,8 +10496,9 @@ M.giveUpShare=0.5
 -- Clues older than this are forgotten (the director forgets enemies after 30 seconds), unless the
 -- creature's patience lasts longer: a patient creature keeps its clues while it searches.
 M.memorySeconds=30
--- The best clue: by kind, then the newest, then the nearest.
-M.PRIORITY={sighted=4,hit=3,vanished=2,seen=1}
+-- The best clue: by kind, then the newest, then the nearest. 'called' is where the creature's script
+-- sends it (see the top): after everything the group perceived.
+M.PRIORITY={sighted=4,hit=3,vanished=2,seen=1,called=0}
 -- A tactical creature leads a moving enemy by up to leadSeconds of its last heading, at most
 -- leadMax world units.
 M.leadSeconds=2
@@ -11077,7 +11086,8 @@ function M.decide(input)
             return {kind='modal',clue=clue.kind,target=clue.id,key=key}
         end
     end
-    if input.guard and post and targeting.distance(post,clue)>M.guardRadius then
+    -- A guard keeps near its post, unless its script calls it to a party member.
+    if input.guard and post and clue.kind~='called' and targeting.distance(post,clue)>M.guardRadius then
         if targeting.distance(self,post)>M.postSlack and not self.rooted then return {kind='return',point=whole(post)} end
         return {kind='look',key=key,guard=true}
     end
@@ -13054,6 +13064,13 @@ factories["adapters.eeex.search"]=function(require)
 -- creature stopped or its time ran out without opening it (the game keeps some doors shut, and a
 -- creature can stay stuck on a failed OpenDoor until the next decision replaces it). A shut door is
 -- left for doors.retrySeconds. Session-local; a load forgets it all.
+--
+-- Set pieces (Christopher, 2026-11-10: SCS's ambushes are taken over as they are for now): a script
+-- that walks its creature to a party member it does not perceive asks BGSE_Hunt first (the
+-- installer's hunt guard), and seeker:call notes whom it would walk to, evaluated as the script
+-- would ('Player2', '[PC]'). While the call is fresh that member's place is a clue ('called',
+-- combat-intent/search.lua), read where the member stands now. A walk for it aims anew once the
+-- member has moved away from the walk's spot.
 local sense=require('adapters.eeex.sense')
 local search=require('combat-intent.search')
 local targeting=require('combat-intent.targeting')
@@ -13102,6 +13119,13 @@ M.stealthMode=3
 M.progress=32
 M.stuckLimit=2
 M.cacheLimit=1024
+-- A script's call to a party member (seeker:call) stands for callTicks: the script calls in the same
+-- pass the engine decides in. A walk for a call aims anew once the member stands callDrift from the
+-- walk's spot (more than members keep apart when they spread out), callAgain ticks after it began at
+-- the earliest.
+M.callTicks=15
+M.callDrift=240
+M.callAgain=30
 
 function M.new(g,options)
     options=options or {}
@@ -13112,7 +13136,7 @@ function M.new(g,options)
     local states,stateCount={},0
     local counts={hunts=0,walks=0,looks=0,returns=0,gaveUp=0,detects=0,modals=0,teleports=0,hitClues=0,guards=0,
         stuck=0,guardFailures=0,awaits=0,guardWalks=0,readyFailures=0,doors=0,doorsOpened=0,doorsShut=0,
-        doorFailures=0,unlocks=0,blocked=0}
+        doorFailures=0,unlocks=0,blocked=0,calls=0,callFailures=0,reaims=0}
     local seeker={}
     local doorError
     -- The area's doors, read once a tick for each area.
@@ -13203,7 +13227,42 @@ function M.new(g,options)
             if s.guard then counts.guards=counts.guards+1 end
         end
         s.since,s.gaveUp,s.tactical,s.act,s.aim,s.back,s.stuck,s.awaiting=nil,nil,nil,nil,nil,nil,0,nil
-        s.searched,s.clues,s.hits={},{},{}
+        s.searched,s.clues,s.hits,s.called={},{},{},nil
+    end
+
+    -- Whether two creatures stand in the same area.
+    local function together(a,b)
+        local ok,same=pcall(function()
+            return a.m_pArea~=nil and b.m_pArea~=nil and
+                tostring(a.m_pArea.m_resref:get()):match('^[^%z]*')==tostring(b.m_pArea.m_resref:get()):match('^[^%z]*')
+        end)
+        return ok and same==true
+    end
+    -- The creature's script would walk it to target now, a party member it does not perceive (see the
+    -- top): target as the script names it, evaluated as the script would. Noted when it is another
+    -- living creature in the creature's area; the first call of a tick stands. A 'clue' row logs a new
+    -- call, not its renewals.
+    function seeker:call(sprite,target,tick)
+        local id=sprite.m_id
+        local s=state(id)
+        local last=s.called
+        if last and last.tick==tick then return true end
+        local eval=rawget(g,'EEex_Object_EvalStringAsAIBase')
+        if type(eval)~='function' or type(target)~='string' then return false end
+        local ok,object=pcall(eval,target,sprite,false)
+        if not ok then
+            counts.callFailures=counts.callFailures+1
+            return false
+        end
+        if not object or not g.EEex_GameObject_IsSprite(object,false) or object.m_id==id or not together(object,sprite) then
+            return false
+        end
+        s.called={id=object.m_id,tick=tick}
+        if not last or last.id~=object.m_id or tick<last.tick or tick-last.tick>M.callTicks then
+            counts.calls=counts.calls+1
+            record({kind='clue',tick=tick,member=id,clue='called',target=object.m_id,as=target})
+        end
+        return true
     end
 
     -- The foes out of play a creature that sees no enemy readies itself for (combat-intent/choice.lua's
@@ -13307,6 +13366,17 @@ function M.new(g,options)
         end
         for key,c in pairs(s.hits) do
             if tick<c.tick or tick-c.tick>horizon or away[c.id] or not living(c.id) then s.hits[key]=nil else out[#out+1]=c end
+        end
+        -- The party member its script calls it to, where that member stands now.
+        local c=s.called
+        if c then
+            if tick<c.tick or tick-c.tick>M.callTicks then s.called=nil
+            elseif not away[c.id] then
+                local object=g.EEex_GameObject_Get(c.id)
+                if object and g.EEex_GameObject_IsSprite(object,false) and together(object,sprite) then
+                    out[#out+1]={kind='called',id=c.id,x=object.m_pos.x,y=object.m_pos.y,tick=c.tick}
+                end
+            end
         end
         table.sort(out,function(a,b) if a.kind~=b.kind then return a.kind<b.kind end return a.id<b.id end)
         return out
@@ -13471,7 +13541,8 @@ function M.new(g,options)
         local from={x=sprite.m_pos.x,y=sprite.m_pos.y}
         local seconds=targeting.distance(from,point)/M.walkSpeed
         s.act={kind='walk',tick=tick,limit=math.ceil(seconds*M.ticksPerSecond*2)+M.walkMargin,
-            key=decision.kind=='search' and decision.key or nil,from=from,point=point,target=decision.target}
+            key=decision.kind=='search' and decision.key or nil,from=from,point=point,target=decision.target,
+            called=decision.kind=='search' and decision.clue=='called' and decision.target or nil}
         if decision.kind=='search' then
             s.aim,s.aimTick=point,tick
             counts.walks=counts.walks+1
@@ -13565,6 +13636,15 @@ function M.new(g,options)
         end
         if not why and type(s.hp)=='number' and sprite.m_baseStats.m_hitPoints<s.hp then why='hurt' end
         if not why and sense.seesEnemy(g,sprite) then why='enemy' end
+        -- A walk to a party member the creature's script calls it to aims anew once that member has
+        -- moved away from the walk's spot, as the script's own walk would follow it.
+        if not why and a.kind=='walk' and a.called and tick-a.tick>=M.callAgain then
+            local object=g.EEex_GameObject_Get(a.called)
+            if object and g.EEex_GameObject_IsSprite(object,false) and
+                targeting.distance({x=object.m_pos.x,y=object.m_pos.y},a.point)>M.callDrift then
+                why='moved';counts.reaims=counts.reaims+1
+            end
+        end
         if why then
             s.act=nil
             if a.kind=='door' then judged(s,id,a,tick,why) end
@@ -16351,6 +16431,19 @@ function M.new(g,options)
         local sprite=get(id)
         return sprite~=nil and sense.side(sprite.m_typeAI.m_EnemyAlly)=='evil'
     end
+    -- Whether the engine goes for the party member a creature's script would walk it to (BGSE_Hunt: a
+    -- walk at a party member the creature does not perceive, in a script that is not SCS's combat
+    -- script, stands aside for it; Christopher, 2026-11-10: SCS's ambushes are taken over as they are
+    -- for now, the groups come straight at the party): for every creature the engine searches for
+    -- (api:searches). target is that member as the script names it; when it is there, its place
+    -- becomes a clue of the creature's search (seeker:call). Any other creature (neutral before its
+    -- talk, charmed) keeps the script's walk.
+    function api:hunts(family,id,target)
+        if type(target)~='string' or not api:searches(family,id) then return false end
+        local ok,err=pcall(function() seeker:call(get(id),target,now()) end)
+        if not ok then failed('hunts',err) end
+        return true
+    end
     -- Whether the engine hides creature id of family its own way (BGSE_Hide: SCS's free invisibility
     -- of that kind stands aside for it), for a creature the engine drives, as for its search, whatever
     -- its wit (a dull one does not think of it): plain invisibility (kind 'plain') when it can hide by
@@ -17005,7 +17098,9 @@ factories["adapters.eeex.hook"]=function(require)
 -- first-round casts) asks BGSE_Prep(object, family, script, kind, cast, spent) the same way, and a
 -- prebuff, contingency or chain that ran calls BGSE_Prepped with the same names from its response.
 -- SCS's vanishing exits ask BGSE_Stay(object, family, script) the same way: the engine keeps every
--- creature it drives in the fight unless its orders let it leave.
+-- creature it drives in the fight unless its orders let it leave. A walk at a party member the
+-- creature does not perceive, in a script that is not SCS's combat script (SCS's helpers for its
+-- ambushes), asks BGSE_Hunt(object, family, script, target): the engine's search goes for that member.
 -- All go by the script that decides for the creature (kernel/hook.lua, driver), which for a creature
 -- with two hooked scripts is the higher one, also in the lower one's blocks.
 -- Switches live in the player's Baldur.lua under [BGSE] (Enabled, Mages, Priests, Fighters,
@@ -17370,6 +17465,20 @@ function M.install(g,options)
             local a=actor(object,script)
             local driver=gate:driver(a)
             return choice~=nil and driver~=nil and choice:searches(driver,a.id)==true
+        end)
+        return ok and result==true
+    end
+    -- True for every creature the engine drives and searches for (gate:driver, choice:hunts), from a
+    -- block that would walk it to a party member it does not perceive (target, as the script names
+    -- it): the walk stands aside, and the engine's search goes for that member (Christopher,
+    -- 2026-11-10: SCS's ambushes are taken over as they are for now). The script that asks need not be
+    -- hooked itself: SCS's helpers for it sit above the combat script. Any error is false.
+    g.BGSE_Hunt=function(object,family,script,target)
+        local ok,result=pcall(function()
+            register()
+            local a=actor(object,script)
+            local driver=gate:driver(a)
+            return choice~=nil and driver~=nil and choice:hunts(driver,a.id,target)==true
         end)
         return ok and result==true
     end

@@ -1461,6 +1461,143 @@ BEGIN
   END
 END
 
+// The party member a block walks its creature to without perceiving it, as the script names it (Player1 to
+// Player6 or [PC]), or empty (tools/hook_rule.py: party_walk): the block is a pursuit (bgse_pursuit_block) and a
+// response walks there (MoveToObject, MoveToObjectFollow or MoveToObjectNoInterrupt); the first such walk.
+// Comments go first.
+DEFINE_PATCH_FUNCTION bgse_party_walk
+  STR_VAR bgse_block = ~~
+  RET bgse_target
+BEGIN
+  TEXT_SPRINT bgse_target ~~
+  LPF bgse_pursuit_block STR_VAR bgse_block = EVAL ~%bgse_block%~ RET bgse_pursuit END
+  PATCH_IF (bgse_pursuit = 1) BEGIN
+    INNER_PATCH_SAVE text ~%bgse_block%~ BEGIN
+      REPLACE_TEXTUALLY CASE_SENSITIVE ~ *//.*$~ ~~
+    END
+    INNER_PATCH ~%text%~ BEGIN
+      REPLACE_EVALUATE CASE_SENSITIVE ~^    \(MoveToObject\|MoveToObjectFollow\|MoveToObjectNoInterrupt\)(\(Player[1-6]\|\[PC\]\)) *$~ BEGIN
+        PATCH_IF (STRING_LENGTH ~%bgse_target%~ = 0) BEGIN
+          TEXT_SPRINT bgse_target ~%MATCH2%~
+        END
+      END ~%MATCH0%~
+    END
+  END
+END
+
+// Walks at party members in one decompiled script that the SCS rule did not hook (tools/hook_rule.py:
+// patch_hunt; Christopher, 2026-11-10: SCS's ambushes are taken over as they are for now, the groups come
+// straight at the party). bgse_script is its resref in lower case. Each block that walks its creature to a party
+// member it does not perceive (bgse_party_walk) gets a last condition that holds when BGSE_Hunt says no, with no
+// family and naming that member: BGSE_Hunt goes by the script that decides for the creature (kernel/hook.lua,
+// driver), and the engine's search goes for that member itself. bgse_walks counts them. A script the SCS rule
+// hooked (BGSE_Claim in it), one patched before (BGSE_Hunt in it) and one whose name cannot go into Lua text stay
+// as they are. bgse_baf comes back without carriage returns, as bgse_hook_baf gives it.
+DEFINE_PATCH_FUNCTION bgse_hunt_baf
+  STR_VAR bgse_baf = ~~
+          bgse_script = ~~
+  RET bgse_walks bgse_baf
+BEGIN
+  SET bgse_walks = 0
+  INNER_PATCH_SAVE bgse_baf ~%bgse_baf%~ BEGIN
+    PATCH_IF (INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~%MNL%~) >= 0) BEGIN
+      REPLACE_TEXTUALLY CASE_SENSITIVE EXACT_MATCH ~%MNL%~ ~~
+    END
+    PATCH_IF (INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~BGSE_Claim~) < 0) AND (INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~BGSE_Hunt~) < 0)
+        AND (INDEX (EXACT_MATCH ~'~ ~%bgse_script%~) < 0) AND (INDEX (EXACT_MATCH ~"~ ~%bgse_script%~) < 0)
+        AND (INDEX (EXACT_MATCH ~\~ ~%bgse_script%~) < 0) BEGIN
+      SET pos = 0
+      WHILE (pos >= 0) BEGIN
+        SET stop = 0 - 1
+        SET start = INDEX_BUFFER (CASE_SENSITIVE ~^IF%LNL%~ pos)
+        PATCH_IF (start >= 0) BEGIN
+          SET end = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~%LNL%END%LNL%~ start)
+          PATCH_IF (end >= 0) BEGIN
+            SET stop = end + 5
+          END
+        END
+        PATCH_IF (stop < 0) BEGIN
+          SET pos = 0 - 1
+        END ELSE BEGIN
+          SET pos = stop
+          READ_ASCII start block (stop - start)
+          PATCH_IF (INDEX (CASE_SENSITIVE ~^    MoveToObject~ ~%block%~) >= 0) BEGIN
+            LPF bgse_party_walk STR_VAR bgse_block = EVAL ~%block%~ RET bgse_target END
+            PATCH_IF (STRING_LENGTH ~%bgse_target%~ > 0) BEGIN
+              TEXT_SPRINT hunt_line ~  !EEex_LuaTrigger("return BGSE_Hunt and BGSE_Hunt(EEex_LuaTrigger_Object,'','%bgse_script%','%bgse_target%') or false")~
+              LPF bgse_aside INT_VAR bgse_from = start bgse_to = stop STR_VAR bgse_lines = EVAL ~%hunt_line%~ END
+              SET pos = stop + STRING_LENGTH ~%LNL%%hunt_line%~
+              SET bgse_walks += 1
+            END
+          END
+        END
+      END
+    END
+  END
+END
+
+// The compiled forms a script with such a walk holds (setup-bgse.tp2 decompiles only those; bgse_exit_candidate
+// finds them in one block), from the game's TRIGGER.IDS and ACTION.IDS: bgse_unseen a negated See or Detect (TR,
+// the trigger's number, a value and flags with the negation bit), bgse_walkto an action MoveToObject,
+// MoveToObjectFollow or MoveToObjectNoInterrupt (AC and its number). Each is empty when the game has none of them.
+DEFINE_ACTION_FUNCTION bgse_walk_patterns
+  RET bgse_unseen bgse_walkto
+BEGIN
+  OUTER_TEXT_SPRINT unseen ~~
+  ACTION_FOR_EACH name IN ~See~ ~Detect~ BEGIN
+    OUTER_SET id = IDS_OF_SYMBOL (~TRIGGER~ ~%name%~)
+    ACTION_IF (id >= 0) BEGIN
+      ACTION_IF (STRING_LENGTH ~%unseen%~ > 0) BEGIN
+        OUTER_TEXT_SPRINT unseen ~%unseen%\|~
+      END
+      OUTER_TEXT_SPRINT unseen ~%unseen%%id%~
+    END
+  END
+  OUTER_TEXT_SPRINT walkto ~~
+  ACTION_FOR_EACH name IN ~MoveToObject~ ~MoveToObjectFollow~ ~MoveToObjectNoInterrupt~ BEGIN
+    OUTER_SET id = IDS_OF_SYMBOL (~ACTION~ ~%name%~)
+    ACTION_IF (id >= 0) BEGIN
+      ACTION_IF (STRING_LENGTH ~%walkto%~ > 0) BEGIN
+        OUTER_TEXT_SPRINT walkto ~%walkto%\|~
+      END
+      OUTER_TEXT_SPRINT walkto ~%walkto%%id%~
+    END
+  END
+  OUTER_TEXT_SPRINT bgse_unseen ~~
+  OUTER_TEXT_SPRINT bgse_walkto ~~
+  ACTION_IF (STRING_LENGTH ~%unseen%~ > 0) AND (STRING_LENGTH ~%walkto%~ > 0) BEGIN
+    OUTER_TEXT_SPRINT bgse_unseen ~TR%LNL%\(%unseen%\) [0-9]+ [0-9]*[13579] ~
+    OUTER_TEXT_SPRINT bgse_walkto ~AC%LNL%\(%walkto%\)OB~
+  END
+END
+
+// Walks at party members in the BCS in the patch buffer (bgse_hunt_baf); bgse_script is its resref in lower
+// case. A script that fails to decompile, patch or compile is left exactly as it was (bgse_walks 0).
+DEFINE_PATCH_FUNCTION bgse_hunt_bcs
+  STR_VAR bgse_script = ~~
+  RET bgse_walks
+BEGIN
+  SET bgse_walks = 0
+  READ_ASCII 0 bcs (BUFFER_LENGTH)
+  PATCH_TRY
+    INNER_PATCH_SAVE baf ~%bcs%~ BEGIN
+      DECOMPILE_BCS_TO_BAF
+    END
+    LPF bgse_hunt_baf STR_VAR bgse_baf = EVAL ~%baf%~ bgse_script = EVAL ~%bgse_script%~ RET bgse_walks bgse_baf END
+    PATCH_IF (bgse_walks > 0) BEGIN
+      DELETE_BYTES 0 BUFFER_LENGTH
+      INSERT_BYTES 0 (STRING_LENGTH ~%bgse_baf%~)
+      WRITE_ASCIIE 0 ~%bgse_baf%~
+      COMPILE_BAF_TO_BCS
+    END
+  WITH DEFAULT
+    SET bgse_walks = 0
+    DELETE_BYTES 0 BUFFER_LENGTH
+    INSERT_BYTES 0 (STRING_LENGTH ~%bcs%~)
+    WRITE_ASCIIE 0 ~%bcs%~
+  END
+END
+
 // A spell's name as it goes into Lua text inside a BAF string (tools/hook_rule.py: token): at most 64
 // letters, digits, _, # and -, as a creature's orders can name it; else empty.
 DEFINE_PATCH_FUNCTION bgse_token

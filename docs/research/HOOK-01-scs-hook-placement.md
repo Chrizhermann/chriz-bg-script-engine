@@ -386,8 +386,48 @@ Python, and `tests/integration/test_hook_installer.py` checks they agree.
     no-SR EET lab, 88 in the SR lab, 52 in the BG2-only lab) only `DW#SHDLG` qualifies, with its two
     blocks, in both EET labs; WeiDU and Python agree on all of them (`tools/hook_agree.py`). Not seen
     in game yet: the order of the passes around the held talk is checked in the next lab batch.
+14. Walks at the party from scripts the rule above did not hook (2026-11-10; Christopher the same day:
+    SCS's ambushes are taken over as they are for now, the groups come straight at the party and surround
+    it; they get cooler in the per-fight design). SCS's helpers for its ambushes sit above the creatures'
+    combat scripts: `DW#C3AS1` and `DW#C3AS2` on the two assassin parties, `DW#C3HST` in Tazok's tent,
+    `BANDIT` on the Bandit Camp once its alarm sounds. Each holds one block a party member,
+    `!See(NearestEnemyOf(Myself))`, `!Detect(PlayerN)`, that member neither invisible nor in sanctuary,
+    `MoveToObject(PlayerN)`, and no round timer, so rule 1 leaves the script alone. While nobody was in
+    sight the pass ended in that walk and never reached the hook below: SCS steered the creature, with an
+    unfair knowledge of where the party stands. Now every script without `BGSE_Claim` gets, on each block
+    that is a pursuit (rule 7, `is_pursuit`) and whose response walks at a party member
+    (`MoveToObject`, `MoveToObjectFollow` or `MoveToObjectNoInterrupt` at `Player1` to `Player6` or
+    `[PC]`), the condition `!EEex_LuaTrigger(...BGSE_Hunt(object,'','<script>','<member>')...)`, last, or
+    first when the triggers end in an OR group that lacks members (`party_walk`, `patch_hunt`;
+    `bgse_party_walk`, `bgse_hunt_baf`, `bgse_hunt_bcs`). The installer looks at every compiled script
+    that holds a negated `See` or `Detect` and a walk to an object in one block (`bgse_walk_patterns`,
+    with the pre-check of rule 12) and decompiles only those.
 
-`BGSE_Zones`, `BGSE_Search`, `BGSE_Hide`, `BGSE_Prep` and `BGSE_Stay` go by the script that decides for the creature: the
+    `BGSE_Hunt` goes by the script that decides for the creature, like the guards above. For a creature
+    the engine drives it says yes, the walk stands aside and the pass goes on to the hook; the engine
+    notes whom the script called the creature to (`seeker:call`: the name evaluated as the script would,
+    `EEex_Object_EvalStringAsAIBase`, a living creature in the same area). While the call is fresh (15
+    ticks; the script calls again in every pass) that member's place is a clue of the engine's search,
+    `called`: the lowest of all, so anything the creature perceived itself goes first; it never runs
+    out, and it takes a guard from its post, since this is what the script sent the creature to do. The
+    search walks there with its own walk, doors and group spacing; a walk aims anew once the member
+    stands more than 240 from the walk's spot, 30 ticks or more after it began. On sight the fight is
+    the engine's. A creature the engine does not drive keeps its walk: a neutral one before its talk
+    (Molkar and Lamalha walk up to the party and speak), a messenger, any creature with the engine or
+    its choice off. So the set piece stays what it was (the hired killers find the party, the camp
+    comes running), and only who walks the creature changed. Whether such a group should know where the
+    party is at all is a question of each fight's design, not of this rule.
+
+    In the tour lab without the engine 360 of 8,588 compiled scripts pass the pre-check; 178 hold such
+    walks, 315 in all, and WeiDU and Python agree on all 360 (`tools/hook_agree.py`, its sixth
+    argument). 61 of the 178 hold no fight action: SCS's four helpers, `HOBGOBC`, `BPSIGHT`, `HALL1` to
+    `HALL6`, `BDFINAL`, `OHBGREST` and messengers who walk up to the party to speak. In an install the
+    scripts the SCS rule hooked are skipped (their walks are rule 7's), so the count there is lower. A
+    script with fight actions that creatures carry gets the engine's own hook on top afterwards
+    ([HOOK-03](HOOK-03-own-hook.md)); its walk then asks from below that hook, and the call reaches the
+    engine's next pass.
+
+`BGSE_Zones`, `BGSE_Search`, `BGSE_Hide`, `BGSE_Prep`, `BGSE_Stay` and `BGSE_Hunt` go by the script that decides for the creature: the
 first hooked script in its stack, since a lower script runs only after every higher one let the
 pass through and a higher hooked script asks on the way. So in a creature with two hooked scripts (SCS's general
 AI above a mage script, or a monster script above the general AI) the lower script's cloud and

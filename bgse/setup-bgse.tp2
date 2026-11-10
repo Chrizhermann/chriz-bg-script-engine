@@ -173,6 +173,32 @@ END
 ACTION_IF (STRING_LENGTH ~%bgse_copies%~ > 1) BEGIN
   LAF bgse_create_gifts STR_VAR bgse_copies = EVAL ~%bgse_copies%~ RET bgse_made END
 END
+// Walks at party members a creature does not perceive, in scripts the SCS rule did not hook (Christopher,
+// 2026-11-10: SCS's ambushes are taken over as they are for now, the groups come straight at the party). SCS's
+// helpers for its assassins and for the Bandit Camp sit above the creatures' combat scripts, so while nobody is in
+// sight the pass ends in their walk and never reaches the hook. Each such walk asks the engine first and stands
+// aside for a creature it drives; the engine's search then goes for that party member itself (kernel/hook.lua,
+// driver; combat-intent/search.lua, 'called'). Any other creature keeps its walk. Only scripts whose compiled
+// form holds a negated See or Detect and a walk to an object in one block are decompiled (bgse/lib/hook.tpa).
+OUTER_SET bgse_called = 0
+LAF bgse_walk_patterns RET bgse_unseen bgse_walkto END
+ACTION_IF (STRING_LENGTH ~%bgse_unseen%~ > 0) BEGIN
+  COPY_EXISTING_REGEXP GLOB ~^.+\.bcs$~ ~override~
+    PATCH_IF (INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~BGSE_Claim~) < 0)
+        AND (INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~BGSE_Hunt~) < 0) BEGIN
+      LPF bgse_exit_candidate STR_VAR bgse_hurt = EVAL ~%bgse_unseen%~ bgse_leave = EVAL ~%bgse_walkto%~ RET bgse_candidate END
+      PATCH_IF (bgse_candidate = 1) BEGIN
+        TEXT_SPRINT bgse_script ~%SOURCE_RES%~
+        TO_LOWER bgse_script
+        LPF bgse_hunt_bcs STR_VAR bgse_script = EVAL ~%bgse_script%~ RET bgse_walks END
+        PATCH_IF (bgse_walks > 0) BEGIN
+          SET bgse_called += bgse_walks
+          PATCH_LOG ~BGSE hunt: %SOURCE_RES% (%bgse_walks% walks at party members)~
+        END
+      END
+    END
+  BUT_ONLY_IF_IT_CHANGES
+END
 // The game's own vanishing exits (Christopher, 2026-11-03: the Pirate Mage, a Hobgoblin Wizard and a Nymph stay
 // in the fight; Terminsel and Lady Yuth keep their story exits): in a script that is not SCS's, an exit whose
 // triggers check nothing but the creature's own hit points and what it sees waits while the engine keeps the
@@ -312,6 +338,7 @@ PRINT ~BGSE gift: %bgse_gifted% creatures SCS makes invisible for free got real 
 PRINT ~BGSE prep: %bgse_prepared% SCS preparation blocks (prebuffs, contingencies, chains, first-round casts) ask the engine and tell it what ran.~
 PRINT ~BGSE stay: %bgse_kept% SCS vanishing exits yield while the engine keeps the creature in the fight.~
 PRINT ~BGSE stay: %bgse_stayed% vanishing exits in the game's own scripts yield while the engine keeps the creature in the fight.~
+PRINT ~BGSE hunt: %bgse_called% walks at party members a creature does not perceive, in scripts the SCS rule did not hook, yield to the engine's search.~
 PRINT ~BGSE talk: %bgse_talked% SCS talk-on-sight blocks wait while the engine prepares the creature.~
 PRINT ~BGSE encounter: %bgse_designed% designed creatures changed, %bgse_lines% lines added to dialogues, %bgse_new% new creatures made.~
 PRINT ~BGSE own: %bgse_owned% fight scripts that are not SCS's ask the engine first.~

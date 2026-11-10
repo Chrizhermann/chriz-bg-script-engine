@@ -23,6 +23,13 @@
 -- creature stopped or its time ran out without opening it (the game keeps some doors shut, and a
 -- creature can stay stuck on a failed OpenDoor until the next decision replaces it). A shut door is
 -- left for doors.retrySeconds. Session-local; a load forgets it all.
+--
+-- Set pieces (Christopher, 2026-11-10: SCS's ambushes are taken over as they are for now): a script
+-- that walks its creature to a party member it does not perceive asks BGSE_Hunt first (the
+-- installer's hunt guard), and seeker:call notes whom it would walk to, evaluated as the script
+-- would ('Player2', '[PC]'). While the call is fresh that member's place is a clue ('called',
+-- combat-intent/search.lua), read where the member stands now. A walk for it aims anew once the
+-- member has moved away from the walk's spot.
 local sense=require('adapters.eeex.sense')
 local search=require('combat-intent.search')
 local targeting=require('combat-intent.targeting')
@@ -71,6 +78,13 @@ M.stealthMode=3
 M.progress=32
 M.stuckLimit=2
 M.cacheLimit=1024
+-- A script's call to a party member (seeker:call) stands for callTicks: the script calls in the same
+-- pass the engine decides in. A walk for a call aims anew once the member stands callDrift from the
+-- walk's spot (more than members keep apart when they spread out), callAgain ticks after it began at
+-- the earliest.
+M.callTicks=15
+M.callDrift=240
+M.callAgain=30
 
 function M.new(g,options)
     options=options or {}
@@ -81,7 +95,7 @@ function M.new(g,options)
     local states,stateCount={},0
     local counts={hunts=0,walks=0,looks=0,returns=0,gaveUp=0,detects=0,modals=0,teleports=0,hitClues=0,guards=0,
         stuck=0,guardFailures=0,awaits=0,guardWalks=0,readyFailures=0,doors=0,doorsOpened=0,doorsShut=0,
-        doorFailures=0,unlocks=0,blocked=0}
+        doorFailures=0,unlocks=0,blocked=0,calls=0,callFailures=0,reaims=0}
     local seeker={}
     local doorError
     -- The area's doors, read once a tick for each area.
@@ -172,7 +186,42 @@ function M.new(g,options)
             if s.guard then counts.guards=counts.guards+1 end
         end
         s.since,s.gaveUp,s.tactical,s.act,s.aim,s.back,s.stuck,s.awaiting=nil,nil,nil,nil,nil,nil,0,nil
-        s.searched,s.clues,s.hits={},{},{}
+        s.searched,s.clues,s.hits,s.called={},{},{},nil
+    end
+
+    -- Whether two creatures stand in the same area.
+    local function together(a,b)
+        local ok,same=pcall(function()
+            return a.m_pArea~=nil and b.m_pArea~=nil and
+                tostring(a.m_pArea.m_resref:get()):match('^[^%z]*')==tostring(b.m_pArea.m_resref:get()):match('^[^%z]*')
+        end)
+        return ok and same==true
+    end
+    -- The creature's script would walk it to target now, a party member it does not perceive (see the
+    -- top): target as the script names it, evaluated as the script would. Noted when it is another
+    -- living creature in the creature's area; the first call of a tick stands. A 'clue' row logs a new
+    -- call, not its renewals.
+    function seeker:call(sprite,target,tick)
+        local id=sprite.m_id
+        local s=state(id)
+        local last=s.called
+        if last and last.tick==tick then return true end
+        local eval=rawget(g,'EEex_Object_EvalStringAsAIBase')
+        if type(eval)~='function' or type(target)~='string' then return false end
+        local ok,object=pcall(eval,target,sprite,false)
+        if not ok then
+            counts.callFailures=counts.callFailures+1
+            return false
+        end
+        if not object or not g.EEex_GameObject_IsSprite(object,false) or object.m_id==id or not together(object,sprite) then
+            return false
+        end
+        s.called={id=object.m_id,tick=tick}
+        if not last or last.id~=object.m_id or tick<last.tick or tick-last.tick>M.callTicks then
+            counts.calls=counts.calls+1
+            record({kind='clue',tick=tick,member=id,clue='called',target=object.m_id,as=target})
+        end
+        return true
     end
 
     -- The foes out of play a creature that sees no enemy readies itself for (combat-intent/choice.lua's
@@ -276,6 +325,17 @@ function M.new(g,options)
         end
         for key,c in pairs(s.hits) do
             if tick<c.tick or tick-c.tick>horizon or away[c.id] or not living(c.id) then s.hits[key]=nil else out[#out+1]=c end
+        end
+        -- The party member its script calls it to, where that member stands now.
+        local c=s.called
+        if c then
+            if tick<c.tick or tick-c.tick>M.callTicks then s.called=nil
+            elseif not away[c.id] then
+                local object=g.EEex_GameObject_Get(c.id)
+                if object and g.EEex_GameObject_IsSprite(object,false) and together(object,sprite) then
+                    out[#out+1]={kind='called',id=c.id,x=object.m_pos.x,y=object.m_pos.y,tick=c.tick}
+                end
+            end
         end
         table.sort(out,function(a,b) if a.kind~=b.kind then return a.kind<b.kind end return a.id<b.id end)
         return out
@@ -440,7 +500,8 @@ function M.new(g,options)
         local from={x=sprite.m_pos.x,y=sprite.m_pos.y}
         local seconds=targeting.distance(from,point)/M.walkSpeed
         s.act={kind='walk',tick=tick,limit=math.ceil(seconds*M.ticksPerSecond*2)+M.walkMargin,
-            key=decision.kind=='search' and decision.key or nil,from=from,point=point,target=decision.target}
+            key=decision.kind=='search' and decision.key or nil,from=from,point=point,target=decision.target,
+            called=decision.kind=='search' and decision.clue=='called' and decision.target or nil}
         if decision.kind=='search' then
             s.aim,s.aimTick=point,tick
             counts.walks=counts.walks+1
@@ -534,6 +595,15 @@ function M.new(g,options)
         end
         if not why and type(s.hp)=='number' and sprite.m_baseStats.m_hitPoints<s.hp then why='hurt' end
         if not why and sense.seesEnemy(g,sprite) then why='enemy' end
+        -- A walk to a party member the creature's script calls it to aims anew once that member has
+        -- moved away from the walk's spot, as the script's own walk would follow it.
+        if not why and a.kind=='walk' and a.called and tick-a.tick>=M.callAgain then
+            local object=g.EEex_GameObject_Get(a.called)
+            if object and g.EEex_GameObject_IsSprite(object,false) and
+                targeting.distance({x=object.m_pos.x,y=object.m_pos.y},a.point)>M.callDrift then
+                why='moved';counts.reaims=counts.reaims+1
+            end
+        end
         if why then
             s.act=nil
             if a.kind=='door' then judged(s,id,a,tick,why) end
