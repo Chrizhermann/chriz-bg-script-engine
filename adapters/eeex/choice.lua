@@ -616,6 +616,9 @@ function M.new(g,options)
     -- read at a tick; zoneSpells: each zone's classification by object id (false when it cannot be
     -- classified); zoneBroken: zones could not be read at all this session.
     local moves,zoneRead,zoneSpells,zoneSpellCount,zoneBroken={},nil,{},0,false
+    -- What creatures' effects and weapons say and what lies in an area's lists, read once for all who
+    -- look (sense.memory).
+    local readings=sense.memory()
     -- waits: each creature's wait while it is held, and its last one until the creature's next
     -- decision, so that a wait renewed for the same reason logs no new row.
     local waits={}
@@ -1292,7 +1295,7 @@ function M.new(g,options)
         if area==nil then return {} end
         local key=text(area.m_resref:get())
         if zoneRead and zoneRead.tick==tick and zoneRead.area==key then return zoneRead.list,key end
-        local ok,list,bad,last=pcall(sense.zones,g,area,tick)
+        local ok,list,bad,last=pcall(sense.zones,g,area,tick,readings)
         if not ok then
             zoneBroken=true;zoneFailed('zones',list)
             return {}
@@ -1381,8 +1384,6 @@ function M.new(g,options)
             if v.area==area and not present[id] then insideOf[id]=nil;insideCount=insideCount-1 end
         end
     end
-    -- What creatures' effects and weapons say, read once for all who look at them (sense.memory).
-    local readings=sense.memory()
     -- What the creature sees its enemies do in the zones of its area, at most once every lookTicks
     -- for each area: an enemy inside a zone that hurts it (zones.hit, with its marks for the zones'
     -- SPLPROT conditions, the creature as the other creature) and able to walk stayed for each
@@ -2863,6 +2864,9 @@ function M.new(g,options)
         seeker:invalidate()
         hider:invalidate()
     end
+    -- The memory of what creatures' effects and weapons say (sense.memory), for the fight director's
+    -- frames: a member's check-in and its decision read the same creatures.
+    function api:readings() return readings end
     function api:inspect()
         local copy=function(t) local c={};for k,v in pairs(t) do c[k]=v end;return c end
         local rows,first={},(nextRow-size-1)%M.logCapacity+1
@@ -2876,7 +2880,8 @@ function M.new(g,options)
             markError=markError or false,guardError=guardError or false,weaponError=weaponError or false,
             wardError=wardError or false,zoneError=zoneError or false,witError=witError or false,
             orderError=orderError or false,tableError=tableError or false,wit=witOn,search=seeker:inspect(),
-            readings={hits=readings.hits,reads=readings.reads,unsigned=readings.unsigned,kept=readings.count},
+            readings={hits=readings.hits,reads=readings.reads,unsigned=readings.unsigned,kept=readings.count,
+                areaHits=readings.areaHits,areaReads=readings.areaReads,areaUnsigned=readings.areaUnsigned},
             stealth=hider:inspect(),moving=(function()
                 local n=0;for _ in pairs(moves) do n=n+1 end;return n end)(),waiting=(function()
                 local n=0;for _,w in pairs(waits) do if not w.over then n=n+1 end end;return n end)(),stays=(function()

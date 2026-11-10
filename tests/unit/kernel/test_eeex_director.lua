@@ -206,6 +206,52 @@ assert(#sense.frame(g,m1,100,false).enemies==3)
 AREA.m_lVertSortBack={16,15,17}
 assert(#sense.frame(g,m1,100,false).fallen==0)
 g.wall=nil
+-- With a memory (sense.memory) the back list is walked once while it keeps its length: the creatures
+-- lying in it are known by their ids and looked at again for each frame. A list that grew or shrank is
+-- walked at once; one that holds other creatures at the same length after a second at the latest, as is
+-- one after the clock ran back (a load). A list that does not tell its length is walked every time.
+do
+    local memory=sense.memory()
+    local walks=0
+    local iterate=g.EEex_Utility_IterateCPtrList
+    g.EEex_Utility_IterateCPtrList=function(t,fn) if t==AREA.m_lVertSortBack then walks=walks+1 end return iterate(t,fn) end
+    local function back(ids) ids.m_nCount=#ids;AREA.m_lVertSortBack=ids end
+    back({16,15})
+    f=sense.frame(g,m1,200,false,memory)
+    assert(#f.enemies==4 and #f.fallen==0 and walks==1 and memory.areaReads==1 and memory.areaHits==0)
+    -- The sleeper is seen as it is now: it was hurt meanwhile.
+    g.objects[15].m_baseStats.m_hitPoints=3
+    f=sense.frame(g,m1,205,false,memory)
+    assert(#f.enemies==4 and f.enemies[4].id==15 and f.enemies[4].hp==3 and walks==1 and memory.areaHits==1)
+    back({16,15,17})
+    f=sense.frame(g,m1,206,false,memory)
+    assert(#f.fallen==1 and #f.enemies==4 and walks==2 and memory.areaReads==2)
+    g.add(sprite(18,150,0,2,{lying=true,state=0x1}))
+    back({16,18,17})
+    f=sense.frame(g,m1,220,false,memory)
+    assert(#f.enemies==4 and f.enemies[4].id==15 and walks==2)
+    f=sense.frame(g,m1,221,false,memory)
+    assert(#f.enemies==4 and f.enemies[4].id==18 and walks==3)
+    back({16,18})
+    f=sense.frame(g,m1,222,false,memory)
+    assert(#f.fallen==0 and walks==4)
+    f=sense.frame(g,m1,210,false,memory)
+    assert(walks==5 and memory.areaReads==5 and memory.areaUnsigned==0)
+    -- One that left the game meanwhile is no longer looked at.
+    local get=g.EEex_GameObject_Get
+    g.EEex_GameObject_Get=function(id) if id==18 then return nil end return get(id) end
+    f=sense.frame(g,m1,211,false,memory)
+    assert(#f.enemies==3 and walks==5)
+    g.EEex_GameObject_Get=get
+    AREA.m_lVertSortBack={16,18}
+    sense.frame(g,m1,212,false,memory);sense.frame(g,m1,212,false,memory)
+    assert(walks==7 and memory.areaUnsigned==2 and memory.areaReads==5)
+    -- A frame without its tick walks the list as well.
+    back({16,18})
+    sense.frame(g,m1,nil,false,memory)
+    assert(walks==8 and memory.areaReads==5)
+    g.EEex_Utility_IterateCPtrList=iterate
+end
 AREA.m_lVertSortBack={}
 m1.stats[81]=1
 assert(#sense.frame(g,m1,100,false).enemies==4)

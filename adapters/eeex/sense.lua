@@ -198,22 +198,38 @@ end
 -- points it cannot drop below (minHp, 0 without a minimum) with where they come from (minHpFrom,
 -- M.minimumSources), what its backstab multiplies a first hit by (backstab, 0 for none), whether
 -- it cannot be backstabbed (backstabImmune) and the direction it faces (facing, nil unknown).
-function M.actor(g,sprite)
+-- Of those, what only a creature's effects and gear change (standing) comes from the memory when one
+-- is given with the tick (recall, further down): a frame of a crowd read these twelve stats of every
+-- creature in sight, a third of the engine's time in lab prof-camp-3 (2026-11-10). Where it stands,
+-- its hit points, state, action, skins and images are read every time; a check right before an action
+-- passes no memory and reads everything.
+local recall
+local function standing(g,sprite)
+    local minimum=stat(g,sprite,M.stats.minHp)
+    return {held=stat(g,sprite,M.stats.held),sanctuary=stat(g,sprite,M.stats.sanctuary),
+        maxHp=stat(g,sprite,M.stats.maxHp),mr=stat(g,sprite,M.stats.mr),ac=stat(g,sprite,M.combat.ac),
+        drained=stat(g,sprite,M.stats.levelDrain),
+        rooted=stat(g,sprite,M.stats.entangle)>0 or stat(g,sprite,M.stats.web)>0,
+        minHp=minimum>0 and minimum or 0,minHpFrom=minimum>0 and M.minimumSources(g,sprite) or nil,
+        backstab=stat(g,sprite,M.backstab.multiplier),
+        backstabImmune=stat(g,sprite,M.backstab.immune)>0 or barbarian(sprite)}
+end
+function M.actor(g,sprite,memory,tick)
     local state=g.EEex_Sprite_GetState(sprite)
     local action=sprite.m_curAction
     local actee=action.m_acteeID and action.m_acteeID.m_Instance
     local mirror=sprite.m_nMirrorImages
-    local minimum=stat(g,sprite,M.stats.minHp)
+    local s=recall(memory,sprite,tick,'standing',function() return standing(g,sprite) end)
     return {id=sprite.m_id,x=sprite.m_pos.x,y=sprite.m_pos.y,ea=sprite.m_typeAI.m_EnemyAlly,
-        state=state,held=stat(g,sprite,M.stats.held),sanctuary=stat(g,sprite,M.stats.sanctuary),
-        hp=sprite.m_baseStats.m_hitPoints,maxHp=stat(g,sprite,M.stats.maxHp),
-        mr=stat(g,sprite,M.stats.mr),action=action.m_actionID,ac=stat(g,sprite,M.combat.ac),
+        state=state,held=s.held,sanctuary=s.sanctuary,
+        hp=sprite.m_baseStats.m_hitPoints,maxHp=s.maxHp,
+        mr=s.mr,action=action.m_actionID,ac=s.ac,
         actee=type(actee)=='number' and actee or -1,skins=stat(g,sprite,M.combat.stoneskins),
-        mirror=type(mirror)=='number' and mirror or 0,drained=stat(g,sprite,M.stats.levelDrain),
-        rooted=stat(g,sprite,M.stats.entangle)>0 or stat(g,sprite,M.stats.web)>0,
-        minHp=minimum>0 and minimum or 0,minHpFrom=minimum>0 and M.minimumSources(g,sprite) or nil,
-        backstab=stat(g,sprite,M.backstab.multiplier),
-        backstabImmune=stat(g,sprite,M.backstab.immune)>0 or barbarian(sprite),facing=facing(sprite)}
+        mirror=type(mirror)=='number' and mirror or 0,drained=s.drained,
+        rooted=s.rooted,
+        minHp=s.minHp,minHpFrom=s.minHpFrom,
+        backstab=s.backstab,
+        backstabImmune=s.backstabImmune,facing=facing(sprite)}
 end
 -- A creature's THAC0 with its right-hand and general hit bonuses (as M.attack counts it).
 function M.thac0(g,sprite)
@@ -235,15 +251,19 @@ end
 -- A memory for what creatures' effects and weapons say (recall), for one runtime: session-local, a
 -- load starts a new one. hits and reads count what it spared and what it read; unsigned counts the
 -- looks at a creature whose effect lists do not tell their length (then nothing is kept).
-function M.memory() return {entries={},count=0,hits=0,reads=0,unsigned=0} end
--- One part ('protections', 'guard' or 'attack') of what a creature's effects and weapon say, read
+-- It also keeps what was found in an area's object lists (areaRecall): areas by area and part,
+-- areaHits, areaReads and areaUnsigned count the same for them.
+function M.memory()
+    return {entries={},count=0,hits=0,reads=0,unsigned=0,areas={},areaCount=0,areaHits=0,areaReads=0,areaUnsigned=0}
+end
+-- One part ('standing', 'protections', 'guard' or 'attack') of what a creature's effects and weapon say, read
 -- with read() or taken from memory: the same answer while its two effect lists keep their lengths
 -- (a spell that lands, ends or is dispelled changes one), its hand keeps its weapon and ability, and
 -- knownTicks have not passed since the first part was read. What comes back is shared between the
 -- frames of all who look: the policy modules read it and never change it. Without a memory, or for
 -- a creature whose lists do not tell their length, it is read every time. An error in read() goes
 -- to the caller, and nothing is kept.
-local function recall(memory,sprite,tick,part,read)
+function recall(memory,sprite,tick,part,read)
     if type(memory)~='table' then return read() end
     local timed,equipped=sprite.m_timedEffectList,sprite.m_equipedEffectList
     local t,e=timed and timed.m_nCount,equipped and equipped.m_nCount
@@ -271,6 +291,45 @@ local function recall(memory,sprite,tick,part,read)
     local value=read()
     memory.reads=memory.reads+1
     k.parts[part]={value}
+    return value
+end
+-- What a walk through some of an area's object lists (names) finds, for one part ('zones', 'lying'):
+-- found with scan() or taken from memory while each of those lists keeps its length (an object that
+-- comes or goes changes one) and knownTicks have not passed. In a crowd's area every decision walked
+-- every object of the area for its lasting spells and every frame its back list for the creatures lying
+-- there (lab prof-camp-3, 2026-11-10: a seventh of the engine's time with no cloud and no one lying).
+-- What is kept are object ids, looked up again at each use. Without a memory or the tick, or for a list
+-- that does not tell its length, the lists are walked every time; an error in scan() goes to the caller.
+local function areaRecall(memory,area,tick,part,names,scan)
+    if type(memory)~='table' or type(tick)~='number' then return scan() end
+    local counts={}
+    for i,listName in ipairs(names) do
+        local list=area[listName]
+        local n=-1
+        if list~=nil then n=list.m_nCount end
+        if type(n)~='number' then
+            memory.areaUnsigned=memory.areaUnsigned+1
+            return scan()
+        end
+        counts[i]=n
+    end
+    local key=text(area.m_resref:get())..'/'..part
+    local k=memory.areas[key]
+    local same=k~=nil and tick>=k.tick and tick-k.tick<M.knownTicks
+    if same then
+        for i=1,#counts do if k.counts[i]~=counts[i] then same=false;break end end
+    end
+    if same then
+        memory.areaHits=memory.areaHits+1
+        return k.value
+    end
+    local value=scan()
+    memory.areaReads=memory.areaReads+1
+    if not k then
+        if memory.areaCount>=M.memoryLimit then memory.areas,memory.areaCount={},0 end
+        memory.areaCount=memory.areaCount+1
+    end
+    memory.areas[key]={tick=tick,counts=counts,value=value}
     return value
 end
 
@@ -679,48 +738,64 @@ end
 -- from (resref), the list it lies in, and its effects as plain records (carried). A projectile
 -- that cannot be read is left out; returns the zones, the count of those that failed and the last
 -- failure.
-function M.zones(g,area,tick)
+-- With a memory, which of the area's objects are area projectiles comes from it (areaRecall, part
+-- 'zones'): each of those is read anew every time, the others are not looked at again until a list
+-- changes its length.
+function M.zones(g,area,tick,memory)
     local out,failed,last={},0,nil
     if area==nil then return out,0 end
     local getType,types,cast=g.EEex_Projectile_GetType,g.EEex_Projectile_Type,g.EEex_CastUD
     local wanted=types.CProjectileArea
-    local seen=0
-    for _,listName in ipairs(M.areaLists) do
-        local list=area[listName]
-        if list~=nil and seen<M.maxObjects then
-            local ids={}
-            g.EEex_Utility_IterateCPtrList(list,function(id)
-                seen=seen+1
-                if seen>M.maxObjects then return true end
-                ids[#ids+1]=id
-            end)
-            for _,id in ipairs(ids) do
-                local object=g.EEex_GameObject_Get(id)
-                if object~=nil and not g.EEex_GameObject_IsSprite(object,true) then
-                    local ok,z=pcall(function()
-                        if getType(object)~=wanted then return nil end
-                        local p=cast(object,'CProjectileArea')
-                        local repeats=number(p.m_nRepetitionCount)
-                        if number(p.m_bReachedDestination)==0 or repeats<=0 then return nil end
-                        local effects,level,resref={},0,''
-                        local n=0
-                        g.EEex_Utility_IterateCPtrList(p.m_effectList,function(e)
-                            n=n+1
-                            if n>M.maxZoneEffects then return true end
-                            effects[#effects+1]=carried(g,e,tick)
-                            level=math.max(level,number(e.m_casterLevel))
-                            if resref=='' then resref=name(e.m_sourceRes) end
-                        end)
-                        return {id=id,x=number(p.m_pos.x),y=number(p.m_pos.y),dest={x=number(p.m_posDest.x),y=number(p.m_posDest.y)},
-                            radius=number(p.m_explosionRange),repeats=repeats,delay=number(p.m_nDelay),
-                            counter=number(p.m_nDelayCount),source=number(p.m_sourceId),
-                            projectile=number(p.m_projectileType)+1,pro=name(p.m_resref),
-                            level=level,resref=resref,list=listName,effects=effects}
-                    end)
-                    if not ok then failed=failed+1;last=tostring(z)
-                    elseif z then out[#out+1]=z end
+    -- The objects that are area projectiles, or whose kind cannot be read (they fail again below), as
+    -- their id and the list they lie in.
+    local found=areaRecall(memory,area,tick,'zones',M.areaLists,function()
+        local some,seen={},0
+        for _,listName in ipairs(M.areaLists) do
+            local list=area[listName]
+            if list~=nil and seen<M.maxObjects then
+                local ids={}
+                g.EEex_Utility_IterateCPtrList(list,function(id)
+                    seen=seen+1
+                    if seen>M.maxObjects then return true end
+                    ids[#ids+1]=id
+                end)
+                for _,id in ipairs(ids) do
+                    local object=g.EEex_GameObject_Get(id)
+                    if object~=nil and not g.EEex_GameObject_IsSprite(object,true) then
+                        local ok,kind=pcall(getType,object)
+                        if not ok or kind==wanted then some[#some+1]={id=id,list=listName} end
+                    end
                 end
             end
+        end
+        return some
+    end)
+    for _,f in ipairs(found) do
+        local id,listName=f.id,f.list
+        local object=g.EEex_GameObject_Get(id)
+        if object~=nil and not g.EEex_GameObject_IsSprite(object,true) then
+            local ok,z=pcall(function()
+                if getType(object)~=wanted then return nil end
+                local p=cast(object,'CProjectileArea')
+                local repeats=number(p.m_nRepetitionCount)
+                if number(p.m_bReachedDestination)==0 or repeats<=0 then return nil end
+                local effects,level,resref={},0,''
+                local n=0
+                g.EEex_Utility_IterateCPtrList(p.m_effectList,function(e)
+                    n=n+1
+                    if n>M.maxZoneEffects then return true end
+                    effects[#effects+1]=carried(g,e,tick)
+                    level=math.max(level,number(e.m_casterLevel))
+                    if resref=='' then resref=name(e.m_sourceRes) end
+                end)
+                return {id=id,x=number(p.m_pos.x),y=number(p.m_pos.y),dest={x=number(p.m_posDest.x),y=number(p.m_posDest.y)},
+                    radius=number(p.m_explosionRange),repeats=repeats,delay=number(p.m_nDelay),
+                    counter=number(p.m_nDelayCount),source=number(p.m_sourceId),
+                    projectile=number(p.m_projectileType)+1,pro=name(p.m_resref),
+                    level=level,resref=resref,list=listName,effects=effects}
+            end)
+            if not ok then failed=failed+1;last=tostring(z)
+            elseif z then out[#out+1]=z end
         end
     end
     table.sort(out,function(a,b) return a.id<b.id end)
@@ -830,12 +905,21 @@ end
 -- where each one lies, with this creature's terrain table for line of sight, finds it. A living
 -- one goes to consider(object), which files it as ally or enemy; a dead ally goes to fallen, as
 -- its id, position, state and gender. seen holds the ids already filed.
-local function lying(g,sprite,self,seen,consider,fallen)
+local function lying(g,sprite,self,seen,consider,fallen,memory,tick)
     local area=sprite.m_pArea
     local back=area and area.m_lVertSortBack
     if not back then return end
-    local ids={}
-    g.EEex_Utility_IterateCPtrList(back,function(id) ids[#ids+1]=id end)
+    -- The creatures in the back list (with a memory from it: areaRecall, part 'lying'), as their ids.
+    local ids=areaRecall(memory,area,tick,'lying',{'m_lVertSortBack'},function()
+        local all,some={},{}
+        g.EEex_Utility_IterateCPtrList(back,function(id) all[#all+1]=id end)
+        for _,id in ipairs(all) do
+            local object=g.EEex_GameObject_Get(id)
+            if object and g.EEex_GameObject_IsSprite(object,true) then some[#some+1]=id end
+        end
+        return some
+    end)
+    if #ids==0 then return end
     local ok,terrain=pcall(function() return sprite:virtual_GetVisibleTerrainTable() end)
     if not ok then terrain=nil end
     local own=M.side(self.ea)
@@ -865,7 +949,7 @@ end
 -- protections for each enemy (the protections from memory, when one is given: recall). A blind
 -- creature perceives no one.
 function M.frame(g,sprite,tick,detailed,memory)
-    local self=M.actor(g,sprite)
+    local self=M.actor(g,sprite,memory,tick)
     local side=M.side(self.ea)
     if side==nil then return nil end
     self.seeInvisible=stat(g,sprite,M.stats.seeInvisible)>0 or stat(g,sprite,M.stats.trueSight)>0
@@ -877,7 +961,7 @@ function M.frame(g,sprite,tick,detailed,memory)
         local other=M.side(object.m_typeAI.m_EnemyAlly)
         if other==nil then return end
         if other~=side and not self.seeInvisible and band(g,g.EEex_Sprite_GetState(object),M.unseen)~=0 then return end
-        local entry=M.actor(g,object)
+        local entry=M.actor(g,object,memory,tick)
         if other==side then
             -- A charmed ally from the party is a foe its side charmed (combat-intent/director.lua).
             if targeting.charmed(entry) then entry.player=partyPlace(g,object) end
@@ -893,7 +977,7 @@ function M.frame(g,sprite,tick,detailed,memory)
         seen[object.m_id]=true
         consider(object)
     end,1,0)
-    lying(g,sprite,self,seen,consider,frame.fallen)
+    lying(g,sprite,self,seen,consider,frame.fallen,memory,tick)
     table.sort(frame.enemies,function(a,b) return a.id<b.id end)
     table.sort(frame.allies,function(a,b) return a.id<b.id end)
     table.sort(frame.fallen,function(a,b) return a.id<b.id end)

@@ -85,7 +85,9 @@ function M.new(g,options)
         lastCheck[id]=tick
         local sprite=g.EEex_GameObject_Get(id)
         if not sprite or not g.EEex_GameObject_IsSprite(sprite,false) then return end
-        local frame=sense.frame(g,sprite,tick,false)
+        -- With the choice's memory of what creatures' effects make of them (sense.memory): the check-ins
+        -- were the largest single share of the engine's time in a crowd (lab prof-camp-3, 2026-11-10).
+        local frame=sense.frame(g,sprite,tick,false,choice and type(choice.readings)=='function' and choice:readings() or nil)
         if not frame or sense.side(frame.self.ea)~='evil' then memberArea[id]=nil;return end
         local d=director(frame.area)
         if d:checkIn({id=id,family=family},frame) then
