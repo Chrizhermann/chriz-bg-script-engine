@@ -99,7 +99,8 @@ with scripts of their own (trolls, golems, wyverns, ankhegs, some of them also i
   assassin parties, Molkar neutral, the Bandit Camp with its alarm). Open from it: something else still cuts the
   engine's actions short in the camp's brawl (215 times in 90 seconds), the engine's answers take about 230 ms a
   second there with 37 creatures fighting, and how far a group should hear (today: the whole map) is a question
-  for the fights' design.
+  for the fights' design. The Playground took that engine on 2026-11-10 at 11:07 (engine f032f2d, three and a
+  half minutes; spell mod e200515 as before).
 - **Enemy celestials** (found 2026-11-08, the spell mod fixed its part in `e200515`): under SCS the old celestials (`DEVAGOOD`, `PLANGOOD` and their
   evil twins) ran SCS's own fight scripts, which the engine hooks, so enemy celestials cast their spells. The spell
   mod's own celestials run `CBMDEVAC` or `CBMPLANC` (one of each pair per party) and `BDSUM00`, which casts no spell.
