@@ -206,6 +206,8 @@ ALLY = re.compile(r'^ +Allegiance\(Myself,GOODCUTOFF\)', re.M)
 # A walk to a party member, by its place in the party or as the nearest one (party_walk).
 PARTY_WALK = re.compile(r'^ {4}(?:MoveToObject|MoveToObjectFollow|MoveToObjectNoInterrupt)\((Player[1-6]|\[PC\])\) *$',
                         re.M)
+HEARD_WALK = re.compile(r'^ {4}(?:MoveToObject|MoveToObjectFollow|MoveToObjectNoInterrupt)\(LastHeardBy\(Myself\)\) *$', re.M)
+GOES_ON = re.compile(r'^ {4}Continue\(\) *$', re.M)
 IDLE_FLAG = re.compile(r'^ +!Global\("inafight","LOCALS",1\)', re.M)
 IDLE_BLIND = re.compile(r'^ +!(?:See|Detect)\(NearestEnemyOf\(Myself\)\)', re.M)
 PUZZLED = re.compile(r'^ +GlobalTimerNotExpired\("whatthe","LOCALS"\)', re.M)
@@ -940,13 +942,21 @@ def patch_own(text, script, vanishing=frozenset()):
 
 
 def party_walk(block):
-    """The party member a block walks its creature to without perceiving it, as the script names it (Player1 to
-    Player6 or [PC]), or None: the block is a pursuit (is_pursuit) and a response walks there (MoveToObject,
-    MoveToObjectFollow or MoveToObjectNoInterrupt); the first such walk. Comments do not count."""
-    if not is_pursuit(block):
-        return None
-    found = PARTY_WALK.search(COMMENT.sub('', block))
-    return found.group(1) if found else None
+    """Whom a block walks its creature to while it perceives no enemy, as the script names it, or None. A party
+    member (Player1 to Player6 or [PC]): the block is a pursuit (is_pursuit) and a response walks there
+    (MoveToObject, MoveToObjectFollow or MoveToObjectNoInterrupt); the first such walk. Or the creature it heard
+    (LastHeardBy(Myself)), SCS's and the game's answer to a call for help: the triggers say it sees or detects no
+    enemy, and the responses hold nothing but such walks and Continue(). Comments do not count."""
+    text = COMMENT.sub('', block)
+    if is_pursuit(block):
+        # A pursuit acts at an enemy or party member, so it is no plain walk to a caller.
+        found = PARTY_WALK.search(text)
+        return found.group(1) if found else None
+    trig, resp = split(text)
+    heard = len(HEARD_WALK.findall(resp))
+    if heard and IDLE_BLIND.search(trig) and len(ACTION.findall(resp)) == heard + len(GOES_ON.findall(resp)):
+        return 'LastHeardBy(Myself)'
+    return None
 
 
 def patch_hunt(text, script):

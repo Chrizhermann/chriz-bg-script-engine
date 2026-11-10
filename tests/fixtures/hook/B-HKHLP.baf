@@ -54,3 +54,41 @@ THEN
   RESPONSE #100
     SetGlobal("B-HKHOSTILE","GLOBAL",1)
 END
+
+// A call for help heard, as SCS's help scripts answer it: with no enemy in sight it walks to the caller.
+IF
+  !See(NearestEnemyOf(Myself))
+  Heard([ANYONE],151)
+THEN
+  RESPONSE #100
+    MoveToObject(LastHeardBy(Myself))
+END
+
+// The game's own answer goes on with the script afterwards.
+IF
+  !Detect(NearestEnemyOf(Myself))
+  Heard([ANYONE],152)
+THEN
+  RESPONSE #100
+    MoveToObject(LastHeardBy(Myself))
+    Continue()
+END
+
+// A call that turns the creature on the party first: more than a walk, it stays as it is.
+IF
+  !See(NearestEnemyOf(Myself))
+  Heard([ANYONE],153)
+THEN
+  RESPONSE #100
+    Enemy()
+    MoveToObject(LastHeardBy(Myself))
+END
+
+// With an enemy in sight the walk to the caller stays as it is.
+IF
+  See(NearestEnemyOf(Myself))
+  Heard([ANYONE],151)
+THEN
+  RESPONSE #100
+    MoveToObject(LastHeardBy(Myself))
+END

@@ -456,8 +456,9 @@ Python, and `tests/integration/test_hook_installer.py` checks they agree.
     297 priest scripts and three others), 45 and 11 a monster's with an empty action list, 8 one with
     the two conditions alone. What this changes in play: SCS's casters now come along when their group
     goes for the party, as its fighters always did. The group is everyone of the enemy's side on the
-    map whom the engine drives, which is wider than SCS's shouts reach; how far a group should hear is
-    a question for the fights' design (FIGHT-01, "Searching").
+    map whom the engine drives, while SCS's shouts are heard only within earshot (how far was not
+    measured); how far a group should hear is a question for the fights' design (FIGHT-01,
+    "Searching").
 
 `BGSE_Zones`, `BGSE_Search`, `BGSE_Hide`, `BGSE_Prep`, `BGSE_Stay` and `BGSE_Hunt` go by the script that decides for the creature: the
 first hooked script in its stack, since a lower script runs only after every higher one let the

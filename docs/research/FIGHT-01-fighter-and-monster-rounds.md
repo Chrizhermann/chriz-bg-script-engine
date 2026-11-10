@@ -266,7 +266,14 @@ The engine searches with what the creature and its group perceived instead
   the engine drives the member's place becomes a clue of the weakest kind (`called`), fresh while
   the script keeps calling. It does not run out and takes a guard from its post; the walk aims anew
   once the member has moved more than 240 away. Anything the creature or its group perceived goes
-  first.
+  first. SCS's calls for help work the same way (a group member's shout sends those who see no
+  enemy to the party).
+- **Casters search too (2026-11-10).** SCS's mages and priests did nothing until they saw an enemy
+  themselves: a gate above the hook ended their pass (HOOK-01, rule 15), so the engine was never
+  asked, and only fighters went for a clue. The gate now asks the engine first. A caster walks to
+  its group's clues and to the member its script calls it to, as a fighter does. Open for the
+  fights' design: the group is everyone of the enemy's side on the map whom the engine drives, and
+  a clue has no reach, while SCS's shouts are heard only within earshot (how far was not measured).
 - **The walk.** `MoveToPoint` to the open spot nearest the clue, held while the creature walks it
   (at most twice the straight walk plus 2 seconds) and ended at once when an enemy shows or the
   creature is hurt. A spot inside a danger zone counts as searched. On a searched spot the creature

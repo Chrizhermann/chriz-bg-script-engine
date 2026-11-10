@@ -1461,26 +1461,50 @@ BEGIN
   END
 END
 
-// The party member a block walks its creature to without perceiving it, as the script names it (Player1 to
-// Player6 or [PC]), or empty (tools/hook_rule.py: party_walk): the block is a pursuit (bgse_pursuit_block) and a
-// response walks there (MoveToObject, MoveToObjectFollow or MoveToObjectNoInterrupt); the first such walk.
+// Whom a block walks its creature to while it perceives no enemy, as the script names it, or empty
+// (tools/hook_rule.py: party_walk). A party member (Player1 to Player6 or [PC]): the block is a pursuit
+// (bgse_pursuit_block) and a response walks there (MoveToObject, MoveToObjectFollow or MoveToObjectNoInterrupt);
+// the first such walk. Or the creature it heard (LastHeardBy(Myself)), the answer to a call for help: the
+// triggers say it sees or detects no enemy, and the responses hold nothing but such walks and Continue().
 // Comments go first.
 DEFINE_PATCH_FUNCTION bgse_party_walk
   STR_VAR bgse_block = ~~
   RET bgse_target
 BEGIN
   TEXT_SPRINT bgse_target ~~
+  INNER_PATCH_SAVE text ~%bgse_block%~ BEGIN
+    REPLACE_TEXTUALLY CASE_SENSITIVE ~ *//.*$~ ~~
+  END
   LPF bgse_pursuit_block STR_VAR bgse_block = EVAL ~%bgse_block%~ RET bgse_pursuit END
   PATCH_IF (bgse_pursuit = 1) BEGIN
-    INNER_PATCH_SAVE text ~%bgse_block%~ BEGIN
-      REPLACE_TEXTUALLY CASE_SENSITIVE ~ *//.*$~ ~~
-    END
     INNER_PATCH ~%text%~ BEGIN
       REPLACE_EVALUATE CASE_SENSITIVE ~^    \(MoveToObject\|MoveToObjectFollow\|MoveToObjectNoInterrupt\)(\(Player[1-6]\|\[PC\]\)) *$~ BEGIN
         PATCH_IF (STRING_LENGTH ~%bgse_target%~ = 0) BEGIN
           TEXT_SPRINT bgse_target ~%MATCH2%~
         END
       END ~%MATCH0%~
+    END
+  END
+  PATCH_IF (STRING_LENGTH ~%bgse_target%~ = 0) BEGIN
+    SET then = INDEX (CASE_SENSITIVE EXACT_MATCH ~%LNL%THEN%LNL%~ ~%text%~)
+    PATCH_IF (then > 0) BEGIN
+      INNER_PATCH ~%text%~ BEGIN
+        READ_ASCII 0 trig (then)
+        READ_ASCII then resp (BUFFER_LENGTH - then)
+      END
+      PATCH_IF ((~%trig%~ STRING_CONTAINS_REGEXP ~%LNL% +!\(See\|Detect\)(NearestEnemyOf(Myself))~) = 0) BEGIN
+        SET heard = 0
+        SET acts = 0
+        SET goes_on = 0
+        INNER_PATCH ~%resp%~ BEGIN
+          COUNT_REGEXP_INSTANCES CASE_SENSITIVE ~^    \(MoveToObject\|MoveToObjectFollow\|MoveToObjectNoInterrupt\)(LastHeardBy(Myself)) *$~ heard
+          COUNT_REGEXP_INSTANCES CASE_SENSITIVE ~^    [A-Za-z_][A-Za-z0-9_]*(~ acts
+          COUNT_REGEXP_INSTANCES CASE_SENSITIVE ~^    Continue() *$~ goes_on
+        END
+        PATCH_IF (heard > 0) AND (acts = heard + goes_on) BEGIN
+          TEXT_SPRINT bgse_target ~LastHeardBy(Myself)~
+        END
+      END
     END
   END
 END

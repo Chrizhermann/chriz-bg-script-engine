@@ -2602,6 +2602,13 @@ do
     seeker:fight(me,{area='AR0001',self={id=1,x=0,y=0,hp=40,maxHp=40,ea=255},enemies={{id=12}}},264,nil)
     assert(called(265)==false)
     assert(seeker:call(me,'Player2',266)==true and calls()==4 and called(266)==12)
+    -- A call for help: the script would walk it to the group member it heard (SCS's help scripts), and the
+    -- engine walks there instead.
+    local friend=g.add(sprite(2,600,300,255))
+    named['LastHeardBy(Myself)']=friend
+    assert(seeker:call(me,'LastHeardBy(Myself)',320)==true and calls()==5 and rows[#rows].as=='LastHeardBy(Myself)')
+    local d=seeker:decide(me,frame,320,'fighter',{wit='normal',tactics=0.5},{},{},nil)
+    assert(d.kind=='search' and d.clue=='called' and d.target==2 and d.point.x==600 and d.point.y==300)
 end
 end)()
 groups=groups+1

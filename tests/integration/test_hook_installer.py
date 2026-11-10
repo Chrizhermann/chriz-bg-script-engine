@@ -483,7 +483,7 @@ def test_installer_matches_reference_and_is_reversible(tmp_path: Path) -> None:
     output = _install(tmp_path, '--force-install-list', '0')
     assert 'SUCCESSFULLY INSTALLED' in output, output
     assert "BGSE own: 3 fight scripts that are not SCS's ask the engine first." in output, output
-    assert ('BGSE hunt: 3 walks at party members a creature does not perceive, in scripts the SCS rule did not hook, '
+    assert ('BGSE hunt: 5 walks at party members a creature does not perceive, in scripts the SCS rule did not hook, '
             "yield to the engine's search.") in output, output
     assert ('BGSE hook: 9 SCS scripts hooked, 27 SCS blocks guarded, 5 SCS cloud blocks yield to the engine, '
             "14 SCS hunting blocks yield to the engine's search, 3 left as they are.") in output, output
@@ -641,12 +641,14 @@ def test_installer_matches_reference_and_is_reversible(tmp_path: Path) -> None:
     assert _decompile(tmp_path, ['B-HKTLK'])['B-HKTLK'] == expected_talk
     # The helper above a combat script (as SCS's helpers for its ambushes): its three walks at party members the
     # creature does not perceive ask the engine first, with no family and naming the member; the walk to the
-    # nearest one, whose triggers end in a full OR group, takes the condition last as well. Its walk to a party
-    # member it sees, an ally's walk and its bookkeeping stay as they are. The SCS-hooked scripts' own walks at
-    # the party keep BGSE_Search's condition and get none of this.
+    # nearest one, whose triggers end in a full OR group, takes the condition last as well. Its two walks to the
+    # creature whose call for help it heard, with no enemy in sight, ask the same way, naming the caller as the
+    # script does. Its walk to a party member it sees, an ally's walk, its bookkeeping, a call that turns the
+    # creature hostile first and a walk to the caller with an enemy in sight stay as they are. The SCS-hooked
+    # scripts' own walks at the party keep BGSE_Search's condition and get none of this.
     expected_helper, walks = hook_rule.patch_hunt(helper, 'B-HKHLP')
-    assert walks == 3 and [expected_helper.count(hook_rule.hunt_guard('b-hkhlp', t)) for t in (
-        'Player1', 'Player2', '[PC]')] == [1, 1, 1]
+    assert walks == 5 and [expected_helper.count(hook_rule.hunt_guard('b-hkhlp', t)) for t in (
+        'Player1', 'Player2', '[PC]', 'LastHeardBy(Myself)')] == [1, 1, 1, 2]
     assert ('    Global("B-HKALERT","GLOBAL",2)\n  !' + hook_rule.hunt_guard('b-hkhlp', '[PC]') + '\nTHEN\n'
             ) in expected_helper
     assert _decompile(tmp_path, ['B-HKHLP'])['B-HKHLP'] == expected_helper

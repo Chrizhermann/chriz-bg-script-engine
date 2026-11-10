@@ -1022,6 +1022,17 @@ def test_own_exits_wait_while_the_engine_keeps_the_creature_in_the_fight():
     (['!See(NearestEnemyOf(Myself))'], ['MoveToObject("Drizzt")'], None),
     (['!See(NearestEnemyOf(Myself))', '!Detect(Player1)'], ['JumpToObject(Player1)'], None),
     (['Global("x","GLOBAL",1)'], ['MoveToObject(Player1)'], None),
+    # A call for help heard with no enemy in sight: a walk to the caller, with nothing else but Continue().
+    (['!See(NearestEnemyOf(Myself))', 'Heard([ANYONE],151)'], ['MoveToObject(LastHeardBy(Myself))'], 'LastHeardBy(Myself)'),
+    (['!Detect(NearestEnemyOf(Myself))', 'Heard([ANYONE],151)'], ['MoveToObjectNoInterrupt(LastHeardBy(Myself))', 'Continue()'],
+     'LastHeardBy(Myself)'),
+    (['Heard([ANYONE],151)'], ['MoveToObject(LastHeardBy(Myself))'], None),
+    (['See(NearestEnemyOf(Myself))', 'Heard([ANYONE],151)'], ['MoveToObject(LastHeardBy(Myself))'], None),
+    (['!See([PC])', 'Heard([ANYONE],151)'], ['MoveToObject(LastHeardBy(Myself))'], None),
+    (['!See(NearestEnemyOf(Myself))', 'Heard([ANYONE],151)'], ['Enemy()', 'MoveToObject(LastHeardBy(Myself))'], None),
+    (['!See(NearestEnemyOf(Myself))', 'Heard([ANYONE],151)'], ['MoveToObject(LastHeardBy(Myself))', 'MoveToObject("Guard")'], None),
+    (['!See(NearestEnemyOf(Myself))', 'Heard([ANYONE],151)'], ['JumpToObject(LastHeardBy(Myself))'], None),
+    (['!See(NearestEnemyOf(Myself))', 'Heard([ANYONE],151)'], ['Continue()'], None),
 ])
 def test_walks_at_party_members_a_creature_does_not_perceive(triggers, actions, target):
     lines = ''.join(f'  {t}\n' for t in triggers)
@@ -1038,18 +1049,19 @@ def test_walks_at_party_members_ask_the_engine_first():
     source = text('B-HKHLP')
     spans = hook_rule.blocks(source)
     walks = {i: hook_rule.party_walk(source[a:b]) for i, (a, b) in enumerate(spans)}
-    assert [walks[i] for i in sorted(walks)] == ['Player1', 'Player2', '[PC]', None, None, None]
+    heard = 'LastHeardBy(Myself)'
+    assert [walks[i] for i in sorted(walks)] == ['Player1', 'Player2', '[PC]', None, None, None, heard, heard, None, None]
     patched, count = hook_rule.patch_hunt(source, 'B-HKHLP')
-    assert count == 3
+    assert count == 5
     assert '  !' + hook_rule.hunt_guard('b-hkhlp', 'Player2') == (
         "  !EEex_LuaTrigger(\"return BGSE_Hunt and BGSE_Hunt(EEex_LuaTrigger_Object,'','b-hkhlp','Player2') or false\")")
     for i, (a, b) in enumerate(spans):
         block = source[a:b]
         wanted = hook_rule.aside(block, ['  !' + hook_rule.hunt_guard('b-hkhlp', walks[i])]) if walks[i] else block
         assert patched.count(wanted) == 1, i
-    assert patched.count('BGSE_Hunt(') == 3
+    assert patched.count('BGSE_Hunt(') == 5 and patched.count(hook_rule.hunt_guard('b-hkhlp', heard)) == 2
     assert hook_rule.patch_hunt(patched, 'B-HKHLP') == (None, 0)
-    assert hook_rule.patch_hunt(source.replace('\n', '\r\n'), 'b-hkhlp') == (patched, 3)
+    assert hook_rule.patch_hunt(source.replace('\n', '\r\n'), 'b-hkhlp') == (patched, 5)
     assert hook_rule.patch_hunt(source, "b-hk'hlp") == (None, 0)
     assert hook_rule.patch_hunt(text('B-HKPLT'), 'B-HKPLT') == (None, 0)
     # A script the SCS rule hooked keeps BGSE_Search's condition on its own walks at the party.
