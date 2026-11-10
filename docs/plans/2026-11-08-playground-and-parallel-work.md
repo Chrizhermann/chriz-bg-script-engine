@@ -88,6 +88,18 @@ with scripts of their own (trolls, golems, wyverns, ankhegs, some of them also i
   turned a cow on the party's side to stone and it bit the immune PC, xvarts hacked at Hulrik's cow for 40
   seconds, left the PC alone meanwhile and went for it once the cow was dead. The Playground took that engine
   on 2026-11-10 at 09:11 (five minutes; spell mod e200515 as before).
+- **SCS's ambushes and calls for help** (2026-11-10, [HOOK-01](../research/HOOK-01-scs-hook-placement.md) rules
+  14 and 15; Christopher: the ambushes are taken over as they are for now, the groups come straight at the party,
+  and get cooler in their own design rounds). Three places where SCS still walked creatures past the engine are
+  closed: its helper scripts' walks at party members a creature does not perceive (the two assassin parties,
+  Tazok's tent, the Bandit Camp's alarm, its calls for help), its walk to a group member whose call was heard,
+  and the gate that kept its mages and priests idle until they saw an enemy themselves. The engine does these
+  walks now; a neutral creature on its way to a talk keeps its own. What changes in play: SCS's casters come
+  along with their group, as its fighters always did. Lab check on engine 1531fb9 without an engine error (both
+  assassin parties, Molkar neutral, the Bandit Camp with its alarm). Open from it: something else still cuts the
+  engine's actions short in the camp's brawl (215 times in 90 seconds), the engine's answers take about 230 ms a
+  second there with 37 creatures fighting, and how far a group should hear (today: the whole map) is a question
+  for the fights' design.
 - **Enemy celestials** (found 2026-11-08, the spell mod fixed its part in `e200515`): under SCS the old celestials (`DEVAGOOD`, `PLANGOOD` and their
   evil twins) ran SCS's own fight scripts, which the engine hooks, so enemy celestials cast their spells. The spell
   mod's own celestials run `CBMDEVAC` or `CBMPLANC` (one of each pair per party) and `BDSUM00`, which casts no spell.

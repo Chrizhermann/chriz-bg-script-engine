@@ -427,15 +427,49 @@ Python, and `tests/integration/test_hook_installer.py` checks they agree.
     (`DW#SPIDG`, `DW#SPIDS`, `DW#VMMIN`, `SAHAMB02`, `SAHAMB05`: no round timer), hold chase walks and
     walks at the party out of a cloud, which take the condition as well.
 
-    In the tour lab's install (2026-11-10) 204 scripts hold such walks, 657 in all; the scripts the SCS
-    rule hooked are skipped there (their walks are rule 7's). A first census without the engine had
-    found 178 scripts with 315 walks: its own pre-filter was narrower than the installer's and missed
-    the help scripts, so the figure of an install is the one to go by. WeiDU and Python agree on that
-    census's 360 scripts and on the 204 of the install (`tools/hook_agree.py`). A script with fight
-    actions that creatures carry gets the engine's own hook on top afterwards
+    The help scripts hold one more walk, to the caller itself: a group member's call is heard
+    (`Heard([ANYONE],151)`, `InMyGroup(LastHeardBy(Myself))`), no enemy is in sight, and the creature
+    walks to the one it heard (`MoveToObject(LastHeardBy(Myself))`). In the Bandit Camp's lab that
+    walk started a hundred times in ninety seconds on hostile creatures, each time in place of what
+    the engine had them doing. It takes the same condition, with the caller as the script names it:
+    a block whose triggers say no enemy is seen or detected and whose responses hold nothing but
+    walks to `LastHeardBy(Myself)` and `Continue()`. The engine then walks to where the caller stands
+    (heard, so fairly known), unless its group's own sightings lead it to the enemy first. A call that
+    does more (turns the creature hostile first, as the game's own shout scripts do for a neutral
+    group, or sets a variable) stays as it is.
+
+    In the tour lab's install (2026-11-10, engine 1531fb9) 227 scripts hold such walks, 705 in all: 657
+    at party members in 204 scripts and 48 to a caller, the latter also in 23 of the game's own shout
+    scripts (`CESHOUT`, `CULTSHT`, `GORBAT`, `SARBUL01`, `TRGRD02` and others). The scripts the SCS rule
+    hooked are skipped there (their walks are rule 7's). A first census without the engine had found 178
+    scripts with 315 walks: its own pre-filter was narrower than the installer's and missed the help
+    scripts, so the figure of an install is the one to go by. WeiDU and Python agree on the install's
+    227 scripts, on that census's 360 and on all 1,145 SCS scripts (`tools/hook_agree.py`). A script
+    with fight actions that creatures carry gets the engine's own hook on top afterwards
     ([HOOK-03](HOOK-03-own-hook.md)); its walk then asks from below that hook, and the call reaches the
     engine's next pass (a call stands for three seconds: a creature the player does not see gets a
     pass every 16 ticks only).
+
+    Lab check (2026-11-10, tour lab, Insane, engine 1531fb9, `ambush-3`; the protected PC alone in
+    Candlekeep, the creatures made 950 away, out of its sight; no engine error, install 213 seconds,
+    clean cleanup). Molkar's three hostile companions (Drakar the priest, Halacan the mage, Morvin) and
+    Lamalha's (Zeela the priest, the thieves Telka and Maneir) each got one call, walked to the PC with
+    the engine's walk and fought: within sight after 6 to 10 seconds, at it after 16. The priests and
+    the mage came with the others (in the first run, before rule 15, they stood where they had
+    appeared for the whole minute). Molkar himself, neutral, walked with his script's own
+    `MoveToObject`, spoke, turned hostile and fought on the engine. The Bandit Camp, with the PC put
+    next to a bandit: the alarm sounded within three seconds, 28 creatures turned hostile and nine
+    more arrived with Raemon; 18 stood within sight of the PC after 10 seconds, 29 after 30, all 37
+    after 90, and the PC's thousand hit points were gone after 30. The walk's question was asked
+    1,315 times in those 90 seconds (0.3 ms each): 12 times of a creature still neutral in the pass
+    it turned hostile in (no, so its first steps were the script's), 1,303 times of a hostile one
+    (yes). 50 calls named `Player1`, 119 the caller; with members seeing the PC all the time, every
+    one of the 47 search walks went by the group's own sighting, which outranks a call. Before the
+    caller's walk took the condition (`ambush-camp-1`, engine f6a6c9d) hostile creatures had started
+    100 walks by script there and 23 of the engine's walks had ended without progress; now 12 and 4.
+    Still open from that brawl: 215 of the engine's attacks and walks were cut short by something
+    else in 90 seconds, and the engine's answers took about 230 ms a second with 37 creatures
+    fighting at once.
 15. SCS's idle gate (2026-11-10, found in the lab check of rule 14). Above the hook, SCS's mage and
     priest scripts end the pass doing nothing while the creature detects no enemy, is unhurt and is not
     in a fight (`!Detect(NearestEnemyOf(Myself))`, `!HPPercentLT(Myself,100)`,

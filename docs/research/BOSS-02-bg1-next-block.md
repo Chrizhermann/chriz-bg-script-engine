@@ -55,7 +55,11 @@ reached the engine while nobody was visible. Since the engine after 06efb6a each
 engine first: for a creature the engine drives it stands aside and the engine's search goes for that
 party member itself; on sight the fight is the engine's
 ([HOOK-01](HOOK-01-scs-hook-placement.md), rule 14). A neutral creature (Molkar, Lamalha before their
-talk) keeps its walk up to the party. The special talk scripts of Mulahey, Lamalha, Molkar and Drasus
+talk) keeps its walk up to the party. SCS's casters now come with their group (rule 15: their scripts
+used to keep them idle until they saw an enemy themselves), and SCS's calls for help are answered by
+the engine's walk. Lab check on engine 1531fb9: both assassin parties' hostile members, priests and
+mage included, reached the lone PC from 950 away in 16 seconds and fought; in the Bandit Camp the
+alarm brought all 37 within sight of the PC in 90 seconds. The special talk scripts of Mulahey, Lamalha, Molkar and Drasus
 still receive no pre-talk wrapper; new group preparation before their conversations needs a dedicated
 hook.
 
