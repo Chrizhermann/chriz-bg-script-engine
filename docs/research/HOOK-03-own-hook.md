@@ -18,7 +18,8 @@ drive them without losing what their scripts do besides fighting?
 They are short. `GNOLLDR` has eight blocks: a death count for Drizzt's quest, a variable set when the party
 attacks, a call for help (`Help()`) with its attack, a random walk. `ANKHEG`, `WYVERN` and `ETTERCAP` pick one of
 two weapons by chance and attack the nearest enemy; `XVARTH` attacks Hulrik's cow first and counts its dead. None
-casts from a spellbook, none prepares, none coordinates. What is not a plain attack or walk is story bookkeeping.
+casts from a spellbook, none prepares, none coordinates. What is not a plain attack or walk is story bookkeeping,
+or what the monster is known for (see "What the monsters were known for" below).
 
 ## The rule
 
@@ -87,10 +88,91 @@ in scripts, 4,865 and 1,543.
   reached 80 of 99; the holds explain most of the difference.
 - Not shown here: a creature's fight against a real party, and how the monsters' choices read to a player.
 
+## What the monsters were known for (2026-11-10)
+
+Christopher, 2026-11-10, after the first lab rows: he likes that the engine takes these creatures over, but they
+must not become dumber or simpler than they were, and should still behave as a player expects; their quirks
+mostly stay, the engine's author decides each one and asks only where it is truly unclear. The rows of the ten
+cases showed three losses, and the old scripts were read again block by block for what they did in play.
+
+**What was lost.** Each monster with two attacks used one only: the choice took the best-scoring weapon attack
+every round (`swings[1]`), and the draw that lets a creature stray from its best option covered spells alone.
+Xvarts attacked the party on sight instead of Hulrik's cow, and Drizzt's gnolls the party instead of Drizzt: an
+attack is the engine's, so the script's named target went with it. An ankheg and a basilisk no longer stepped
+back from melee to spit or gaze: stepping away is a tactic, and a dull creature never sees one.
+
+**The rules.**
+
+5. **Body weapons** (`combat-intent/arsenal.lua`, `choice.lua` `M.varied`). A weapon whose item cannot be dropped
+   (item flag bit 2 clear, as the game's monster attacks have it: `ANKHEG1` 0x20, `WYVERN1` 0x60; a Long Sword
+   0x2c) is part of the creature. It uses them all: when its best attack is made with one of them, it takes that
+   one as often as it takes its best option at all (by its wit: clever 8 times in 10, normal 6, dull 4), and
+   otherwise draws among the best attack of each body weapon, each as likely as its worth's share. Taking one up
+   costs no time. `mind.bodyMix` scales the mix (0: always the best one).
+6. **Stepping back to shoot.** A creature whose body shoots (an ankheg's spit, a basilisk's gaze) steps away
+   from melee to use it whatever its wit, when the hits it keeps off are worth more than the part of its
+   attack the step costs, at most once in 18 seconds (the engine's kiting); `mind.bodyRetreat` switches it off.
+   For every other creature the step stays a tactic by wit.
+7. **Story targets** (`adapters/eeex/lower.lua` `story`, `kernel/hook.lua`). A script that attacks a creature it
+   calls by name (`AttackReevaluate("HulriksCow",30)`, `Attack("Drizzt")`) keeps its creature while a creature
+   of that name is alive in its area: the gate declines as `story` before the director or the choice hear of it,
+   and the script runs as the game had the encounter, pauses and self-defence included. The gate asks again
+   every 45 ticks; once the named creature is dead or gone, the engine takes over. A cast at a named creature is
+   no story (a heal for a named friend); a script that names no one costs a table lookup.
+8. **Panic.** A creature in panic is not the engine's: the choice declines (`panic`), and the creature runs as
+   the game and its script have it. The game's own scripts open with a block for it.
+
+**Monster by monster** (BG1's own scripts, as decompiled from the tour lab):
+
+| Monster | Its own script | With the engine |
+|---|---|---|
+| Ankheg (`ANKHEG`) | spit or bite by chance (40 to 60 every 12 seconds, the spit whenever it has nothing to do); close to a foe sometimes backs off three seconds and spits | spit and bite mixed by worth and wit; steps back to spit when that pays |
+| Wyvern (`WYVERN`) | bite or poison sting by chance, 40 to 60, picked every two rounds | both, the sting more often (poison is worth more) |
+| Ettercap (`ETTERCAP`) | claw or poison bite, 60 to 40 | both, the poison bite more often |
+| Basilisk (`LBASILSK`; `GBASILSK` the same way with a third attack) | gazes at a foe that is not stone and not known to be immune (it learns that after two rounds), spreads the gaze over the six nearest; close to a foe bites 7 times in 10, else backs off | gazes where the gaze can land (an immune foe is bitten), bites now and then; steps back to gaze when that pays |
+| Carrion crawler (`CCRAWLER`) | goes for foes that are not held yet | the same by worth: paralysis is worth nothing on a foe that is out of the fight already |
+| Xvart (`XVARTH`) | attacks Hulrik's cow while it lives and a party member is in sight, fights back when attacked, counts its dead | the script's while the cow lives (rule 7); then the engine's |
+| Gnoll of Drizzt's (`GNOLLDR`) | attacks Drizzt while it sees him, calls for help, counts its dead | the script's while Drizzt is alive in the area (rule 7); elsewhere the engine's, the call for help a duty |
+| Kobold (`KOBOLDFL`) | calls for help, attacks the nearest | the engine's attack, the call for help a duty |
+| Wolf (`WOLF`) | attacks the nearest; turns hostile when attacked | the engine's attack |
+
+**Checks.** Unit tests for each rule (455 in the suite) and a mutation check: 24 of 24 changes to the new lines
+made a test fail (one of them applied by hand, as the tool did not place an anchor that ended in a line break).
+
+**Lab check** (2026-11-10, tour lab, engine b8f8611, spell mod e200515, Insane; seven cases next to the protected
+PC, each after a fresh load; no engine error, no fault in a walk, clean cleanup; the install took 256 seconds):
+
+- Two ankhegs in a minute: 14 spits and 4 bites (before: 18 spits). A wyvern: 13 stings and 1 bite. Two
+  ettercaps: 19 poison bites and 4 claw swings. The PC there has a thousand hit points and cannot die, so plain
+  damage counts for little and the attack with an effect wins most draws; against a real party the shares are
+  closer.
+- A lesser basilisk next to the PC (immune to petrification) and Hulrik's cow put on the party's side: its first
+  attack was the gaze at the cow, which turned to stone (state 128 at the first read); after that it bit the PC
+  twelve times and never gazed at it.
+- Three xvarts and Hulrik's cow: while the cow lived (60 hit points, 40 seconds) the xvarts ran their own
+  `AttackReevaluate` at it and the gate declined 69 times as `story`, looking for the cow 34 times; the PC lost
+  nothing. At the read after the cow's death (it had 2 hit points at second 40, the next read was at 60) the
+  engine had all three and they were attacking the PC: 24 attack rounds until the case ended at second 100. By
+  the rule the takeover comes within three seconds; the reads were too far apart to show that. The name of an
+  action's target reads as written
+  (`action.m_acteeID.m_name`, no read error).
+- Panic (opcode 24 for ten seconds) on two gnolls with the own hook and on a githyanki with SCS's hook: all three
+  ran about for the ten seconds (state 4, the game's walk actions), the engine declined 20 and 9 times as
+  `panic` and queued nothing, and they fought again right after.
+- Not seen: an ankheg or a basilisk stepping back to shoot. The lab's PC deals too little for the step to pay.
+
+**Left out on purpose.** A wolf's script walks about for a moment every five seconds when its nearest foe is a
+druid or a ranger, and a gnoll's every fifteen when its side outnumbers the foe. In play neither showed: the
+script's next block (`See(NearestEnemyOf(Myself))`, without a check for a running action) fires in the next pass
+and interrupts the walk. The same holds for the gnoll's morale block (one attack, then ten seconds of running
+from the attacker): its attack block cuts the run short at once. Reviving them would add running enemies that
+the old game never had (Christopher, 2026-10-28: running enemies annoy; rare, and for dull creatures). They can
+come back as designed behaviour when the fights are gone through one by one.
+
 ## Limits
 
-- The engine attacks what it perceives. A hostile creature whose script waited for a story condition before it
-  attacked no longer waits (xvarts went for the cow first). Designed exceptions go into encounter orders.
+- A creature whose script names a story target runs wholly on that script while the target lives, also where it
+  does not see the target: xvarts that see the party but not the cow wait, as they did.
 - A duty waits until the engine's running action ends, a round at most; the game would have run it at once.
 - Family by class says nothing about the spellbook: a mage-class creature without spells is driven as a mage and
   falls back to its weapon.

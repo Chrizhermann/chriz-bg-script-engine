@@ -78,6 +78,16 @@ with scripts of their own (trolls, golems, wyverns, ankhegs, some of them also i
   an engine error. The Playground took it on 2026-11-10 at 07:47 (engine a504c36, 1,108 own hooks beside 1,140
   SCS ones, spell mod e200515). A party member the enemy charmed stays the game's: whether the engine should play
   it is Christopher's to decide. `[BGSE] Others=0` switches the own hook off.
+  Christopher, 2026-11-10: these creatures must not become simpler than they were, and their quirks mostly stay;
+  known gaps are fixed before he plays. The first rows showed each two-attack monster using one attack only, and
+  xvarts and Drizzt's gnolls going for the party instead of the cow and Drizzt. Since engine b8f8611 a creature
+  uses all its body's weapons (the better one more often, by its wit), one whose body shoots steps back from
+  melee to do it, a script that attacks a creature by name keeps its creature while that one lives, and a
+  creature in panic is left to the game (HOOK-03, "What the monsters were known for", with a table monster by
+  monster). Lab check of seven cases without an engine error: ankhegs 14 spits and 4 bites, a basilisk's gaze
+  turned a cow on the party's side to stone and it bit the immune PC, xvarts hacked at Hulrik's cow for 40
+  seconds, left the PC alone meanwhile and went for it once the cow was dead. The Playground took that engine
+  on 2026-11-10 at 09:11 (five minutes; spell mod e200515 as before).
 - **Enemy celestials** (found 2026-11-08, the spell mod fixed its part in `e200515`): under SCS the old celestials (`DEVAGOOD`, `PLANGOOD` and their
   evil twins) ran SCS's own fight scripts, which the engine hooks, so enemy celestials cast their spells. The spell
   mod's own celestials run `CBMDEVAC` or `CBMPLANC` (one of each pair per party) and `BDSUM00`, which casts no spell.

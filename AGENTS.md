@@ -24,6 +24,11 @@ It will ship as an optional, experimental CEBG component.
   11-08). A place where SCS still steers a creature or a part of its fight is a gap to close now,
   never a question for Chris. That includes a decline in our own code that hands a creature back to
   SCS. Report what you found and that you are closing it.
+- **A takeover keeps what a creature was known for** (Chris, 2026-11-10). A creature the engine takes
+  over must not become dumber or simpler than its old script made it, and still behaves as players
+  expect; its quirks mostly stay. Before taking over a kind of creature, read what its old script did
+  in play and compare (HOOK-03 has the first list). Decide each quirk yourself, ask Chris only where
+  it is truly unclear, and fix a known gap before he plays instead of handing him a switch.
 - **Whole fights over single spells.** Judge progress by mixed lab fights (fighters drinking
   potions, buffing priests, mages, monsters, several of each), then by community playtesting.
 - **Difficulty goal (Chris, 2026-10-29 and 2026-11-06).** Played as intended (Insane without double
