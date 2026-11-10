@@ -1,5 +1,6 @@
 """Read a lab profile of the runtime (profLab.lua: prof-funcs.txt and prof-lines.txt, each line "seconds samples
-source:line") against the bundle it ran: which module and function each line belongs to, and the shares of time.
+source:line"; prof-incl.txt, when there, the same by function with the time of what it calls) against the bundle
+it ran: which module and function each line belongs to, and the shares of time.
 
     python -I tools/prof_read.py <M_BGSE.lua> <folder-with-prof-files> [top]
 
@@ -61,6 +62,15 @@ def main(argv):
             module, first = owner(starts, line)
             where = f'{module}:{line - first} | {bundle[line - 1].strip()[:90]}'
         print(f'  {seconds / total:6.1%} {seconds:7.2f}s {samples:7d} {source}:{line} {where}')
+    if (folder / 'prof-incl.txt').exists():
+        # The time spent in a function and in what it calls (each function on the stack gets a sample once).
+        print('with what it calls, by function:')
+        for seconds, samples, source, line in read(folder / 'prof-incl.txt')[:top * 2]:
+            where = ''
+            if ours(source) and 0 < line <= len(bundle):
+                module, first = owner(starts, line)
+                where = f'{module}:{line - first} | {bundle[line - 1].strip()[:90]}'
+            print(f'  {seconds / total:6.1%} {seconds:7.2f}s {samples:7d} {source}:{line} {where}')
     print('by line:')
     for seconds, samples, source, line in lines[:top]:
         where = ''
