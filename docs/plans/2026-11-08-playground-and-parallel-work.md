@@ -96,10 +96,11 @@ with scripts of their own (trolls, golems, wyverns, ankhegs, some of them also i
   and the gate that kept its mages and priests idle until they saw an enemy themselves. The engine does these
   walks now; a neutral creature on its way to a talk keeps its own. What changes in play: SCS's casters come
   along with their group, as its fighters always did. Lab check on engine 1531fb9 without an engine error (both
-  assassin parties, Molkar neutral, the Bandit Camp with its alarm). Open from it: something else still cuts the
-  engine's actions short in the camp's brawl (215 times in 90 seconds), the engine's answers take about 230 ms a
-  second there with 37 creatures fighting, and how far a group should hear (today: the whole map) is a question
-  for the fights' design. The Playground took that engine on 2026-11-10 at 11:07 (engine f032f2d, three and a
+  assassin parties, Molkar neutral, the Bandit Camp with its alarm). What cut the engine's attacks short in the
+  camp's brawl (215 times in 90 seconds) is SCS's own call for help, every three rounds a creature: the engine
+  decides anew in the same tick, no cast was ever cut, and the shouts stay SCS's for now. How far a group should
+  hear (today: the whole map) is fine for many scenes as it is, a better design comes later (Christopher,
+  2026-11-10). Open: the engine's answers take about 230 ms a second there with 37 creatures fighting. The Playground took that engine on 2026-11-10 at 11:07 (engine f032f2d, three and a
   half minutes; spell mod e200515 as before).
 - **Enemy celestials** (found 2026-11-08, the spell mod fixed its part in `e200515`): under SCS the old celestials (`DEVAGOOD`, `PLANGOOD` and their
   evil twins) ran SCS's own fight scripts, which the engine hooks, so enemy celestials cast their spells. The spell

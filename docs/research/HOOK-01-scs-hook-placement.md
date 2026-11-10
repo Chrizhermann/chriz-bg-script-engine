@@ -467,9 +467,18 @@ Python, and `tests/integration/test_hook_installer.py` checks they agree.
     one of the 47 search walks went by the group's own sighting, which outranks a call. Before the
     caller's walk took the condition (`ambush-camp-1`, engine f6a6c9d) hostile creatures had started
     100 walks by script there and 23 of the engine's walks had ended without progress; now 12 and 4.
-    Still open from that brawl: 215 of the engine's attacks and walks were cut short by something
-    else in 90 seconds, and the engine's answers took about 230 ms a second with 37 creatures
-    fighting at once.
+    In that brawl 215 of the engine's attacks were cut short in 90 seconds, by their rhythm by SCS's
+    own call for help: its help script shouts 151 every three rounds for a creature that sees an enemy
+    (`help_initial`), again when it is hit and when it first sees a party member (1511 to 1516), each
+    in a block with `Continue()`, and a response that runs above the hook ends the action the engine
+    held. Most cuts of one creature lie 17 to 20 seconds apart (three rounds are 18), a third come a
+    second or two after the one before; which block fired each time was not logged. The engine
+    decided anew in the same tick every time (214 of 214), and in all labs so far a cut ended an
+    attack 1,716 times, a walk 4 times and never a cast. Under SCS alone the same shouts end SCS's own attack actions. The shouts
+    stay SCS's for now: a neutral member of the group still turns hostile on them, and how a group
+    calls for help is part of the group design Christopher keeps for later (2026-11-10: the whole
+    map as one group "passt wahrscheinlich für viele Szenarien schon"). Still open: the engine's
+    answers took about 230 ms a second with 37 creatures fighting at once.
 15. SCS's idle gate (2026-11-10, found in the lab check of rule 14). Above the hook, SCS's mage and
     priest scripts end the pass doing nothing while the creature detects no enemy, is unhurt and is not
     in a fight (`!Detect(NearestEnemyOf(Myself))`, `!HPPercentLT(Myself,100)`,
@@ -492,7 +501,8 @@ Python, and `tests/integration/test_hook_installer.py` checks they agree.
     goes for the party, as its fighters always did. The group is everyone of the enemy's side on the
     map whom the engine drives, while SCS's shouts are heard only within earshot (how far was not
     measured); how far a group should hear is a question for the fights' design (FIGHT-01,
-    "Searching").
+    "Searching"). Christopher, 2026-11-10: "Ja das können wir später bestimmt noch geiler designen.
+    Aber so passt es wahrscheinlich für viele Szenarien schon". So it stays for now.
 
 `BGSE_Zones`, `BGSE_Search`, `BGSE_Hide`, `BGSE_Prep`, `BGSE_Stay` and `BGSE_Hunt` go by the script that decides for the creature: the
 first hooked script in its stack, since a lower script runs only after every higher one let the

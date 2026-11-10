@@ -274,6 +274,7 @@ The engine searches with what the creature and its group perceived instead
   its group's clues and to the member its script calls it to, as a fighter does. Open for the
   fights' design: the group is everyone of the enemy's side on the map whom the engine drives, and
   a clue has no reach, while SCS's shouts are heard only within earshot (how far was not measured).
+  Christopher, 2026-11-10: fine for many scenes as it is; a better design comes later.
 - **The walk.** `MoveToPoint` to the open spot nearest the clue, held while the creature walks it
   (at most twice the straight walk plus 2 seconds) and ended at once when an enemy shows or the
   creature is hurt. A spot inside a danger zone counts as searched. On a searched spot the creature
