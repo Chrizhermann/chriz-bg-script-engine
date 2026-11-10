@@ -715,39 +715,50 @@ do
     local b=sense.guard(g7,mage,207,effectsOf,nil,memory)
     assert(b~=a and b.conditions==a.conditions and b.roles==a.roles and b.stoneskins==3 and a.stoneskins~=3)
     assert(walks==2 and memory.reads==1 and memory.hits==1)
-    -- Its protections are a part of their own, read once as well.
+    -- Its protections are a part of their own, read once as well, and so are its saving throws,
+    -- resistances and level (details); its IDS values are read every time.
     local e1,e2={},{}
-    sense.details(g7,mage,e1,memory,207);sense.details(g7,mage,e2,memory,208)
-    assert(e1.protections==e2.protections and walks==4 and memory.reads==2 and memory.hits==2)
-    -- A spell lands: a list grows, and everything is read anew at once.
+    sense.details(g7,mage,e1,memory,207)
+    local specific,death=mage.m_typeAI.m_Specifics,mage.stats[9]
+    mage.m_typeAI.m_Specifics,mage.stats[9]=7,3
+    sense.details(g7,mage,e2,memory,208)
+    assert(e1.protections==e2.protections and e1.saves==e2.saves and e1.resist==e2.resist and e2.saves.death~=3)
+    assert(e2.ids.specific==7 and e1.ids.specific==specific and e2.level==e1.level and e2.resref==e1.resref)
+    assert(walks==4 and memory.reads==3 and memory.hits==3)
+    local plain={};sense.details(g7,mage,plain)
+    assert(plain.saves.death==3 and plain.saves~=e1.saves and walks==6)
+    mage.m_typeAI.m_Specifics,mage.stats[9]=specific,death
+    -- A spell lands: a list grows. Whether a creature's lists are as they were is looked up once a tick,
+    -- so the looks of that tick still share the old answer; from the next tick everything is read anew.
     lists({effect(109,200+180),effect(185,200+300)},{})
-    local c=sense.guard(g7,mage,208,effectsOf,nil,memory)
-    assert(c.conditions.hold2 and not a.conditions.hold2 and walks==6 and memory.reads==3 and memory.count==1)
-    local e3={};sense.details(g7,mage,e3,memory,208)
-    assert(e3.protections~=e1.protections and walks==8)
+    assert(not sense.guard(g7,mage,208,effectsOf,nil,memory).conditions.hold2 and walks==6 and memory.hits==4)
+    local c=sense.guard(g7,mage,209,effectsOf,nil,memory)
+    assert(c.conditions.hold2 and not a.conditions.hold2 and walks==8 and memory.reads==4 and memory.count==1)
+    local e3={};sense.details(g7,mage,e3,memory,209)
+    assert(e3.protections~=e1.protections and e3.saves~=e1.saves and walks==10 and memory.reads==6)
     -- An item's effect comes: the other list counts as well.
     lists(mage.m_timedEffectList,{effect(76,0,1)})
-    assert(sense.guard(g7,mage,209,effectsOf,nil,memory).conditions.feeblemind==math.huge and not c.conditions.feeblemind)
-    assert(walks==10 and memory.reads==5)
+    assert(sense.guard(g7,mage,210,effectsOf,nil,memory).conditions.feeblemind==math.huge and not c.conditions.feeblemind)
+    assert(walks==12 and memory.reads==7)
     -- Another weapon in hand, or another of its abilities: read anew.
     mage.m_equipment.m_selectedWeapon=mage.m_equipment.m_selectedWeapon+1
-    sense.guard(g7,mage,209,effectsOf,nil,memory)
+    sense.guard(g7,mage,211,effectsOf,nil,memory)
     mage.m_equipment.m_selectedWeaponAbility=1
-    sense.guard(g7,mage,209,effectsOf,nil,memory)
-    assert(walks==14 and memory.reads==7)
-    sense.guard(g7,mage,209,effectsOf,nil,memory)
-    assert(walks==14 and memory.hits==3)
+    sense.guard(g7,mage,212,effectsOf,nil,memory)
+    assert(walks==16 and memory.reads==9)
+    sense.guard(g7,mage,212,effectsOf,nil,memory)
+    assert(walks==16 and memory.hits==5)
     mage.m_equipment.m_selectedWeapon,mage.m_equipment.m_selectedWeaponAbility=mage.m_equipment.m_selectedWeapon-1,0
-    sense.guard(g7,mage,209,effectsOf,nil,memory)
-    assert(walks==16)
+    sense.guard(g7,mage,213,effectsOf,nil,memory)
+    assert(walks==18)
     -- With nothing to show a change it stands for a second, not longer (an effect that began after a
     -- delay keeps the list's length), and a clock that ran back (a load) reads anew.
-    sense.guard(g7,mage,209+14,effectsOf,nil,memory)
-    assert(walks==16)
-    sense.guard(g7,mage,209+15,effectsOf,nil,memory)
+    sense.guard(g7,mage,213+14,effectsOf,nil,memory)
     assert(walks==18)
-    sense.guard(g7,mage,209+14,effectsOf,nil,memory)
+    sense.guard(g7,mage,213+15,effectsOf,nil,memory)
     assert(walks==20)
+    sense.guard(g7,mage,213+14,effectsOf,nil,memory)
+    assert(walks==22)
     -- A weapon's reading is kept the same way: the sword's THAC0 as it was read. Its bearer has no timed
     -- effect, so none that begins after a delay: its reading stands for five seconds (settledTicks).
     swordA.m_timedEffectList.m_nCount,swordA.m_equipedEffectList.m_nCount=0,0
@@ -764,21 +775,21 @@ do
     swordA.stats[7]=10
     -- A read that fails is not kept: the next one reads again.
     local broken=0
-    local ok=pcall(sense.guard,g7,mage,240,function() broken=broken+1;error('no classifier') end,nil,memory)
+    local ok=pcall(sense.guard,g7,mage,250,function() broken=broken+1;error('no classifier') end,nil,memory)
     assert(not ok and broken==1)
-    assert(sense.guard(g7,mage,240,effectsOf,nil,memory).conditions.hold and walks==24)
+    assert(sense.guard(g7,mage,250,effectsOf,nil,memory).conditions.hold and walks==26)
     -- Lists that do not tell their length, and a look without a memory, are read every time.
     mage.m_timedEffectList.m_nCount=nil
-    sense.guard(g7,mage,240,effectsOf,nil,memory);sense.guard(g7,mage,240,effectsOf,nil,memory)
-    assert(walks==28 and memory.unsigned==2)
+    sense.guard(g7,mage,251,effectsOf,nil,memory);sense.guard(g7,mage,251,effectsOf,nil,memory)
+    assert(walks==30 and memory.unsigned==2)
     mage.m_timedEffectList.m_nCount=#mage.m_timedEffectList
-    sense.guard(g7,mage,241,effectsOf);sense.guard(g7,mage,241,effectsOf)
-    assert(walks==32)
+    sense.guard(g7,mage,252,effectsOf);sense.guard(g7,mage,252,effectsOf)
+    assert(walks==34)
     -- The same for the list of what its gear does, and for a reading that does not say when it is.
     local worn=mage.m_equipedEffectList.m_nCount
     mage.m_equipedEffectList.m_nCount=nil
-    sense.guard(g7,mage,241,effectsOf,nil,memory);sense.guard(g7,mage,241,effectsOf,nil,memory)
-    assert(walks==36 and memory.unsigned==4)
+    sense.guard(g7,mage,253,effectsOf,nil,memory);sense.guard(g7,mage,253,effectsOf,nil,memory)
+    assert(walks==38 and memory.unsigned==4)
     mage.m_equipedEffectList.m_nCount=worn
     local reads,hits=memory.reads,memory.hits
     swordA.stats[7]=6
@@ -801,6 +812,25 @@ do
         assert(live.mr==55 and live.ac==-4 and live.skins==3)
         local later=sense.actor(g7,mage,memory,415)
         assert(later.mr==55 and later.ac==-4)
+        -- Others who look at it in one tick (a frame's creatures) get it as the first of them read it, each
+        -- a copy of its own; the creature itself and the next tick read it anew.
+        local one=sense.actor(g7,mage,memory,500,true)
+        mage.m_pos={x=at.x+20,y=at.y}
+        local two=sense.actor(g7,mage,memory,500,true)
+        assert(one.x==at.x+10 and two.x==at.x+10 and two~=one and two.mr==one.mr and memory.actorHits==1)
+        one.marked,two.marked=true,true
+        assert(sense.actor(g7,mage,memory,500,true).marked==nil and sense.actor(g7,mage,memory,500).x==at.x+20)
+        assert(sense.actor(g7,mage,memory,501,true).x==at.x+20 and memory.actorHits==2 and memory.actorCount==1)
+        -- Without a memory or the tick each look reads it.
+        assert(sense.actor(g7,mage,nil,502,true).x==at.x+20 and sense.actor(g7,mage,memory,nil,true).x==at.x+20)
+        mage.m_pos={x=at.x+30,y=at.y}
+        assert(sense.actor(g7,mage,memory,nil,true).x==at.x+30 and memory.actorHits==2)
+        -- Its level, for those who heal and cure, comes from the memory as well.
+        local level=mage.stats[34]
+        local known=sense.identity(g7,mage,{},memory,520).level
+        mage.stats[34]=(level or 0)+9
+        assert(sense.identity(g7,mage,{},memory,521).level==known and sense.identity(g7,mage,{}).level==(level or 0)+9)
+        mage.stats[34]=level
         mage.stats[18],mage.stats[2],mage.stats[88]=mr,ac,skins
         mage.m_pos=at;mage.m_baseStats.m_hitPoints=hp
     end
@@ -811,6 +841,10 @@ do
     third.m_timedEffectList.m_nCount,third.m_equipedEffectList.m_nCount=0,0
     sense.guard(g7,third,241,effectsOf,nil,memory)
     assert(memory.count==1 and memory.entries[13] and not memory.entries[1])
+    sense.actor(g7,third,memory,600,true)
+    assert(memory.actorCount==2 and memory.actors[1])
+    sense.actor(g7,swordA,memory,600,true)
+    assert(memory.actorCount==1 and memory.actors[11] and not memory.actors[1] and not memory.actors[13])
     sense.memoryLimit=limit
     g7.EEex_Utility_IterateCPtrList=iterate
     mage.m_timedEffectList,mage.m_equipedEffectList=timed,{}
@@ -1563,16 +1597,21 @@ assert(#read14==1 and read14[1].id==900 and read14[1].radius==150 and read14[1].
 local hit14=read14[1].effects[1]
 assert(hit14.opcode==12 and hit14.p2==8*65536 and hit14.dice==4 and hit14.sides==9 and hit14.timing==1 and hit14.resist==1 and
     hit14.power==4 and hit14.target==2)
--- With a memory (sense.memory) the area's lists are walked once while they keep their lengths: which
--- objects are area projectiles is kept by their ids, and each of those is read anew every time (its
--- counter, its explosions left). A list that grew is walked at once; one with another object at the same
--- length after a second at the latest, as is one after the clock ran back. A list that does not tell its
--- length is walked every time, and so are the lists for a read without a memory.
+-- With a memory (sense.memory) each of the area's lists is walked once while it keeps its length: which
+-- of its objects are area projectiles is kept by their ids, and each of those is read anew every time
+-- (its counter, its explosions left). A list that grew is walked at once, and only that list; one with
+-- another object at the same length after a second at the latest, as is one after the clock ran back. A
+-- list that does not tell its length is walked every time, and so are the lists for a read without a
+-- memory.
 do
     local memory=sense.memory()
-    local kinds=0
-    local getType=g14.EEex_Projectile_GetType
+    local kinds,flights,backs=0,0,0
+    local getType,iterate=g14.EEex_Projectile_GetType,g14.EEex_Utility_IterateCPtrList
     g14.EEex_Projectile_GetType=function(o) kinds=kinds+1;return getType(o) end
+    g14.EEex_Utility_IterateCPtrList=function(t,fn)
+        if t==AREA14.m_lVertSortFlight then flights=flights+1 elseif t==AREA14.m_lVertSortBack then backs=backs+1 end
+        return iterate(t,fn)
+    end
     local back,flight=AREA14.m_lVertSortBack,AREA14.m_lVertSortFlight
     local function lists(b,f) b.m_nCount,f.m_nCount=#b,#f;AREA14.m_lVertSortBack,AREA14.m_lVertSortFlight=b,f end
     -- A door and a missile in flight are no zones: looked at once, then left alone.
@@ -1580,64 +1619,71 @@ do
     g14.objects[902]={m_id=902,projectile=1,state=0}
     lists({901},{900,902})
     local z=sense.zones(g14,AREA14,100,memory)
-    assert(#z==1 and z[1].id==900 and z[1].counter==0 and kinds==4 and memory.areaReads==1 and memory.areaHits==0)
+    assert(#z==1 and z[1].id==900 and z[1].counter==0 and kinds==4 and flights==1 and backs==1 and memory.areaHits==0)
     cloud.m_nDelayCount=7;cloud.m_nRepetitionCount=5
     z=sense.zones(g14,AREA14,114,memory)
-    assert(#z==1 and z[1].counter==7 and z[1].repeats==5 and kinds==5 and memory.areaHits==1 and memory.areaReads==1)
-    -- A second cloud: the flight list grew.
+    assert(#z==1 and z[1].counter==7 and z[1].repeats==5 and kinds==5 and flights==1 and backs==1 and memory.areaHits==4)
+    -- A second cloud: the flight list grew, the back list did not.
     local other={};for k,v in pairs(cloud) do other[k]=v end
     other.m_id=903;g14.objects[903]=other
-    lists({901},{900,902,903})
+    lists(AREA14.m_lVertSortBack,{900,902,903})
     z=sense.zones(g14,AREA14,114,memory)
-    assert(#z==2 and z[2].id==903 and memory.areaReads==2)
+    assert(#z==2 and z[2].id==903 and z[2].list=='m_lVertSortFlight' and flights==2 and backs==1)
     -- It leaves and another comes in the same tick: the list says the same length.
     local third={};for k,v in pairs(cloud) do third[k]=v end
     third.m_id=904;g14.objects[904]=third;g14.objects[903]=nil
-    lists({901},{900,902,904})
+    lists(AREA14.m_lVertSortBack,{900,902,904})
     local bad
     z,bad=sense.zones(g14,AREA14,128,memory)
-    assert(#z==1 and z[1].id==900 and bad==0 and memory.areaReads==2)
+    assert(#z==1 and z[1].id==900 and bad==0 and flights==2 and backs==2)
     z=sense.zones(g14,AREA14,129,memory)
-    assert(#z==2 and z[2].id==904 and memory.areaReads==3)
+    assert(#z==2 and z[2].id==904 and flights==3 and backs==2)
     z=sense.zones(g14,AREA14,120,memory)
-    assert(#z==2 and memory.areaReads==4 and memory.areaUnsigned==0)
+    assert(#z==2 and flights==4 and backs==3 and memory.areaUnsigned==0)
     -- A projectile that has not arrived yet is kept and counts once it has.
     third.m_bReachedDestination=0
     assert(#sense.zones(g14,AREA14,121,memory)==1)
     third.m_bReachedDestination=1
-    assert(#sense.zones(g14,AREA14,122,memory)==2 and memory.areaReads==4)
-    -- Lists that do not tell their length, a read without its tick and one without a memory.
+    assert(#sense.zones(g14,AREA14,122,memory)==2 and flights==4 and backs==3)
+    -- A list that does not tell its length, a read without its tick and one without a memory.
     AREA14.m_lVertSortFlight={900,902,904}
     kinds=0
     assert(#sense.zones(g14,AREA14,123,memory)==2 and #sense.zones(g14,AREA14,123,memory)==2)
-    assert(memory.areaUnsigned==2 and memory.areaReads==4 and kinds==2*(4+2))
-    lists({901},{900,902,904})
+    assert(memory.areaUnsigned==2 and flights==6 and backs==3 and kinds==2*(3+2))
+    lists(AREA14.m_lVertSortBack,{900,902,904})
     kinds=0
-    assert(#sense.zones(g14,AREA14,nil,memory)==2 and #sense.zones(g14,AREA14,124)==2 and kinds==2*(4+2) and memory.areaReads==4)
+    assert(#sense.zones(g14,AREA14,nil,memory)==2 and #sense.zones(g14,AREA14,124)==2 and kinds==2*(4+2) and flights==8 and
+        backs==5)
     -- The creatures lying in the back list are another part of the same area's memory.
     sense.frame(g14,caster14,124,false,memory)
-    assert(memory.areaReads==5 and #sense.zones(g14,AREA14,124,memory)==2 and memory.areaReads==5)
+    assert(backs==6 and #sense.zones(g14,AREA14,124,memory)==2 and backs==6 and flights==8)
     -- Another area has its own lists.
     local elsewhere={m_resref=str('AR0099'),m_lVertSortFlight={m_nCount=0}}
-    assert(#sense.zones(g14,elsewhere,124,memory)==0 and memory.areaReads==6)
-    assert(#sense.zones(g14,AREA14,125,memory)==2 and memory.areaReads==6 and #sense.zones(g14,elsewhere,125,memory)==0 and
-        memory.areaReads==6 and memory.areaCount==3)
+    assert(#sense.zones(g14,elsewhere,124,memory)==0)
+    assert(#sense.zones(g14,AREA14,125,memory)==2 and flights==8 and backs==6 and #sense.zones(g14,elsewhere,125,memory)==0)
     -- An object whose kind cannot be read fails each time, also when it is known from memory.
     local broken={m_resref=str('AR0097'),m_lVertSortFlight={905,m_nCount=1}}
     g14.objects[905]={m_id=905,projectile=1,state=0,broken=true}
     g14.EEex_Projectile_GetType=function(o) if o.broken then error('no kind') end return getType(o) end
+    local reads=memory.areaReads
     local _,once=sense.zones(g14,broken,125,memory)
     local _,twice=sense.zones(g14,broken,126,memory)
-    assert(once==1 and twice==1 and memory.areaReads==7)
+    assert(once==1 and twice==1 and memory.areaReads==reads+4)
     g14.objects[905]=nil
-    -- The memory of areas is bounded: full, it starts again.
+    -- No more than maxObjects of a list are looked at.
+    local most=sense.maxObjects
+    local crowded={m_resref=str('AR0095'),m_lVertSortFlight={901,902,900}}
+    sense.maxObjects=2
+    assert(#sense.zones(g14,crowded,125)==0)
+    sense.maxObjects=3
+    assert(#sense.zones(g14,crowded,125)==1)
+    sense.maxObjects=most
+    -- The memory of areas is bounded: full, it starts again (a list of an area is one part).
     local limit=sense.memoryLimit
     sense.memoryLimit=memory.areaCount+1
-    assert(#sense.zones(g14,{m_resref=str('AR0096'),m_lVertSortFlight={m_nCount=0}},125,memory)==0 and
-        memory.areaCount==sense.memoryLimit)
-    assert(#sense.zones(g14,{m_resref=str('AR0098'),m_lVertSortFlight={m_nCount=0}},125,memory)==0 and memory.areaCount==1)
+    assert(#sense.zones(g14,{m_resref=str('AR0098'),m_lVertSortFlight={m_nCount=0}},125,memory)==0 and memory.areaCount==3)
     sense.memoryLimit=limit
-    g14.EEex_Projectile_GetType=getType
+    g14.EEex_Projectile_GetType,g14.EEex_Utility_IterateCPtrList=getType,iterate
     g14.objects[901],g14.objects[902],g14.objects[904]=nil,nil,nil
     cloud.m_nDelayCount=0;cloud.m_nRepetitionCount=6
     back.m_nCount,flight.m_nCount=nil,nil
@@ -1656,14 +1702,17 @@ g14.ticks=100
 for _,id in ipairs({1,11}) do local s=g14.objects[id];s.m_timedEffectList.m_nCount,s.m_equipedEffectList.m_nCount=0,0 end
 assert(g14.BGSE_Claim(caster14,'mage','s1')==true)
 -- The fight director's check-in, the look at the zones and the decision share one reading (sense.memory):
--- what the effects of the mage and of its enemy make of them is read for the check-in and taken from memory
--- for the look and the decision, the enemy's protections are read for the look and taken from memory for the
--- decision; the mage's own protections and shields and the enemy's weapon are read once.
--- The area's lists here do not tell their lengths: the three frames ask the memory for the creatures lying
--- in the back list and the zones' read asks it once (the look and the decision share that read), in vain.
+-- what the effects of the mage and of its enemy make of them is read for the check-in; the look and the
+-- decision take the mage's from memory and the enemy as the check-in saw it in this tick. The enemy's
+-- details and protections are read for the look and taken from memory for the decision; the mage's own
+-- level, protections and shields and the enemy's weapon are read once.
+-- The area's back list and its list of flying objects do not tell their lengths here: the three frames ask
+-- the memory for the creatures lying in the back list and the zones' read asks it for each of the two (the
+-- look and the decision share that read), in vain; the two lists the area does not have are remembered.
 do
     local r=ch14:inspect().readings
-    assert(r.reads==6 and r.hits==5 and r.kept==2 and r.unsigned==0 and r.areaUnsigned==4 and r.areaReads==0)
+    assert(r.reads==8 and r.hits==4 and r.actorHits==2 and r.kept==2 and r.unsigned==0 and r.areaUnsigned==5 and
+        r.areaReads==2 and r.areaHits==0)
 end
 local c14=last14('choice')
 assert(c14.castKind=='escape' and c14.spell=='ESCAPE' and c14.zones==1 and c14.worth>0 and c14.walk>0)
@@ -2853,18 +2902,19 @@ do
     assert(claim(one,100,'fighter','s3')==true)
     local first=ch:inspect().readings
     -- Read: what the effects of the three make of them (for the fight director's check-in; the decision takes
-    -- it from memory), the foe's protections and weapon, the creature's own protections and shields, and its
-    -- friend's protections, shields and weapon.
-    assert(first.reads==10 and first.hits==3 and first.unsigned==0 and first.kept==3)
+    -- its own from memory and the two others as the check-in saw them in this tick), the foe's details,
+    -- protections and weapon, the creature's own level, protections and shields, and its friend's level,
+    -- protections, shields and weapon.
+    assert(first.reads==13 and first.hits==1 and first.actorHits==2 and first.unsigned==0 and first.kept==3)
     assert(first.areaReads==1 and first.areaHits==1 and first.areaUnsigned==0)
     assert(claim(two,101,'fighter','s3')==true)
     local second=ch:inspect().readings
     -- All of it from memory but the first creature's weapon, which only its friend asks for.
-    assert(second.hits==15 and second.reads==11 and second.kept==3 and second.unsigned==0)
+    assert(second.hits==14 and second.reads==14 and second.actorHits==4 and second.kept==3 and second.unsigned==0)
     assert(second.areaReads==1 and second.areaHits==3)
     ch:invalidate()
     local none=ch:inspect().readings
-    assert(none.kept==0 and none.reads==0 and none.hits==0 and none.areaReads==0 and none.areaHits==0)
+    assert(none.kept==0 and none.reads==0 and none.hits==0 and none.areaReads==0 and none.areaHits==0 and none.actorHits==0)
 end
 end)()
 groups=groups+1

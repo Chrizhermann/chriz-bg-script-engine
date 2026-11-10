@@ -180,8 +180,9 @@ local function partyPlace(g,sprite)
 end
 
 -- The direction a creature faces (M.directions), or nil when the engine gives none it could mean.
+local function direction(sprite) return sprite.m_nDirection end
 local function facing(sprite)
-    local ok,v=pcall(function() return sprite.m_nDirection end)
+    local ok,v=pcall(direction,sprite)
     if ok and type(v)=='number' and v>=0 and v<M.directions and v%1==0 then return v end
     return nil
 end
@@ -207,7 +208,17 @@ end
 -- creature in sight, a third of the engine's time in lab prof-camp-3 (2026-11-10). Where it stands,
 -- its hit points, state, action, skins and images are read every time; a check right before an action
 -- passes no memory and reads everything.
+-- A creature others look at (shared) is read once a tick: the fight director's check-in and the decision
+-- of one creature look at the same crowd in the same tick, and so do all who decide in it (lab
+-- prof-camp-4: reading the creatures in sight was a quarter of the engine's time). Each who looks gets
+-- its own copy. The creature that looks reads itself every time: its own action changes between its
+-- script's question and its response.
 local recall
+local function copied(t)
+    local c={}
+    for k,v in pairs(t) do c[k]=v end
+    return c
+end
 local function standing(g,sprite)
     local minimum=stat(g,sprite,M.stats.minHp)
     return {held=stat(g,sprite,M.stats.held),sanctuary=stat(g,sprite,M.stats.sanctuary),
@@ -218,13 +229,24 @@ local function standing(g,sprite)
         backstab=stat(g,sprite,M.backstab.multiplier),
         backstabImmune=stat(g,sprite,M.backstab.immune)>0 or barbarian(sprite)}
 end
-function M.actor(g,sprite,memory,tick)
+function M.actor(g,sprite,memory,tick,shared)
+    local id=sprite.m_id
+    shared=shared and type(memory)=='table' and type(tick)=='number'
+    if shared then
+        local seen=memory.actors[id]
+        if seen and seen.tick==tick then
+            memory.actorHits=memory.actorHits+1
+            return copied(seen.actor)
+        end
+    end
     local state=g.EEex_Sprite_GetState(sprite)
     local action=sprite.m_curAction
-    local actee=action.m_acteeID and action.m_acteeID.m_Instance
+    local target=action.m_acteeID
+    local actee=target and target.m_Instance
     local mirror=sprite.m_nMirrorImages
+    local at=sprite.m_pos
     local s=recall(memory,sprite,tick,'standing',function() return standing(g,sprite) end)
-    return {id=sprite.m_id,x=sprite.m_pos.x,y=sprite.m_pos.y,ea=sprite.m_typeAI.m_EnemyAlly,
+    local actor={id=id,x=at.x,y=at.y,ea=sprite.m_typeAI.m_EnemyAlly,
         state=state,held=s.held,sanctuary=s.sanctuary,
         hp=sprite.m_baseStats.m_hitPoints,maxHp=s.maxHp,
         mr=s.mr,action=action.m_actionID,ac=s.ac,
@@ -234,6 +256,13 @@ function M.actor(g,sprite,memory,tick)
         minHp=s.minHp,minHpFrom=s.minHpFrom,
         backstab=s.backstab,
         backstabImmune=s.backstabImmune,facing=facing(sprite)}
+    if not shared then return actor end
+    if memory.actors[id]==nil then
+        if memory.actorCount>=M.memoryLimit then memory.actors,memory.actorCount={},0 end
+        memory.actorCount=memory.actorCount+1
+    end
+    memory.actors[id]={tick=tick,actor=actor}
+    return copied(actor)
 end
 -- A creature's THAC0 with its right-hand and general hit bonuses (as M.attack counts it).
 function M.thac0(g,sprite)
@@ -242,13 +271,17 @@ end
 
 -- A creature's IDS values and level (the highest of its classes'), for a friend: what healing,
 -- curing and summoning weigh (combat-intent/care.lua). M.details reads the same for enemies.
-function M.identity(g,sprite,entry)
+-- With a memory and the tick its level comes from the memory (recall); its IDS values are read every time
+-- (a script changes a creature's side without an effect).
+function M.identity(g,sprite,entry,memory,tick)
     local t=sprite.m_typeAI
     entry.ids={ea=t.m_EnemyAlly,general=t.m_General,race=t.m_Race,class=t.m_Class,
         specific=t.m_Specifics,gender=t.m_Gender,alignment=t.m_Alignment}
-    local level=0
-    for _,n in ipairs(M.levels) do level=math.max(level,stat(g,sprite,n)) end
-    entry.level=level
+    entry.level=recall(memory,sprite,tick,'level',function()
+        local level=0
+        for _,n in ipairs(M.levels) do level=math.max(level,stat(g,sprite,n)) end
+        return level
+    end)
     return entry
 end
 
@@ -257,10 +290,14 @@ end
 -- looks at a creature whose effect lists do not tell their length (then nothing is kept).
 -- It also keeps what was found in an area's object lists (areaRecall): areas by area and part,
 -- areaHits, areaReads and areaUnsigned count the same for them.
+-- And each creature as others saw it in the current tick (M.actor): actors, with actorHits for the looks
+-- it spared.
 function M.memory()
-    return {entries={},count=0,hits=0,reads=0,unsigned=0,areas={},areaCount=0,areaHits=0,areaReads=0,areaUnsigned=0}
+    return {entries={},count=0,hits=0,reads=0,unsigned=0,areas={},areaCount=0,areaHits=0,areaReads=0,areaUnsigned=0,
+        actors={},actorCount=0,actorHits=0}
 end
--- One part ('standing', 'protections', 'guard' or 'attack') of what a creature's effects and weapon say, read
+-- One part ('standing', 'details', 'level', 'protections', 'guard' or 'attack') of what a creature's effects and
+-- weapon say, read
 -- with read() or taken from memory: the same answer while its two effect lists keep their lengths
 -- (a spell that lands, ends or is dispelled changes one), its hand keeps its weapon and ability, and
 -- knownTicks have not passed since the first part was read (settledTicks for a creature without a timed
@@ -268,26 +305,35 @@ end
 -- frames of all who look: the policy modules read it and never change it. Without a memory, or for
 -- a creature whose lists do not tell their length, it is read every time. An error in read() goes
 -- to the caller, and nothing is kept.
+-- Whether the lists and the hand are as they were is looked up once a tick for each creature (checked):
+-- the looks of one tick at a creature, for all its parts, share that answer.
 function recall(memory,sprite,tick,part,read)
     if type(memory)~='table' then return read() end
-    local timed,equipped=sprite.m_timedEffectList,sprite.m_equipedEffectList
-    local t,e=timed and timed.m_nCount,equipped and equipped.m_nCount
-    if type(t)~='number' or type(e)~='number' or type(tick)~='number' then
+    if type(tick)~='number' then
         memory.unsigned=memory.unsigned+1
         return read()
     end
-    local equipment=sprite.m_equipment
-    local w,a=equipment and equipment.m_selectedWeapon,equipment and equipment.m_selectedWeaponAbility
     local id=sprite.m_id
     local k=memory.entries[id]
-    local stands=t==0 and M.settledTicks or M.knownTicks
-    if not k or k.t~=t or k.e~=e or k.w~=w or k.a~=a or tick<k.tick or tick-k.tick>=stands then
-        if not k then
-            if memory.count>=M.memoryLimit then memory.entries,memory.count={},0 end
-            memory.count=memory.count+1
+    if not k or k.checked~=tick then
+        local timed,equipped=sprite.m_timedEffectList,sprite.m_equipedEffectList
+        local t,e=timed and timed.m_nCount,equipped and equipped.m_nCount
+        if type(t)~='number' or type(e)~='number' then
+            memory.unsigned=memory.unsigned+1
+            return read()
         end
-        k={tick=tick,t=t,e=e,w=w,a=a,parts={}}
-        memory.entries[id]=k
+        local equipment=sprite.m_equipment
+        local w,a=equipment and equipment.m_selectedWeapon,equipment and equipment.m_selectedWeaponAbility
+        local stands=t==0 and M.settledTicks or M.knownTicks
+        if not k or k.t~=t or k.e~=e or k.w~=w or k.a~=a or tick<k.tick or tick-k.tick>=stands then
+            if not k then
+                if memory.count>=M.memoryLimit then memory.entries,memory.count={},0 end
+                memory.count=memory.count+1
+            end
+            k={tick=tick,t=t,e=e,w=w,a=a,parts={}}
+            memory.entries[id]=k
+        end
+        k.checked=tick
     end
     local kept=k.parts[part]
     if kept then
@@ -299,7 +345,8 @@ function recall(memory,sprite,tick,part,read)
     k.parts[part]={value}
     return value
 end
--- What a walk through some of an area's object lists (names) finds, for one part ('zones', 'lying'):
+-- What a walk through some of an area's object lists (names) finds, for one part (the zones of a list,
+-- 'lying'):
 -- found with scan() or taken from memory while each of those lists keeps its length (an object that
 -- comes or goes changes one) and knownTicks have not passed. In a crowd's area every decision walked
 -- every object of the area for its lasting spells and every frame its back list for the creatures lying
@@ -364,26 +411,34 @@ end
 -- (resref) and, for a party member, its place in the party (player: 1 for Player1, the
 -- protagonist, up to 6, by joining, as the game's Player1 to Player6 count;
 -- EEex_Sprite_GetCharacterIndex), for a designer's orders (combat-intent/orders.lua). With a memory
--- and the tick the protections come from it (recall).
+-- and the tick the protections come from it, and so do its saving throws, resistances, level, missile
+-- protection and creature file, as one part ('details': some twenty stats for each enemy of each
+-- decision); its IDS values and its place in the party are read every time. The tables of saving throws
+-- and resistances are then shared between all who look: the policy modules read them and never change
+-- them.
 function M.details(g,sprite,entry,memory,tick)
     local t=sprite.m_typeAI
     entry.ids={ea=t.m_EnemyAlly,general=t.m_General,race=t.m_Race,class=t.m_Class,
         specific=t.m_Specifics,gender=t.m_Gender,alignment=t.m_Alignment}
-    entry.saves,entry.resist={},{}
-    for name,n in pairs(M.saves) do entry.saves[name]=stat(g,sprite,n) end
-    for name,n in pairs(M.resists) do entry.resist[name]=stat(g,sprite,n) end
-    local level=0
-    for _,n in ipairs(M.levels) do level=math.max(level,stat(g,sprite,n)) end
-    entry.level=level
+    local d=recall(memory,sprite,tick,'details',function()
+        local saves,resist={},{}
+        for name,n in pairs(M.saves) do saves[name]=stat(g,sprite,n) end
+        for name,n in pairs(M.resists) do resist[name]=stat(g,sprite,n) end
+        local level=0
+        for _,n in ipairs(M.levels) do level=math.max(level,stat(g,sprite,n)) end
+        local missiles
+        local spellState=rawget(g,'EEex_Sprite_GetSpellState')
+        if type(spellState)=='function' then
+            local ok,v=pcall(spellState,sprite,M.normalMissiles)
+            if ok and v==true then missiles=true end
+        end
+        local resref=name(sprite.m_resref)
+        return {saves=saves,resist=resist,level=level,normalMissiles=missiles,
+            reflects=stat(g,sprite,M.physicalMirror)>0 or nil,resref=resref~='' and resref or nil}
+    end)
+    entry.saves,entry.resist,entry.level=d.saves,d.resist,d.level
+    entry.normalMissiles,entry.reflects,entry.resref=d.normalMissiles,d.reflects,d.resref
     entry.protections=recall(memory,sprite,tick,'protections',function() return M.protectionRows(g,sprite) end)
-    local spellState=rawget(g,'EEex_Sprite_GetSpellState')
-    if type(spellState)=='function' then
-        local ok,v=pcall(spellState,sprite,M.normalMissiles)
-        if ok and v==true then entry.normalMissiles=true end
-    end
-    if stat(g,sprite,M.physicalMirror)>0 then entry.reflects=true end
-    local resref=name(sprite.m_resref)
-    entry.resref=resref~='' and resref or nil
     entry.player=partyPlace(g,sprite)
     return entry
 end
@@ -716,7 +771,7 @@ end
 -- creatures and the dead, flying objects and those drawn underneath. A projectile goes to the one
 -- its own m_addToListType names, so every list is read.
 M.areaLists={'m_lVertSort','m_lVertSortBack','m_lVertSortFlight','m_lVertSortUnder'}
--- Objects looked at per read at most, and effects per projectile.
+-- Objects looked at per list and read at most, and effects per projectile.
 M.maxObjects=2048
 M.maxZoneEffects=64
 
@@ -744,9 +799,10 @@ end
 -- from (resref), the list it lies in, and its effects as plain records (carried). A projectile
 -- that cannot be read is left out; returns the zones, the count of those that failed and the last
 -- failure.
--- With a memory, which of the area's objects are area projectiles comes from it (areaRecall, part
--- 'zones'): each of those is read anew every time, the others are not looked at again until a list
--- changes its length.
+-- With a memory, which of the area's objects are area projectiles comes from it, list by list
+-- (areaRecall, a part for each list): each of those is read anew every time, the others are not looked
+-- at again until their list changes its length. (Arrows come and go in the list of flying objects all
+-- through a fight, lab prof-camp-4; the standing creatures and objects are in another.)
 function M.zones(g,area,tick,memory)
     local out,failed,last={},0,nil
     if area==nil then return out,0 end
@@ -754,28 +810,28 @@ function M.zones(g,area,tick,memory)
     local wanted=types.CProjectileArea
     -- The objects that are area projectiles, or whose kind cannot be read (they fail again below), as
     -- their id and the list they lie in.
-    local found=areaRecall(memory,area,tick,'zones',M.areaLists,function()
-        local some,seen={},0
-        for _,listName in ipairs(M.areaLists) do
-            local list=area[listName]
-            if list~=nil and seen<M.maxObjects then
-                local ids={}
-                g.EEex_Utility_IterateCPtrList(list,function(id)
-                    seen=seen+1
-                    if seen>M.maxObjects then return true end
-                    ids[#ids+1]=id
-                end)
-                for _,id in ipairs(ids) do
-                    local object=g.EEex_GameObject_Get(id)
-                    if object~=nil and not g.EEex_GameObject_IsSprite(object,true) then
-                        local ok,kind=pcall(getType,object)
-                        if not ok or kind==wanted then some[#some+1]={id=id,list=listName} end
-                    end
+    local found={}
+    for _,listName in ipairs(M.areaLists) do
+        local some=areaRecall(memory,area,tick,'zones/'..listName,{listName},function()
+            local list,kept=area[listName],{}
+            if list==nil then return kept end
+            local ids,seen={},0
+            g.EEex_Utility_IterateCPtrList(list,function(id)
+                seen=seen+1
+                if seen>M.maxObjects then return true end
+                ids[#ids+1]=id
+            end)
+            for _,id in ipairs(ids) do
+                local object=g.EEex_GameObject_Get(id)
+                if object~=nil and not g.EEex_GameObject_IsSprite(object,true) then
+                    local ok,kind=pcall(getType,object)
+                    if not ok or kind==wanted then kept[#kept+1]={id=id,list=listName} end
                 end
             end
-        end
-        return some
-    end)
+            return kept
+        end)
+        for _,f in ipairs(some) do found[#found+1]=f end
+    end
     for _,f in ipairs(found) do
         local id,listName=f.id,f.list
         local object=g.EEex_GameObject_Get(id)
@@ -849,7 +905,7 @@ function M.defend(g,frame,tick,reader,classify,memory)
     local function friend(entry)
         entry.guard=false
         each(entry,function(sprite)
-            M.identity(g,sprite,entry)
+            M.identity(g,sprite,entry,memory,tick)
             entry.protections=recall(memory,sprite,tick,'protections',function() return M.protectionRows(g,sprite) end)
             entry.guard=M.guard(g,sprite,tick,classify,entry.level,memory)
             if entry~=frame.self then entry.attack=M.attack(g,sprite,reader,memory,tick) end
@@ -967,7 +1023,7 @@ function M.frame(g,sprite,tick,detailed,memory)
         local other=M.side(object.m_typeAI.m_EnemyAlly)
         if other==nil then return end
         if other~=side and not self.seeInvisible and band(g,g.EEex_Sprite_GetState(object),M.unseen)~=0 then return end
-        local entry=M.actor(g,object,memory,tick)
+        local entry=M.actor(g,object,memory,tick,true)
         if other==side then
             -- A charmed ally from the party is a foe its side charmed (combat-intent/director.lua).
             if targeting.charmed(entry) then entry.player=partyPlace(g,object) end

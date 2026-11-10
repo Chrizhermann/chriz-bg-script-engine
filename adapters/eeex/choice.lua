@@ -2881,7 +2881,8 @@ function M.new(g,options)
             wardError=wardError or false,zoneError=zoneError or false,witError=witError or false,
             orderError=orderError or false,tableError=tableError or false,wit=witOn,search=seeker:inspect(),
             readings={hits=readings.hits,reads=readings.reads,unsigned=readings.unsigned,kept=readings.count,
-                areaHits=readings.areaHits,areaReads=readings.areaReads,areaUnsigned=readings.areaUnsigned},
+                areaHits=readings.areaHits,areaReads=readings.areaReads,areaUnsigned=readings.areaUnsigned,
+                actorHits=readings.actorHits},
             stealth=hider:inspect(),moving=(function()
                 local n=0;for _ in pairs(moves) do n=n+1 end;return n end)(),waiting=(function()
                 local n=0;for _,w in pairs(waits) do if not w.over then n=n+1 end end;return n end)(),stays=(function()

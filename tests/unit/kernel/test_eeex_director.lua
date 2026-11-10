@@ -251,6 +251,21 @@ do
     sense.frame(g,m1,nil,false,memory)
     assert(walks==8 and memory.areaReads==5)
     g.EEex_Utility_IterateCPtrList=iterate
+    -- The creatures a frame lists are read once a tick for all who look (sense.actor, shared): the second
+    -- to look in a tick gets its friend as the first saw it, in a copy of its own. A creature reads
+    -- itself every time: what it does changes between its script's question and its response.
+    local shared=sense.memory()
+    AREA.m_lVertSortBack={}
+    local seen1=sense.frame(g,m2,300,false,shared)
+    assert(seen1.allies[1].id==1 and shared.actorHits==0)
+    local doing=m1.m_curAction.m_actionID
+    m1.m_curAction.m_actionID=31
+    local own=sense.frame(g,m1,300,false,shared)
+    assert(own.self.action==31 and own.allies[1].id==2 and shared.actorHits>0)
+    local seen2=sense.frame(g,m2,300,false,shared)
+    assert(seen2.allies[1].action==doing and seen2.allies[1]~=seen1.allies[1] and seen2.self.id==2)
+    assert(sense.frame(g,m2,301,false,shared).allies[1].action==31)
+    m1.m_curAction.m_actionID=doing
 end
 AREA.m_lVertSortBack={}
 m1.stats[81]=1
