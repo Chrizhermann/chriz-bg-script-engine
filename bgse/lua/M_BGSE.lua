@@ -13116,7 +13116,7 @@ factories["adapters.eeex.search"]=function(require)
 -- a maze) are no clues; the search awaits them (combat-intent/search.lua, M.await) and reads them for
 -- a guard's readiness (seeker:returning). A walk is held
 -- while the creature walks it, a look and the rogue's detection mode briefly; each ends early when an
--- enemy shows or the creature is hurt. A search walk that ends by itself no nearer its spot finds no
+-- enemy shows or the creature is hurt. A search walk that ends by itself where it began finds no
 -- way there: the spot counts as searched (a 'blocked' row).
 --
 -- Doors (combat-intent/doors.lua, adapters/eeex/doors.lua): a creature with hands for a door (its IDS
@@ -13174,10 +13174,13 @@ M.illusionStat=136
 M.detectMode=2
 M.stealthMode=3
 -- A walk back that ends no nearer than progress to the post than the last is stuck; after
--- stuckLimit of them the creature stays where it is. A search walk that ends no nearer than progress
--- to its spot finds no way there (lab batch E8 v4: Tarnesh's walk out of a dead-end corridor whose
+-- stuckLimit of them the creature stays where it is. A search walk that ends less than progress from
+-- where it began finds no way there (lab batch E8 v4: Tarnesh's walk out of a dead-end corridor whose
 -- mouth two of the party blocked failed at once, again and again for 20 seconds): that spot counts
--- as searched.
+-- as searched. How much nearer its spot the walk came says nothing: a way around a wall leads away from
+-- it first (lab ambush-3, 2026-11-10, the Bandit Camp: four creatures by Tazok's tent, 2,000 from the
+-- party's member, had walked 90 to 270 when their first walk ended, three of them further from the spot
+-- than they began, and the spot counted as searched though each walked on and arrived).
 M.progress=32
 M.stuckLimit=2
 M.cacheLimit=1024
@@ -13673,15 +13676,18 @@ function M.new(g,options)
     function seeker:mode(sprite,tick)
         state(sprite.m_id).act={kind='modal',tick=tick,limit=M.modalTicks}
     end
-    -- A search walk over by itself (why: 'time' or 'done'): one that came no nearer than progress to its
-    -- spot finds no way there, so the spot counts as searched, with a 'blocked' row.
+    -- A search walk over by itself (why: 'time' or 'done'): one that got the creature nowhere (less than
+    -- progress from where it began) finds no way there, so the spot counts as searched, with a 'blocked' row
+    -- (from: where it began; action: what the creature does now). A walk that got on its way and ended early
+    -- counts as none, also one whose way first led away from its spot: the creature walks again.
     local function walked(s,id,a,sprite,tick,why)
         if not a.key or (why~='time' and why~='done') then return end
         local at={x=sprite.m_pos.x,y=sprite.m_pos.y}
-        if targeting.distance(a.from,a.point)-targeting.distance(at,a.point)>=M.progress then return end
+        if targeting.distance(a.from,at)>=M.progress then return end
         s.searched[a.key]=true
         counts.blocked=counts.blocked+1
-        record({kind='blocked',tick=tick,member=id,move='search',target=a.target,to=a.point,at=at,why=why})
+        record({kind='blocked',tick=tick,member=id,move='search',target=a.target,to=a.point,from=a.from,at=at,why=why,
+            action=sprite.m_curAction.m_actionID})
     end
     -- Whether the creature's walk, look, detection mode or door goes on ('walk', 'look', 'modal' or
     -- 'door'; false once it is over): not past its time, a walk not once the creature has stopped

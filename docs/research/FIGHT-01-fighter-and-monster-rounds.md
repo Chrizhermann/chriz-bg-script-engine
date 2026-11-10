@@ -414,9 +414,15 @@ The engine searches with what the creature and its group perceived instead
 - **A spot without a way there counts as searched** (E8 v4, 2026-11-04): Tarnesh, out of everyone's
   sight in a dead-end corridor whose mouth Kivan and Yeslick blocked, walked to the same clue every few
   ticks for twenty seconds, each `MoveToPoint` over at once. Now a search walk that ends by itself (it
-  stopped walking, or its time ran out) no nearer its spot than `progress` (32) finds no way there:
-  the spot counts as searched (a `blocked` row with move `search`), and the search goes on with the
-  next clue, a look or giving up. One ended by an enemy in sight or a hit is no such sign.
+  stopped walking, or its time ran out) less than `progress` (32) from where it began finds no way
+  there: the spot counts as searched (a `blocked` row with move `search`, with where the walk began and
+  what the creature does now), and the search goes on with the next clue, a look or giving up. One
+  ended by an enemy in sight or a hit is no such sign. Until 2026-11-10 the rule asked whether the walk
+  had come nearer its spot, which a way around a wall does not at first: in the Bandit Camp (lab
+  ambush-3) four creatures by Tazok's tent, 2,000 from the party's member, had walked 90 to 270 when
+  their first walk ended, three of them further from the spot than they began, and the spot counted as
+  searched though each walked on and arrived. Why those first walks ended early is not known (the row
+  now names the creature's action); a walk that ends on its way is simply walked again.
 - **Log.** Rows `hunt` (a search begins: clues, tactics, patience, guard, wit), `clue` (a hit),
   `search` and `return` (walks), `blocked` (a walk with no way), `teleport` and `landed`, `detect`,
   `reveal`, `door` and `door-end`, `gave-up` (why: patience, no clue, stuck) and `stuck`; `inspect()`

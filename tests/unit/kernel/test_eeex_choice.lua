@@ -2340,9 +2340,9 @@ e33.state=0x800
 m33.m_curAction={m_actionID=0}
 assert(claim33(m33,830)==false and ch33:inspect().reasons['given-up']==2 and last33('gave-up').why=='no-clue')
 -- A search walk that finds no way (lab batch E8 v4: Tarnesh's walks out of a corridor whose mouth two
--- of the party blocked failed at once, again and again for 20 seconds): the mage comes no nearer the
--- spot, so the spot counts as searched (a 'blocked' row) and it looks around instead of walking there
--- again. A walk that gets on its way counts as none, nor does one an enemy in sight ends.
+-- of the party blocked failed at once, again and again for 20 seconds): the mage gets nowhere, so the
+-- spot counts as searched (a 'blocked' row) and it looks around instead of walking there again. A walk
+-- that gets on its way counts as none, nor does one an enemy in sight ends.
 do
     local function walker(seed)
         local g,ch,_,last,claim=setup(seed)
@@ -2360,13 +2360,28 @@ do
     local queued=#g.queued
     assert(claim(m,150)==true)
     local b=last('blocked')
-    assert(b and b.move=='search' and b.why=='done' and b.target==11 and b.to.x==300 and b.at.x==0)
+    assert(b and b.move=='search' and b.why=='done' and b.target==11 and b.to.x==300 and b.at.x==0 and b.from.x==0 and
+        b.action==0)
     assert(ch:inspect().search.counts.blocked==1 and ch:inspect().search.counts.looks==1)
     g.BGSE_Act(m)
     assert(#g.queued==queued or g.queued[#g.queued].text~='MoveToPoint([300.0])')
     g,ch,last,claim,m=walker(36)
     m.m_pos={x=40,y=0};m.m_curAction={m_actionID=0}
     assert(claim(m,150)==true and last('blocked')==nil and ch:inspect().search.counts.blocked==0)
+    -- A way around a wall leads away from the spot first (lab ambush-3: four of the Bandit Camp's walks ended
+    -- early 90 to 270 from where they began, three further from the spot): the walk got on its way, the spot
+    -- is not searched, and the mage walks there again. Only a walk that ends where it began found no way.
+    g,ch,last,claim,m=walker(38)
+    m.m_pos={x=-60,y=50};m.m_curAction={m_actionID=0}
+    assert(claim(m,150)==true and last('blocked')==nil and ch:inspect().search.counts.blocked==0)
+    g.BGSE_Act(m)
+    assert(g.queued[#g.queued].text=='MoveToPoint([300.0])' and last('search').from.x==-60 and last('search').tick==150)
+    g,ch,last,claim,m=walker(39)
+    m.m_pos={x=-32,y=0};m.m_curAction={m_actionID=0}
+    assert(claim(m,150)==true and last('blocked')==nil)
+    g,ch,last,claim,m=walker(40)
+    m.m_pos={x=31,y=0};m.m_curAction={m_actionID=0}
+    assert(claim(m,150)==true and last('blocked').at.x==31 and ch:inspect().search.counts.blocked==1)
     local e
     g,ch,last,claim,m,e=walker(37)
     m.m_curAction={m_actionID=23};e.m_pos={x=300,y=0}
