@@ -93,6 +93,14 @@ M.maxScore=25
 M.maxExceptional=100
 -- An effect that ends within this many seconds no longer protects.
 M.expiring=6
+-- What a creature's effects and weapon say is read once for all who look at it (M.memory, recall):
+-- it stands for knownTicks, and no longer than the creature's effect lists keep their lengths and
+-- its hand keeps its weapon. Lab prof-camp-1 (2026-11-10, 37 creatures around one enemy): every
+-- decision read every creature in sight afresh, four walks through its effects each, and that was
+-- more than half of the engine's time. A second is also what the engine allows itself for a
+-- creature beyond its frame (adapters/eeex/choice.lua, knownTicks).
+M.knownTicks=15
+M.memoryLimit=1024
 -- Opcodes that deliver other effects; what they delivered is in the list already.
 M.delivered={[146]=true,[148]=true,[177]=true,[272]=true,[283]=true,[326]=true,[333]=true,[366]=true}
 -- Casts that damage breaks (ACTION.IDS): Spell, SpellPoint, SpellNoDec and SpellPointNoDec (their
@@ -224,6 +232,48 @@ function M.identity(g,sprite,entry)
     return entry
 end
 
+-- A memory for what creatures' effects and weapons say (recall), for one runtime: session-local, a
+-- load starts a new one. hits and reads count what it spared and what it read; unsigned counts the
+-- looks at a creature whose effect lists do not tell their length (then nothing is kept).
+function M.memory() return {entries={},count=0,hits=0,reads=0,unsigned=0} end
+-- One part ('protections', 'guard' or 'attack') of what a creature's effects and weapon say, read
+-- with read() or taken from memory: the same answer while its two effect lists keep their lengths
+-- (a spell that lands, ends or is dispelled changes one), its hand keeps its weapon and ability, and
+-- knownTicks have not passed since the first part was read. What comes back is shared between the
+-- frames of all who look: the policy modules read it and never change it. Without a memory, or for
+-- a creature whose lists do not tell their length, it is read every time. An error in read() goes
+-- to the caller, and nothing is kept.
+local function recall(memory,sprite,tick,part,read)
+    if type(memory)~='table' then return read() end
+    local timed,equipped=sprite.m_timedEffectList,sprite.m_equipedEffectList
+    local t,e=timed and timed.m_nCount,equipped and equipped.m_nCount
+    if type(t)~='number' or type(e)~='number' or type(tick)~='number' then
+        memory.unsigned=memory.unsigned+1
+        return read()
+    end
+    local equipment=sprite.m_equipment
+    local w,a=equipment and equipment.m_selectedWeapon,equipment and equipment.m_selectedWeaponAbility
+    local id=sprite.m_id
+    local k=memory.entries[id]
+    if not k or k.t~=t or k.e~=e or k.w~=w or k.a~=a or tick<k.tick or tick-k.tick>=M.knownTicks then
+        if not k then
+            if memory.count>=M.memoryLimit then memory.entries,memory.count={},0 end
+            memory.count=memory.count+1
+        end
+        k={tick=tick,t=t,e=e,w=w,a=a,parts={}}
+        memory.entries[id]=k
+    end
+    local kept=k.parts[part]
+    if kept then
+        memory.hits=memory.hits+1
+        return kept[1]
+    end
+    local value=read()
+    memory.reads=memory.reads+1
+    k.parts[part]={value}
+    return value
+end
+
 -- The spell protections in a creature's two effect lists, as {opcode, p1, p2, res, timed} rows
 -- (combat-intent/targeting.lua matches them). A protection with time left (from a spell or a
 -- potion, not an item or the creature itself) is marked timed.
@@ -248,8 +298,9 @@ end
 -- Physical Mirror (normalMissiles, reflects: what SCS's archers look for); its creature file
 -- (resref) and, for a party member, its place in the party (player: 1 for Player1, the
 -- protagonist, up to 6, by joining, as the game's Player1 to Player6 count;
--- EEex_Sprite_GetCharacterIndex), for a designer's orders (combat-intent/orders.lua).
-function M.details(g,sprite,entry)
+-- EEex_Sprite_GetCharacterIndex), for a designer's orders (combat-intent/orders.lua). With a memory
+-- and the tick the protections come from it (recall).
+function M.details(g,sprite,entry,memory,tick)
     local t=sprite.m_typeAI
     entry.ids={ea=t.m_EnemyAlly,general=t.m_General,race=t.m_Race,class=t.m_Class,
         specific=t.m_Specifics,gender=t.m_Gender,alignment=t.m_Alignment}
@@ -259,7 +310,7 @@ function M.details(g,sprite,entry)
     local level=0
     for _,n in ipairs(M.levels) do level=math.max(level,stat(g,sprite,n)) end
     entry.level=level
-    entry.protections=M.protectionRows(g,sprite)
+    entry.protections=recall(memory,sprite,tick,'protections',function() return M.protectionRows(g,sprite) end)
     local spellState=rawget(g,'EEex_Sprite_GetSpellState')
     if type(spellState)=='function' then
         local ok,v=pcall(spellState,sprite,M.normalMissiles)
@@ -465,9 +516,12 @@ end
 -- ability number SelectWeaponAbility takes, and whether it fights with its fists (the fist slot
 -- selected: on-hit effects for fists only). Without a weapon that strikes, damage and magic stay
 -- unknown.
-function M.attack(g,sprite,reader)
-    local tables=M.tables(g)
-    return arsenal.hand(tables,facts(g,sprite,reader,tables,false))
+-- With a memory and the tick it comes from the memory (recall).
+function M.attack(g,sprite,reader,memory,tick)
+    return recall(memory,sprite,tick,'attack',function()
+        local tables=M.tables(g)
+        return arsenal.hand(tables,facts(g,sprite,reader,tables,false))
+    end)
 end
 -- The weapon in the creature's hand (M.attack, with the parts the game's tables give for its two
 -- right-hand bonuses) and the other weapons it could take up (arsenal.others), and why the tables
@@ -486,8 +540,10 @@ end
 -- one without an end) and the hit points its poison will still take; hits: the on-hit and critical
 -- hit effects it carries (each effect names the spell or item it comes from, for one that its first
 -- hit ends and one of a single weapon). Effects that end within M.expiring seconds and delayed ones
--- that have not started are left out of its roles.
-function M.guard(g,sprite,tick,classify,level)
+-- that have not started are left out of its roles. With a memory, what the effects say comes from it
+-- (recall: a condition's seconds left are then up to knownTicks old); the skins and images are
+-- counted afresh every time, as hits use them up without an effect coming or going.
+local function shields(g,sprite,tick,classify,level)
     local list,sources,recast,conditions={},{},{},{}
     local poison=0
     for _,effects in ipairs({sprite.m_timedEffectList,sprite.m_equipedEffectList}) do
@@ -540,10 +596,14 @@ function M.guard(g,sprite,tick,classify,level)
         casting={},abilities={{form=1,flags=0,location=2,target=5,targetCount=0,range=0,minLevel=1,speed=0,
         projectile=1,effects=list}}}
     local classified=classify(record,level)
+    return {roles=type(classified)=='table' and classified.roles or {},sources=sources,recast=recast,
+        conditions=conditions,poison=poison,hits=type(classified)=='table' and classified.hits or nil}
+end
+function M.guard(g,sprite,tick,classify,level,memory)
+    local s=recall(memory,sprite,tick,'guard',function() return shields(g,sprite,tick,classify,level) end)
     local mirror=sprite.m_nMirrorImages
-    return {roles=type(classified)=='table' and classified.roles or {},stoneskins=stat(g,sprite,M.combat.stoneskins),
-        mirror=type(mirror)=='number' and mirror or 0,sources=sources,recast=recast,conditions=conditions,poison=poison,
-        hits=type(classified)=='table' and classified.hits or nil}
+    return {roles=s.roles,stoneskins=stat(g,sprite,M.combat.stoneskins),mirror=type(mirror)=='number' and mirror or 0,
+        sources=s.sources,recast=s.recast,conditions=s.conditions,poison=s.poison,hits=s.hits}
 end
 
 -- What a removal can take from a creature (combat-intent/removal.lua): each of its active effects
@@ -695,8 +755,9 @@ end
 -- if it could not be read) and spell protections (what keeps an ally's heal, cure or defence off
 -- it; lab batch H: SCS's Minor Globe of Invulnerability), the weapons of enemies and allies, and
 -- whether each enemy sees invisible creatures. A creature whose engine data fails keeps what it
--- has; returns the count of failures and the last one.
-function M.defend(g,frame,tick,reader,classify)
+-- has; returns the count of failures and the last one. With a memory, what the effects and weapons
+-- say comes from it (recall), so a crowd is read once a second and not once a decision.
+function M.defend(g,frame,tick,reader,classify,memory)
     local failed,last=0,nil
     local function each(entry,fn)
         local sprite=g.EEex_GameObject_Get(entry.id)
@@ -708,9 +769,9 @@ function M.defend(g,frame,tick,reader,classify)
         entry.guard=false
         each(entry,function(sprite)
             M.identity(g,sprite,entry)
-            entry.protections=M.protectionRows(g,sprite)
-            entry.guard=M.guard(g,sprite,tick,classify,entry.level)
-            if entry~=frame.self then entry.attack=M.attack(g,sprite,reader) end
+            entry.protections=recall(memory,sprite,tick,'protections',function() return M.protectionRows(g,sprite) end)
+            entry.guard=M.guard(g,sprite,tick,classify,entry.level,memory)
+            if entry~=frame.self then entry.attack=M.attack(g,sprite,reader,memory,tick) end
         end)
     end
     friend(frame.self)
@@ -718,7 +779,7 @@ function M.defend(g,frame,tick,reader,classify)
     for _,e in ipairs(frame.enemies) do
         each(e,function(sprite)
             e.seeInvisible=stat(g,sprite,M.stats.seeInvisible)>0 or stat(g,sprite,M.stats.trueSight)>0
-            e.attack=M.attack(g,sprite,reader)
+            e.attack=M.attack(g,sprite,reader,memory,tick)
         end)
     end
     return failed,last
@@ -801,8 +862,9 @@ local function lying(g,sprite,self,seen,consider,fallen)
 end
 
 -- The creature's frame at tick, or nil when it is on no side. detailed adds IDS values and
--- protections for each enemy. A blind creature perceives no one.
-function M.frame(g,sprite,tick,detailed)
+-- protections for each enemy (the protections from memory, when one is given: recall). A blind
+-- creature perceives no one.
+function M.frame(g,sprite,tick,detailed,memory)
     local self=M.actor(g,sprite)
     local side=M.side(self.ea)
     if side==nil then return nil end
@@ -821,7 +883,7 @@ function M.frame(g,sprite,tick,detailed)
             if targeting.charmed(entry) then entry.player=partyPlace(g,object) end
             frame.allies[#frame.allies+1]=entry
         else
-            if detailed then M.details(g,object,entry) end
+            if detailed then M.details(g,object,entry,memory,tick) end
             frame.enemies[#frame.enemies+1]=entry
         end
     end

@@ -693,6 +693,104 @@ assert(poisonOf(200+150,4096,2,1)==10 and near(poisonOf(200+600,4096,3,3),40/3))
 assert(poisonOf(200+150,4096,2,2,0,2)==10 and near(poisonOf(200+450,4096,6,4,4),20))
 assert(poisonOf(0,1,3,3)==20)
 mage.m_timedEffectList,mage.m_equipedEffectList=timed,{}
+-- What a creature's effects and weapon say is read once for all who look at it (sense.memory; lab
+-- prof-camp-1: in a crowd every decision walked every creature's effects four times). It stands
+-- while the creature's two effect lists keep their lengths and its hand keeps its weapon, for a
+-- second at most; the skins and images are counted every time.
+do
+    local walks=0
+    local iterate=g7.EEex_Utility_IterateCPtrList
+    g7.EEex_Utility_IterateCPtrList=function(t,fn) walks=walks+1;return iterate(t,fn) end
+    local function lists(timedList,equippedList)
+        timedList.m_nCount,equippedList.m_nCount=#timedList,#equippedList
+        mage.m_timedEffectList,mage.m_equipedEffectList=timedList,equippedList
+    end
+    local skins=mage.stats[sense.combat.stoneskins]
+    lists({effect(109,200+180)},{})
+    local memory=sense.memory()
+    local a=sense.guard(g7,mage,200,effectsOf,nil,memory)
+    assert(a.conditions.hold==12 and walks==2 and memory.reads==1 and memory.hits==0 and memory.count==1)
+    -- The next to look, seven ticks later: no walk, the same answer, the skins as they are now.
+    mage.stats[sense.combat.stoneskins]=3
+    local b=sense.guard(g7,mage,207,effectsOf,nil,memory)
+    assert(b~=a and b.conditions==a.conditions and b.roles==a.roles and b.stoneskins==3 and a.stoneskins~=3)
+    assert(walks==2 and memory.reads==1 and memory.hits==1)
+    -- Its protections are a part of their own, read once as well.
+    local e1,e2={},{}
+    sense.details(g7,mage,e1,memory,207);sense.details(g7,mage,e2,memory,208)
+    assert(e1.protections==e2.protections and walks==4 and memory.reads==2 and memory.hits==2)
+    -- A spell lands: a list grows, and everything is read anew at once.
+    lists({effect(109,200+180),effect(185,200+300)},{})
+    local c=sense.guard(g7,mage,208,effectsOf,nil,memory)
+    assert(c.conditions.hold2 and not a.conditions.hold2 and walks==6 and memory.reads==3 and memory.count==1)
+    local e3={};sense.details(g7,mage,e3,memory,208)
+    assert(e3.protections~=e1.protections and walks==8)
+    -- An item's effect comes: the other list counts as well.
+    lists(mage.m_timedEffectList,{effect(76,0,1)})
+    assert(sense.guard(g7,mage,209,effectsOf,nil,memory).conditions.feeblemind==math.huge and not c.conditions.feeblemind)
+    assert(walks==10 and memory.reads==5)
+    -- Another weapon in hand, or another of its abilities: read anew.
+    mage.m_equipment.m_selectedWeapon=mage.m_equipment.m_selectedWeapon+1
+    sense.guard(g7,mage,209,effectsOf,nil,memory)
+    mage.m_equipment.m_selectedWeaponAbility=1
+    sense.guard(g7,mage,209,effectsOf,nil,memory)
+    assert(walks==14 and memory.reads==7)
+    sense.guard(g7,mage,209,effectsOf,nil,memory)
+    assert(walks==14 and memory.hits==3)
+    mage.m_equipment.m_selectedWeapon,mage.m_equipment.m_selectedWeaponAbility=mage.m_equipment.m_selectedWeapon-1,0
+    sense.guard(g7,mage,209,effectsOf,nil,memory)
+    assert(walks==16)
+    -- With nothing to show a change it stands for a second, not longer (an effect that began after a
+    -- delay keeps the list's length), and a clock that ran back (a load) reads anew.
+    sense.guard(g7,mage,209+14,effectsOf,nil,memory)
+    assert(walks==16)
+    sense.guard(g7,mage,209+15,effectsOf,nil,memory)
+    assert(walks==18)
+    sense.guard(g7,mage,209+14,effectsOf,nil,memory)
+    assert(walks==20)
+    -- A weapon's reading is kept the same way: the sword's THAC0 as it was read, until its second ends.
+    swordA.m_timedEffectList.m_nCount,swordA.m_equipedEffectList.m_nCount=0,0
+    local hand=sense.attack(g7,swordA,reader,memory,300)
+    swordA.stats[7]=4
+    assert(sense.attack(g7,swordA,reader,memory,310)==hand and hand.thac0==10 and memory.count==2)
+    assert(sense.attack(g7,swordA,reader,memory,315).thac0==4)
+    swordA.stats[7]=10
+    -- A read that fails is not kept: the next one reads again.
+    local broken=0
+    local ok=pcall(sense.guard,g7,mage,240,function() broken=broken+1;error('no classifier') end,nil,memory)
+    assert(not ok and broken==1)
+    assert(sense.guard(g7,mage,240,effectsOf,nil,memory).conditions.hold and walks==24)
+    -- Lists that do not tell their length, and a look without a memory, are read every time.
+    mage.m_timedEffectList.m_nCount=nil
+    sense.guard(g7,mage,240,effectsOf,nil,memory);sense.guard(g7,mage,240,effectsOf,nil,memory)
+    assert(walks==28 and memory.unsigned==2)
+    mage.m_timedEffectList.m_nCount=#mage.m_timedEffectList
+    sense.guard(g7,mage,241,effectsOf);sense.guard(g7,mage,241,effectsOf)
+    assert(walks==32)
+    -- The same for the list of what its gear does, and for a reading that does not say when it is.
+    local worn=mage.m_equipedEffectList.m_nCount
+    mage.m_equipedEffectList.m_nCount=nil
+    sense.guard(g7,mage,241,effectsOf,nil,memory);sense.guard(g7,mage,241,effectsOf,nil,memory)
+    assert(walks==36 and memory.unsigned==4)
+    mage.m_equipedEffectList.m_nCount=worn
+    local reads,hits=memory.reads,memory.hits
+    swordA.stats[7]=6
+    assert(sense.attack(g7,swordA,reader,memory).thac0==6)
+    swordA.stats[7]=10
+    assert(sense.attack(g7,swordA,reader,memory).thac0==10 and memory.unsigned==6 and memory.reads==reads and memory.hits==hits)
+    -- The memory is bounded: full, it starts again.
+    local limit=sense.memoryLimit
+    sense.memoryLimit=2
+    local third=sprite(13,0,0,255)
+    third.m_timedEffectList.m_nCount,third.m_equipedEffectList.m_nCount=0,0
+    sense.guard(g7,third,241,effectsOf,nil,memory)
+    assert(memory.count==1 and memory.entries[13] and not memory.entries[1])
+    sense.memoryLimit=limit
+    g7.EEex_Utility_IterateCPtrList=iterate
+    mage.m_timedEffectList,mage.m_equipedEffectList=timed,{}
+    mage.stats[sense.combat.stoneskins]=skins
+    swordA.m_timedEffectList.m_nCount,swordA.m_equipedEffectList.m_nCount=nil,nil
+end
 -- A defence the creature's own script starts begins the pause too: a second mage under one
 -- fighter would cast Stoneskin, but its script casts it first (a block of SCS's above the hook, in
 -- a pass whose first ask the engine answered). While that cast runs the round is the script's;
@@ -1449,7 +1547,12 @@ local function last14(kind)
 end
 assert(g14.BGSE_Zones(caster14,'mage','s1')==true and g14.BGSE_Zones(caster14,'fighter','s3')==false)
 g14.ticks=100
+for _,id in ipairs({1,11}) do local s=g14.objects[id];s.m_timedEffectList.m_nCount,s.m_equipedEffectList.m_nCount=0,0 end
 assert(g14.BGSE_Claim(caster14,'mage','s1')==true)
+-- The look at the zones and the decision share one reading (sense.memory): the enemy's protections are read
+-- for the look and taken from memory for the decision; the mage's own protections and shields and the enemy's
+-- weapon are read once.
+do local r=ch14:inspect().readings;assert(r.reads==4 and r.hits==1 and r.kept==2 and r.unsigned==0) end
 local c14=last14('choice')
 assert(c14.castKind=='escape' and c14.spell=='ESCAPE' and c14.zones==1 and c14.worth>0 and c14.walk>0)
 -- The zone's first classification leaves a row with what was read of it.
@@ -2609,6 +2712,27 @@ do
     assert(seeker:call(me,'LastHeardBy(Myself)',320)==true and calls()==5 and rows[#rows].as=='LastHeardBy(Myself)')
     local d=seeker:decide(me,frame,320,'fighter',{wit='normal',tactics=0.5},{},{},nil)
     assert(d.kind=='search' and d.clue=='called' and d.target==2 and d.point.x==600 and d.point.y==300)
+end
+-- One memory for all the engine's creatures (sense.memory): the second to decide takes what the first
+-- read of their friend and of their foe, and a load forgets it.
+do
+    local g,ch,root,last,claim=setup(49)
+    local function counted(s) s.m_timedEffectList.m_nCount,s.m_equipedEffectList.m_nCount=0,0;return s end
+    local one=g.add(counted(armed(sprite(1,0,0,255,{levels={[7]='S3'}}),35,'TESTSWRD')))
+    local two=g.add(counted(armed(sprite(2,0,60,255,{levels={[7]='S3'}}),35,'TESTSWRD')))
+    g.add(counted(sprite(11,60,0,2)))
+    assert(claim(one,100,'fighter','s3')==true)
+    local first=ch:inspect().readings
+    -- Read: the foe's protections and weapon, the creature's own protections and shields, and its friend's
+    -- protections, shields and weapon.
+    assert(first.reads==7 and first.hits==0 and first.unsigned==0 and first.kept==3)
+    assert(claim(two,101,'fighter','s3')==true)
+    local second=ch:inspect().readings
+    -- All of it from memory but the first creature's weapon, which only its friend asks for.
+    assert(second.hits==6 and second.reads==8 and second.kept==3 and second.unsigned==0)
+    ch:invalidate()
+    local none=ch:inspect().readings
+    assert(none.kept==0 and none.reads==0 and none.hits==0)
 end
 end)()
 groups=groups+1

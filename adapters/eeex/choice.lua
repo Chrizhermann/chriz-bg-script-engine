@@ -1381,6 +1381,8 @@ function M.new(g,options)
             if v.area==area and not present[id] then insideOf[id]=nil;insideCount=insideCount-1 end
         end
     end
+    -- What creatures' effects and weapons say, read once for all who look at them (sense.memory).
+    local readings=sense.memory()
     -- What the creature sees its enemies do in the zones of its area, at most once every lookTicks
     -- for each area: an enemy inside a zone that hurts it (zones.hit, with its marks for the zones'
     -- SPLPROT conditions, the creature as the other creature) and able to walk stayed for each
@@ -1391,7 +1393,7 @@ function M.new(g,options)
         if not area or (lookedAt[area] and tick>=lookedAt[area] and tick-lookedAt[area]<M.lookTicks) then return end
         lookedAt[area]=tick
         if #raw==0 then forget(area,{});return end
-        local frame=sense.frame(g,sprite,tick,true)
+        local frame=sense.frame(g,sprite,tick,true,readings)
         if not frame or sense.side(frame.self.ea)~='evil' or #frame.enemies==0 then return end
         local list=zonesFor(frame,raw)
         local wanted={}
@@ -1814,7 +1816,7 @@ function M.new(g,options)
     local function situate(sprite,frame,rows,tick,returning,plan)
         mark(sprite,frame,rows)
         if returning then mark(sprite,{enemies=returning},rows) end
-        local bad,last=sense.defend(g,frame,tick,reader,effectsOf)
+        local bad,last=sense.defend(g,frame,tick,reader,effectsOf,readings)
         if bad>0 then
             counts.guardFailures=counts.guardFailures+bad
             if not guardError then
@@ -2074,7 +2076,7 @@ function M.new(g,options)
             return act=='mode' and still() or hold()
         end
         if targeting.CASTS[sprite.m_curAction.m_actionID] then return decline('casting') end
-        local frame=sense.frame(g,sprite,tick,true)
+        local frame=sense.frame(g,sprite,tick,true,readings)
         if not frame then return decline('no-frame') end
         if sense.side(frame.self.ea)~='evil' then return decline('side') end
         -- With no enemy in sight: out of a zone that hurts, a heal or cure for a friend in need, a
@@ -2857,6 +2859,7 @@ function M.new(g,options)
         openings,openingCount={},0
         companions,companionCount={},0
         outside,outsideCount={},0
+        readings=sense.memory()
         seeker:invalidate()
         hider:invalidate()
     end
@@ -2873,6 +2876,7 @@ function M.new(g,options)
             markError=markError or false,guardError=guardError or false,weaponError=weaponError or false,
             wardError=wardError or false,zoneError=zoneError or false,witError=witError or false,
             orderError=orderError or false,tableError=tableError or false,wit=witOn,search=seeker:inspect(),
+            readings={hits=readings.hits,reads=readings.reads,unsigned=readings.unsigned,kept=readings.count},
             stealth=hider:inspect(),moving=(function()
                 local n=0;for _ in pairs(moves) do n=n+1 end;return n end)(),waiting=(function()
                 local n=0;for _,w in pairs(waits) do if not w.over then n=n+1 end end;return n end)(),stays=(function()
