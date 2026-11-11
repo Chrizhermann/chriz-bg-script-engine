@@ -27,6 +27,7 @@ def test_profile_sets_each_value_once_and_keeps_other_lines():
     assert lines.count("SetPrivateProfileString('Game Options','Difficulty Level','5')") == 1
     assert not any("'Difficulty Level','2'" in line or "'Difficulty Level','3'" in line for line in lines)
     assert "SetPrivateProfileString('Game Options','Suppress Extra Difficulty Damage','1')" in lines
+    assert "SetPrivateProfileString('Program Options','Debug Mode','1')" in lines
     assert "SetPrivateProfileString('Program Options','Cloud Saves Enabled','0')" in lines
 
 
@@ -76,3 +77,23 @@ def test_putting_in_goes_spell_mod_first_and_takes_the_recorder_when_there(tmp_p
     assert order == [('unpack', 'M1'), ('magic-in', (playground.MAGIC_TP2, '--force-install-list', '0')),
                      ('unpack', 'E1'), ('engine-in', (playground.ENGINE_TP2, '--force-install-list', '0', '10'))]
     assert done['magic'] == 'M1' and done['engine'] == 'E1'
+
+
+def test_update_switches_debug_mode_on_without_resetting_other_options(tmp_path: Path, monkeypatch):
+    docs = tmp_path / 'docs'
+    profile = docs / playground.ENGINE_NAME
+    profile.mkdir(parents=True)
+    baldur = profile / 'Baldur.lua'
+    baldur.write_text("SetPrivateProfileString('Program Options','Debug Mode','0')\n"
+                      "SetPrivateProfileString('Game Options','Difficulty Level','3')\n", encoding='utf-8')
+    root = tmp_path / 'pg'
+    (root / 'game').mkdir(parents=True)
+    playground.save(root, {'magic_repo': 'm', 'engine_repo': 'e', 'engine': 'E1', 'magic': 'M1'})
+    monkeypatch.setattr(playground, 'documents', lambda: docs)
+    monkeypatch.setattr(playground, 'running', lambda g: [])
+    monkeypatch.setattr(playground, 'take_out', lambda c, r: None)
+    monkeypatch.setattr(playground, 'put_in', lambda c, r, e, m: {'engine': e, 'magic': m})
+    playground.main(['update', '--root', str(root)])
+    after = baldur.read_text(encoding='utf-8').splitlines()
+    assert "SetPrivateProfileString('Program Options','Debug Mode','1')" in after
+    assert "SetPrivateProfileString('Game Options','Difficulty Level','3')" in after

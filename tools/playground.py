@@ -28,10 +28,11 @@ ENGINE_TP2 = 'bgse/setup-bgse.tp2'
 MAGIC_TP2 = 'setup-chriz-bg-magic.tp2'
 ENGINE_FILES = ('bgse',)
 MAGIC_FILES = (MAGIC_TP2, 'chriz-bg-magic', 'defs')
-# The intended setup (AGENTS.md): Insane without double damage, no maximum hit points.
+# The intended setup (AGENTS.md): Insane without double damage, no maximum hit points, and the debug console on.
 PROFILE = (('Game Options', 'Difficulty Level', '5'),
            ('Game Options', 'Suppress Extra Difficulty Damage', '1'),
            ('Game Options', 'Maximum HP', '0'),
+           ('Program Options', 'Debug Mode', '1'),
            ('Program Options', 'EET Installation State', '2'),
            ('Program Options', 'Cloud Saves Enabled', '0'))
 START = '@echo off\r\nstart "" /d "%~dp0game" "%~dp0game\\InfinityLoader.exe"\r\n'
@@ -167,9 +168,7 @@ def setup(args):
                                      encoding='ascii')
     profile = documents() / ENGINE_NAME
     (profile / 'save').mkdir(parents=True, exist_ok=True)
-    options = profile / 'Baldur.lua'
-    text = options.read_text(encoding='utf-8') if options.exists() else ''
-    options.write_text('\n'.join(profile_lines(text)) + '\n', encoding='utf-8')
+    write_profile(profile)
     (root / 'Start Playground.cmd').write_bytes(START.encode('ascii'))
     config = {'weidu': str(Path(args.weidu).resolve()), 'engine_repo': str(REPO), 'magic_repo': str(Path(args.magic_repo).resolve()),
               'engine': args.engine or 'HEAD', 'magic': args.magic or 'origin/main'}
@@ -179,12 +178,21 @@ def setup(args):
     print(json.dumps(config['installed'], indent=1))
 
 
+def write_profile(profile, values=PROFILE):
+    options = profile / 'Baldur.lua'
+    text = options.read_text(encoding='utf-8') if options.exists() else ''
+    options.write_text('\n'.join(profile_lines(text, values)) + '\n', encoding='utf-8')
+
+
 def update(args):
     root = Path(args.root)
     config = load(root)
     busy = running(root / 'game')
     if busy:
         raise SystemExit(f'the Playground runs ({" ".join(busy)}): close the game first')
+    profile = documents() / ENGINE_NAME
+    if (profile / 'Baldur.lua').exists():
+        write_profile(profile, (('Program Options', 'Debug Mode', '1'),))
     engine, magic = args.engine or config['engine'], args.magic or config['magic']
     take_out(config, root)
     config['engine'], config['magic'] = engine, magic
