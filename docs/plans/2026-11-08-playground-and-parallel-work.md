@@ -152,4 +152,16 @@ with scripts of their own (trolls, golems, wyverns, ankhegs, some of them also i
   after the 2-round alarm, plus `{{'SPWI302','SPWI309'}}` Hard+ opener and Britik guarding), and Cloakwood Mine entrance
   (`BGSEDRAS` pre-talk potion for Drasus, Genthore's *Oil of Speed*, Rezdan's *Chaos*/*Glitterdust* opener, and Kysus's
   *Remove Magic*/*Slow*/*Monster Summoning III* -> `DW#MS0` opener). Ready for Playground and lab playtesting.
+- **First live Playground observations to design next** (Christopher, 2026-11-12):
+  1. **Map-wide group hearing on wilderness maps (`BG2300` Hobgoblins):** `combat-intent/director.lua` still shares one
+     `sighted` picture across the entire area (`directors[area]`), and since `310b0de` long search walks no longer stop
+     early. Attacking two Hobgoblins outside the Friendly Arm Inn therefore brings all other placed enemies on the map.
+     Cool in camp/fortress scenes or as an optional higher-difficulty escalation for intelligent warbands, bad as a
+     blanket rule across unrelated wilderness packs: split or bound `director:clues` by earshot / group / kind while
+     keeping scripted set-piece alarms (`BGSE_Hunt` / `called`) map-wide.
+  2. **Non-boss encounters without Double Damage:** early simple packs feeling lighter without Double Damage is fine on
+     arrival, but players coming from SCS Insane + Double Damage must not find everything outside the main set pieces
+     toothless later on. Track ways to add tactical bite to mid-tier encounters over playtesting (smarter pack
+     coordination/earshot reinforcements by difficulty, mixed group roles/archers/consumables, selective extra
+     patrols/ambushes, creature kit/ability upgrades) without turning every map corner into a slog.
 - **Later:** our own party AI script; our own classes, kits and races (see the main plan's ideas list).
