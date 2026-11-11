@@ -40,4 +40,24 @@ assert(select(2,orders.check({prepSkip={string.rep('x',65)}}))=='prepSkip' and o
 assert(select(2,orders.check({prepSkip={x='prebuff'}}))=='prepSkip')
 groups=groups+1
 
+-- 4. Area-scoped hold (noPrepIn, Venkt inside Tazok's tent BG1901 vs outdoor BG1900) and fight-start
+-- prebuff / prebuffFrom order checks.
+local venkt={noPrepIn={'BG1901','AR1901'}}
+for _,kind in ipairs({'prebuff','contingency','chain'}) do
+    assert(prep.holds(kind,'dwsw212','WIZARD_MIRROR_IMAGE',venkt,'bg1901')==true,kind)
+    assert(prep.holds(kind,'dwsw311','WIZARD_PROTECTION_FROM_NORMAL_MISSILES',venkt,'AR1901')==true,kind)
+    assert(prep.holds(kind,'dwsw212','WIZARD_MIRROR_IMAGE',venkt,'BG1900')==false,kind)
+    assert(prep.holds(kind,'dwsw212','WIZARD_MIRROR_IMAGE',venkt,'')==false,kind)
+    assert(prep.holds(kind,'dwsw212','WIZARD_MIRROR_IMAGE',venkt,nil)==false,kind)
+end
+assert(prep.holds('summon','dwsw212','',venkt,'BG1901')==false)
+assert(orders.check({noPrepIn={'BG1901','AR1901'},prebuff={{cast='SPPR301',spend='SPPR301'},'buff-potion'},prebuffFrom=4}))
+assert(select(2,orders.check({noPrepIn={}}))=='noPrepIn' and select(2,orders.check({noPrepIn='BG1901'}))=='noPrepIn')
+assert(select(2,orders.check({noPrepIn={'TOOLONGAREA'}}))=='noPrepIn' and select(2,orders.check({noPrepIn={x='BG1901'}}))=='noPrepIn')
+assert(select(2,orders.check({prebuff={}}))=='prebuff' and select(2,orders.check({prebuff='buff-potion'}))=='prebuff')
+assert(select(2,orders.check({prebuff={{cast='SPPR301'}}}))=='prebuff' and select(2,orders.check({prebuff={x='buff-potion'}}))=='prebuff')
+assert(select(2,orders.check({prebuff={'buff-potion'},prebuffFrom=0}))=='prebuffFrom')
+assert(select(2,orders.check({prebuff={'buff-potion'},prebuffFrom=6}))=='prebuffFrom')
+groups=groups+1
+
 return groups

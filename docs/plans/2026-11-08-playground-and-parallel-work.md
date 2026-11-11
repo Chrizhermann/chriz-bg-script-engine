@@ -142,4 +142,14 @@ with scripts of their own (trolls, golems, wyverns, ankhegs, some of them also i
   attribute drain on allies (matching `CBMLRES`), weigh cures of level drain and attribute drain while accounting for
   Restoration's self-fatigue instead of rejecting Lesser and Greater Restoration as self-harm, and `harm.lua` weighs
   strength-lowering debuffs (such as *Ray of Enfeeblement*) through `arsenal.might`.
+- **BOSS-02 next five BG1 encounters** (designed and implemented 2026-11-12, [BOSS-02](../research/BOSS-02-bg1-next-block.md)):
+  Mulahey (WIS 17 and usable *Prayer*, `{{'SPPR316','SPPR211'}}` Hard+ opener, and a staggered second reinforcement
+  wave 15 seconds later from the northern passage in `BG5405.BCS`), Lamalha's party (`BGSELAMA` pre-talk preparation,
+  Zeela's Hard+ instant *Animate Dead* skeletons + *Bless* at fight start, Telka as dedicated elemental-arrow sniper
+  with slotted quiver stacks, Maneira at STR 15 as stealth/dart pressure), Molkar's party (`BGSEMOLK`, Drakar's slotted
+  *Potion of Heroism* and `{{'SPPR208','SPPR214'}}` Hard+ opener), Bandit Camp & Tazok's tent (`noPrepIn={'BG1901','AR1901'}`
+  so infiltrated Venkt wears only 9-hour *Armor* `SPWI102` inside the tent while stepping out fully prepared in `BG1900`
+  after the 2-round alarm, plus `{{'SPWI302','SPWI309'}}` Hard+ opener and Britik guarding), and Cloakwood Mine entrance
+  (`BGSEDRAS` pre-talk potion for Drasus, Genthore's *Oil of Speed*, Rezdan's *Chaos*/*Glitterdust* opener, and Kysus's
+  *Remove Magic*/*Slow*/*Monster Summoning III* -> `DW#MS0` opener). Ready for Playground and lab playtesting.
 - **Later:** our own party AI script; our own classes, kits and races (see the main plan's ideas list).

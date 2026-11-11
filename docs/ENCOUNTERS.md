@@ -4,8 +4,9 @@ Start here for every designed fight. Christopher wants each encounter to go fast
 (2026-11-04): look things up with the tools below, put each decision where this page says, and add
 what cost time to the pitfalls at the end.
 
-The design of each fight is in [BOSS-01](research/BOSS-01-bg1-early-encounters.md); the current plan
-is [the first five encounters](plans/2026-11-04-first-five-encounters.md). Gameplay design is Christopher's:
+The design of each fight is in [BOSS-01](research/BOSS-01-bg1-early-encounters.md) and
+[BOSS-02](research/BOSS-02-bg1-next-block.md); the first plan is
+[the first five encounters](plans/2026-11-04-first-five-encounters.md). Gameplay design is Christopher's:
 the sheet gathers facts and suggestions, he decides.
 
 ## Checklist
@@ -34,12 +35,13 @@ normally.
 | --- | --- | --- |
 | a preferred or fixed target | `encounters.lua` | `target` (`'protagonist'`, `'player2'`, a creature file), `bonus`, `always` |
 | preparation before a talk-on-sight creature speaks | `encounters.lua` | `talkPrep`: `{cast=spell, spend=spell}` (cast at once, spent) or `'buff-potion'`; `talkFrom` |
+| instant preparation right when a fight begins in sight | `encounters.lua` | `prebuff`: `{cast=spell, spend=spell}` (cast at once, spent) or `'buff-potion'`; `prebuffFrom` |
 | a first sequence in the fight | `encounters.lua` | `opener`: steps of a spell or item, a list of them (the best counts), or `{watch=seconds}` (only while invisible); `openerFrom` |
-| less of SCS's preparation | `encounters.lua` | `prep=false`, `prepSkip` |
+| less of SCS's preparation, or none in specific areas | `encounters.lua` | `prep=false`, `prepSkip`, `noPrepIn={'BG1901','AR1901'}` |
 | guarding, hiding, doors, leaving, dispel insight, waiting for foes out of play | `encounters.lua` | `guard`, `hide`, `doors`, `leave`, `insight`, `await` |
 | ability scores | `bgse/encounters.tpa` | `INT_VAR wis = 15` (and `str int dex con cha`): each named score is exactly that value |
 | a spellbook | `bgse/encounters.tpa` | `book = ~priest1=SPPR111,SPPR117 priest2=SPPR201 wizard3=SPWI304~`: those levels' memorized spells become these whenever the spell file exists |
-| items to carry | `bgse/encounters.tpa` | `carries = ~POTN10~` (a free pack slot, or the last pack slot when full, unless it carries one) |
+| items to carry or exact inventory slots | `bgse/encounters.tpa` | `carries = ~POTN10~` (a free pack slot, or the last pack slot when full, unless a real slot carries one); `slots = ~QUIVER1:AROW08:20 QUICK3:POTN08:1~` (overwrites that exact slot) |
 | preparation before a talk whose script many creatures share (the game's `INITDLG`) | `bgse/encounters.tpa`, plus `talkPrep` in `encounters.lua` | `talk = ~INITDLG>BGSEKARL~`: the creature gets its own copy, whose talk waits while it prepares |
 | preparation in a cutscene, in sight of the party | `bgse/encounters.tpa` | `cutscene = ~SILKECUT~ prepare = ~POTN11 SPWI212~`: before its wait it is given and drinks each item, and casts each spell (on every difficulty: such cutscenes check no triggers) |
 | a new line in a dialogue | `bgse/encounters.tpa` | `LAF bgse_encounter_line` with `dlg`, `after` (an action the state's transition does), `state` (a label) and `line`: the line follows the first such state and takes its transition over |
@@ -66,6 +68,13 @@ in another chapter. Party make-up, spells, items and the player's skill are not 
 SoD and BG2 follow in `cbmbank_policy.lua` (`chapterCaps`, Chapter 8 to 22: 200,000 to 8,900,000). Levels from the
 lab game's `XPLEVEL.2DA`. The first five encounters come in chapters 1 and 2, so up to a Fighter 5 and a Mage 4,
 while the encounter lab's strongest party has levels 2 to 4.
+
+**Balance baseline and wands (Christopher, 2026-11-12):** every fight is balanced around **no double damage** and
+**average/rolled hit points** (full only at level 1), aiming to match or exceed the tension of classic SCS played with
+double damage and maximum HP — through tactical synergy, positioning and timing, never stat bloat or blanket buff
+fests. Do **not** assume the party has vanilla wands (such as *Wand of Fire* or *Wand of Monster Summoning*) when
+judging AoE or crowd pressure — vanilla wands break BG1's curve and will be reworked or replaced by scrolls — and
+never give standard wands to our own designed enemies.
 
 ## Tools
 

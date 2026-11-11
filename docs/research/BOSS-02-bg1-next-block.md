@@ -1,10 +1,13 @@
 # BOSS-02 — The next BG1 encounters
 
-Fact sheets for Christopher's next design round, 2026-11-08: rows 9, 12, 13, 14–15 and 19 of
-[FIGHTS-01](FIGHTS-01-bg1-fight-list.md). The questions are options; no new encounter design is decided.
+Fact sheets for Christopher's next design round, 2026-11-08 (rows 9, 12, 13, 14–15 and 19 of
+[FIGHTS-01](FIGHTS-01-bg1-fight-list.md)), **decided and implemented with Christopher on 2026-11-12**
+(`combat-intent/encounters.lua`, `bgse/encounters.tpa`, `bgse/scripts/bgse5405.baf`).
 Follow [BOSS-01's way of working](BOSS-01-bg1-early-encounters.md#how-we-work-christopher-2026-11-03):
 small fights stay simple and close to SCS, new prepared openers start at Hard, Core and below play
-normally, and creatures use abilities they could have. Christopher decides the gameplay.
+normally, and creatures use abilities they could have. Balance baseline (Christopher, 2026-11-12):
+no double damage, average/rolled HP (full only at level 1), and no vanilla wands in the party budget
+or on designed enemies. Christopher decides the gameplay.
 
 **Evidence:** the installed no-SR lab `BGSE-Lab/eet-nosr-2/game`, read only with `tools/scout.py`;
 its CRE, ARE, SPL, ITM and random-treasure records; scripts and dialogues decompiled from copies
@@ -172,12 +175,18 @@ very different control targets.
 **Own spell mod:** `components.md` makes Silence enemy-only and Bless faster, so Mulahey can silence
 the party amid his helpers and spend less time on a group buff; compare with those versions when installed.
 
-**Questions for Christopher:**
+**Decided, Christopher 2026-11-12:**
 
-1. Usual party here: levels 2–3, 3–4, or near the chapter cap?
-2. Hard opener: normal choices, Hold Person, or Prayer for the guards (orders; Prayer needs the slot issue resolved)?
-3. Reinforcements: keep SCS's one call, or split the same ten into two signalled arrivals (new installer work)?
-4. Surrender: keep the chest trick, or give a clearer warning before renewed hostility (new dialogue work)?
+- **WIS 17 and usable 3rd-level book (`bgse/encounters.tpa`):** `wis = 17` gives Mulahey three usable 3rd-level
+  slots at Cleric 7 (`3+2 / 3+2 / 2+1 / 1`), with `priest3=SPPR312,SPPR308,SPPR316` (*Strength of One*,
+  *Remove Paralysis*, *Prayer*).
+- **Hard+ opener (`combat-intent/encounters.lua`):** `opener={{'SPPR316','SPPR211'}}, openerFrom=4` (*Prayer*
+  across himself and his guards/skeletons, or enemy-only *Silence, 15' Radius*, by worth).
+- **Staggered Hard+ reinforcements (`bgse/scripts/bgse5405.baf`):** instead of spawning all ten helpers at the
+  south cave door where a single AoE spell wipes them out, Wave 1 (`4× dw#mulka` + `2× dw#mulsk`) arrives at
+  once and Wave 2 (`2× dw#mulkc` with Fire Arrows + `2× dw#mulsa` skeleton archers) arrives 15 seconds later
+  from the open northern passage `[360.380]` (gated on `BGSE.gate:on()`, leaving Core and below untouched).
+- **Surrender and chest trick:** kept 1:1 as in SCS.
 
 ## 2. Lamalha, Zeela, Telka and Maneira
 
@@ -244,16 +253,20 @@ preparation needs a new hook.
 **Own spell mod:** enemy-only Silence lets Lamalha use it near Zeela safely; faster Bless changes
 the cost of both priests' group preparation.
 
-**Questions for Christopher:**
+**Decided, Christopher 2026-11-12:**
 
-1. Strength: stay close to SCS, or add a little pressure through coordinated Hard openers?
-2. Arrival: caught walking, or visible priest preparation before the threat (new group/talk hook)?
-3. Hard priest roles: normal choices, or Zeela summons while Lamalha opens with Silence (orders)?
-4. Thieves: missiles with opportunistic hiding, or deliberate retreats to hide (new engine work)?
-5. Hunting (also for sheets 3 and 4): both assassin parties and the camp's bandits walk to the party unseen, as SCS has it, from a script the engine leaves alone. They were sent after the party, so keep that, or let them go only by what they perceive (new installer work)?
-   **Answered, Christopher 2026-11-10:** taken over as it is for now. The groups come straight at the
-   party and surround it, as with SCS; the engine does the walk (rule 14 of HOOK-01). Each ambush gets
-   cooler later, in its own design round.
+- **Prebuffed skeletons + AoE buff from Hard (`combat-intent/encounters.lua`, `bgse/encounters.tpa`):**
+  Lamalha gets `talk = ~LAMALHA>BGSELAMA~` so her talk waits while she prepares, plus
+  `opener={{'SPPR211','SPPR208'}}, openerFrom=4`. Zeela gets
+  `prebuff={{cast='SPPR301',spend='SPPR301'},{cast='SPPR101',spend='SPPR101'}}, prebuffFrom=4` so her
+  *Animate Dead* skeletons stand beside her milliseconds into the fight and her AoE *Bless* buffs both priests
+  and the skeletons right away. Light protagonist preference (`bonus=0.25`) across all four.
+- **Thief role split:** Telka is the dedicated elemental-arrow Longbow sniper (`hide=false`, with
+  `slots = ~QUIVER1:AROW08:20 QUIVER2:AROW09:20 QUIVER3:AROW04:20~`), while Maneira (`hide=true`, `str = 15`)
+  is the dedicated stealth opener and 5 APR *Darts of Wounding* pressure (no *Potion of Invisibility* and no
+  artificial map-edge flee-to-rehide).
+- **Hunting (also for sheets 3 and 4, Christopher 2026-11-10):** taken over as it is for now (rule 14 of
+  HOOK-01); the groups come straight at the party and surround it.
 
 ## 3. Molkar, Drakar, Halacan and Morvin
 
@@ -308,12 +321,12 @@ characters and a mage with only 26 HP.
 which matters for Halacan's survival; Bless is faster. Sleep waking on damage matters if his
 scroll is eventually made usable by the engine.
 
-**Questions for Christopher:**
+**Decided, Christopher 2026-11-12:**
 
-1. Strength: keep this a small SCS-like fight, or emphasize the fighters' shared focus from Hard?
-2. Drakar's Hard opener: Hold Person, Draw Upon Holy Might, or normal choices (orders)?
-3. Hired targets: a light protagonist preference, or ordinary target choice (orders)?
-4. Halacan's attack scrolls: leave as loot, or let him cast them (new engine work)?
+- Stay close to SCS: wrap `MOLKAR.BCS` (`talk = ~MOLKAR>BGSEMOLK~`), give Drakar a real inventory slot for his
+  unslotted *Potion of Heroism* (`carries = ~POTN09~`), give all four light protagonist preference
+  (`bonus=0.25`), and give Drakar `opener={{'SPPR208','SPPR214'}}, openerFrom=4` (*Hold Person* setup for the
+  three melee fighters or *Draw Upon Holy Might*). Halacan's scrolls stay loot for now.
 
 ## 4. The Bandit Camp and Tazok's tent
 
@@ -426,12 +439,18 @@ the player levels up. Do not use that later ceiling for the first approach.
 **Own spell mod:** Sleep and Power Word: Sleep wake on damage, so missile focus and sleep targets
 must be judged together; area damage bypassing Mirror Image makes Venkt more exposed.
 
-**Questions for Christopher:**
+**Decided, Christopher 2026-11-12:**
 
-1. Outdoor alarm: keep SCS's single mobilization, or stagger the same defenders with visible warning (new area-script work)?
-2. Infiltration exit: keep Taurgosz's fight, or allow a convincing escape dialogue (new dialogue work)?
-3. Venkt's Hard opener: summon, control, or normal choices (orders)?
-4. Tent fighters: free target choice, or a front line protecting Venkt (new engine work)?
+- **Outdoor camp, 2-round alarm and Taurgosz's exit confrontation:** kept 1:1 as in SCS.
+- **Immersive Venkt preparation split (`combat-intent/encounters.lua`, `bgse/encounters.tpa`):** replace
+  Venkt's 5-turn *Shield* (`SPWI114`) with 9-hour *Armor* (`SPWI102`) in his 1st-level book and place his third
+  Healing potion into `QUICK3`. Inside Tazok's infiltrated tent (`noPrepIn={'BG1901','AR1901'}`), nobody expects
+  an attack, so SCS's short combat prebuffs (*Mirror Image* and *Protection From Normal Missiles*) are held
+  back and he wears only his long *Armor* (`prebuff={{cast='SPWI102',spend='SPWI102'}}, prebuffFrom=2`), casting
+  his remaining defences honestly in combat; outside in `BG1900` two rounds after the camp alarm he steps out
+  fully prepared with *Armor* + *Mirror Image* + *Protection From Normal Missiles*.
+- **Hard+ opener & tent post:** `VENKT` gets `opener={{'SPWI302','SPWI309'}}, openerFrom=4` (*Remove Magic* or
+  *Monster Summoning I*); `BRITIK` gets `guard=true`. Playtest first and tune upward later if needed.
 
 ## 5. Drasus, Genthore, Kysus and Rezdan
 
@@ -520,12 +539,17 @@ a single-class party mage at the cap has third-level spells, which makes prepara
   That affects Kysus's summon timing and risk; the engine's valuation of that contest is unconfirmed.
   Do not tune his elemental opener from this lab's current summon timing alone.
 
-**Questions for Christopher:**
+**Decided, Christopher 2026-11-12:**
 
-1. Strength: SCS's current step up, or more Hard pressure through coordinated opening spells?
-2. Hard opening: Kysus summons and Rezdan controls, or both choose freely (orders)?
-3. Genthore: keep throwing and melee, or make him a front-line guard (new combat-role work)?
-4. Preparation: SCS's current timing, or visible group preparation before Drasus speaks (new group/talk hook)?
+- **Full prebuffs stay** (these four stand guard at the Cloakwood Mine entrance expecting trouble), plus
+  `talk = ~DRASUS>BGSEDRAS~` and `talkPrep={'buff-potion'}, talkFrom=4` so Drasus drinks his battle potion
+  before speaking while the group prepares on sight.
+- **Genthore (`bgse/encounters.tpa`, `combat-intent/encounters.lua`):** gets `carries = ~POTN14~` (*Oil of
+  Speed*) and `opener={'POTN14'}, openerFrom=4` so both frontliners hit hard from round 1 on Hard+.
+- **Coordinated Hard+ mage openers (`openerFrom=4`):** Rezdan opens with `{{'SPWI508','SPWI224'}}` (*Chaos* or
+  *Glitterdust*); Kysus opens with `{{'SPWI302','SPWI312','SPWI504'},'DW#MS0'}` (*Remove Magic*, *Slow* or
+  *Monster Summoning III* — never gambling round 1 on the 3-round Lesser Elemental contest — followed by his
+  twin *Melf's Acid Arrow* Minor Sequencer). Playtest first and tune upward later if needed.
 
 ## Sources and checks to carry into the design batch
 

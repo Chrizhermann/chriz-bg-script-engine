@@ -664,7 +664,7 @@ function M.new(g,options)
     local openings,openingCount={},0
     -- The creatures whose companion (orders.companion) came, by object id.
     local companions,companionCount={},0
-    local counts={companions=0,openerSteps=0,talkHolds=0,talkExtras=0,preps=0,prepHolds=0,kept=0,cut=0,waits=0,marked=0,escapes=0,escaped=0,unescaped=0,zoneFailures=0,stayed=0,left=0,pains=0,witFailures=0,decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
+    local counts={companions=0,fightPrebuffs=0,openerSteps=0,talkHolds=0,talkExtras=0,preps=0,prepHolds=0,kept=0,cut=0,waits=0,marked=0,escapes=0,escaped=0,unescaped=0,zoneFailures=0,stayed=0,left=0,pains=0,witFailures=0,decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
         hits=0,misses=0,errors=0,holds=0,frozen=0,marks=0,markFailures=0,defences=0,guarded=0,unguarded=0,
         guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0,arms=0,attacks=0,attackHits=0,stuck=0,
         weaponFailures=0,releases=0,heals=0,cures=0,potions=0,cared=0,uncared=0,summons=0,conjured=0,
@@ -1968,7 +1968,63 @@ function M.new(g,options)
     -- upvalues. opener.of: the opener of creature id with orders own at tick, for the choice: its steps
     -- and the one it takes next, from orders.openerFrom's difficulty up, for orders.openerSeconds from
     -- its first ask here; nil once that is over, all its steps are taken, or without one.
-    local opener={}
+    -- The actions that carry out a designer's preparation list (orders.talkPrep before speaking, or
+    -- orders.prebuff when a fight starts in sight), one a line, once the game's difficulty is from or
+    -- more. A cast: the spell cast (the spell itself, or a copy of it) of a spell it has ready (spend),
+    -- and the spell spent, while the spell cast is in this game; 'buff-potion': the first potion it
+    -- carries that strengthens or protects itself.
+    local function extrasList(sprite,list,from)
+        if type(list)~='table' then return {} end
+        local level=difficulty()
+        if type(from)=='number' and (level or 0)<from then return {} end
+        local rows,carried=book(sprite)
+        local out,used={},{}
+        for _,e in ipairs(list) do
+            if e=='buff-potion' then
+                local found
+                for _,c in ipairs(type(carried)=='table' and carried or {}) do
+                    for _,a in ipairs(c.abilities) do
+                        local r=type(a.effect)=='table' and type(a.effect.roles)=='table' and a.effect.roles or {}
+                        for _,role in ipairs({r.buff,r.protection}) do
+                            if type(role)=='table' and type(role.who)=='table' and role.who.self then found=found or c.resref end
+                        end
+                    end
+                    if found then break end
+                end
+                if found then out[#out+1]=('UseItem("%s",Myself)'):format(found) end
+            elseif type(e)=='table' and reader.get('SPL',e.cast:upper()) then
+                local sp=e.spend:upper()
+                for _,row in ipairs(type(rows)=='table' and rows or {}) do
+                    if row.resref==sp and type(row.ready)=='number' and row.ready>(used[sp] or 0) then
+                        used[sp]=(used[sp] or 0)+1
+                        out[#out+1]=('ReallyForceSpellRES("%s",Myself)'):format(e.cast:upper())
+                        out[#out+1]=('RemoveSpellRES("%s")'):format(sp)
+                        break
+                    end
+                end
+            end
+        end
+        return out
+    end
+    local opener={done={},doneCount=0}
+    function opener.holding(sprite,id,tick)
+        local since=opener.done[id]
+        if type(since)~='number' then return false end
+        local queued=sprite.m_queuedActions
+        local busy=sprite.m_curAction.m_actionID~=0 or (queued~=nil and queued.m_nCount>0)
+        if busy and tick>=since and tick-since<=M.pendingTicks then return true end
+        opener.done[id]=true
+        return false
+    end
+    function opener.prebuff(sprite,id,own,tick)
+        if opener.done[id] or type(own)~='table' or type(own.prebuff)~='table' then return nil end
+        local list=extrasList(sprite,own.prebuff,own.prebuffFrom)
+        if opener.doneCount>=M.cacheLimit then opener.done,opener.doneCount={},0 end
+        opener.doneCount=opener.doneCount+1
+        if #list==0 then opener.done[id]=true;return nil end
+        opener.done[id]=tick
+        return list
+    end
     function opener.of(id,own,tick)
         if type(own)~='table' or type(own.opener)~='table' then return nil end
         if type(own.openerFrom)=='number' and (difficulty() or 0)<own.openerFrom then return nil end
@@ -2058,6 +2114,7 @@ function M.new(g,options)
         -- A way out of a zone, a step away, a walk behind an enemy or a walk into position runs while
         -- the creature walks it (walker:holding); then it is judged.
         if walker:holding(sprite,id,tick) then return hold() end
+        if opener.holding(sprite,id,tick) then return hold() end
         -- A wait runs while the creature does nothing, until it is over or waitTicks after the
         -- decision that made it; meanwhile the creature may still walk out of a zone that hurts it.
         -- An action it took up meanwhile (a block of SCS's above the hook) ends the wait.
@@ -2110,6 +2167,13 @@ function M.new(g,options)
         else
             seeker:fight(sprite,frame,tick,orderBook[text(sprite.m_resref:get())])
             hider:fight(id)
+            local pb=opener.prebuff(sprite,id,orderBook[text(sprite.m_resref:get())],tick)
+            if pb then
+                counts.claims=counts.claims+1
+                record({kind='prebuff',tick=tick,member=id,resref=text(sprite.m_resref:get()),family=family,
+                    actions=table.concat(pb,' ')})
+                return {own=true,response=table.concat(pb,'\n'),kind='prebuff'}
+            end
         end
         local rows,carried=book(sprite)
         if not rows then failed('book',carried);return nil end
@@ -2407,6 +2471,8 @@ function M.new(g,options)
             seeker:mode(object,tick)
         elseif decision.kind=='hide' then
             hider:start(object,decision,tick)
+        elseif decision.kind=='prebuff' then
+            counts.fightPrebuffs=counts.fightPrebuffs+1
         else
             if decision.kind=='veil' then
                 -- A creature that turned invisible meanwhile needs no veil.
@@ -2433,7 +2499,7 @@ function M.new(g,options)
                 at=decision.at,lands=decision.lands,openerStep=decision.openerStep}
         end
         counts.performed=counts.performed+1
-        round(object,tick,decision.cover)
+        if decision.kind~='prebuff' then round(object,tick,decision.cover) end
         return true
     end
     -- A decision that is not queued gives its claims in the group back.
@@ -2545,6 +2611,10 @@ function M.new(g,options)
         local ok,result=pcall(function()
             local tick=now()
             if type(tick)~='number' then return nil end
+            if type(opener.done[object.m_id])=='number' then
+                opener.done[object.m_id]=true
+                return ask({id=object.m_id},family)
+            end
             round(object,tick)
             if decision.idle then return nil end
             cut(object,tick)
@@ -2618,8 +2688,10 @@ function M.new(g,options)
     function api:holdsPrep(family,id,kind,cast,spent)
         if not api:searches(family,id) then return false end
         local ok,result=pcall(function()
-            local resref=text(get(id).m_resref:get())
-            if not prep.holds(kind,cast,spent,orderBook[resref]) then return false end
+            local sprite=get(id)
+            local resref=text(sprite.m_resref:get())
+            local area=sprite.m_pArea and text(sprite.m_pArea.m_resref:get()) or nil
+            if not prep.holds(kind,cast,spent,orderBook[resref],area) then return false end
             local key=tostring(id)..'|'..tostring(kind)..'|'..tostring(cast)
             if not prepHeld[key] then
                 if prepHeldCount>=M.cacheLimit then prepHeld,prepHeldCount={},0 end
@@ -2667,43 +2739,6 @@ function M.new(g,options)
         failed('stay',result)
         return false
     end
-    -- Talk on sight, the designer's extras (orders.talkPrep, combat-intent/encounters.lua): the actions
-    -- that carry out what the creature adds before it speaks, one a line, once the game's difficulty is
-    -- orders.talkFrom or more. A cast: the spell cast (the spell itself, or a copy of it) of a spell it has
-    -- ready (spend), and the spell spent, while the spell cast is in this game; 'buff-potion': the first
-    -- potion it carries that strengthens or protects itself.
-    local function extrasFor(sprite)
-        local own=orderBook[text(sprite.m_resref:get())]
-        if type(own)~='table' or type(own.talkPrep)~='table' then return {} end
-        local level=difficulty()
-        if type(own.talkFrom)=='number' and (level or 0)<own.talkFrom then return {} end
-        local rows,carried=book(sprite)
-        local out={}
-        for _,e in ipairs(own.talkPrep) do
-            if e=='buff-potion' then
-                local found
-                for _,c in ipairs(type(carried)=='table' and carried or {}) do
-                    for _,a in ipairs(c.abilities) do
-                        local r=type(a.effect)=='table' and type(a.effect.roles)=='table' and a.effect.roles or {}
-                        for _,role in ipairs({r.buff,r.protection}) do
-                            if type(role)=='table' and type(role.who)=='table' and role.who.self then found=found or c.resref end
-                        end
-                    end
-                    if found then break end
-                end
-                if found then out[#out+1]=('UseItem("%s",Myself)'):format(found) end
-            elseif type(e)=='table' and reader.get('SPL',e.cast:upper()) then
-                for _,row in ipairs(type(rows)=='table' and rows or {}) do
-                    if row.resref==e.spend:upper() and type(row.ready)=='number' and row.ready>0 then
-                        out[#out+1]=('ReallyForceSpellRES("%s",Myself)'):format(e.cast:upper())
-                        out[#out+1]=('RemoveSpellRES("%s")'):format(e.spend:upper())
-                        break
-                    end
-                end
-            end
-        end
-        return out
-    end
     -- Talk on sight (BGSE_TalkHold, combat-intent/talk.lua): whether creature id's talk waits now while
     -- it prepares. On the first ask SCS's switch for preparing out of sight goes on (M.offscreen), so
     -- its prebuffs run in its scripts below the talk with SCS's difficulty rules; on the next ask it goes
@@ -2728,8 +2763,9 @@ function M.new(g,options)
             end
             local resref=text(sprite.m_resref:get())
             if event=='start' then
+                local own=orderBook[resref]
                 state.prior=g.EEex_Sprite_GetLocalInt(sprite,M.offscreen)
-                state.extras=#extrasFor(sprite)>0
+                state.extras=type(own)=='table' and #extrasList(sprite,own.talkPrep,own.talkFrom)>0
                 g.EEex_Sprite_SetLocalInt(sprite,M.offscreen,1)
                 counts.talkHolds=counts.talkHolds+1
                 record({kind='talk',tick=tick,member=id,resref=resref,phase='start',extras=state.extras})
@@ -2765,10 +2801,12 @@ function M.new(g,options)
         local ok,err=pcall(function()
             local sprite=get(id)
             if not sprite then return end
-            local list=extrasFor(sprite)
+            local resref=text(sprite.m_resref:get())
+            local own=orderBook[resref]
+            local list=type(own)=='table' and extrasList(sprite,own.talkPrep,own.talkFrom) or {}
             for _,line in ipairs(list) do g.EEex_Action_QueueResponseStringOnAIBase(line,sprite) end
             counts.talkExtras=counts.talkExtras+#list
-            record({kind='talk',tick=now(),member=id,resref=text(sprite.m_resref:get()),phase='extras',
+            record({kind='talk',tick=now(),member=id,resref=resref,phase='extras',
                 actions=table.concat(list,' ')})
         end)
         if not ok then failed('talk-act',err) end
@@ -2871,6 +2909,7 @@ function M.new(g,options)
         kept,keptCount={},0
         talks,talkCount={},0
         openings,openingCount={},0
+        opener.done,opener.doneCount={},0
         companions,companionCount={},0
         outside,outsideCount={},0
         readings=sense.memory(g)

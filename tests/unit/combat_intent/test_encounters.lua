@@ -7,16 +7,15 @@ local orders=require('combat-intent.orders')
 local groups=0
 
 -- 1. Each entry is a creature file of at most eight characters in capitals and passes the orders'
--- check; Tarnesh, Karlat and Neira have the light preference for the protagonist, never "always"; Greywolf
--- has none.
+-- check; the bounty hunters have the light preference for the protagonist, never "always".
 local count=0
 for resref,o in pairs(encounters.ORDERS) do
     assert(type(resref)=='string' and #resref>0 and #resref<=8 and resref==resref:upper(),resref)
     assert(orders.check(o),resref)
     count=count+1
 end
-assert(count==4)
-for _,resref in ipairs({'TARNES','KARLAT','NEIRA'}) do
+assert(count==19)
+for _,resref in ipairs({'TARNES','KARLAT','NEIRA','LAMALH','ZEELA','TELKA','MANEIR','MOLKAR','DRAKAR','HALACA','MORVIN'}) do
     local o=encounters.ORDERS[resref]
     assert(o.target=='protagonist' and o.bonus==encounters.LIGHT and not o.always,resref)
 end
@@ -76,6 +75,26 @@ assert(#karlat.talkPrep==1 and karlat.talkPrep[1]=='buff-potion' and karlat.talk
 local greywolf=encounters.ORDERS.GREYWO
 assert(greywolf.companion.weak=='BGSEKES1' and greywolf.companion.strong=='BGSEKES2' and greywolf.companion.strongFrom==4)
 assert(greywolf.target==nil and greywolf.opener==nil and greywolf.talkPrep==nil)
+groups=groups+1
+
+-- 6. BOSS-02 encounters (Christopher, 2026-11-12): Mulahey's Prayer/Silence opener; Zeela's instant
+-- Animate Dead + Bless prebuffs and the Telka/Maneira sniper vs stealth split; Drakar's Hold/DUHM opener;
+-- Venkt's infiltrated-tent hold (BG1901/AR1901) with long Armor prebuff and Britik's guard post; Drasus's
+-- pre-talk potion, Genthore's Oil of Speed, and Rezdan & Kysus's coordinated Hard+ openers.
+local mulahe=encounters.ORDERS.MULAHE
+assert(mulahe.openerFrom==4 and mulahe.opener[1][1]=='SPPR316' and mulahe.opener[1][2]=='SPPR211')
+local zeela=encounters.ORDERS.ZEELA
+assert(zeela.prebuffFrom==4 and zeela.prebuff[1].cast=='SPPR301' and zeela.prebuff[2].cast=='SPPR101')
+assert(encounters.ORDERS.TELKA.hide==false and encounters.ORDERS.MANEIR.hide==true)
+assert(encounters.ORDERS.LAMALH.openerFrom==4 and encounters.ORDERS.DRAKAR.openerFrom==4)
+local venkt=encounters.ORDERS.VENKT
+assert(venkt.noPrepIn[1]=='BG1901' and venkt.noPrepIn[2]=='AR1901')
+assert(venkt.prebuffFrom==2 and venkt.prebuff[1].cast=='SPWI102' and venkt.openerFrom==4)
+assert(encounters.ORDERS.BRITIK.guard==true)
+assert(encounters.ORDERS.DRASUS.talkPrep[1]=='buff-potion' and encounters.ORDERS.DRASUS.talkFrom==4)
+assert(encounters.ORDERS.GENTHO.opener[1]=='POTN14' and encounters.ORDERS.GENTHO.openerFrom==4)
+assert(encounters.ORDERS.REZDAN.opener[1][1]=='SPWI508' and encounters.ORDERS.REZDAN.openerFrom==4)
+assert(encounters.ORDERS.KYSUS.opener[1][3]=='SPWI504' and encounters.ORDERS.KYSUS.opener[2]=='DW#MS0')
 groups=groups+1
 
 return groups

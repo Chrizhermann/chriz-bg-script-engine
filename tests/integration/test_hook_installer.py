@@ -112,6 +112,7 @@ TRIGGER = """IDS V1.0
 0x4018 NumTimesTalkedToGT(I:Num*)
 0x4019 AttackedBy(O:Object*,I:Style*AStyles)
 0x401A Exists(O:Object*)
+0x401B DifficultyGT(I:Amount*Difflev)
 0x4089 OR(I:OrCount*)
 """
 ACTION = """IDS V1.0
@@ -163,10 +164,16 @@ ACTION = """IDS V1.0
 45 StartCutSceneEx(S:Cutscene*,I:CheckTriggers*Boolean)
 46 JumpToPoint(P:Target*)
 47 EscapeArea()
+48 CreateCreature(S:NewObject*,P:Location*,I:Face*Dir)
+49 FaceObject(O:Object*)
+50 StartDialogNoSetInterrupt(O:Object*)
 """
 IDS = {
     'OBJECT': ('IDS V1.0\n0 Nothing\n1 Myself\n12 NearestEnemyOf\n18 LastSeenBy\n20 LastHeardBy\n21 Player1\n22 Player2\n'
                '40 NearestDoor\n'),
+    'DIFFLEV': 'IDS V1.0\n1 EASIEST\n2 EASY\n3 NORMAL\n4 HARD\n5 HARDEST\n',
+    'DIR': 'IDS V1.0\n0 S\n5 NW\n',
+    'GTIMES': 'IDS V1.0\n6 ONE_ROUND\n',
     'EA': 'IDS V1.0\n0 ANYONE\n2 PC\n30 GOODCUTOFF\n128 NEUTRAL\n255 ENEMY\n',
     'ASTYLES': 'IDS V1.0\n0 DEFAULT\n',
     'GENERAL': 'IDS V1.0\n0 ANYONE\n',
@@ -801,9 +808,12 @@ def _book_cre(book, wis=14, items=(), name='') -> bytes:
         index += len(spells)
     words = [0xFFFF] * 38 + [0, 0]
     records = b''
-    for i, (item, slot) in enumerate(items):
-        records += item.encode('ascii').ljust(8, b'\0') + struct.pack('<HHHHI', 0, 0, 0, 0, 0)
-        words[slot] = i
+    for i, entry in enumerate(items):
+        item, slot = entry[0], entry[1]
+        charges = entry[2] if len(entry) > 2 else 0
+        records += item.encode('ascii').ljust(8, b'\0') + struct.pack('<HHHHI', 0, charges, 0, 0, 0)
+        if slot is not None:
+            words[slot] = i
     slots = struct.pack('<40H', *words)
     at = 0x2D4
     struct.pack_into('<II', head, 0x2A0, at, len(known) // 12)
@@ -1163,5 +1173,117 @@ def test_greywolf_brings_kestrel(tmp_path: Path, variant: str) -> None:
                 assert struct.unpack_from('<H', data, item_at + 20 * words[slot] + 10)[0] == count, (name, slot)
         script = _decompile(tmp_path, ['BGSEKEST'])['BGSEKEST']
         assert 'Allegiance("Greywolf",ENEMY)' in script and 'EscapeArea()' in script and 'MoveToObject("Greywolf")' in script
+    _install(tmp_path, '--force-uninstall-list', '0')
+    assert _snapshot(tmp_path) == before
+
+
+MULAHEY_AREA = """IF
+  Global("DMWWMulaheyFlunky","MYAREA",1)
+  Global("DW#Mulahey_Override","GLOBAL",0)
+  DifficultyGT(3)
+THEN
+  RESPONSE #100
+    SetGlobal("DMWWMulaheyFlunky","MYAREA",0)
+    CreateCreature("dw#mulkc",[217.591],5)
+END
+"""
+LAMALHA_BAF = """IF
+  See([PC])
+  NumTimesTalkedTo(0)
+THEN
+  RESPONSE #100
+    SmallWait(2)
+    FaceObject([PC])
+    StartDialogue("lamalh",[PC])
+END
+"""
+DRASUS_BAF = """IF
+  See([PC])
+  NumTimesTalkedTo(0)
+THEN
+  RESPONSE #100
+    StartDialogNoSetInterrupt(LastSeenBy)
+END
+"""
+
+
+@pytest.mark.parametrize('variant', ['plain', 'edited'])
+def test_boss02_encounters_overwrite_slots_unslotted_items_talks_and_mulahey_waves(tmp_path: Path, variant: str) -> None:
+    _fake_game(tmp_path)
+    (tmp_path / 'fixture/bg5405.baf').write_text(MULAHEY_AREA, encoding='ascii')
+    (tmp_path / 'fixture/lamalha.baf').write_text(LAMALHA_BAF, encoding='ascii')
+    (tmp_path / 'fixture/drasus.baf').write_text(DRASUS_BAF, encoding='ascii')
+    (tmp_path / 'fixture/extra.tp2').write_text(
+        'BACKUP ~fixture/backup-extra~\nAUTHOR ~BGSE test~\nBEGIN ~BOSS-02~\n'
+        'COMPILE ~fixture/bg5405.baf~\nCOMPILE ~fixture/lamalha.baf~\nCOMPILE ~fixture/drasus.baf~\n',
+        encoding='ascii')
+    _run(tmp_path, 'fixture/extra.tp2', '--force-install-list', '0')
+    for res in ('SPPR312', 'SPPR308', 'SPPR316', 'SPPR314'):
+        s = bytearray(_spl(2))
+        struct.pack_into('<I', s, 0x34, 3)
+        (tmp_path / f'override/{res}.SPL').write_bytes(bytes(s))
+    for res in ('SPWI118', 'SPWI104', 'SPWI116', 'SPWI102', 'SPWI114'):
+        s = bytearray(_spl(1))
+        struct.pack_into('<I', s, 0x34, 1)
+        (tmp_path / f'override/{res}.SPL').write_bytes(bytes(s))
+    for item in ('AROW08', 'AROW09', 'AROW04', 'AROW01', 'AROW10', 'POTN09', 'POTN08', 'POTN14'):
+        (tmp_path / f'override/{item}.ITM').write_bytes(b'ITM V1  ' + bytes(0x72 - 8))
+
+    mulahe_book = {(0, 3): ['SPPR312', 'SPPR312', 'SPPR308', 'SPPR316'] if variant == 'plain' else ['SPPR314']}
+    (tmp_path / 'override/MULAHE.CRE').write_bytes(_book_cre(mulahe_book, 11 if variant == 'plain' else 22))
+    (tmp_path / 'override/DW#MULKC.CRE').write_bytes(_cre(['', '', '', '', ''], []))
+    (tmp_path / 'override/LAMALH.CRE').write_bytes(_cre(['', 'LAMALHA', '', '', ''], []))
+    (tmp_path / 'override/DRASUS.CRE').write_bytes(_cre(['', 'DRASUS', '', '', ''], []))
+    telka_items = ([('AROW08', 13, 20), ('AROW09', None, 20), ('AROW04', None, 20)] if variant == 'plain' else
+                   [('AROW01', 13, 40), ('AROW01', 14, 12), ('AROW10', 15, 5)])
+    (tmp_path / 'override/TELKA.CRE').write_bytes(_book_cre({}, 7, telka_items))
+    maneir = bytearray(_cre(['', '', '', '', ''], []))
+    maneir[0x238] = 12 if variant == 'plain' else 18
+    (tmp_path / 'override/MANEIR.CRE').write_bytes(bytes(maneir))
+    # Drakar's only POTN09 is unslotted (slot None); carries must ignore unslotted records and place a real one.
+    (tmp_path / 'override/DRAKAR.CRE').write_bytes(_book_cre({}, 11, [('POTN08', 18, 2), ('POTN09', None, 1)]))
+    venkt_items = ([('POTN08', 18, 1), ('POTN08', 19, 1), ('POTN08', None, 1)] if variant == 'plain' else
+                   [('POTN08', 18, 1), ('POTN08', 19, 1), ('POTN09', 20, 3)])
+    venkt_book = {(1, 1): ['SPWI118', 'SPWI104', 'SPWI116', 'SPWI116', 'SPWI114'] if variant == 'plain' else ['SPWI114']}
+    (tmp_path / 'override/VENKT.CRE').write_bytes(_book_cre(venkt_book, 9, venkt_items))
+    (tmp_path / 'override/GENTHO.CRE').write_bytes(_book_cre({}, 13, []))
+
+    before = _snapshot(tmp_path)
+    lam_src = _decompile(tmp_path, ['LAMALHA'])['LAMALHA']
+    dra_src = _decompile(tmp_path, ['DRASUS'])['DRASUS']
+    output = _install(tmp_path, '--force-install-list', '0')
+    assert 'SUCCESSFULLY INSTALLED' in output, output
+    installed = _snapshot(tmp_path)
+
+    mulahe = installed['override/mulahe.cre']
+    assert mulahe[0x23B] == 17
+    assert Counter(_book_of(mulahe)[0][(0, 3)]) == Counter(['SPPR312', 'SPPR308', 'SPPR316'])
+    area_baf = _decompile(tmp_path, ['BG5405'])['BG5405']
+    assert 'BGSEMulaheyWave' in area_baf and '[360.380]' in area_baf and 'BGSE.gate:on()' in area_baf
+
+    assert installed['override/lamalh.cre'][0x250:0x258] == b'BGSELAMA'
+    assert installed['override/drasus.cre'][0x250:0x258] == b'BGSEDRAS'
+    assert _decompile(tmp_path, ['BGSELAMA'])['BGSELAMA'] == hook_rule.patch_talk(lam_src, 'BGSELAMA', own=True)[0]
+    assert _decompile(tmp_path, ['BGSEDRAS'])['BGSEDRAS'] == hook_rule.patch_talk(dra_src, 'BGSEDRAS', own=True)[0]
+
+    telka = installed['override/telka.cre']
+    assert {s: _items_of(telka)[s] for s in (13, 14, 15)} == {13: 'AROW08', 14: 'AROW09', 15: 'AROW04'}
+    slot_at, item_at, _ = struct.unpack_from('<III', telka, 0x2B8)
+    words = struct.unpack_from('<40H', telka, slot_at)
+    assert [struct.unpack_from('<H', telka, item_at + 20 * words[s] + 10)[0] for s in (13, 14, 15)] == [20, 20, 20]
+
+    assert installed['override/maneir.cre'][0x238] == 15
+    assert _items_of(installed['override/drakar.cre'])[21] == 'POTN09'
+
+    venkt = installed['override/venkt.cre']
+    assert Counter(_book_of(venkt)[0][(1, 1)]) == Counter(['SPWI118', 'SPWI104', 'SPWI116', 'SPWI116', 'SPWI102'])
+    assert _items_of(venkt)[20] == 'POTN08'
+    vslot, vitem, _ = struct.unpack_from('<III', venkt, 0x2B8)
+    vwords = struct.unpack_from('<40H', venkt, vslot)
+    assert struct.unpack_from('<H', venkt, vitem + 20 * vwords[20] + 10)[0] == 1
+    assert _items_of(installed['override/gentho.cre'])[21] == 'POTN14'
+
+    _install(tmp_path, '--force-uninstall-list', '0', '--force-install-list', '0')
+    assert _snapshot(tmp_path) == installed
     _install(tmp_path, '--force-uninstall-list', '0')
     assert _snapshot(tmp_path) == before

@@ -5112,4 +5112,80 @@ records.TESTLRES=nil
 end)()
 groups=groups+1
 
+-- 54. Area-scoped prep hold (orders.noPrepIn, Venkt in BG1901 vs BG1900) and fight-start prebuffs
+-- (orders.prebuff, orders.prebuffFrom, Zeela's skeletons + Bless and Venkt's Armor): BGSE_Prep holds
+-- SCS's prebuffs/contingencies/chains only in the named areas. On a creature's first decision in sight
+-- of an enemy at or above prebuffFrom, its ready prebuff spells and buff potion queue at once without
+-- marking SCS's round timer; while queued they hold, and when BGSE_Act runs on that hold once the queue
+-- drains, the round's real combat spell follows on the same tick without a 'cut' row.
+;(function()
+local w=world()
+w.EngineGlobals.g_pBaldurChitin.m_pObjectGame.m_options={m_nDifficultyLevel=4}
+records.TESTCOPY=spl('TESTCOPY',3,{fx(12,{p2=8*65536,dice=6,sides=6})})
+local orders={
+    TEST1={noPrepIn={'BG1901','AR1901'},
+        prebuff={{cast='TESTCOPY',spend='TESTBOLT'},{cast='TESTCOPY',spend='TESTBOLT'},'buff-potion'},prebuffFrom=4},
+    TEST2={prebuff={{cast='TESTCOPY',spend='TESTBOLT'}},prebuffFrom=5},
+}
+local d=directors.new(w,{reader=reader})
+local c=choices.new(w,{reader=reader,director=d,seed=97,orders=orders})
+local rows={}
+c:setSink(function(r) rows[#rows+1]=r end)
+runtime.install(w,{director=d,choice=c,version='test'})
+
+local m=w.add(sprite(1,0,0,255,{levels={[7]='s1'},stats={[1]=50,[34]=6}}))
+m.m_queuedActions={m_nCount=0}
+learn(m,2,'TESTBOLT',1);learn(m,2,'TESTBALL',1)
+m.items[18]={cResRef=str('TESTHERO'),m_useCount1=1}
+m.m_pArea={m_resref=str('bg1901')}
+assert(w.BGSE_Prep(m,'mage','s1','prebuff','dwsw212','WIZARD_MIRROR_IMAGE')==true)
+assert(w.BGSE_Prep(m,'mage','s1','contingency','dw#ms0','')==true)
+m.m_pArea={m_resref=str('BG1900')}
+assert(w.BGSE_Prep(m,'mage','s1','prebuff','dwsw212','WIZARD_MIRROR_IMAGE')==false)
+m.m_pArea=nil
+assert(w.BGSE_Prep(m,'mage','s1','prebuff','dwsw212','WIZARD_MIRROR_IMAGE')==false)
+
+-- With no enemy in sight, fight-start prebuffs wait until an enemy is seen.
+w.ticks=100
+assert(w.BGSE_Claim(m,'mage','s1')==false and c:inspect().counts.fightPrebuffs==0)
+
+-- Enemy in sight: TESTBOLT has 1 ready copy, so the duplicate entry is skipped; round timer stays unset.
+w.add(sprite(11,100,0,2));w.add(sprite(12,140,0,2))
+w.ticks=110
+assert(w.BGSE_Claim(m,'mage','s1')==true)
+local before=#w.queued
+w.BGSE_Act(m)
+assert(c:inspect().counts.fightPrebuffs==1 and c:inspect().counts.marked==0)
+assert(w.queued[before+1].text=='ReallyForceSpellRES("TESTCOPY",Myself)\nRemoveSpellRES("TESTBOLT")\nUseItem("TESTHERO",Myself)',
+    w.queued[before+1].text)
+assert(rows[#rows].kind=='prebuff' and rows[#rows].member==1)
+
+-- While the prebuff actions sit in m_queuedActions, the engine holds; once drained, BGSE_Act on that hold
+-- immediately queues round 1's combat spell without logging a cut.
+m.m_queuedActions.m_nCount=2
+w.ticks=111
+assert(w.BGSE_Claim(m,'mage','s1')==true and c:inspect().counts.holds==1)
+m.m_queuedActions.m_nCount=0;m.items[18]=nil
+learn(m,2,'TESTBALL',1)
+before=#w.queued
+w.BGSE_Act(m)
+assert(c:inspect().counts.cut==0 and #w.queued==before+1 and w.queued[#w.queued].text:find('TESTBALL',1,true)~=nil)
+
+-- Below prebuffFrom (TEST2 requires 5 on difficulty 4): goes straight to combat spell; invalidate resets.
+local m2=w.add(sprite(2,0,40,255,{levels={[7]='s1'},stats={[1]=50,[34]=6}}))
+m2.m_queuedActions={m_nCount=0}
+learn(m2,2,'TESTBOLT',1);learn(m2,2,'TESTBALL',1)
+w.ticks=120
+assert(w.BGSE_Claim(m2,'mage','s1')==true and rows[#rows].kind=='choice' and c:inspect().counts.fightPrebuffs==1)
+c:invalidate()
+m.m_curAction={m_actionID=0};m.castTimer=-1
+learn(m,2,'TESTBOLT',1)
+w.ticks=200
+assert(w.BGSE_Claim(m,'mage','s1')==true and rows[#rows].kind=='prebuff')
+w.BGSE_Act(m)
+assert(c:inspect().counts.fightPrebuffs==2 and c:inspect().counts.errors==0,c:inspect().lastError)
+records.TESTCOPY=nil
+end)()
+groups=groups+1
+
 return groups

@@ -29,7 +29,8 @@
 --
 -- prep=false holds back all of SCS's preparation for the creature (its prebuffs, contingencies and
 -- chain contingencies); prepSkip holds back what it names: kinds ('prebuff', 'contingency', 'chain')
--- or spells, as SCS's blocks cast or spend them (combat-intent/prep.lua).
+-- or spells, as SCS's blocks cast or spend them; noPrepIn holds back all of SCS's preparation when
+-- the creature stands in one of the areas it names (combat-intent/prep.lua).
 --
 -- leave=true lets the creature leave the fight for good as its SCS script has it (its vanishing exit
 -- when badly hurt, bgse/lib/hook.tpa); by default the engine keeps it in the fight (Christopher,
@@ -43,7 +44,9 @@
 -- talkPrep says what a talk-on-sight creature adds to its preparation before it speaks
 -- (combat-intent/talk.lua), from the game's difficulty talkFrom (1 to 5, default 1) up: a spell it has
 -- ready, cast at once, {cast=spell or a copy of it, spend=spell}, which spends that spell; or
--- 'buff-potion', its best potion that strengthens or protects it.
+-- 'buff-potion', its best potion that strengthens or protects it. prebuff adds the same at once when
+-- the creature's fight begins in sight of an enemy, from prebuffFrom (1 to 5, default 1) up
+-- (Christopher, 2026-11-12: Zeela's skeletons and AoE buff, Venkt's long Armor inside Tazok's tent).
 --
 -- opener says how the creature opens its fight, from the game's difficulty openerFrom (1 to 5, default
 -- 1) up (Christopher, 2026-11-04, for Neira: "das muss alles nicht komplett starr sein"): steps in
@@ -118,15 +121,18 @@ function M.check(o)
             for i,s in pairs(v) do
                 if type(i)~='number' or type(s)~='string' or #s>64 or not s:match('^[%w#_%-]+$') then return false,k end
             end
+        elseif k=='noPrepIn' then
+            if type(v)~='table' or #v==0 then return false,k end
+            for i,a in pairs(v) do if type(i)~='number' or not resref(a) then return false,k end end
         elseif k=='bonus' then
             if not number(v) or v<0 or v>100 then return false,'bonus' end
-        elseif k=='talkPrep' then
+        elseif k=='talkPrep' or k=='prebuff' then
             if type(v)~='table' or #v==0 then return false,k end
             for i,e in pairs(v) do if type(i)~='number' or not extra(e) then return false,k end end
         elseif k=='opener' then
             if type(v)~='table' or #v==0 then return false,k end
             for i,s in pairs(v) do if type(i)~='number' or not step(s) then return false,k end end
-        elseif k=='talkFrom' or k=='openerFrom' then
+        elseif k=='talkFrom' or k=='openerFrom' or k=='prebuffFrom' then
             if not level(v) then return false,k end
         elseif k=='companion' then
             if type(v)~='table' or not resref(v.weak) or not resref(v.strong) or not level(v.strongFrom) then return false,k end

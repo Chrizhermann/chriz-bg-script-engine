@@ -775,6 +775,7 @@ END
 // NumTimesTalkedTo(0) and See([PC]) among its triggers, and a response that starts the talk with that party
 // member (Dialog or StartDialogNoSet at [PC]). Comments do not count.
 DEFINE_PATCH_FUNCTION bgse_talk_block
+  INT_VAR bgse_own = 0
   STR_VAR bgse_block = ~~
   RET bgse_talk
 BEGIN
@@ -788,9 +789,17 @@ BEGIN
       READ_ASCII 0 trig (then)
       READ_ASCII then resp (BUFFER_LENGTH - then)
     END
+    SET starts_talk = 0
+    PATCH_IF (INDEX (CASE_SENSITIVE ~^    \(Dialog\|Dialogue\|StartDialogNoSet\|StartDialogueNoSet\)(\[PC\]) *$~ ~%resp%~) >= 0) BEGIN
+      SET starts_talk = 1
+    END ELSE PATCH_IF (bgse_own = 1)
+        AND ((INDEX (CASE_SENSITIVE ~^    \(Dialog\|Dialogue\|StartDialogNoSet\|StartDialogueNoSet\|StartDialogNoSetInterrupt\|StartDialogueNoSetInterrupt\)(\(\[PC\]\|LastSeenBy\|LastSeenBy(Myself)\)) *$~ ~%resp%~) >= 0)
+             OR (INDEX (CASE_SENSITIVE ~^    \(StartDialog\|StartDialogue\)("[^"]+",\(\[PC\]\|LastSeenBy\|LastSeenBy(Myself)\)) *$~ ~%resp%~) >= 0)) BEGIN
+      SET starts_talk = 1
+    END
     PATCH_IF (INDEX (CASE_SENSITIVE ~^ +NumTimesTalkedTo(0) *$~ ~%trig%~) >= 0)
         AND (INDEX (CASE_SENSITIVE ~^ +See(\[PC\]) *$~ ~%trig%~) >= 0)
-        AND (INDEX (CASE_SENSITIVE ~^    \(Dialog\|Dialogue\|StartDialogNoSet\|StartDialogueNoSet\)(\[PC\]) *$~ ~%resp%~) >= 0) BEGIN
+        AND (starts_talk = 1) BEGIN
       SET bgse_talk = 1
     END
   END
@@ -842,7 +851,7 @@ BEGIN
           SET pos = stop
           READ_ASCII start block (stop - start)
           SET count += 1
-          LPF bgse_talk_block STR_VAR bgse_block = EVAL ~%block%~ RET bgse_talk END
+          LPF bgse_talk_block INT_VAR bgse_own = bgse_own STR_VAR bgse_block = EVAL ~%block%~ RET bgse_talk END
           SET talking += bgse_talk
         END
       END
@@ -861,7 +870,7 @@ BEGIN
             SET pos = 0 - 1
           END ELSE BEGIN
             READ_ASCII start block (stop - start)
-            LPF bgse_talk_block STR_VAR bgse_block = EVAL ~%block%~ RET bgse_talk END
+            LPF bgse_talk_block INT_VAR bgse_own = bgse_own STR_VAR bgse_block = EVAL ~%block%~ RET bgse_talk END
             PATCH_IF (bgse_talk = 1) BEGIN
               LPF bgse_aside INT_VAR bgse_from = start bgse_to = stop STR_VAR bgse_lines = EVAL ~%talk_line%~ END
               SET pos = stop + STRING_LENGTH ~%LNL%%talk_line%~

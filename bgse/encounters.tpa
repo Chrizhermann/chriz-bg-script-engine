@@ -1,7 +1,8 @@
 // The designed encounters: what each fight's design changes in its creatures, one entry each, in story
-// order (bgse/lib/encounter.tpa). The design is docs/research/BOSS-01-bg1-early-encounters.md; the engine's
-// side of it is combat-intent/encounters.lua. Each entry adds what it changed to bgse_designed, its dialogue
-// lines to bgse_lines and the creatures it makes to bgse_new.
+// order (bgse/lib/encounter.tpa). The designs are docs/research/BOSS-01-bg1-early-encounters.md and
+// docs/research/BOSS-02-bg1-next-block.md; the engine's side of them is combat-intent/encounters.lua. Each
+// entry adds what it changed to bgse_designed, its dialogue lines to bgse_lines and the creatures it makes to
+// bgse_new.
 
 // 2. Silke, Beregost (Christopher, 2026-11-03 and 2026-11-04): she plans the ambush herself, so when her
 // "thugs" arrive she is given and drinks her Potion of Invulnerability and casts Mirror Image in sight of the party,
@@ -77,3 +78,76 @@ ACTION_IF (bgse_kestrels > 0) BEGIN
     RET bgse_put END
   OUTER_SET bgse_designed += bgse_put
 END
+
+// 6. Mulahey, Nashkel Mines L4 (BOSS-02, Christopher 2026-11-12): WIS 17 gives him three usable 3rd-level
+// priest slots at Cleric 7, with Strength of One, Remove Paralysis and Prayer in his 3rd-level book; on Hard+
+// his reinforcement call splits into an immediate wave and a second archer/commando wave 15 seconds later from
+// the open northern passage, so one AoE spell does not end the whole fight at the cave door.
+LAF bgse_encounter INT_VAR wis = 17
+  STR_VAR cre = ~mulahe~
+          book = ~priest3=SPPR312,SPPR308,SPPR316~
+  RET bgse_changed END
+OUTER_SET bgse_designed += bgse_changed
+ACTION_IF (FILE_EXISTS_IN_GAME ~dw#mulkc.cre~) BEGIN
+  ACTION_FOR_EACH bgse_mulahey_area IN ~BG5405~ ~AR5405~ BEGIN
+    ACTION_IF (FILE_EXISTS_IN_GAME ~%bgse_mulahey_area%.bcs~) BEGIN
+      EXTEND_TOP ~%bgse_mulahey_area%.bcs~ ~bgse/scripts/bgse5405.baf~
+    END
+  END
+END
+
+// 7. Lamalha, Zeela, Telka & Maneira, Valley of the Tombs exit (BOSS-02, Christopher 2026-11-12): Lamalha's
+// own copy of LAMALHA so her talk waits while she prepares; Telka's elemental arrow stacks placed into her
+// quiver slots so she actually fires them as the dedicated sniper; Maneira raised to STR 15 so her stealth
+// opener hits like an assassin's.
+LAF bgse_encounter
+  STR_VAR cre = ~lamalh~
+          talk = ~LAMALHA>BGSELAMA~
+  RET bgse_changed END
+OUTER_SET bgse_designed += bgse_changed
+LAF bgse_encounter
+  STR_VAR cre = ~telka~
+          slots = ~QUIVER1:AROW08:20 QUIVER2:AROW09:20 QUIVER3:AROW04:20~
+  RET bgse_changed END
+OUTER_SET bgse_designed += bgse_changed
+LAF bgse_encounter INT_VAR str = 15
+  STR_VAR cre = ~maneir~
+  RET bgse_changed END
+OUTER_SET bgse_designed += bgse_changed
+
+// 8. Molkar, Drakar, Halacan & Morvin (BOSS-02, Christopher 2026-11-12): Molkar's own copy of MOLKAR so the
+// group prepares before he speaks; Drakar's unslotted Potion of Heroism given a real inventory slot.
+LAF bgse_encounter
+  STR_VAR cre = ~molkar~
+          talk = ~MOLKAR>BGSEMOLK~
+  RET bgse_changed END
+OUTER_SET bgse_designed += bgse_changed
+LAF bgse_encounter
+  STR_VAR cre = ~drakar~
+          carries = ~POTN09~
+  RET bgse_changed END
+OUTER_SET bgse_designed += bgse_changed
+
+// 9. Bandit Camp & Tazok's tent (BOSS-02, Christopher 2026-11-12): Venkt replaces short-duration Shield with
+// 9-hour Armor (SPWI102) in his 1st-level book and gets his unslotted third Extra Healing Potion in QUICK3;
+// inside Tazok's tent he wears only Armor (combat-intent/encounters.lua), while outside on the camp alarm he
+// prepares fully.
+LAF bgse_encounter
+  STR_VAR cre = ~venkt~
+          book = ~wizard1=SPWI118,SPWI104,SPWI116,SPWI116,SPWI102~
+          slots = ~QUICK3:POTN08:1~
+  RET bgse_changed END
+OUTER_SET bgse_designed += bgse_changed
+
+// 10. Drasus, Genthore, Kysus & Rezdan, Cloakwood Mine entrance (BOSS-02, Christopher 2026-11-12): Drasus's
+// own copy of DRASUS so he drinks his battle potion before speaking; Genthore gets an Oil of Speed for Hard+.
+LAF bgse_encounter
+  STR_VAR cre = ~drasus~
+          talk = ~DRASUS>BGSEDRAS~
+  RET bgse_changed END
+OUTER_SET bgse_designed += bgse_changed
+LAF bgse_encounter
+  STR_VAR cre = ~gentho~
+          carries = ~POTN14~
+  RET bgse_changed END
+OUTER_SET bgse_designed += bgse_changed

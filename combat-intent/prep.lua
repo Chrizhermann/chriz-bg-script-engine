@@ -12,8 +12,8 @@
 --
 -- Phase 1: the engine chooses the first round of a creature it drives itself, so SCS's openers wait;
 -- the rest runs as SCS has it unless the creature's orders hold it back (combat-intent/orders.lua):
--- prep=false holds all of it, prepSkip names kinds or spells to hold (the cast or the spent spell,
--- in any case). An unknown kind runs as SCS has it.
+-- prep=false holds all of it, noPrepIn holds all of it in the areas it names, and prepSkip names kinds
+-- or spells to hold (the cast or the spent spell, in any case). An unknown kind runs as SCS has it.
 -- Plain values only; nothing here touches the engine.
 local M={}
 M.KINDS={prebuff=true,contingency=true,chain=true,opener=true}
@@ -21,12 +21,18 @@ M.KINDS={prebuff=true,contingency=true,chain=true,opener=true}
 local function named(s,name) return type(name)=='string' and name~='' and s==name:upper() end
 
 -- Whether the engine holds back a preparation block of kind that casts cast and spends spent ('' for
--- none), by the creature's orders (nil for none).
-function M.holds(kind,cast,spent,orders)
+-- none), by the creature's orders (nil for none) and the area it stands in (nil or '' when unknown).
+function M.holds(kind,cast,spent,orders,area)
     if not M.KINDS[kind] then return false end
     if kind=='opener' then return true end
     if type(orders)~='table' then return false end
     if orders.prep==false then return true end
+    if type(area)=='string' and area~='' then
+        local where=area:upper()
+        for _,a in ipairs(type(orders.noPrepIn)=='table' and orders.noPrepIn or {}) do
+            if named(where,a) then return true end
+        end
+    end
     for _,s in ipairs(type(orders.prepSkip)=='table' and orders.prepSkip or {}) do
         if type(s)=='string' then
             s=s:upper()

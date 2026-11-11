@@ -277,10 +277,15 @@ OWN_VARIABLE = re.compile(r'^ {4}[A-Za-z]+\("[^"]*","LOCALS",')
 OWN_HP = re.compile(r'^  !?(?:HP|HPGT|HPLT|HPPercent|HPPercentGT|HPPercentLT)\(Myself,[0-9]+\) *$')
 SIGHT = re.compile(r'^  !?(?:See|Detect)\([^"]*\) *$')
 # SCS's talk on sight (patch_talk): the creature sees a party member it has not talked to yet and starts the talk
-# with that party member.
+# with that party member; a designed creature's own talk script (own=True, such as LAMALHA, MOLKAR or DRASUS) may
+# also name its dialog file or LastSeenBy / StartDialogNoSetInterrupt.
 UNTALKED = re.compile(r'^ +NumTimesTalkedTo\(0\) *$', re.M)
 SEES_PARTY = re.compile(r'^ +See\(\[PC\]\) *$', re.M)
 TALK_START = re.compile(r'^ {4}(?:Dialog|Dialogue|StartDialogNoSet|StartDialogueNoSet)\(\[PC\]\) *$', re.M)
+OWN_TALK_START = re.compile(
+    r'^ {4}(?:(?:Dialog|Dialogue|StartDialogNoSet|StartDialogueNoSet|StartDialogNoSetInterrupt|'
+    r'StartDialogueNoSetInterrupt)\((?:\[PC\]|LastSeenBy(?:\(Myself\))?)\)|'
+    r'(?:StartDialog|StartDialogue)\("[^"]+",(?:\[PC\]|LastSeenBy(?:\(Myself\))?)\)) *$', re.M)
 RESOURCE_ARG = re.compile(r'^( {4}(?:ApplySpellRES|ForceSpellRES|ReallyForceSpellRES|SpellNoDecRES|CreateVisualEffect|'
                           r'CreateVisualEffectObject|PlaySound)\()"[^"]*"', re.M)
 
@@ -980,11 +985,13 @@ def patch_hunt(text, script):
     return (text if walks else None), len(walks)
 
 
-def is_talk(block):
+def is_talk(block, own=False):
     """SCS's talk on sight: NumTimesTalkedTo(0) and See([PC]) among the triggers, and a response that starts the
-    talk with that party member (Dialog or StartDialogNoSet at [PC]). Comments do not count."""
+    talk with that party member (Dialog or StartDialogNoSet at [PC]; or with own=True for a designed creature's
+    copy, also StartDialog with a dialog file or StartDialogNoSetInterrupt / LastSeenBy). Comments do not count."""
     trig, resp = split(COMMENT.sub('', block))
-    return bool(UNTALKED.search(trig) and SEES_PARTY.search(trig) and TALK_START.search(resp))
+    start = OWN_TALK_START if own else TALK_START
+    return bool(UNTALKED.search(trig) and SEES_PARTY.search(trig) and start.search(resp))
 
 
 def patch_talk(text, script, own=False):
@@ -1004,7 +1011,7 @@ def patch_talk(text, script, own=False):
     if not own and ('DMWW_' not in text or 'castspell' in text):
         return None, 0
     spans = blocks(text)
-    talks = [i for i, (a, b) in enumerate(spans) if is_talk(text[a:b])]
+    talks = [i for i, (a, b) in enumerate(spans) if is_talk(text[a:b], own=own)]
     if not talks or (not own and len(talks) != len(spans)):
         return None, 0
     for i in reversed(talks):

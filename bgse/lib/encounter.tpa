@@ -7,8 +7,10 @@
 // - book: the memorized spells of each spell level it names, as ~priest1=SPPR111,SPPR117 priest2=SPPR201~
 //   (priest or wizard, and the spell level): those of that level go and these come, each as often as it
 //   is named and known once; other levels, kinds and the innate abilities stay;
-// - carries: items it gets in a free pack slot, or in the last pack slot when full, unless it carries one
-//   already, as ~POTN10~;
+// - carries: items it gets in a free pack slot, or in the last pack slot when full, unless one of its
+//   inventory slots carries one already, as ~POTN10~;
+// - slots: exact items placed into named inventory slots (~SLOT:ITEM~ or ~SLOT:ITEM:CHARGES~, such as
+//   ~QUIVER1:AROW08:20~ or ~QUICK3:POTN08:1~), overwriting whatever stood in that slot;
 // - talk: its own copy of a talk script many creatures share, as ~INITDLG>BGSEKARL~ (the script in its
 //   slots, and the copy's name): the copy's talk on sight waits while the engine prepares the creature
 //   (bgse/lib/hook.tpa: bgse_talk_bcs), as SCS's talk-on-sight scripts do, and the creature's slot names the
@@ -31,6 +33,7 @@ DEFINE_ACTION_FUNCTION bgse_encounter
   STR_VAR cre = ~~
           book = ~~
           carries = ~~
+          slots = ~~
           talk = ~~
           cutscene = ~~
           prepare = ~~
@@ -47,12 +50,13 @@ BEGIN
       PATCH_IF (~%signature%~ STRING_EQUAL ~CRE V1.0~) BEGIN
         LPF bgse_encounter_scores INT_VAR str = str int = int wis = wis dex = dex con = con cha = cha RET bgse_scored END
         LPF bgse_encounter_book STR_VAR cre = EVAL ~%cre%~ book = EVAL ~%book%~ RET bgse_booked END
+        LPF bgse_encounter_slots STR_VAR cre = EVAL ~%cre%~ slots = EVAL ~%slots%~ RET bgse_slotted END
         LPF bgse_encounter_carries STR_VAR cre = EVAL ~%cre%~ carries = EVAL ~%carries%~ RET bgse_given END
         SET bgse_carried = bgse_given
         LPF bgse_encounter_talk STR_VAR cre = EVAL ~%cre%~ talk = EVAL ~%talk%~ RET bgse_talked END
         LPF bgse_encounter_cutscene STR_VAR cre = EVAL ~%cre%~ cutscene = EVAL ~%cutscene%~ prepare = EVAL ~%prepare%~
           RET bgse_prepared END
-        SET bgse_changed = (bgse_scored + bgse_booked + bgse_carried + bgse_talked + bgse_prepared > 0) ? 1 : 0
+        SET bgse_changed = (bgse_scored + bgse_booked + bgse_slotted + bgse_carried + bgse_talked + bgse_prepared > 0) ? 1 : 0
       END ELSE BEGIN
         PATCH_PRINT ~BGSE encounter: %cre%.cre is no CRE V1.0 file, left as it is~
       END
@@ -731,8 +735,147 @@ ALTER_TRANS ~%bgse_line_dlg%~ BEGIN %bgse_line_from% END BEGIN %bgse_line_trans%
 END
 >>>>>>>>
 
-// The items of bgse_encounter: each it does not carry yet, in a free pack slot, or in the last pack slot when
-// full. bgse_given counts them.
+// The named inventory slots of bgse_encounter (~SLOT:ITEM~ or ~SLOT:ITEM:CHARGES~): each item goes into
+// that exact slot, identified, overwriting whatever stood in the slot before. bgse_slotted counts the slots
+// that changed.
+DEFINE_PATCH_FUNCTION bgse_encounter_slots
+  STR_VAR cre = ~~
+          slots = ~~
+  RET bgse_slotted
+BEGIN
+  SET bgse_slotted = 0
+  PATCH_IF (STRING_LENGTH ~%slots%~ > 0) BEGIN
+    INNER_PATCH_SAVE list ~%slots%~ BEGIN
+      REPLACE_TEXTUALLY ~[ %TAB%%LNL%%MNL%]+~ ~|~
+    END
+    TEXT_SPRINT list ~|%list%|~
+    SET pos = 1
+    WHILE (pos < STRING_LENGTH ~%list%~) BEGIN
+      INNER_PATCH ~%list%~ BEGIN
+        SET to = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~|~ pos)
+        READ_ASCII pos entry (to - pos)
+      END
+      SET pos = to + 1
+      TEXT_SPRINT slot ~~
+      TEXT_SPRINT res ~~
+      SET charges = 0
+      TEXT_SPRINT rest ~~
+      INNER_PATCH ~%entry%~ BEGIN
+        REPLACE_EVALUATE CASE_INSENSITIVE ~^\([A-Z0-9]+\):\([A-Za-z0-9_#-]+\)\(.*\)$~ BEGIN
+          TEXT_SPRINT slot ~%MATCH1%~
+          TEXT_SPRINT res ~%MATCH2%~
+          TEXT_SPRINT rest ~%MATCH3%~
+        END ~%MATCH0%~
+      END
+      INNER_PATCH ~%rest%~ BEGIN
+        REPLACE_EVALUATE ~^:\([0-9]+\)$~ BEGIN
+          SET charges = MATCH1
+        END ~%MATCH0%~
+      END
+      TO_UPPER slot
+      TO_UPPER res
+      SET slot_idx = 0 - 1
+      PATCH_MATCH ~%slot%~ WITH
+        ~HELMET~ BEGIN SET slot_idx = 0 END
+        ~ARMOR~ BEGIN SET slot_idx = 1 END
+        ~SHIELD~ BEGIN SET slot_idx = 2 END
+        ~GLOVES~ BEGIN SET slot_idx = 3 END
+        ~LRING~ BEGIN SET slot_idx = 4 END
+        ~RRING~ BEGIN SET slot_idx = 5 END
+        ~AMULET~ BEGIN SET slot_idx = 6 END
+        ~BELT~ BEGIN SET slot_idx = 7 END
+        ~BOOTS~ BEGIN SET slot_idx = 8 END
+        ~WEAPON1~ BEGIN SET slot_idx = 9 END
+        ~WEAPON2~ BEGIN SET slot_idx = 10 END
+        ~WEAPON3~ BEGIN SET slot_idx = 11 END
+        ~WEAPON4~ BEGIN SET slot_idx = 12 END
+        ~QUIVER1~ BEGIN SET slot_idx = 13 END
+        ~QUIVER2~ BEGIN SET slot_idx = 14 END
+        ~QUIVER3~ BEGIN SET slot_idx = 15 END
+        ~QUIVER4~ BEGIN SET slot_idx = 16 END
+        ~CLOAK~ BEGIN SET slot_idx = 17 END
+        ~QITEM1~ ~QUICK1~ BEGIN SET slot_idx = 18 TEXT_SPRINT slot ~QITEM1~ END
+        ~QITEM2~ ~QUICK2~ BEGIN SET slot_idx = 19 TEXT_SPRINT slot ~QITEM2~ END
+        ~QITEM3~ ~QUICK3~ BEGIN SET slot_idx = 20 TEXT_SPRINT slot ~QITEM3~ END
+        ~INV1~ BEGIN SET slot_idx = 21 END
+        ~INV2~ BEGIN SET slot_idx = 22 END
+        ~INV3~ BEGIN SET slot_idx = 23 END
+        ~INV4~ BEGIN SET slot_idx = 24 END
+        ~INV5~ BEGIN SET slot_idx = 25 END
+        ~INV6~ BEGIN SET slot_idx = 26 END
+        ~INV7~ BEGIN SET slot_idx = 27 END
+        ~INV8~ BEGIN SET slot_idx = 28 END
+        ~INV9~ BEGIN SET slot_idx = 29 END
+        ~INV10~ BEGIN SET slot_idx = 30 END
+        ~INV11~ BEGIN SET slot_idx = 31 END
+        ~INV12~ BEGIN SET slot_idx = 32 END
+        ~INV13~ BEGIN SET slot_idx = 33 END
+        ~INV14~ BEGIN SET slot_idx = 34 END
+        ~INV15~ BEGIN SET slot_idx = 35 END
+        ~INV16~ BEGIN SET slot_idx = 36 END
+        DEFAULT
+      END
+      PATCH_IF (STRING_LENGTH ~%res%~ > 0) BEGIN
+        PATCH_IF (slot_idx < 0) BEGIN
+          PATCH_PRINT ~BGSE encounter: %cre%.cre: "%entry%" names no known inventory slot~
+        END ELSE PATCH_IF NOT (FILE_EXISTS_IN_GAME ~%res%.itm~) BEGIN
+          PATCH_PRINT ~BGSE encounter: %cre%.cre does not get %res%: this game lacks it~
+        END ELSE BEGIN
+          READ_LONG 0x2b8 slots_at
+          READ_LONG 0x2bc item_at
+          READ_LONG 0x2c0 item_count
+          SET old = 0xffff
+          PATCH_IF (slots_at + 2 * slot_idx + 2 <= BUFFER_LENGTH) BEGIN
+            READ_SHORT (slots_at + 2 * slot_idx) old
+          END
+          SET uses = 0
+          PATCH_IF (old >= 0) AND (old < item_count) BEGIN
+            FOR (s = 0; s < 38; s += 1) BEGIN
+              PATCH_IF (slots_at + 2 * s + 2 <= BUFFER_LENGTH) BEGIN
+                READ_SHORT (slots_at + 2 * s) w
+                PATCH_IF (w = old) BEGIN
+                  SET uses += 1
+                END
+              END
+            END
+          END
+          PATCH_IF (old >= 0) AND (old < item_count) AND (uses = 1) AND (item_at + 20 * old + 20 <= BUFFER_LENGTH) BEGIN
+            READ_ASCII (item_at + 20 * old) old_name (8) NULL
+            READ_SHORT (item_at + 20 * old + 10) old_c1
+            READ_SHORT (item_at + 20 * old + 12) old_c2
+            READ_SHORT (item_at + 20 * old + 14) old_c3
+            READ_LONG (item_at + 20 * old + 16) old_flags
+            PATCH_IF NOT ((~%old_name%~ STRING_EQUAL_CASE ~%res%~) AND (old_c1 = charges) AND (old_c2 = 0)
+                AND (old_c3 = 0) AND ((old_flags BAND 1) = 1)) BEGIN
+              WRITE_ASCIIE (item_at + 20 * old) ~%res%~ #8
+              WRITE_SHORT (item_at + 20 * old + 8) 0
+              WRITE_SHORT (item_at + 20 * old + 10) charges
+              WRITE_SHORT (item_at + 20 * old + 12) 0
+              WRITE_SHORT (item_at + 20 * old + 14) 0
+              WRITE_LONG (item_at + 20 * old + 16) 1
+              SET bgse_slotted += 1
+            END
+          END ELSE BEGIN
+            PATCH_IF (old >= 0) AND (old < item_count) AND (slots_at + 2 * slot_idx + 2 <= BUFFER_LENGTH) BEGIN
+              WRITE_SHORT (slots_at + 2 * slot_idx) 0xffff
+            END
+            PATCH_IF (~%slot%~ STRING_EQUAL ~ARMOR~) OR (~%slot%~ STRING_EQUAL ~SHIELD~)
+                OR (~%slot%~ STRING_EQUAL ~WEAPON1~) BEGIN
+              ADD_CRE_ITEM ~%res%~ (charges) #0 #0 ~IDENTIFIED~ ~%slot%~ EQUIP
+            END ELSE BEGIN
+              ADD_CRE_ITEM ~%res%~ (charges) #0 #0 ~IDENTIFIED~ ~%slot%~
+            END
+            SET bgse_slotted += 1
+          END
+        END
+      END
+    END
+  END
+END
+
+// The items of bgse_encounter: each it does not carry in any inventory slot yet (an unreferenced record in
+// the item table does not count), in a free pack slot, or in the last pack slot when full. bgse_given counts
+// them.
 DEFINE_PATCH_FUNCTION bgse_encounter_carries
   STR_VAR cre = ~~
           carries = ~~
@@ -754,13 +897,17 @@ BEGIN
     SET pos = to + 1
     TO_UPPER item
     SET carried = 0
+    READ_LONG 0x2b8 slots
     READ_LONG 0x2bc item_at
     READ_LONG 0x2c0 item_count
-    FOR (i = 0; i < item_count; i += 1) BEGIN
-      PATCH_IF (item_at + 20 * i + 20 <= BUFFER_LENGTH) BEGIN
-        READ_ASCII (item_at + 20 * i) name (8) NULL
-        PATCH_IF (~%name%~ STRING_EQUAL_CASE ~%item%~) BEGIN
-          SET carried = 1
+    FOR (s = 0; s < 38; s += 1) BEGIN
+      PATCH_IF (slots + 2 * s + 2 <= BUFFER_LENGTH) BEGIN
+        READ_SHORT (slots + 2 * s) idx
+        PATCH_IF (idx >= 0) AND (idx < item_count) AND (item_at + 20 * idx + 20 <= BUFFER_LENGTH) BEGIN
+          READ_ASCII (item_at + 20 * idx) name (8) NULL
+          PATCH_IF (~%name%~ STRING_EQUAL_CASE ~%item%~) BEGIN
+            SET carried = 1
+          END
         END
       END
     END
