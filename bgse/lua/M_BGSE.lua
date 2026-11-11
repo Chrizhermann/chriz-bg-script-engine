@@ -658,7 +658,7 @@ for _,op in ipairs({7,8,9,23,41,50,51,52,53,56,57,61,63,64,66,71,72,82,94,95,96,
     244,245,251,252,253,254,255,262,263,265,267,268,269,271,275,276,277,279,281,282,287,290,291,
     293,294,295,296,298,300,302,307,308,309,311,312,313,315,319,320,323,327,328,330,336,338,339,
     340,342,347,348,349,350,351,352,353,354,355,356,357,358,359,360,361,362,363,364,365,367,
-    21,59,90,91,92,171,233,266}) do NEUTRAL[op]=true end
+    21,59,90,91,92,171,233,266,403}) do NEUTRAL[op]=true end
 -- 321 and 266 remove the effects or protections of one named resource: SCS and SR use them
 -- to refresh their own helpers, so they are bookkeeping, not dispelling. What 321 takes away
 -- is kept all the same (H[321]).
@@ -1003,6 +1003,13 @@ for op,label in pairs(STATS) do
     H[op]=function(c,e,who,p)
         local mode=e.p2%65536
         if (op==15 or op==44) and mode==3 then kind(c,'buff',label,who,e,p);return end
+        if op==44 and mode==0 and e.p1==0 and e.res:upper()=='CBTSTRF' and e.special>=15000 then
+            local r=kind(c,'buff',label,who,e,p)
+            local fStr,fEx=math.floor(e.special/1000),math.min(e.special%1000,100)
+            local old=(r.strengthFloor or 0)*1000+(r.strengthFloor==18 and (r.strengthExtraFloor or 0) or 0)
+            if fStr*1000+(fStr==18 and fEx or 0)>old then r.strengthFloor,r.strengthExtraFloor=fStr,fEx end
+            return
+        end
         if mode==1 then
             local r,good
             if e.p1>=15 then r,good=kind(c,'buff',label,who,e,p),true elseif e.p1<=8 then r=kind(c,'debuff',label,who,e,p) end
@@ -1174,11 +1181,19 @@ end
 H[166]=function(c,e,who,p) modifier(c,e,who,p,'magicResistance','protection','debuff') end
 -- Invoke Lua cannot be read from a SPL. Describe only functions whose implementation is known,
 -- never the spell that happens to call them. CBMBPM floors half the receiver's current MR,
--- clamps the reduction to 10..40 points and keeps it for five rounds (the spell mod's Lua).
-M.luaEffects={CBMBPM={share=0.5,min=10,max=40,duration=30}}
+-- clamps the reduction to 10..40 points and keeps it for five rounds; CBMLRES ends temporary
+-- attribute drain; CBMSIMU trims a Simulacrum copy's innate abilities to its reduced level (the
+-- spell mod's Lua).
+M.luaEffects={
+    CBMBPM={share=0.5,min=10,max=40,duration=30},
+    CBMLRES={cure='abilityDrain'},
+    CBMSIMU={neutral=true},
+}
 H[402]=function(c,e,who,p)
     local known=M.luaEffects[e.res:upper()]
     if not known then c.unknown=c.unknown or {};tally(c.unknown,402,1);return end
+    if known.neutral then return end
+    if known.cure then kind(c,'cure',known.cure,who,e,p);return end
     local effect={}
     for k,v in pairs(e) do effect[k]=v end
     effect.timing=0;effect.duration=known.duration
@@ -4805,8 +4820,16 @@ local function might(role,held,debuff,tables)
     end
     local sign=debuff and -1 or 1
     local extra=number(held.strExtra) and held.strExtra or 0
-    local str=number(role.strengthSet) and role.strengthSet or held.str+sign*amount(role,'strength')
-    local ex=number(role.strengthExtraSet) and role.strengthExtraSet or extra+sign*amount(role,'strengthExtra')
+    local baseStr,baseEx=held.str,extra
+    if not debuff and number(role.strengthFloor) then
+        local floorStr=role.strengthFloor
+        local floorEx=number(role.strengthExtraFloor) and role.strengthExtraFloor or 0
+        if baseStr*1000+(baseStr==18 and clamp(baseEx,0,100) or 0)<floorStr*1000+(floorStr==18 and clamp(floorEx,0,100) or 0) then
+            baseStr,baseEx=floorStr,floorEx
+        end
+    end
+    local str=number(role.strengthSet) and role.strengthSet or baseStr+sign*amount(role,'strength')
+    local ex=number(role.strengthExtraSet) and role.strengthExtraSet or baseEx+sign*amount(role,'strengthExtra')
     str,ex=clamp(math.floor(str+0.5),0,25),clamp(math.floor(ex+0.5),0,100)
     local hit0,damage0=arsenal.might(tables,clamp(math.floor(held.str+0.5),0,25),clamp(math.floor(extra+0.5),0,100))
     local hit1,damage1=arsenal.might(tables,str,ex)
@@ -7835,6 +7858,9 @@ M.kiteGap=18
 -- the shortest walk worth making (world units: a cell of the game's search map).
 M.positionSteps={1,0.75,0.5,0.25}
 M.positionMin=16
+-- Share of an attack's worth on a petrified statue (sense.statueSource, CBMP1ST): enemies fight
+-- active companions first and smash a statue only at low priority or when nothing better stands.
+M.statueShare=0.2
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
 local function clamp(v,a,b) if v<a then return a elseif v>b then return b end return v end
@@ -7982,6 +8008,7 @@ end
 local function damageOn(input,row,role,e,floor,n)
     local worth,expected=harm.damage(role,e,input.mind.killBonus,floor,n)
     if expected<=0 then return 0,0 end
+    if e.statue==true then worth=worth*M.statueShare end
     local plan=input.plan
     if type(plan)=='table' and plan.focus==e.id then worth=worth*(1+input.mind.focusBonus*input.mind.coordination) end
     worth=worth*orders.favour(input,e)
@@ -8790,6 +8817,7 @@ local function hitsOn(input,arms,raw,e,bs,absorbed)
             end
             worth=worth+input.mind.killBonus*kill
         end
+        if e.statue==true then worth=worth*M.statueShare end
         local plan=input.plan
         if type(plan)=='table' and plan.focus==e.id then worth=worth*(1+input.mind.focusBonus*input.mind.coordination) end
         worth=worth*orders.favour(input,e)
@@ -9858,7 +9886,7 @@ function M.new(config)
                 local seen=enemies[e.id] or {seenBy={}}
                 heading(seen,e,tick)
                 seen.lastTick=tick;seen.x,seen.y,seen.hp,seen.maxHp=e.x,e.y,e.hp,e.maxHp
-                seen.state,seen.held,seen.minHp=e.state,e.held,e.minHp
+                seen.state,seen.held,seen.minHp,seen.statue=e.state,e.held,e.minHp,e.statue==true or nil
                 seen.seenBy[member.id]=tick
                 enemies[e.id]=seen
                 if not foes[e.id] then
@@ -9888,7 +9916,7 @@ function M.new(config)
     -- its minimum keeps where it is is no focus: it looks nearly dead and cannot die (lab batch
     -- H9).
     function api:focus(tick)
-        if focus and fresh(enemies[focus],tick) and open(enemies[focus]) then return focus end
+        if focus and fresh(enemies[focus],tick) and open(enemies[focus]) and not enemies[focus].statue then return focus end
         local best,bestKey
         for key,e in pairs(enemies) do
             if fresh(e,tick) and open(e) then
@@ -9898,7 +9926,7 @@ function M.new(config)
                     if m and tick-at<=o.enemyTicks then seen=seen+1;far=far+targeting.distance(m,e) end
                 end
                 if seen>0 then
-                    local k={seen,-targeting.room(e),-far/seen,-key}
+                    local k={e.statue and 0 or 1,seen,-targeting.room(e),-far/seen,-key}
                     local better=bestKey==nil
                     for i=1,#k do
                         if better or k[i]~=bestKey[i] then better=better or k[i]>bestKey[i];break end
@@ -9909,8 +9937,8 @@ function M.new(config)
         end
         if best~=focus then
             counts.focusChanges=counts.focusChanges+1
-            record({kind='focus',tick=tick,target=best,previous=focus,seenBy=bestKey and bestKey[1],
-                health=bestKey and -bestKey[2]})
+            record({kind='focus',tick=tick,target=best,previous=focus,seenBy=bestKey and bestKey[2],
+                health=bestKey and -bestKey[3]})
             focus=best
         end
         return focus
@@ -9947,7 +9975,7 @@ function M.new(config)
         local chosen=byId[target]
         if not chosen then return {action='keep',kind=kind,reason='focus-unseen'} end
         if targeting.casting(first) then return {action='keep',kind=kind,reason='original-casting'} end
-        if targeting.health(first)<targeting.health(chosen) then
+        if (not first.statue or chosen.statue) and targeting.health(first)<targeting.health(chosen) then
             return {action='keep',kind=kind,reason='original-more-wounded'}
         end
         local ok,blocked=targeting.legal(caster,chosen,spell,first)
@@ -11657,6 +11685,11 @@ M.minimumHp=208
 -- (opcode 212) frees it. Either stays in the creature's effect list meanwhile, and the creature's
 -- object and position remain while no area search finds it (lab batch J).
 M.outOfGame={[213]='maze',[211]='prison'}
+-- The spell mod imprisons Player1 through opcode 213 from CBMP1IM and petrifies Player1 through
+-- CBMP1ST so neither state ends the game at once: CBMP1IM is a prison (never returns on its own),
+-- and a creature held by CBMP1ST is a tough statue that enemies attack only at low priority.
+M.prisonSource='CBMP1IM'
+M.statueSource='CBMP1ST'
 -- STATE_INVISIBLE and STATE_IMPROVEDINVISIBILITY; STATE_BLIND.
 M.unseen,M.blind=0x400010,0x40000
 -- What a backstab needs to know (F2d): STATS.IDS BACKSTABDAMAGEMULTIPLIER and
@@ -11794,11 +11827,29 @@ function M.removed(g,sprite)
             seen=seen+1
             if seen>M.maxEffects then return true end
             local kind=M.outOfGame[effect.m_effectId]
+            if kind=='maze' and name(effect.m_sourceRes)==M.prisonSource then kind='prison' end
             if kind then found=kind;return true end
         end)
         if found then return found end
     end
     return nil
+end
+
+-- Whether any effect in a creature's timed or equipped lists came from resref.
+function M.hasSource(g,sprite,resref)
+    local target=type(resref)=='string' and resref:upper() or ''
+    if target=='' then return false end
+    local found=false
+    for _,list in ipairs({sprite.m_timedEffectList,sprite.m_equipedEffectList}) do
+        local seen=0
+        g.EEex_Utility_IterateCPtrList(list,function(effect)
+            seen=seen+1
+            if seen>M.maxEffects then return true end
+            if name(effect.m_sourceRes)==target then found=true;return true end
+        end)
+        if found then return true end
+    end
+    return false
 end
 
 -- A party member's place in the party (1 for Player1, the protagonist, up to 6, by joining, as the
@@ -11853,7 +11904,9 @@ local function copied(t)
 end
 local function standing(g,sprite)
     local minimum=stat(g,sprite,M.stats.minHp)
-    return {held=stat(g,sprite,M.stats.held),sanctuary=stat(g,sprite,M.stats.sanctuary),
+    local held=stat(g,sprite,M.stats.held)
+    return {held=held,statue=held>0 and M.hasSource(g,sprite,M.statueSource) or nil,
+        sanctuary=stat(g,sprite,M.stats.sanctuary),
         maxHp=stat(g,sprite,M.stats.maxHp),mr=stat(g,sprite,M.stats.mr),ac=stat(g,sprite,M.combat.ac),
         drained=stat(g,sprite,M.stats.levelDrain),
         rooted=stat(g,sprite,M.stats.entangle)>0 or stat(g,sprite,M.stats.web)>0,
@@ -11879,7 +11932,7 @@ function M.actor(g,sprite,memory,tick,shared)
     local at=sprite.m_pos
     local s=recall(memory,sprite,tick,'standing',function() return standing(g,sprite) end)
     local actor={id=id,x=at.x,y=at.y,ea=sprite.m_typeAI.m_EnemyAlly,
-        state=state,held=s.held,sanctuary=s.sanctuary,
+        state=state,held=s.held,statue=s.statue,sanctuary=s.sanctuary,
         hp=sprite.m_baseStats.m_hitPoints,maxHp=s.maxHp,
         mr=s.mr,action=action.m_actionID,ac=s.ac,
         actee=type(actee)=='number' and actee or -1,skins=stat(g,sprite,M.combat.stoneskins),

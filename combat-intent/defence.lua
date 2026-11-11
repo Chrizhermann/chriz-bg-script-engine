@@ -329,8 +329,16 @@ local function might(role,held,debuff,tables)
     end
     local sign=debuff and -1 or 1
     local extra=number(held.strExtra) and held.strExtra or 0
-    local str=number(role.strengthSet) and role.strengthSet or held.str+sign*amount(role,'strength')
-    local ex=number(role.strengthExtraSet) and role.strengthExtraSet or extra+sign*amount(role,'strengthExtra')
+    local baseStr,baseEx=held.str,extra
+    if not debuff and number(role.strengthFloor) then
+        local floorStr=role.strengthFloor
+        local floorEx=number(role.strengthExtraFloor) and role.strengthExtraFloor or 0
+        if baseStr*1000+(baseStr==18 and clamp(baseEx,0,100) or 0)<floorStr*1000+(floorStr==18 and clamp(floorEx,0,100) or 0) then
+            baseStr,baseEx=floorStr,floorEx
+        end
+    end
+    local str=number(role.strengthSet) and role.strengthSet or baseStr+sign*amount(role,'strength')
+    local ex=number(role.strengthExtraSet) and role.strengthExtraSet or baseEx+sign*amount(role,'strengthExtra')
     str,ex=clamp(math.floor(str+0.5),0,25),clamp(math.floor(ex+0.5),0,100)
     local hit0,damage0=arsenal.might(tables,clamp(math.floor(held.str+0.5),0,25),clamp(math.floor(extra+0.5),0,100))
     local hit1,damage1=arsenal.might(tables,str,ex)

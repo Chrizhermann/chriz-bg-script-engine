@@ -489,4 +489,44 @@ assert(#gd:away(70)==0 and #charmEnds==1 and charmEnds[1].target==11 and charmEn
     charmEnds[1].why=='gone' and inPlay(gd,70)=='' and #logged(gd,'gone')==1)
 groups=groups+1
 
+-- 14. Petrified protagonist statue (CBMP1ST: statue=true): never chosen or kept as the focus while
+-- any non-statue enemy is open, nor kept over an active focus because the statue is more wounded;
+-- once only statues remain, the group focuses them normally without redundant focus-change entries.
+do
+    local st=director.new({})
+    st:checkIn(mage,frame(10,nil,{enemy(11,{hp=20}),enemy(12,{hp=8})}))
+    st:checkIn(priest,frame(10,{x=300},{enemy(12,{hp=8})}))
+    assert(st:focus(10)==12)
+    -- 12 turns to stone: focus moves to 11 (seen by mage alone, full health), and a bolt aimed at
+    -- the wounded statue 12 redirects to the active focus 11.
+    local f12={enemy(11,{hp=20}),enemy(12,{hp=8,held=1,statue=true})}
+    st:checkIn(mage,frame(20,nil,f12))
+    st:checkIn(priest,frame(20,{x=300},{enemy(12,{hp=8,held=1,statue=true})}))
+    assert(st:focus(20)==11)
+    local fRows=logged(st,'focus')
+    assert(fRows[#fRows].target==11 and fRows[#fRows].previous==12 and fRows[#fRows].seenBy==1 and fRows[#fRows].health==1)
+    local adv=st:advise(mage,frame(20,nil,f12),bolt,12,20)
+    assert(adv.action=='redirect' and adv.target==11 and adv.reason=='focus')
+    -- 11 falls: only statue 12 remains, so focus moves to 12 once and stays without extra changes.
+    st:checkIn(mage,frame(30,nil,{enemy(11,{hp=0,state=0x800}),enemy(12,{hp=8,held=1,statue=true})}))
+    st:checkIn(priest,frame(30,{x=300},{enemy(12,{hp=8,held=1,statue=true})}))
+    local changesBefore=st:inspect().counts.focusChanges
+    assert(st:focus(30)==12 and st:inspect().counts.focusChanges==changesBefore+1)
+    fRows=logged(st,'focus')
+    assert(fRows[#fRows].target==12 and fRows[#fRows].seenBy==2 and math.abs(fRows[#fRows].health-0.4)<1e-9)
+    assert(st:focus(31)==12 and st:inspect().counts.focusChanges==changesBefore+1)
+    -- Between two statues, a cast at the more wounded statue keeps 'original-more-wounded'.
+    local twoStatues={enemy(12,{hp=15,held=1,statue=true}),enemy(13,{hp=5,held=1,statue=true})}
+    st:checkIn(mage,frame(40,nil,twoStatues))
+    st:checkIn(priest,frame(40,{x=300},{enemy(12,{hp=15,held=1,statue=true})}))
+    assert(st:focus(40)==12)
+    adv=st:advise(mage,frame(40,nil,twoStatues),bolt,13,40)
+    assert(adv.action=='keep' and adv.reason=='original-more-wounded')
+    -- Cured by Stone to Flesh (statue nil): 12 outranks 11 again when seen by more members.
+    st:checkIn(mage,frame(50,nil,{enemy(11,{hp=20}),enemy(12,{hp=15})}))
+    st:checkIn(priest,frame(50,{x=300},{enemy(12,{hp=15})}))
+    assert(st:focus(50)==12)
+end
+groups=groups+1
+
 return groups

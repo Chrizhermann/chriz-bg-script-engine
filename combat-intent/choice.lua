@@ -294,6 +294,9 @@ M.kiteGap=18
 -- the shortest walk worth making (world units: a cell of the game's search map).
 M.positionSteps={1,0.75,0.5,0.25}
 M.positionMin=16
+-- Share of an attack's worth on a petrified statue (sense.statueSource, CBMP1ST): enemies fight
+-- active companions first and smash a statue only at low priority or when nothing better stands.
+M.statueShare=0.2
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
 local function clamp(v,a,b) if v<a then return a elseif v>b then return b end return v end
@@ -441,6 +444,7 @@ end
 local function damageOn(input,row,role,e,floor,n)
     local worth,expected=harm.damage(role,e,input.mind.killBonus,floor,n)
     if expected<=0 then return 0,0 end
+    if e.statue==true then worth=worth*M.statueShare end
     local plan=input.plan
     if type(plan)=='table' and plan.focus==e.id then worth=worth*(1+input.mind.focusBonus*input.mind.coordination) end
     worth=worth*orders.favour(input,e)
@@ -1249,6 +1253,7 @@ local function hitsOn(input,arms,raw,e,bs,absorbed)
             end
             worth=worth+input.mind.killBonus*kill
         end
+        if e.statue==true then worth=worth*M.statueShare end
         local plan=input.plan
         if type(plan)=='table' and plan.focus==e.id then worth=worth*(1+input.mind.focusBonus*input.mind.coordination) end
         worth=worth*orders.favour(input,e)

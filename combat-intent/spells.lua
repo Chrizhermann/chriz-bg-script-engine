@@ -39,7 +39,7 @@ for _,op in ipairs({7,8,9,23,41,50,51,52,53,56,57,61,63,64,66,71,72,82,94,95,96,
     244,245,251,252,253,254,255,262,263,265,267,268,269,271,275,276,277,279,281,282,287,290,291,
     293,294,295,296,298,300,302,307,308,309,311,312,313,315,319,320,323,327,328,330,336,338,339,
     340,342,347,348,349,350,351,352,353,354,355,356,357,358,359,360,361,362,363,364,365,367,
-    21,59,90,91,92,171,233,266}) do NEUTRAL[op]=true end
+    21,59,90,91,92,171,233,266,403}) do NEUTRAL[op]=true end
 -- 321 and 266 remove the effects or protections of one named resource: SCS and SR use them
 -- to refresh their own helpers, so they are bookkeeping, not dispelling. What 321 takes away
 -- is kept all the same (H[321]).
@@ -384,6 +384,13 @@ for op,label in pairs(STATS) do
     H[op]=function(c,e,who,p)
         local mode=e.p2%65536
         if (op==15 or op==44) and mode==3 then kind(c,'buff',label,who,e,p);return end
+        if op==44 and mode==0 and e.p1==0 and e.res:upper()=='CBTSTRF' and e.special>=15000 then
+            local r=kind(c,'buff',label,who,e,p)
+            local fStr,fEx=math.floor(e.special/1000),math.min(e.special%1000,100)
+            local old=(r.strengthFloor or 0)*1000+(r.strengthFloor==18 and (r.strengthExtraFloor or 0) or 0)
+            if fStr*1000+(fStr==18 and fEx or 0)>old then r.strengthFloor,r.strengthExtraFloor=fStr,fEx end
+            return
+        end
         if mode==1 then
             local r,good
             if e.p1>=15 then r,good=kind(c,'buff',label,who,e,p),true elseif e.p1<=8 then r=kind(c,'debuff',label,who,e,p) end
@@ -555,11 +562,19 @@ end
 H[166]=function(c,e,who,p) modifier(c,e,who,p,'magicResistance','protection','debuff') end
 -- Invoke Lua cannot be read from a SPL. Describe only functions whose implementation is known,
 -- never the spell that happens to call them. CBMBPM floors half the receiver's current MR,
--- clamps the reduction to 10..40 points and keeps it for five rounds (the spell mod's Lua).
-M.luaEffects={CBMBPM={share=0.5,min=10,max=40,duration=30}}
+-- clamps the reduction to 10..40 points and keeps it for five rounds; CBMLRES ends temporary
+-- attribute drain; CBMSIMU trims a Simulacrum copy's innate abilities to its reduced level (the
+-- spell mod's Lua).
+M.luaEffects={
+    CBMBPM={share=0.5,min=10,max=40,duration=30},
+    CBMLRES={cure='abilityDrain'},
+    CBMSIMU={neutral=true},
+}
 H[402]=function(c,e,who,p)
     local known=M.luaEffects[e.res:upper()]
     if not known then c.unknown=c.unknown or {};tally(c.unknown,402,1);return end
+    if known.neutral then return end
+    if known.cure then kind(c,'cure',known.cure,who,e,p);return end
     local effect={}
     for k,v in pairs(e) do effect[k]=v end
     effect.timing=0;effect.duration=known.duration

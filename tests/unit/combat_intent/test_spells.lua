@@ -1164,4 +1164,44 @@ assert(role.duration==30 and harm.weakened(role,{mr=51}).mr==26)
 end)()
 groups=groups+1
 
+-- Spell-mod helpers: opcode 403 (EEex effect screen) is passive bookkeeping, CBMLRES cures
+-- temporary attribute drain, CBMSIMU trims a Simulacrum copy's innates without a combat role, and
+-- CBTSTRF on opcode 44 (mode 0, p1 0) records a non-lowering Strength floor in special (STR * 1000
+-- + exceptional STR).
+;(function()
+local targeting=require('combat-intent.targeting')
+assert(spells.neutral[403]==true)
+local screen=one(fx(403,{res='CBMP1SCR',timing=9}))
+assert(screen.unknown[403]==nil and next(screen.roles)==nil)
+local restore=classify(spl('TESTLRES',{ability({fx(224,{timing=1}),fx(402,{res='cbmlres',timing=1})})}))
+assert(restore.unknown[402]==nil and restore.roles.cure.kinds.drain and restore.roles.cure.kinds.abilityDrain)
+local simu=one(fx(402,{res='CBMSIMU',timing=1}))
+assert(simu.unknown[402]==nil and next(simu.roles)==nil)
+local subSimu=spl('SCRSIMU',{ability({fx(402,{res='CBMSIMU',timing=1}),fx(0,{p1=2,duration=60})})})
+local condSimu=classify(spl('SCRSCND',{ability({fx(326,{res='SCRSIMU',p2=125,p1=8})})}),world({['SPL:SCRSIMU']=subSimu}))
+local key=spells.conditionKey(condSimu.conditions[1])
+assert(spells.view(condSimu,targeting.holds({splprot={[key]=true}})).protection.amounts.armor==2)
+local strSpell=classify(spl('TESTSTR',{ability({fx(44,{res='cbtstrf',special=18000,duration=180}),fx(97,{p1=50,duration=180})})}))
+local b=strSpell.roles.buff
+assert(b.kinds.strength and b.strengthFloor==18 and b.strengthExtraFloor==0 and b.amounts.strength==nil and b.amounts.strengthExtra==50)
+b=one(fx(44,{res='CBTSTRF',special=18075,duration=60})).roles.buff
+assert(b.strengthFloor==18 and b.strengthExtraFloor==75)
+b=one(fx(44,{res='CBTSTRF',special=18150,duration=60})).roles.buff
+assert(b.strengthFloor==18 and b.strengthExtraFloor==100)
+b=one(fx(44,{res='CBTSTRF',special=19000,duration=60})).roles.buff
+assert(b.strengthFloor==19 and b.strengthExtraFloor==0)
+b=classify(spl('TESTSTR2',{ability({fx(44,{res='CBTSTRF',special=18075,duration=60}),fx(44,{res='CBTSTRF',special=18100,duration=60})})})).roles.buff
+assert(b.strengthFloor==18 and b.strengthExtraFloor==100)
+b=classify(spl('TESTSTR3',{ability({fx(44,{res='CBTSTRF',special=19000,duration=60}),fx(44,{res='CBTSTRF',special=18100,duration=60})})})).roles.buff
+assert(b.strengthFloor==19 and b.strengthExtraFloor==0)
+assert(one(fx(44,{res='CBTSTRF',special=14999,duration=60})).roles.buff==nil)
+assert(one(fx(44,{res='OTHER',special=18100,duration=60})).roles.buff==nil)
+assert(one(fx(15,{res='CBTSTRF',special=18100,duration=60})).roles.buff==nil)
+b=one(fx(44,{p1=1,res='CBTSTRF',special=18100,duration=60})).roles.buff
+assert(b.strengthFloor==nil and b.amounts.strength==1)
+b=one(fx(44,{p1=18,p2=1,res='CBTSTRF',special=18100,duration=60})).roles.buff
+assert(b.strengthFloor==nil and b.strengthSet==18)
+end)()
+groups=groups+1
+
 return groups

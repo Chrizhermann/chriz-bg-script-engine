@@ -177,7 +177,7 @@ function M.new(config)
                 local seen=enemies[e.id] or {seenBy={}}
                 heading(seen,e,tick)
                 seen.lastTick=tick;seen.x,seen.y,seen.hp,seen.maxHp=e.x,e.y,e.hp,e.maxHp
-                seen.state,seen.held,seen.minHp=e.state,e.held,e.minHp
+                seen.state,seen.held,seen.minHp,seen.statue=e.state,e.held,e.minHp,e.statue==true or nil
                 seen.seenBy[member.id]=tick
                 enemies[e.id]=seen
                 if not foes[e.id] then
@@ -207,7 +207,7 @@ function M.new(config)
     -- its minimum keeps where it is is no focus: it looks nearly dead and cannot die (lab batch
     -- H9).
     function api:focus(tick)
-        if focus and fresh(enemies[focus],tick) and open(enemies[focus]) then return focus end
+        if focus and fresh(enemies[focus],tick) and open(enemies[focus]) and not enemies[focus].statue then return focus end
         local best,bestKey
         for key,e in pairs(enemies) do
             if fresh(e,tick) and open(e) then
@@ -217,7 +217,7 @@ function M.new(config)
                     if m and tick-at<=o.enemyTicks then seen=seen+1;far=far+targeting.distance(m,e) end
                 end
                 if seen>0 then
-                    local k={seen,-targeting.room(e),-far/seen,-key}
+                    local k={e.statue and 0 or 1,seen,-targeting.room(e),-far/seen,-key}
                     local better=bestKey==nil
                     for i=1,#k do
                         if better or k[i]~=bestKey[i] then better=better or k[i]>bestKey[i];break end
@@ -228,8 +228,8 @@ function M.new(config)
         end
         if best~=focus then
             counts.focusChanges=counts.focusChanges+1
-            record({kind='focus',tick=tick,target=best,previous=focus,seenBy=bestKey and bestKey[1],
-                health=bestKey and -bestKey[2]})
+            record({kind='focus',tick=tick,target=best,previous=focus,seenBy=bestKey and bestKey[2],
+                health=bestKey and -bestKey[3]})
             focus=best
         end
         return focus
@@ -266,7 +266,7 @@ function M.new(config)
         local chosen=byId[target]
         if not chosen then return {action='keep',kind=kind,reason='focus-unseen'} end
         if targeting.casting(first) then return {action='keep',kind=kind,reason='original-casting'} end
-        if targeting.health(first)<targeting.health(chosen) then
+        if (not first.statue or chosen.statue) and targeting.health(first)<targeting.health(chosen) then
             return {action='keep',kind=kind,reason='original-more-wounded'}
         end
         local ok,blocked=targeting.legal(caster,chosen,spell,first)

@@ -32,6 +32,11 @@ M.minimumHp=208
 -- (opcode 212) frees it. Either stays in the creature's effect list meanwhile, and the creature's
 -- object and position remain while no area search finds it (lab batch J).
 M.outOfGame={[213]='maze',[211]='prison'}
+-- The spell mod imprisons Player1 through opcode 213 from CBMP1IM and petrifies Player1 through
+-- CBMP1ST so neither state ends the game at once: CBMP1IM is a prison (never returns on its own),
+-- and a creature held by CBMP1ST is a tough statue that enemies attack only at low priority.
+M.prisonSource='CBMP1IM'
+M.statueSource='CBMP1ST'
 -- STATE_INVISIBLE and STATE_IMPROVEDINVISIBILITY; STATE_BLIND.
 M.unseen,M.blind=0x400010,0x40000
 -- What a backstab needs to know (F2d): STATS.IDS BACKSTABDAMAGEMULTIPLIER and
@@ -169,11 +174,29 @@ function M.removed(g,sprite)
             seen=seen+1
             if seen>M.maxEffects then return true end
             local kind=M.outOfGame[effect.m_effectId]
+            if kind=='maze' and name(effect.m_sourceRes)==M.prisonSource then kind='prison' end
             if kind then found=kind;return true end
         end)
         if found then return found end
     end
     return nil
+end
+
+-- Whether any effect in a creature's timed or equipped lists came from resref.
+function M.hasSource(g,sprite,resref)
+    local target=type(resref)=='string' and resref:upper() or ''
+    if target=='' then return false end
+    local found=false
+    for _,list in ipairs({sprite.m_timedEffectList,sprite.m_equipedEffectList}) do
+        local seen=0
+        g.EEex_Utility_IterateCPtrList(list,function(effect)
+            seen=seen+1
+            if seen>M.maxEffects then return true end
+            if name(effect.m_sourceRes)==target then found=true;return true end
+        end)
+        if found then return true end
+    end
+    return false
 end
 
 -- A party member's place in the party (1 for Player1, the protagonist, up to 6, by joining, as the
@@ -228,7 +251,9 @@ local function copied(t)
 end
 local function standing(g,sprite)
     local minimum=stat(g,sprite,M.stats.minHp)
-    return {held=stat(g,sprite,M.stats.held),sanctuary=stat(g,sprite,M.stats.sanctuary),
+    local held=stat(g,sprite,M.stats.held)
+    return {held=held,statue=held>0 and M.hasSource(g,sprite,M.statueSource) or nil,
+        sanctuary=stat(g,sprite,M.stats.sanctuary),
         maxHp=stat(g,sprite,M.stats.maxHp),mr=stat(g,sprite,M.stats.mr),ac=stat(g,sprite,M.combat.ac),
         drained=stat(g,sprite,M.stats.levelDrain),
         rooted=stat(g,sprite,M.stats.entangle)>0 or stat(g,sprite,M.stats.web)>0,
@@ -254,7 +279,7 @@ function M.actor(g,sprite,memory,tick,shared)
     local at=sprite.m_pos
     local s=recall(memory,sprite,tick,'standing',function() return standing(g,sprite) end)
     local actor={id=id,x=at.x,y=at.y,ea=sprite.m_typeAI.m_EnemyAlly,
-        state=state,held=s.held,sanctuary=s.sanctuary,
+        state=state,held=s.held,statue=s.statue,sanctuary=s.sanctuary,
         hp=sprite.m_baseStats.m_hitPoints,maxHp=s.maxHp,
         mr=s.mr,action=action.m_actionID,ac=s.ac,
         actee=type(actee)=='number' and actee or -1,skins=stat(g,sprite,M.combat.stoneskins),

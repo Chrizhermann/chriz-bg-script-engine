@@ -913,4 +913,54 @@ do
 end
 groups=groups+1
 
+-- 18. Strength floors (CBTSTRF: Strength, Strength of One, Divine Power, Champion's Strength,
+-- Animal Rage): lift a lower Strength to the floor without ever lowering a higher one, and stack
+-- additive bonuses (such as Strength's +50 exceptional points) on top.
+do
+    local wizStrength=spell('TESTWSTR',2,{fx(44,{target=2,res='CBTSTRF',special=18000,duration=180}),
+        fx(97,{target=2,p1=50,duration=180})},{target=1,speed=5})
+    local strOfOne=spell('TESTS1',3,{fx(44,{target=2,res='CBTSTRF',special=18075,duration=60})},{speed=3})
+    local divPower=spell('TESTDPWR',4,{fx(44,{res='CBTSTRF',special=18100,duration=60}),fx(54,{p1=2,duration=60})},{speed=4})
+    local flatPower=spell('TESTFPWR',4,{fx(44,{p1=18,p2=1,duration=60}),fx(97,{p1=100,p2=1,duration=60}),
+        fx(54,{p1=2,duration=60})},{speed=4})
+    local animalRage=spell('TESTRAGE',5,{fx(44,{res='CBTSTRF',special=19000,duration=60})},{speed=0})
+    local enemy300={fighter(11,130,{hp=300,maxHp=300})}
+    -- Strength (floor 18/00 + 50 exceptional): 14/0 -> 18/50 (+1 hit, +3 damage); 18/30 (+1, +3) ->
+    -- 18/80 (+2, +4); 18/75 (+2, +3) -> 18/00 (+3, +6); 19/0 (+3, +7) stays 19/0 (no worth).
+    local f=input(enemy300,{},{mind=mind.new({ownWeapon=true}),items=potions(wizStrength)})
+    f.frame.self.hp,f.frame.self.maxHp=200,200
+    f.frame.self.weapon=sword({str=14,strExtra=0})
+    assert(near(find(defence.options(f,{}),'TESTWSTR').worth,(2*0.8*13-2*0.75*10)*10/300))
+    f.frame.self.weapon=sword({str=18,strExtra=30})
+    assert(near(find(defence.options(f,{}),'TESTWSTR').worth,(2*0.8*11-2*0.75*10)*10/300))
+    f.frame.self.weapon=sword({str=18,strExtra=75})
+    assert(near(find(defence.options(f,{}),'TESTWSTR').worth,(2*0.8*13-2*0.75*10)*10/300))
+    f.frame.self.weapon=sword({str=19,strExtra=0})
+    local rej={}
+    assert(find(defence.options(f,rej),'TESTWSTR')==nil and rej['no-worth']==1)
+    -- Strength of One (floor 18/75): lifts 18/50 (+1, +3) to 18/75 (+2, +3 -> +1 hit), leaves 18/75
+    -- and 18/90 untouched.
+    f.items=potions(strOfOne)
+    f.frame.self.weapon=sword({str=18,strExtra=50})
+    assert(near(find(defence.options(f,{}),'TESTS1').worth,(2*0.8*10-2*0.75*10)*10/300))
+    f.frame.self.weapon=sword({str=18,strExtra=75})
+    assert(find(defence.options(f,{}),'TESTS1')==nil)
+    f.frame.self.weapon=sword({str=18,strExtra=90})
+    assert(find(defence.options(f,{}),'TESTS1')==nil)
+    -- Divine Power (floor 18/00 + 2 hit) on a wielder at 19/0: keeps 19/0's damage instead of
+    -- losing 1 damage like a flat set to 18/00.
+    f.items=potions(divPower,flatPower)
+    f.frame.self.weapon=sword({str=19,strExtra=0})
+    local opts=defence.options(f,{})
+    assert(near(find(opts,'TESTDPWR').worth,(2*0.85*10-2*0.75*10)*10/300))
+    assert(find(opts,'TESTDPWR').worth>find(opts,'TESTFPWR').worth)
+    -- Animal Rage (floor 19/0): lifts 18/00 (+3, +6) to 19/0 (+3, +7 -> +1 damage), leaves 20/0.
+    f.items=potions(animalRage)
+    f.frame.self.weapon=sword({str=18,strExtra=100})
+    assert(near(find(defence.options(f,{}),'TESTRAGE').worth,(2*0.75*11-2*0.75*10)*10/300))
+    f.frame.self.weapon=sword({str=20,strExtra=0})
+    assert(find(defence.options(f,{}),'TESTRAGE')==nil)
+end
+groups=groups+1
+
 return groups

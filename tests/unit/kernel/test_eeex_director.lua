@@ -607,4 +607,60 @@ assert(d:plan(1,116)==nil and d:inspect().lastError:find('^plan: ')~=nil)
 end)()
 groups=groups+1
 
+-- 12. Protagonist prison (CBMP1IM) and statue (CBMP1ST): opcode 213 from CBMP1IM is read as
+-- 'prison' so the group forgets the imprisoned protagonist instead of guarding a Maze spot, and a
+-- held creature carrying CBMP1ST is marked statue=true so active companions take the focus.
+;(function()
+local w=world()
+local m1=w.add(sprite(1,0,0,255))
+local p1=w.add(sprite(31,100,0,2,{m_baseStats={m_hitPoints=10,m_generalState=0}}))
+local p2=w.add(sprite(32,200,0,2,{m_baseStats={m_hitPoints=20,m_generalState=0}}))
+local function sourced(op,src)
+    local e=effect(op,0,0,'')
+    e.m_sourceRes=str(src)
+    return e
+end
+p1.m_timedEffectList={sourced(142,'')}
+assert(sense.hasSource(w,p1,'')==false and sense.hasSource(w,p1,nil)==false)
+p1.m_timedEffectList={sourced(185,'cbmp1st')}
+assert(sense.hasSource(w,p1,'CBMP1ST')==true and sense.hasSource(w,p1,'OTHER')==false)
+-- Without HELD>0, actor.statue stays nil; with HELD>0 and another hold source, still nil; with
+-- CBMP1ST (timed or equipped), actor.statue is true.
+assert(sense.actor(w,p1).statue==nil)
+p1.stats[58]=1
+p1.m_timedEffectList={sourced(175,'SPPR208')}
+assert(sense.actor(w,p1).statue==nil)
+p1.m_timedEffectList={}
+p1.m_equipedEffectList={sourced(185,'CBMP1ST')}
+assert(sense.actor(w,p1).statue==true)
+p1.m_equipedEffectList={}
+p1.m_timedEffectList={sourced(185,'CBMP1ST')}
+-- Respect maxEffects in hasSource.
+local oldMax=sense.maxEffects
+sense.maxEffects=1
+p1.m_timedEffectList={sourced(142,'OTHER'),sourced(185,'CBMP1ST')}
+assert(sense.hasSource(w,p1,'CBMP1ST')==false)
+sense.maxEffects=oldMax
+p1.m_timedEffectList={sourced(185,'CBMP1ST')}
+-- Director focus skips the wounded statue p1 for active companion p2.
+local d=adapter.new(w,{reader=reader})
+d:attach({now=function() return w.ticks end})
+w.ticks=100
+d:observe({id=1},'mage')
+assert(d:plan(1,100).focus==32)
+-- Now p1 vanishes under CBMP1IM (opcode 213 from CBMP1IM): sense.removed reports 'prison', not
+-- 'maze', and after removalTicks the director forgets p1 instead of keeping p1 in away.
+p1.stats[58]=0
+p1.m_timedEffectList={sourced(213,'SPWI813')}
+assert(sense.removed(w,p1)=='maze')
+p1.m_timedEffectList={sourced(213,'cbmp1im')}
+assert(sense.removed(w,p1)=='prison')
+p1.blocked=true
+w.ticks=120
+d:observe({id=1},'mage')
+local plan=d:plan(1,120)
+assert(plan.inPlay[31]==nil and plan.inPlay[32]==true and #d:inspect().areas.AR0001.away==0)
+end)()
+groups=groups+1
+
 return groups

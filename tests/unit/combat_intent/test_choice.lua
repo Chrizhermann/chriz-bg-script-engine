@@ -1105,4 +1105,50 @@ do
 end
 groups=groups+1
 
+-- 28. Petrified protagonist statue (CBMP1ST: statue=true, held=1): attacks weigh a fifth
+-- (choice.statueShare) on a statue so enemies fight active companions first, yet still smash a
+-- lone statue or obey explicit orders.
+do
+    local function near(a,b) return math.abs(a-b)<1e-9 end
+    local function byTarget(list,id)
+        for _,o in ipairs(list) do if o.target==id then return o end end
+    end
+    local active=enemy(11,{x=150,hp=50,maxHp=50})
+    local plain12=enemy(12,{x=150,hp=50,maxHp=50,held=1})
+    local statue12=enemy(12,{x=150,hp=50,maxHp=50,held=1,statue=true})
+    local base=choice.options(enemies(input({spells={row('TESTBOLT',bolt,3)}}),{active,plain12}))
+    local withStatue=choice.options(enemies(input({spells={row('TESTBOLT',bolt,3)}}),{active,statue12}))
+    local oPlain,oStatue=byTarget(base,12),byTarget(withStatue,12)
+    assert(near(oStatue.worth,oPlain.worth*choice.statueShare) and near(oStatue.expected[12],oPlain.expected[12]))
+    -- Even a wounded statue yields to a healthy active companion, until only the statue remains.
+    local woundedStatue=enemy(12,{x=150,hp=22,maxHp=50,held=1,statue=true})
+    local pick=choice.decide(enemies(input({spells={row('TESTBOLT',bolt,3)}}),{active,woundedStatue}))
+    assert(pick.resref=='TESTBOLT' and pick.target==11)
+    -- Weapon attacks scale the same way: fighter swings at active 11 over wounded statue 12, then
+    -- finishes the lone statue when 11 falls, and obeys an explicit order on 12.
+    local sword={item='TESTSWRD',damage=8,damageType=3,apr=2,thac0=8,ranged=false,flags=0,enchantment=1}
+    local f=enemies(input({family='fighter'}),{active,woundedStatue})
+    f.frame.self.weapon=sword
+    f.frame.self.hp,f.frame.self.maxHp=60,60
+    local fPlain=enemies(input({family='fighter'}),{active,enemy(12,{x=150,hp=22,maxHp=50,held=1})})
+    fPlain.frame.self.weapon=sword;fPlain.frame.self.hp,fPlain.frame.self.maxHp=60,60
+    local wPlain=byTarget(choice.weaponOptions(fPlain),12)
+    local wStatue=byTarget(choice.weaponOptions(f),12)
+    assert(near(wStatue.worth,wPlain.worth*choice.statueShare) and near(wStatue.expected[12],wPlain.expected[12]))
+    assert(choice.decide(f).target==11)
+    local ordered=enemies(input({family='fighter',orders={target='protagonist',always=true}}),
+        {active,enemy(12,{x=150,hp=22,maxHp=50,held=1,statue=true,player=1})})
+    ordered.frame.self.weapon=sword;ordered.frame.self.hp,ordered.frame.self.maxHp=60,60
+    assert(choice.decide(ordered).target==12)
+    local lone=enemies(input({family='fighter'}),{enemy(11,{x=150,hp=0,maxHp=50,state=0x800}),woundedStatue})
+    lone.frame.self.weapon=sword;lone.frame.self.hp,lone.frame.self.maxHp=60,60
+    local finish,why=choice.decide(lone)
+    assert(why=='weapon' and finish.target==12 and finish.worth>0)
+    -- statue=false is not a statue.
+    local notStatue=byTarget(choice.options(enemies(input({spells={row('TESTBOLT',bolt,3)}}),
+        {active,enemy(12,{x=150,hp=50,maxHp=50,held=1,statue=false})})),12)
+    assert(near(notStatue.worth,oPlain.worth))
+end
+groups=groups+1
+
 return groups
