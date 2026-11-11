@@ -135,6 +135,11 @@ with scripts of their own (trolls, golems, wyverns, ankhegs, some of them also i
   cannot die there, so damage spells are worth nothing to the engine and its celestials mostly swing; that says
   nothing about their choices against a real party. The Playground took this engine (a76f88b, the same engine
   code) on 2026-11-10 at 05:29 in five minutes; its spell mod stays e200515.
-- **Lesser Restoration's `CBMLRES`:** worth an entry in `spells.lua`'s `luaEffects` once the engine senses drained
-  abilities on its allies; until then it reads as unknown, which costs nothing else.
+- **Spell mod `f5e735d` and restoration/strength gaps** (2026-11-11 to 2026-11-12): the Playground took spell mod
+  `f5e735d` with engine `5dc6324` on 2026-11-11 at 20:09 (`faster-install` merged in). Non-lowering strength floors
+  (`CBTSTRF`), `CBMSIMU`, protagonist imprisonment (`CBMP1IM`), protagonist petrification (`CBMP1ST`), and Lesser
+  Restoration's `CBMLRES` are classified (`5dc6324`). Since then, `sense.lua` and `care.lua` also sense timed
+  attribute drain on allies (matching `CBMLRES`), weigh cures of level drain and attribute drain while accounting for
+  Restoration's self-fatigue instead of rejecting Lesser and Greater Restoration as self-harm, and `harm.lua` weighs
+  strength-lowering debuffs (such as *Ray of Enfeeblement*) through `arsenal.might`.
 - **Later:** our own party AI script; our own classes, kits and races (see the main plan's ideas list).

@@ -8,6 +8,7 @@ local targeting=require('combat-intent.targeting')
 local ids=require('combat-intent.ids')
 local threat=require('combat-intent.threat')
 local weapons=require('combat-intent.weapons')
+local arsenal=require('combat-intent.arsenal')
 local M={}
 -- A disable lasting this long counts in full (three rounds).
 M.fullSeconds=18
@@ -335,8 +336,9 @@ end
 -- deafness fails half of wizard and priest spells besides. A lower casting level weakens a
 -- creature's spells by the levels it takes, and drained levels weaken its weapon and its spells by
 -- theirs. A creature already slowed or blind gets nothing more from another slow or blindness.
--- Lower strength, dexterity and constitution do not count yet: the engine reads neither the stats
--- nor their tables.
+-- Lower strength counts through the game's strength tables (arsenal.might: the installed ones, else
+-- the shipped ones) on a weapon that takes strength's bonuses. Lower dexterity and constitution do
+-- not count yet.
 M.blindHit=4
 M.blindArmor=4
 M.deafFailure=50
@@ -347,6 +349,24 @@ local function amount(role,label)
     local a=type(role)=='table' and role.amounts
     local v=type(a)=='table' and a[label]
     return number(v) and v or 0
+end
+-- What a debuff role's lower strength takes from the bonuses to hit and to damage of weapon held
+-- (the wielder's strength and exceptional strength, and which bonuses the weapon takes), by
+-- arsenal.might: the score it sets, else its own less the points it takes; exceptional strength
+-- likewise. None when the score does not lower them, for a weapon that takes neither bonus, or for
+-- a strength not known.
+local function might(role,held,tables)
+    if type(held)~='table' or not number(held.str) or not (held.strengthHit or held.strengthDamage) then
+        return 0,0
+    end
+    local extra=number(held.strExtra) and held.strExtra or 0
+    local str=number(role.strengthSet) and role.strengthSet or held.str-amount(role,'strength')
+    local ex=number(role.strengthExtraSet) and role.strengthExtraSet or extra-amount(role,'strengthExtra')
+    local low=type(tables)=='table' and type(tables.strmod)=='table' and tables.strmod[0]~=nil and 0 or 1
+    str,ex=clamp(math.floor(str+0.5),low,25),clamp(math.floor(ex+0.5),0,100)
+    local hit0,damage0=arsenal.might(tables,clamp(math.floor(held.str+0.5),low,25),clamp(math.floor(extra+0.5),0,100))
+    local hit1,damage1=arsenal.might(tables,str,ex)
+    return held.strengthHit and math.max(0,hit0-hit1) or 0,held.strengthDamage and math.max(0,damage0-damage1) or 0
 end
 -- The share of e's spells that fail under role: by the kinds of spell its classes cast, half each
 -- for one that casts both; one of no casting class casts innate abilities.
@@ -363,9 +383,9 @@ local function failing(role,e)
     return total/n/100
 end
 -- What role takes from e's fight while it holds, a share from 0 to 1. ac: the armour class e's
--- weapon meets (threat.hitChance's default when nil). The caster itself carries the weapon in its
--- hand (weapon) rather than attack data.
-function M.weaken(role,e,ac)
+-- weapon meets (threat.hitChance's default when nil); tables: the game's strength tables. The
+-- caster itself carries the weapon in its hand (weapon) rather than attack data.
+function M.weaken(role,e,ac,tables)
     if type(role)~='table' or type(e)~='table' then return 0 end
     local k=type(role.kinds)=='table' and role.kinds or {}
     local held=e.attack
@@ -378,7 +398,8 @@ function M.weaken(role,e,ac)
     if weapon+spell<=0 then return 0 end
     local slow=(k.slow and not targeting.has(e.state,targeting.STATE.slowed)) and 0.5 or 1
     local kept=math.max(0,level-amount(role,'drain'))/level
-    local worse=amount(role,'thac0')+amount(role,'luck')+math.max(0,amount(role,'fatigue')-M.fatigueFree)+
+    local strHit,strDamage=might(role,held,tables)
+    local worse=amount(role,'thac0')+strHit+amount(role,'luck')+math.max(0,amount(role,'fatigue')-M.fatigueFree)+
         math.max(0,a.thac0)*amount(role,'thac0Percent')/100
     if number(role.thac0Set) then worse=worse+math.max(0,role.thac0Set-a.thac0) end
     if k.blind and not targeting.has(e.state,targeting.STATE.blind) then worse=worse+M.blindHit end
@@ -389,7 +410,7 @@ function M.weaken(role,e,ac)
     local apr=math.max(0,a.apr-threat.attacks(amount(role,'attacks')))*slow
     -- Bad luck for base weapon damage lowers the weapon's own dice (threat.luckGain: 0 unknown).
     local unlucky=threat.luckGain(a.rolls,-amount(role,'damageLuck'))
-    local damage=math.max(0,a.damage-amount(role,'damage')+unlucky)*math.max(0,1-percent/100)
+    local damage=math.max(0,a.damage-amount(role,'damage')-strDamage+unlucky)*math.max(0,1-percent/100)
     local after=armed and apr*threat.hitChance(a.thac0+worse,ac)*damage*kept or 0
     local power=math.max(0,level-amount(role,'castingLevel'))/level
     local cast=spell*slow*kept*power*(1-failing(role,e))
@@ -439,13 +460,13 @@ function M.teleport(role,e,n)
     return lost/M.fullSeconds*(0.5+0.5*targeting.health(e))
 end
 
--- The worth of a debuff role on e: the share of e's fight it takes (M.weaken, with ac as there)
--- for as long as it holds, as a disable counts its kind (a hold that takes all of a healthy
+-- The worth of a debuff role on e: the share of e's fight it takes (M.weaken, with ac and tables as
+-- there) for as long as it holds, as a disable counts its kind (a hold that takes all of a healthy
 -- creature's fight for the full time is worth 1), times the chance it lands. Nothing on a creature
 -- already disabled or outside the role's levels.
-function M.debuff(role,e,ac)
+function M.debuff(role,e,ac,tables)
     if type(role)~='table' or type(e)~='table' or targeting.disabled(e) or not M.within(role,e) then return 0 end
-    local share=M.weaken(role,e,ac)
+    local share=M.weaken(role,e,ac,tables)
     if share<=0 then return 0 end
     return share*length(role,e)*(0.5+0.5*targeting.health(e))*M.chance(role,e)
 end

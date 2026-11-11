@@ -110,7 +110,7 @@ end
 -- What a debuff role takes from f's fight for as long as it holds, times the chance it lands, as
 -- the engine's own debuffs count it on an enemy (harm.debuff: Stinking Cloud's spell failure on a
 -- caster, a blindness on a fighter). ac: the armour class f's weapon meets.
-function M.debuff(role,f,ac) return harm.debuff(role,f,ac) end
+function M.debuff(role,f,ac,tables) return harm.debuff(role,f,ac,tables) end
 -- The mean armour class f's weapon meets: its enemies', with theirs (f one of the caster's
 -- enemies) the caster's side's.
 local function facing(input,theirs)
@@ -143,7 +143,7 @@ function M.hit(input,z,f,theirs)
     local killBonus=type(input.mind)=='table' and input.mind.killBonus or 0
     local other,spread=0,nil
     if reaches(roles.disable) then other=other+harm.disable(roles.disable,f,killBonus,floor) end
-    if reaches(roles.debuff) then other=other+M.debuff(roles.debuff,f,facing(input,theirs)) end
+    if reaches(roles.debuff) then other=other+M.debuff(roles.debuff,f,facing(input,theirs),input.tables) end
     local worth=other
     if reaches(roles.damage) then
         spread=harm.spread(roles.damage,f)

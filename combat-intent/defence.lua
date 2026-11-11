@@ -362,7 +362,7 @@ local function reaches(role) return type(role)=='table' and type(role.who)=='tab
 -- debuff once, as likely as a hit that brings it lands, the debuff against the armour class of the
 -- holder's side and none on an enemy that carries it already (harm.carries); the mean over the
 -- enemies. What an enemy's spell protections keep out counts nothing.
-local function payload(hits,held,apr,thac0,crit,frame,r)
+local function payload(hits,held,apr,thac0,crit,frame,r,tables)
     local list=weapons.payloads(hits,held)
     if #list==0 then return 0 end
     local ac=threat.armour(threat.friends(frame))
@@ -391,7 +391,7 @@ local function payload(hits,held,apr,thac0,crit,frame,r)
                         disabled=math.max(disabled,harm.disable(roles.disable,e,0,floor)*math.min(1,times))
                     end
                     if reaches(roles.debuff) and not harm.carries(e,h.strike,h.source) then
-                        weakened=math.max(weakened,harm.debuff(roles.debuff,e,ac)*math.min(1,times))
+                        weakened=math.max(weakened,harm.debuff(roles.debuff,e,ac,tables)*math.min(1,times))
                     end
                 end
             end
@@ -438,11 +438,11 @@ function M.offense(buff,f,frame,r,held,own,hits,tables)
         local h=threat.hitChance(a.thac0-hit+lost,ac)
         local lands=1-(1-h)^math.max(0,a.apr*r)
         local one=swing(1,d,crit-blunt)-swing(1,a.damage,0)
-        return math.max(0,one)*lands/hp+payload(hits,held,a.apr,a.thac0-hit+lost,crit-blunt,frame,r)
+        return math.max(0,one)*lands/hp+payload(hits,held,a.apr,a.thac0-hit+lost,crit-blunt,frame,r,tables)
     end
     local before=a.apr*swing(threat.hitChance(a.thac0,ac),a.damage,0)
     local after=apr*swing(threat.hitChance(a.thac0-hit+lost,ac),d,crit-blunt)
-    return math.max(0,after-before)*r/hp+payload(hits,held,apr,a.thac0-hit+lost,crit-blunt,frame,r)
+    return math.max(0,after-before)*r/hp+payload(hits,held,apr,a.thac0-hit+lost,crit-blunt,frame,r,tables)
 end
 
 -- Whether a role of a beneficial spell reaches friends: the caster, its area (an area that
@@ -614,7 +614,7 @@ local function weakens(input,row,spell,aim,ac)
             local d=type(roles)=='table' and roles.debuff
             if type(d)=='table' and type(d.who)=='table' and d.who.area and
                 (type(d.filters)~='table' or d.filters.enemies or d.filters.all) then
-                worth=worth+harm.debuff(d,e,ac)
+                worth=worth+harm.debuff(d,e,ac,input.tables)
             end
         end
     end

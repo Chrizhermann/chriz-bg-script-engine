@@ -637,7 +637,7 @@ local function debuffOn(input,row,role,e,ctx,plain)
     local cursed=type(plan)=='table' and type(plan.cursed)=='table' and plan.cursed[e.id]
     local owner=type(cursed)=='table' and cursed[row.resref]
     if owner and owner~=input.frame.self.id and input.mind.coordination>=0.5 then return 0 end
-    local worth=harm.debuff(role,e,facing(input,ctx))
+    local worth=harm.debuff(role,e,facing(input,ctx),input.tables)
     if not plain then worth=worth+opening(input,row,role,e,ctx) end
     return worth*remembered(input,row.resref,e,role)*orders.favour(input,e)
 end
@@ -1261,7 +1261,7 @@ local function hitsOn(input,arms,raw,e,bs,absorbed)
     local best,weak=0,0
     for _,x in ipairs(conditions) do
         if x.debuff then
-            weak=math.max(weak,harm.debuff(x.role,e,facing(input,nil))*orders.favour(input,e)*math.min(1,x.times))
+            weak=math.max(weak,harm.debuff(x.role,e,facing(input,nil),input.tables)*orders.favour(input,e)*math.min(1,x.times))
         else best=math.max(best,disableOn(input,{resref=arms.item or ''},x.role,e,floor)*math.min(1,x.times)) end
     end
     return worth+best+weak,expected

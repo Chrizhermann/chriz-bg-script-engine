@@ -2510,6 +2510,7 @@ local targeting=require('combat-intent.targeting')
 local ids=require('combat-intent.ids')
 local threat=require('combat-intent.threat')
 local weapons=require('combat-intent.weapons')
+local arsenal=require('combat-intent.arsenal')
 local M={}
 -- A disable lasting this long counts in full (three rounds).
 M.fullSeconds=18
@@ -2837,8 +2838,9 @@ end
 -- deafness fails half of wizard and priest spells besides. A lower casting level weakens a
 -- creature's spells by the levels it takes, and drained levels weaken its weapon and its spells by
 -- theirs. A creature already slowed or blind gets nothing more from another slow or blindness.
--- Lower strength, dexterity and constitution do not count yet: the engine reads neither the stats
--- nor their tables.
+-- Lower strength counts through the game's strength tables (arsenal.might: the installed ones, else
+-- the shipped ones) on a weapon that takes strength's bonuses. Lower dexterity and constitution do
+-- not count yet.
 M.blindHit=4
 M.blindArmor=4
 M.deafFailure=50
@@ -2849,6 +2851,24 @@ local function amount(role,label)
     local a=type(role)=='table' and role.amounts
     local v=type(a)=='table' and a[label]
     return number(v) and v or 0
+end
+-- What a debuff role's lower strength takes from the bonuses to hit and to damage of weapon held
+-- (the wielder's strength and exceptional strength, and which bonuses the weapon takes), by
+-- arsenal.might: the score it sets, else its own less the points it takes; exceptional strength
+-- likewise. None when the score does not lower them, for a weapon that takes neither bonus, or for
+-- a strength not known.
+local function might(role,held,tables)
+    if type(held)~='table' or not number(held.str) or not (held.strengthHit or held.strengthDamage) then
+        return 0,0
+    end
+    local extra=number(held.strExtra) and held.strExtra or 0
+    local str=number(role.strengthSet) and role.strengthSet or held.str-amount(role,'strength')
+    local ex=number(role.strengthExtraSet) and role.strengthExtraSet or extra-amount(role,'strengthExtra')
+    local low=type(tables)=='table' and type(tables.strmod)=='table' and tables.strmod[0]~=nil and 0 or 1
+    str,ex=clamp(math.floor(str+0.5),low,25),clamp(math.floor(ex+0.5),0,100)
+    local hit0,damage0=arsenal.might(tables,clamp(math.floor(held.str+0.5),low,25),clamp(math.floor(extra+0.5),0,100))
+    local hit1,damage1=arsenal.might(tables,str,ex)
+    return held.strengthHit and math.max(0,hit0-hit1) or 0,held.strengthDamage and math.max(0,damage0-damage1) or 0
 end
 -- The share of e's spells that fail under role: by the kinds of spell its classes cast, half each
 -- for one that casts both; one of no casting class casts innate abilities.
@@ -2865,9 +2885,9 @@ local function failing(role,e)
     return total/n/100
 end
 -- What role takes from e's fight while it holds, a share from 0 to 1. ac: the armour class e's
--- weapon meets (threat.hitChance's default when nil). The caster itself carries the weapon in its
--- hand (weapon) rather than attack data.
-function M.weaken(role,e,ac)
+-- weapon meets (threat.hitChance's default when nil); tables: the game's strength tables. The
+-- caster itself carries the weapon in its hand (weapon) rather than attack data.
+function M.weaken(role,e,ac,tables)
     if type(role)~='table' or type(e)~='table' then return 0 end
     local k=type(role.kinds)=='table' and role.kinds or {}
     local held=e.attack
@@ -2880,7 +2900,8 @@ function M.weaken(role,e,ac)
     if weapon+spell<=0 then return 0 end
     local slow=(k.slow and not targeting.has(e.state,targeting.STATE.slowed)) and 0.5 or 1
     local kept=math.max(0,level-amount(role,'drain'))/level
-    local worse=amount(role,'thac0')+amount(role,'luck')+math.max(0,amount(role,'fatigue')-M.fatigueFree)+
+    local strHit,strDamage=might(role,held,tables)
+    local worse=amount(role,'thac0')+strHit+amount(role,'luck')+math.max(0,amount(role,'fatigue')-M.fatigueFree)+
         math.max(0,a.thac0)*amount(role,'thac0Percent')/100
     if number(role.thac0Set) then worse=worse+math.max(0,role.thac0Set-a.thac0) end
     if k.blind and not targeting.has(e.state,targeting.STATE.blind) then worse=worse+M.blindHit end
@@ -2891,7 +2912,7 @@ function M.weaken(role,e,ac)
     local apr=math.max(0,a.apr-threat.attacks(amount(role,'attacks')))*slow
     -- Bad luck for base weapon damage lowers the weapon's own dice (threat.luckGain: 0 unknown).
     local unlucky=threat.luckGain(a.rolls,-amount(role,'damageLuck'))
-    local damage=math.max(0,a.damage-amount(role,'damage')+unlucky)*math.max(0,1-percent/100)
+    local damage=math.max(0,a.damage-amount(role,'damage')-strDamage+unlucky)*math.max(0,1-percent/100)
     local after=armed and apr*threat.hitChance(a.thac0+worse,ac)*damage*kept or 0
     local power=math.max(0,level-amount(role,'castingLevel'))/level
     local cast=spell*slow*kept*power*(1-failing(role,e))
@@ -2941,13 +2962,13 @@ function M.teleport(role,e,n)
     return lost/M.fullSeconds*(0.5+0.5*targeting.health(e))
 end
 
--- The worth of a debuff role on e: the share of e's fight it takes (M.weaken, with ac as there)
--- for as long as it holds, as a disable counts its kind (a hold that takes all of a healthy
+-- The worth of a debuff role on e: the share of e's fight it takes (M.weaken, with ac and tables as
+-- there) for as long as it holds, as a disable counts its kind (a hold that takes all of a healthy
 -- creature's fight for the full time is worth 1), times the chance it lands. Nothing on a creature
 -- already disabled or outside the role's levels.
-function M.debuff(role,e,ac)
+function M.debuff(role,e,ac,tables)
     if type(role)~='table' or type(e)~='table' or targeting.disabled(e) or not M.within(role,e) then return 0 end
-    local share=M.weaken(role,e,ac)
+    local share=M.weaken(role,e,ac,tables)
     if share<=0 then return 0 end
     return share*length(role,e)*(0.5+0.5*targeting.health(e))*M.chance(role,e)
 end
@@ -4853,7 +4874,7 @@ local function reaches(role) return type(role)=='table' and type(role.who)=='tab
 -- debuff once, as likely as a hit that brings it lands, the debuff against the armour class of the
 -- holder's side and none on an enemy that carries it already (harm.carries); the mean over the
 -- enemies. What an enemy's spell protections keep out counts nothing.
-local function payload(hits,held,apr,thac0,crit,frame,r)
+local function payload(hits,held,apr,thac0,crit,frame,r,tables)
     local list=weapons.payloads(hits,held)
     if #list==0 then return 0 end
     local ac=threat.armour(threat.friends(frame))
@@ -4882,7 +4903,7 @@ local function payload(hits,held,apr,thac0,crit,frame,r)
                         disabled=math.max(disabled,harm.disable(roles.disable,e,0,floor)*math.min(1,times))
                     end
                     if reaches(roles.debuff) and not harm.carries(e,h.strike,h.source) then
-                        weakened=math.max(weakened,harm.debuff(roles.debuff,e,ac)*math.min(1,times))
+                        weakened=math.max(weakened,harm.debuff(roles.debuff,e,ac,tables)*math.min(1,times))
                     end
                 end
             end
@@ -4929,11 +4950,11 @@ function M.offense(buff,f,frame,r,held,own,hits,tables)
         local h=threat.hitChance(a.thac0-hit+lost,ac)
         local lands=1-(1-h)^math.max(0,a.apr*r)
         local one=swing(1,d,crit-blunt)-swing(1,a.damage,0)
-        return math.max(0,one)*lands/hp+payload(hits,held,a.apr,a.thac0-hit+lost,crit-blunt,frame,r)
+        return math.max(0,one)*lands/hp+payload(hits,held,a.apr,a.thac0-hit+lost,crit-blunt,frame,r,tables)
     end
     local before=a.apr*swing(threat.hitChance(a.thac0,ac),a.damage,0)
     local after=apr*swing(threat.hitChance(a.thac0-hit+lost,ac),d,crit-blunt)
-    return math.max(0,after-before)*r/hp+payload(hits,held,apr,a.thac0-hit+lost,crit-blunt,frame,r)
+    return math.max(0,after-before)*r/hp+payload(hits,held,apr,a.thac0-hit+lost,crit-blunt,frame,r,tables)
 end
 
 -- Whether a role of a beneficial spell reaches friends: the caster, its area (an area that
@@ -5105,7 +5126,7 @@ local function weakens(input,row,spell,aim,ac)
             local d=type(roles)=='table' and roles.debuff
             if type(d)=='table' and type(d.who)=='table' and d.who.area and
                 (type(d.filters)~='table' or d.filters.enemies or d.filters.all) then
-                worth=worth+harm.debuff(d,e,ac)
+                worth=worth+harm.debuff(d,e,ac,input.tables)
             end
         end
     end
@@ -5278,13 +5299,15 @@ local threat=require('combat-intent.threat')
 local defence=require('combat-intent.defence')
 local weapons=require('combat-intent.weapons')
 local ids=require('combat-intent.ids')
+local harm=require('combat-intent.harm')
 local M={}
 M.ROUND=6
 -- What freeing a friend of each condition is worth for the full time (fullSeconds), as the same
--- disable on an enemy is worth (choice.DISABLE); blindness, deafness and disease hinder without
--- taking the friend out. Conditions that matter only for casters count a fifth on others.
+-- disable on an enemy is worth (choice.DISABLE); blindness, deafness, disease and drained levels
+-- or attributes hinder without taking the friend out. Conditions that matter only for casters
+-- count a fifth on others.
 M.CONDITION={sleep=0.8,hold=1,stun=1,panic=0.7,confusion=0.8,berserk=0.4,feeblemind=1,silence=0.7,
-    pause=0.8,blind=0.3,deaf=0.2,disease=0.1}
+    pause=0.8,drain=0.5,abilityDrain=0.45,blind=0.3,deaf=0.2,disease=0.1}
 M.CASTERS_ONLY={feeblemind=true,silence=true,deaf=true}
 M.fullSeconds=18
 -- Seconds a condition counts for when the friend's effects could not be read.
@@ -5352,9 +5375,14 @@ function M.standing(f,t,s,r,killBonus,hp)
 end
 
 -- Whether friend f has condition label now, and its seconds left: the effect on f (its guard's
--- conditions) while its state still shows it; a hold shows in the HELD stat. A friend whose
--- effects could not be read counts by its state alone, for unknownSeconds.
+-- conditions) while its state still shows it; a hold shows in the HELD stat, drained levels in
+-- LEVELDRAIN (f.drained, lasting until restored). A friend whose effects could not be read counts
+-- by its state alone, for unknownSeconds.
 function M.condition(f,label)
+    if label=='drain' then
+        if number(f.drained) and f.drained>0 then return true,math.huge end
+        return false,0
+    end
     local shown
     if label=='hold' then shown=number(f.held) and f.held>0
     elseif M.STATE[label] then shown=targeting.has(f.state,M.STATE[label]) end
@@ -5401,8 +5429,10 @@ function M.cured(role,f)
 end
 
 -- The heal and cure roles of a spell or item ability that reach friends, or nil and why it is no
--- care: an attack, a spell that also harms or removes, one that reaches the party (for the
--- engine's creatures that is the enemy), or one without such roles.
+-- care: an attack, a spell that damages or disables the caster or its group, one that reaches the
+-- party (for the engine's creatures that is the enemy), or one without such roles. A debuff on the
+-- caster itself (Lesser and Greater Restoration's fatigue) rides along as own and is weighed
+-- against the cast.
 function M.care(spell)
     if type(spell)~='table' or type(spell.roles)~='table' then return nil,'unclassified' end
     local h,c=spell.roles.heal,spell.roles.cure
@@ -5411,13 +5441,22 @@ function M.care(spell)
     end
     if not reaches(h) and not reaches(c) then return nil,'no-care' end
     if spell.partial then return nil,'partial' end
-    if spell.offensive or spell.selfHarm then return nil,'offensive' end
+    if spell.offensive then return nil,'offensive' end
+    for _,name in ipairs({'damage','disable'}) do
+        local r=spell.roles[name]
+        if type(r)=='table' and type(r.who)=='table' and (r.who.self or r.who.casterGroup) then
+            return nil,'offensive'
+        end
+    end
+    local d=spell.roles.debuff
+    if type(d)=='table' and type(d.who)=='table' and d.who.casterGroup then return nil,'offensive' end
     for _,r in ipairs({h,c}) do
         if type(r)=='table' and type(r.who)=='table' and (r.who.party or r.who.everyone or r.who.nonparty) then
             return nil,'party'
         end
     end
-    return {heal=reaches(h) and h or nil,cure=reaches(c) and c or nil}
+    local own=type(d)=='table' and type(d.who)=='table' and d.who.self and d or nil
+    return {heal=reaches(h) and h or nil,cure=reaches(c) and c or nil,own=own}
 end
 
 -- Where a care spell can be cast: on the caster, and at each ally it sees (targeting.seen) within
@@ -5531,22 +5570,26 @@ function M.options(input,rejected)
     end
     local function consider(resref,spell,gives,level,item)
         local cast=(number(spell.speed) and spell.speed or 0)*M.speedSeconds
+        local drawback=gives.own and harm.debuff(gives.own,caster,threat.armour(frame.enemies),input.tables) or 0
         local best,why
         local candidates=item and {{self=true,friend=caster,walk=0}} or aims(input,spell)
         for _,aim in ipairs(candidates) do
             -- Who each role reaches; healing an enemy in an area that spares no one counts
-            -- against the cast.
+            -- against the cast, and so does a debuff the spell puts on the caster itself.
             local reach,order,worth,hits={},{},0,{}
-            for name,role in pairs(gives) do
-                local friends,foes=receivers(input,spell,role,aim)
-                for _,f in ipairs(friends) do
-                    if not reach[f] then reach[f]={};order[#order+1]=f end
-                    reach[f][name]=role
-                end
-                if name=='heal' then
-                    for _,e in ipairs(foes) do
-                        local maxHp=number(e.maxHp) and e.maxHp>0 and e.maxHp or nil
-                        if maxHp then worth=worth-M.healed(role,e)/maxHp end
+            for _,name in ipairs({'heal','cure'}) do
+                local role=gives[name]
+                if role then
+                    local friends,foes=receivers(input,spell,role,aim)
+                    for _,f in ipairs(friends) do
+                        if not reach[f] then reach[f]={};order[#order+1]=f end
+                        reach[f][name]=role
+                    end
+                    if name=='heal' then
+                        for _,e in ipairs(foes) do
+                            local maxHp=number(e.maxHp) and e.maxHp>0 and e.maxHp or nil
+                            if maxHp then worth=worth-M.healed(role,e)/maxHp end
+                        end
                     end
                 end
             end
@@ -5557,6 +5600,7 @@ function M.options(input,rejected)
                 if w>0 then worth=worth+w;hits[#hits+1]=f.id
                 elseif no and (why==nil or why=='no-worth') then why=no end
             end
+            if #hits>0 then worth=worth-drawback end
             -- A walk into range comes first and lowers the worth (weapons.paced).
             worth=worth*weapons.paced(aim.walk)
             if worth>0 and (not best or worth>best.worth) then best={aim=aim,worth=worth,hits=hits} end
@@ -7159,7 +7203,7 @@ end
 -- What a debuff role takes from f's fight for as long as it holds, times the chance it lands, as
 -- the engine's own debuffs count it on an enemy (harm.debuff: Stinking Cloud's spell failure on a
 -- caster, a blindness on a fighter). ac: the armour class f's weapon meets.
-function M.debuff(role,f,ac) return harm.debuff(role,f,ac) end
+function M.debuff(role,f,ac,tables) return harm.debuff(role,f,ac,tables) end
 -- The mean armour class f's weapon meets: its enemies', with theirs (f one of the caster's
 -- enemies) the caster's side's.
 local function facing(input,theirs)
@@ -7192,7 +7236,7 @@ function M.hit(input,z,f,theirs)
     local killBonus=type(input.mind)=='table' and input.mind.killBonus or 0
     local other,spread=0,nil
     if reaches(roles.disable) then other=other+harm.disable(roles.disable,f,killBonus,floor) end
-    if reaches(roles.debuff) then other=other+M.debuff(roles.debuff,f,facing(input,theirs)) end
+    if reaches(roles.debuff) then other=other+M.debuff(roles.debuff,f,facing(input,theirs),input.tables) end
     local worth=other
     if reaches(roles.damage) then
         spread=harm.spread(roles.damage,f)
@@ -8201,7 +8245,7 @@ local function debuffOn(input,row,role,e,ctx,plain)
     local cursed=type(plan)=='table' and type(plan.cursed)=='table' and plan.cursed[e.id]
     local owner=type(cursed)=='table' and cursed[row.resref]
     if owner and owner~=input.frame.self.id and input.mind.coordination>=0.5 then return 0 end
-    local worth=harm.debuff(role,e,facing(input,ctx))
+    local worth=harm.debuff(role,e,facing(input,ctx),input.tables)
     if not plain then worth=worth+opening(input,row,role,e,ctx) end
     return worth*remembered(input,row.resref,e,role)*orders.favour(input,e)
 end
@@ -8825,7 +8869,7 @@ local function hitsOn(input,arms,raw,e,bs,absorbed)
     local best,weak=0,0
     for _,x in ipairs(conditions) do
         if x.debuff then
-            weak=math.max(weak,harm.debuff(x.role,e,facing(input,nil))*orders.favour(input,e)*math.min(1,x.times))
+            weak=math.max(weak,harm.debuff(x.role,e,facing(input,nil),input.tables)*orders.favour(input,e)*math.min(1,x.times))
         else best=math.max(best,disableOn(input,{resref=arms.item or ''},x.role,e,floor)*math.min(1,x.times)) end
     end
     return worth+best+weak,expected
@@ -11779,10 +11823,12 @@ M.breakable={[31]=true,[95]=true,[191]=true,[192]=true}
 M.prefixes={'SPPR','SPWI','SPIN','SPCL'}
 -- Conditions a cure takes away, by the opcode that sets them (combat-intent/spells.lua's labels;
 -- combat-intent/care.lua weighs them). Hold (II) (185) stands apart: opcode 162, the cure of
--- holds, does not remove it (IESDP).
+-- holds, does not remove it (IESDP). Temporary attribute drain (M.abilityDrain: CHA, CON, DEX,
+-- INT, STR, WIS) is recognized on timed effects the same way the spell mod's CBMLRES cures it.
 M.conditions={[39]='sleep',[3]='berserk',[24]='panic',[45]='stun',[210]='stun',[38]='silence',[74]='blind',
     [76]='feeblemind',[78]='disease',[80]='deaf',[109]='hold',[175]='hold',[185]='hold2',[128]='confusion',
     [165]='pause',[25]='poison'}
+M.abilityDrain={[6]=true,[10]=true,[15]=true,[19]=true,[44]=true,[49]=true}
 
 local function band(g,a,b) return g.EEex_BAnd(a,b) end
 local function stat(g,sprite,n)
@@ -12363,10 +12409,28 @@ end
 -- that have not started are left out of its roles. With a memory, what the effects say comes from it
 -- (recall: a condition's seconds left are then up to knownTicks old); the skins and images are
 -- counted afresh every time, as hits use them up without an effect coming or going.
+local function drainsAbility(e)
+    if (e.m_done or 0)~=0 or not M.abilityDrain[e.m_effectId] then return false end
+    local amount,mode=number(e.m_effectAmount),number(e.m_dWFlags)%65536
+    if amount>=2147483648 then amount=amount-4294967296 end
+    return (mode==0 and amount<0) or (mode==1 and amount<12) or (mode==2 and amount<100)
+end
+function M.abilityDrained(g,sprite,tick)
+    local found=false
+    local seen=0
+    g.EEex_Utility_IterateCPtrList(sprite.m_timedEffectList,function(e)
+        seen=seen+1
+        if seen>M.maxEffects then return true end
+        if e.m_durationType==M.timedEffect and drainsAbility(e) and number(e.m_duration)>tick then
+            found=true;return true
+        end
+    end)
+    return found
+end
 local function shields(g,sprite,tick,classify,level)
     local list,sources,recast,conditions={},{},{},{}
     local poison=0
-    for _,effects in ipairs({sprite.m_timedEffectList,sprite.m_equipedEffectList}) do
+    for n,effects in ipairs({sprite.m_timedEffectList,sprite.m_equipedEffectList}) do
         local seen=0
         g.EEex_Utility_IterateCPtrList(effects,function(e)
             seen=seen+1
@@ -12396,6 +12460,9 @@ local function shields(g,sprite,tick,classify,level)
                         poison=poison+rate*math.min(left,spells.overTime)
                     end
                 end
+            elseif n==1 and kind==M.timedEffect and drainsAbility(e) then
+                local left=(number(e.m_duration)-tick)/15
+                if left>0 then conditions.abilityDrain=math.max(conditions.abilityDrain or 0,left) end
             end
             if timing and type(op)=='number' then
                 local source=name(e.m_sourceRes)
@@ -14698,9 +14765,10 @@ function M.doorResponse(point,behind,way,spell)
     return chain(walk,unlock,'OpenDoor('..door..')',on)
 end
 
--- Whether a friend in frame (the creature itself or an ally it sees) has lost hit points, is held
--- or has a condition a cure takes away: then heals and cures are weighed with no enemy in sight.
--- A charmed ally is a foe the creature's side charmed, no friend (combat-intent/threat.lua).
+-- Whether a friend in frame (the creature itself or an ally it sees) has lost hit points, is held,
+-- has drained levels, or has a condition a cure takes away: then heals and cures are weighed with no
+-- enemy in sight. A charmed ally is a foe the creature's side charmed, no friend
+-- (combat-intent/threat.lua).
 function M.ailing(frame)
     local friends={frame.self}
     for _,a in ipairs(frame.allies) do
@@ -14708,10 +14776,27 @@ function M.ailing(frame)
     end
     for _,f in ipairs(friends) do
         if type(f.hp)=='number' and type(f.maxHp)=='number' and f.hp<f.maxHp then return true end
-        if (f.held or 0)>0 then return true end
+        if (f.held or 0)>0 or (f.drained or 0)>0 then return true end
         for _,bit in ipairs(M.CONDITION_BITS) do
             if targeting.has(f.state,bit) then return true end
         end
+    end
+    return false
+end
+
+function M.careSnapshot(f)
+    local cond=type(f.guard)=='table' and f.guard.conditions
+    return {hp=f.hp,state=f.state,held=f.held,drained=f.drained,
+        abilityDrain=type(cond)=='table' and (cond.abilityDrain or 0)>0 or nil}
+end
+
+function M.careHelped(g,friend,before,now,tick)
+    if type(now.hp)=='number' and type(before.hp)=='number' and now.hp>before.hp then return true end
+    if (before.held or 0)>0 and (now.held or 0)==0 then return true end
+    if (before.drained or 0)>(now.drained or 0) then return true end
+    if before.abilityDrain and not sense.abilityDrained(g,friend,tick) then return true end
+    for _,bit in ipairs(M.CONDITION_BITS) do
+        if targeting.has(before.state,bit) and not targeting.has(now.state,bit) then return true end
     end
     return false
 end
@@ -15303,12 +15388,7 @@ function M.new(g,options)
                 local before=type(a.before)=='table' and a.before[id]
                 if friend and before then
                     local now=sense.actor(g,friend)
-                    local better=type(now.hp)=='number' and type(before.hp)=='number' and now.hp>before.hp
-                    if (before.held or 0)>0 and (now.held or 0)==0 then better=true end
-                    for _,bit in ipairs(M.CONDITION_BITS) do
-                        if targeting.has(before.state,bit) and not targeting.has(now.state,bit) then better=true end
-                    end
-                    if better then helped=helped+1 end
+                    if M.careHelped(g,friend,before,now,a.ended) then helped=helped+1 end
                 end
             end
             if helped>0 then counts.cared=counts.cared+1 else counts.uncared=counts.uncared+1 end
@@ -16401,7 +16481,7 @@ function M.new(g,options)
             for _,a in ipairs(frame.allies) do friends[a.id]=a end
             for _,h in ipairs(d.hits or {}) do
                 local f=friends[h]
-                if f then before[h]={hp=f.hp,state=f.state,held=f.held} end
+                if f then before[h]=M.careSnapshot(f) end
             end
         end
         local disable

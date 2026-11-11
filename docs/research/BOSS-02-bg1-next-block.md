@@ -116,9 +116,11 @@ full at level one, without double damage.
 Mulahey's stored book: **1:** Armor of Faith, Remove Fear, Bless; **2:** Hold Person ×2,
 Silence, 15' Radius; **3:** Strength of One ×2, Remove Paralysis, Prayer; **4:** Mental Domination.
 No innates. Chain Mail, Large Shield, Morning Star, his Holy Symbol, letters `SCRL2W` and `SCRL2V`,
-and R02. **Possible data fault:** his four stored third-level spells exceed the two slots in this
-lab's level-7 priest table; WIS 11 grants no bonus. ENCOUNTERS records that spells beyond real slots
-are unavailable. The usable set needs a runtime check before designing a Prayer opener.
+and R02. **Confirmed data fault (checked 2026-11-12 against `MXSPLPRS.2DA` and `MXSPLWIS.2DA`):** a
+level-7 cleric gets `3 / 3 / 2 / 1` base slots and WIS 11 grants no bonus (a bonus third-level slot
+requires WIS 17), so his four stored third-level spells (`SPPR312` ×2, `SPPR308`, `SPPR316`) exceed
+his two usable slots — *Remove Paralysis* and *Prayer* sit past the cap unless his WIS is raised to
+17 (giving 3 slots) or his third-level memorization is trimmed/reordered.
 
 The helpers have no memorized spells, innates or SCS potion draws. The four guards use swords;
 ordinary reinforcement kobolds get a random sword. Archers have bows and plain arrows; commandos
@@ -497,12 +499,12 @@ through Stoneskin to remove skins. It can use Rezdan's Dimension Door to a perce
 spending the slot, rather than acquiring the party's unseen position. Those are general-policy
 expectations; the terrain, sequencers and kit abilities need the eventual encounter lab.
 
-Specific gaps: strength-reducing debuffs have no value in `harm.weaken`, so Ray of Enfeeblement
-can be neglected; the effect is classified but its lost weapon damage is not scored. Movement
-estimates use the default speed, so any eventual speed boots or Oil of Speed do not fully change
-the movement model. There is no automatic “Drasus protects Rezdan” role or group preparation
-before `DRASUS`'s talk. Offensive scroll support and cross-area pursuit remain outside the
-current general behavior.
+**Closed gap (2026-11-12):** `harm.weaken` now scores strength-lowering debuffs through
+`arsenal.might` (`SPWI221` *Ray of Enfeeblement* scores `0.364` on a STR 18/76 fighter). Remaining
+gaps: movement estimates use the default speed, so any eventual speed boots or Oil of Speed do not
+fully change the movement model. There is no automatic “Drasus protects Rezdan” role or group
+preparation before `DRASUS`'s talk. Offensive scroll support and cross-area pursuit remain outside
+the current general behavior.
 
 **Party strength:** chapter 4, cap 32,000: Fighter/Cleric 6, Ranger/Paladin 5, Thief 6, Mage 5;
 likely levels 4–6 across a full party, unmeasured. Both enemy mages have fifth-level spells while
@@ -541,9 +543,9 @@ Engine expectations come from FIGHT-01 and MIND-01, checked against
 [`hook_rule.py`](../../tools/hook_rule.py) and the script-selection loop in
 [`setup-bgse.tp2`](../../bgse/setup-bgse.tp2).
 
-Before claiming these encounters work with the engine, check the helper pursuit/talk coverage,
-Mulahey's usable third-level slots, the unslotted/mis-slotted inventory entries, offensive item
-support, Molkar's off-hand valuation, Rezdan's strength drain and the elemental contest. The later
+Before claiming these encounters work with the engine, check the special talk-script preparation
+hooks, Mulahey's third-level slot fix in the installer, the unslotted/mis-slotted inventory entries,
+offensive item support, Molkar's off-hand valuation and the elemental contest. The later
 lab should cover each dialogue route, surrender, alarm, flight/re-entry and chapter transition,
 with SCS and engine comparisons at Christopher's chosen party strength. No such live result is
 claimed here, and no engine or data fix was made as part of these fact sheets.

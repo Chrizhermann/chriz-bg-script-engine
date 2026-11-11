@@ -5024,4 +5024,92 @@ assert(#w.instant==2 and c:inspect().counts.companions==2 and c:inspect().counts
 end)()
 groups=groups+1
 
+-- 53. Ability drain and level drain on friends: sense.guard and sense.abilityDrained recognize timed
+-- attribute drain matching CBMLRES (negative mode 0 signed or unsigned, mode 1 below 12, mode 2 below
+-- 100 across CHA/CON/DEX/INT/STR/WIS) while ignoring buffs, CBTSTRF floors, done or expired effects,
+-- and equipped/permanent effects. A priest casts Lesser Restoration on a drained ally, counts the
+-- outcome as cared when the drain clears (uncared when it stays), and choices.ailing wakes out of
+-- combat for level drain.
+;(function()
+local w=world()
+local function eff(op,ticks,kind,p1,p2,done)
+    return {m_effectId=op,m_durationType=kind or 4096,m_duration=ticks,m_effectAmount=p1 or 0,m_dWFlags=p2 or 0,
+        m_done=done or 0,m_res=str(''),m_sourceRes=str('TESTDRN')}
+end
+local function effectsOf(rec,lv) return spells.classify(rec,1,reader.lookup,{level=lv or 10}) end
+local ally=w.add(sprite(2,80,0,255,{levels={[7]='S3'},stats={[1]=60,[34]=9}}))
+-- Non-drains: buff +2, CBTSTRF p1=0, mode 1 at 12, mode 2 at 100, mode 3, done=1, expired, permanent, equipped.
+ally.m_timedEffectList={eff(44,500,4096,2,0),eff(44,500,4096,0,0),eff(19,500,4096,12,1),eff(15,500,4096,100,2),
+    eff(44,500,4096,-4,3),eff(44,500,4096,-4,0,1),eff(44,100,4096,-4,0),eff(44,500,1,-4,0)}
+ally.m_equipedEffectList={eff(44,500,4096,-4,0)}
+assert(sense.abilityDrained(w,ally,100)==false)
+assert(sense.guard(w,ally,100,effectsOf).conditions.abilityDrain==nil)
+-- Drains across all six attribute opcodes and modes (including unsigned 32-bit negative).
+for _,case in ipairs({{6,-2,0},{10,4294967293,0},{15,11,1},{19,99,2},{44,5,1},{49,-1,0}}) do
+    ally.m_timedEffectList={eff(case[1],100+270,4096,case[2],case[3])}
+    assert(sense.abilityDrained(w,ally,100)==true)
+    assert(sense.guard(w,ally,100,effectsOf).conditions.abilityDrain==18)
+end
+ally.m_equipedEffectList={}
+
+-- choices.ailing sees level drain with no enemy in sight.
+assert(choices.ailing({self={hp=20,maxHp=20,state=0,drained=0},allies={{hp=20,maxHp=20,state=0,drained=1}}})==true)
+assert(choices.ailing({self={hp=20,maxHp=20,state=0,drained=0},allies={{hp=20,maxHp=20,state=0,drained=0}}})==false)
+
+-- Full priest round with Lesser Restoration (CBMLRES + 224 + caster fatigue) on an ability-drained ally,
+-- then outcome judgement when the drain clears vs when it remains.
+records.TESTLRES={kind='SPL',resref='TESTLRES',name=0,flags=0,spellType=2,exclusion=0,school=0,secondary=0,level=4,
+    casting={},abilities={{form=1,flags=0,location=2,target=1,targetCount=0,range=30,minLevel=1,speed=2,projectile=1,
+    effects={fx(224,{timing=1}),fx(402,{res='CBMLRES',timing=1}),fx(93,{target=1,p1=7,timing=1})}}}}
+local priest=w.add(sprite(1,0,0,255,{levels={[7]='S2'},stats={[1]=50,[34]=10}}))
+local pbook={}
+priest.m_memorizedSpellsPriest=memorized(pbook)
+pbook[3]={{m_spellId=str('TESTLRES'),m_flags=1}}
+priest.buttons={'TESTLRES'}
+function priest:GetQuickButtons(kind)
+    if kind==2 then return {{m_count=1,m_bDisabled=0,m_abilityId={m_res=str('TESTLRES')}}} end
+    return {}
+end
+local foe=w.add(sprite(11,300,0,2,{stats={[1]=80}}))
+ally.m_timedEffectList={eff(44,100+360,4096,5,1)}
+local d=directors.new(w,{reader=reader})
+local c=choices.new(w,{reader=reader,director=d,seed=11})
+local rows={}
+c:setSink(function(r) rows[#rows+1]=r end)
+runtime.install(w,{director=d,choice=c,version='test'})
+assert(w.BGSE_Claim(priest,'priest','s2')==true)
+assert(rows[#rows].kind=='choice' and rows[#rows].spell=='TESTLRES' and rows[#rows].castKind=='cure')
+w.BGSE_Act(priest)
+-- Start and finish the cast; CBMLRES clears the timed drain -> cared increments after the settle window.
+for _,fn in ipairs(w.listeners.started) do fn(priest,action(31,'TESTLRES',-1)) end
+w.ticks=130;priest.m_curAction={m_actionID=0};ally.m_timedEffectList={}
+assert(w.BGSE_Claim(priest,'priest','s2')==true and c:inspect().judging==1)
+w.ticks=165
+assert(w.BGSE_Claim(priest,'priest','s2')==true)
+assert(c:inspect().counts.cared==1 and c:inspect().counts.uncared==0)
+-- A second cast where the drain did not clear -> uncared increments; level drain clearing -> cared increments.
+ally.m_timedEffectList={eff(44,200+360,4096,5,1)}
+w.ticks=200;priest.castTimer=-1
+assert(w.BGSE_Claim(priest,'priest','s2')==true)
+w.BGSE_Act(priest)
+for _,fn in ipairs(w.listeners.started) do fn(priest,action(31,'TESTLRES',-1)) end
+w.ticks=230;priest.m_curAction={m_actionID=0}
+assert(w.BGSE_Claim(priest,'priest','s2')==true and c:inspect().judging==1)
+w.ticks=265
+assert(w.BGSE_Claim(priest,'priest','s2')==true)
+assert(c:inspect().counts.cared==1 and c:inspect().counts.uncared==1)
+ally.m_timedEffectList={};ally.stats[200]=2
+w.ticks=300;priest.castTimer=-1
+assert(w.BGSE_Claim(priest,'priest','s2')==true)
+w.BGSE_Act(priest)
+for _,fn in ipairs(w.listeners.started) do fn(priest,action(31,'TESTLRES',-1)) end
+w.ticks=330;priest.m_curAction={m_actionID=0};ally.stats[200]=0
+assert(w.BGSE_Claim(priest,'priest','s2')==true and c:inspect().judging==1)
+w.ticks=365
+assert(w.BGSE_Claim(priest,'priest','s2')==true)
+assert(c:inspect().counts.cared==2 and c:inspect().counts.uncared==1 and c:inspect().counts.errors==0)
+records.TESTLRES=nil
+end)()
+groups=groups+1
+
 return groups

@@ -535,9 +535,10 @@ function M.doorResponse(point,behind,way,spell)
     return chain(walk,unlock,'OpenDoor('..door..')',on)
 end
 
--- Whether a friend in frame (the creature itself or an ally it sees) has lost hit points, is held
--- or has a condition a cure takes away: then heals and cures are weighed with no enemy in sight.
--- A charmed ally is a foe the creature's side charmed, no friend (combat-intent/threat.lua).
+-- Whether a friend in frame (the creature itself or an ally it sees) has lost hit points, is held,
+-- has drained levels, or has a condition a cure takes away: then heals and cures are weighed with no
+-- enemy in sight. A charmed ally is a foe the creature's side charmed, no friend
+-- (combat-intent/threat.lua).
 function M.ailing(frame)
     local friends={frame.self}
     for _,a in ipairs(frame.allies) do
@@ -545,10 +546,27 @@ function M.ailing(frame)
     end
     for _,f in ipairs(friends) do
         if type(f.hp)=='number' and type(f.maxHp)=='number' and f.hp<f.maxHp then return true end
-        if (f.held or 0)>0 then return true end
+        if (f.held or 0)>0 or (f.drained or 0)>0 then return true end
         for _,bit in ipairs(M.CONDITION_BITS) do
             if targeting.has(f.state,bit) then return true end
         end
+    end
+    return false
+end
+
+function M.careSnapshot(f)
+    local cond=type(f.guard)=='table' and f.guard.conditions
+    return {hp=f.hp,state=f.state,held=f.held,drained=f.drained,
+        abilityDrain=type(cond)=='table' and (cond.abilityDrain or 0)>0 or nil}
+end
+
+function M.careHelped(g,friend,before,now,tick)
+    if type(now.hp)=='number' and type(before.hp)=='number' and now.hp>before.hp then return true end
+    if (before.held or 0)>0 and (now.held or 0)==0 then return true end
+    if (before.drained or 0)>(now.drained or 0) then return true end
+    if before.abilityDrain and not sense.abilityDrained(g,friend,tick) then return true end
+    for _,bit in ipairs(M.CONDITION_BITS) do
+        if targeting.has(before.state,bit) and not targeting.has(now.state,bit) then return true end
     end
     return false
 end
@@ -1140,12 +1158,7 @@ function M.new(g,options)
                 local before=type(a.before)=='table' and a.before[id]
                 if friend and before then
                     local now=sense.actor(g,friend)
-                    local better=type(now.hp)=='number' and type(before.hp)=='number' and now.hp>before.hp
-                    if (before.held or 0)>0 and (now.held or 0)==0 then better=true end
-                    for _,bit in ipairs(M.CONDITION_BITS) do
-                        if targeting.has(before.state,bit) and not targeting.has(now.state,bit) then better=true end
-                    end
-                    if better then helped=helped+1 end
+                    if M.careHelped(g,friend,before,now,a.ended) then helped=helped+1 end
                 end
             end
             if helped>0 then counts.cared=counts.cared+1 else counts.uncared=counts.uncared+1 end
@@ -2238,7 +2251,7 @@ function M.new(g,options)
             for _,a in ipairs(frame.allies) do friends[a.id]=a end
             for _,h in ipairs(d.hits or {}) do
                 local f=friends[h]
-                if f then before[h]={hp=f.hp,state=f.state,held=f.held} end
+                if f then before[h]=M.careSnapshot(f) end
             end
         end
         local disable
