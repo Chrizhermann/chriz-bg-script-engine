@@ -5497,6 +5497,10 @@ local applied={}
 w.EEex_GameObject_ApplyEffect=function(sp,args)
     applied[#applied+1]={id=sp.m_id,effectID=args.effectID,res=args.res,sourceTarget=args.sourceTarget,
         tx=args.targetX,ty=args.targetY}
+    if sp.m_id==6 and args.res=='TESTPTBF' then
+        sp.m_timedEffectList[#sp.m_timedEffectList+1]={m_effectId=206,m_durationType=4096,m_duration=140+1000,
+            m_spellLevel=2,m_effectAmount=0,m_dWFlags=0,m_res=str('TESTPTBF'),m_sourceRes=str('TESTPTBF')}
+    end
 end
 
 -- Real SPWI408 (Abjurer exclusion 0x40), SPPR506 (Cleric/Paladin exclusion 0x40000000), and point-AoE

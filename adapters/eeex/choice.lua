@@ -1864,6 +1864,10 @@ function M.new(g,options)
     -- the SPLPROT marks as the enemies in sight do: a cloud laid where a mazed foe will be back is
     -- weighed on it. Returns the fight as the group knows it (fightFor, with the group's plan).
     local justPrebuffed={}
+    local function mergeSpan(cur,span)
+        local s=type(span)=='number' and span or 60
+        return type(cur)=='number' and math.max(cur,s) or (cur or s)
+    end
     local function mergeJustPrebuffed(id,tick,selfView,grd)
         local jp=justPrebuffed[id]
         if not jp then return end
@@ -1874,12 +1878,12 @@ function M.new(g,options)
         grd.kinds=grd.kinds or {}
         local copiedRoles=false
         for _,entry in ipairs(jp.entries) do
-            grd.recast[entry.resref]=math.max(grd.recast[entry.resref] or 0,entry.span or 60)
+            grd.recast[entry.resref]=mergeSpan(grd.recast[entry.resref],entry.span)
             grd.sources[entry.resref]=true
             local pk=entry.protection and entry.protection.kinds or {}
             local bk=entry.buff and entry.buff.kinds or {}
-            for k in pairs(pk) do grd.kinds[k]=math.max(grd.kinds[k] or 0,entry.span or 60) end
-            for k in pairs(bk) do grd.kinds[k]=math.max(grd.kinds[k] or 0,entry.span or 60) end
+            for k in pairs(pk) do grd.kinds[k]=mergeSpan(grd.kinds[k],entry.span) end
+            for k in pairs(bk) do grd.kinds[k]=mergeSpan(grd.kinds[k],entry.span) end
             if entry.protection then
                 if not copiedRoles then
                     local oldRoles=type(grd.roles)=='table' and grd.roles or {}
