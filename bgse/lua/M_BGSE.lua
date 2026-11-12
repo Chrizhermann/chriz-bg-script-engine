@@ -745,7 +745,9 @@ local function add(c,name,who,e,p)
         if hi then r.maxLevel=math.min(r.maxLevel or hi,hi) end
         if lo then r.minLevel=math.max(r.minLevel or lo,lo) end
     end
-    r.duration=longer(r.duration,seconds(e))
+    local span=seconds(e)
+    r.duration=longer(r.duration,span)
+    if number(span) and span>0 then r.timed=math.max(r.timed or 0,span) end
     if e.breakFree then r.breakFree=e.breakFree end
     -- A disable that also comes from an effect without a hit point limit has none (below).
     if name=='disable' and not HP_LIMITED[e.opcode] then r.anyHp=true;r.belowHp=nil end
@@ -2115,7 +2117,7 @@ local M={}
 
 -- STATE.IDS bits (engine constants).
 M.STATE={sleeping=0x1,panic=0x4,stunned=0x8,invisible=0x10,helpless=0x20,reallyDead=0xFC0,
-    charmed=0x2000,slowed=0x10000,blind=0x40000,feebleminded=0x100000,improvedInvisible=0x400000,
+    charmed=0x2000,hasted=0x8000,slowed=0x10000,blind=0x40000,feebleminded=0x100000,improvedInvisible=0x400000,
     confused=0x80000000}
 -- Out of the fight: STATE_DISABLED as the installed STATE.IDS defines it (sleeping, panic, stunned,
 -- helpless, charmed, feebleminded, confused) but charmed, since a charm puts its creature on its
@@ -3992,7 +3994,7 @@ local targeting=require('combat-intent.targeting')
 local M={}
 -- SLOTS.IDS: the fist, the quiver, the magic weapon slot and the weapon slots.
 M.FIST=10
-M.QUIVER={11,12,13}
+M.QUIVER={11,12,13,14}
 M.MAGIC=34
 M.WEAPONS={35,36,37,38}
 -- Ammunition's launcher field (bow, crossbow, sling) as the item category of the weapon that
@@ -4323,12 +4325,15 @@ function M.others(tables,c)
     local apr=M.decode(stats.apr)
     local part,final=share(tables,c,selectedRecord)
     local rest=number(apr) and apr>0 and not final and apr-part or 0
+    local emittedQuiver={}
+    if inHand and inHand.quiver then emittedQuiver[tostring(inHand.slot)..':'..tostring(inHand.quiver)]=true end
     for _,slot in ipairs(M.WEAPONS) do
         local record=recordAt(c.items,slot)
         for i,a in ipairs(abilities(record)) do
             if striking(a) and not (inHand and inHand.slot==slot and inHand.number==i-1) then
                 local s=M.striker(c.items,slot,i-1)
                 if s and s.slot==slot then
+                    if s.quiver then emittedQuiver[tostring(s.slot)..':'..tostring(s.quiver)]=true end
                     local hit,damage=M.bonus(tables,c,s)
                     local w=attack(c,s,hit,own(s)+strengthDamage(tables,c,s)+damage)
                     local mine,last=share(tables,c,s.record)
@@ -4336,6 +4341,18 @@ function M.others(tables,c)
                     out[#out+1]=w
                 end
             end
+        end
+    end
+    for _,q in ipairs(M.QUIVER) do
+        local s=M.striker(c.items,q,0)
+        if s and s.quiver==q and not emittedQuiver[tostring(s.slot)..':'..tostring(q)] then
+            emittedQuiver[tostring(s.slot)..':'..tostring(q)]=true
+            local hit,damage=M.bonus(tables,c,s)
+            local w=attack(c,s,hit,own(s)+strengthDamage(tables,c,s)+damage)
+            w.slot=q;w.abilityNum=0;w.quiver=q
+            local mine,last=share(tables,c,s.record)
+            w.apr=math.max(M.minApr,math.min(M.maxApr,last or rest+mine))
+            out[#out+1]=w
         end
     end
     return out
@@ -6071,6 +6088,8 @@ function M.check(o)
             if v~='guard' and v~='post' and v~='stand' then return false,k end
         elseif k=='insight' then
             if v~='exact' and v~='estimate' and v~='rough' and v~='none' then return false,k end
+        elseif k=='call' then
+            if v~='silent' and v~='pack' and v~='warband' and v~='map' then return false,k end
         elseif k=='prepSkip' then
             if type(v)~='table' or #v==0 then return false,k end
             for i,s in pairs(v) do
@@ -7893,6 +7912,12 @@ M.rangeUnit=targeting.rangeUnit
 M.allyMargin=32
 -- Worth of one spell level, times the profile's economy.
 M.costPerLevel=0.03
+-- Offensive potions & oils (ITM itemType 9: Oil of Fiery Burning POTN13, Potion of Explosions
+-- POTN26, Potion of Fire Breath POTN27): treated as level-2 cost without slot scarcity, used by
+-- non-dull enemies from Easy (difficulty 2) upward.
+M.potionItemType=9
+M.attackItemLevel=2
+M.itemAttackMinDifficulty=2
 -- A disable lasting this long counts in full (three rounds).
 M.fullSeconds=harm.fullSeconds
 -- STATE_SILENCED, in the active state.
@@ -8735,18 +8760,20 @@ local function evaluate(input,row,spell,kind,mode,aim,ctx)
     if walk then worth=worth*weapons.paced(walk) end
     worth=worth+stop
     local level=number(row.level) and row.level or number(spell.level) and spell.level or 1
-    local cost=input.mind.economy*slots(input)*M.costPerLevel*level
+    local share=row.use and 1 or slots(input)
+    local cost=input.mind.economy*share*M.costPerLevel*level
     local option={resref=row.resref,kind=kind,mode=mode,worth=worth,cost=cost,score=worth-cost,hits=hits,slack=slack,
         speed=number(spell.speed) and spell.speed or 0,release=spell.release or nil,walk=walk,
-        interrupt=stop>0 and stop or nil}
+        interrupt=stop>0 and stop or nil,use=row.use or nil}
     if kind=='damage' then option.expected=expected end
     if sat and #sat>0 then option.lasting=sat end
     if aim.enemy and (mode=='creature' or mode=='creature-area') then option.target=aim.enemy.id
-    elseif mode=='point-area' and aim.enemy and not aim.enemy.away and aimable(caster,aim.enemy,spell) then
+    elseif mode=='point-area' and not row.use and aim.enemy and not aim.enemy.away and aimable(caster,aim.enemy,spell) then
         -- An area aimed at an enemy's spot goes at that enemy, as SCS casts its areas: the game sets
         -- it off where the enemy stands when the cast goes off, not where it stood when it was chosen
         -- (lab batch E8 v3: Neira's Unholy Blight at the spot of a charging hero, who had walked on by
-        -- then). One the caster cannot aim at (sanctuary, unseen) or out of play stays on the spot.
+        -- then). One the caster cannot aim at (sanctuary, unseen), an item thrown at a point, or one
+        -- out of play stays on the spot.
         option.target=aim.enemy.id;option.mode='creature-area'
     elseif mode=='point-area' then option.point={x=math.floor(aim.point.x+0.5),y=math.floor(aim.point.y+0.5)}
     elseif mode=='self-area' then option.self=true
@@ -9099,6 +9126,41 @@ function M.options(input,rejected)
                             elseif preferred(option,out[at]) then out[at]=option end
                         end
                     else reject(why or 'unknown') end
+                end
+            end
+        end
+    end
+    if not away and input.mind.wit~='dull' and (not number(input.difficulty) or input.difficulty>=M.itemAttackMinDifficulty) then
+        local seenItems={}
+        for _,it in ipairs(type(input.items)=='table' and input.items or {}) do
+            if type(it)=='table' and type(it.resref)=='string' and not seenItems[it.resref] and
+                it.itemType==M.potionItemType and type(it.abilities)=='table' then
+                local ab=it.abilities[1]
+                if type(ab)=='table' and (ab.uses==nil or (number(ab.uses) and ab.uses>0)) and type(ab.effect)=='table' then
+                    local kind,mode=M.attack(ab.effect)
+                    if kind then
+                        seenItems[it.resref]=true
+                        local row={resref=it.resref,level=M.attackItemLevel,ready=1,usable=true,use=true,spell=ab.effect}
+                        local seen,same={},{}
+                        local list=aims(input,ab.effect,mode)
+                        if #list==0 then reject('out-of-reach') end
+                        for _,aim in ipairs(list) do
+                            local option,why=evaluate(input,row,ab.effect,kind,mode,aim,ctx)
+                            if option then
+                                local key=tostring(option.target)..':'..(option.point and option.point.x..','..option.point.y or '')
+                                if not seen[key] then
+                                    seen[key]=true
+                                    local ids={}
+                                    for n,h in ipairs(option.hits) do ids[n]=tostring(h) end
+                                    table.sort(ids)
+                                    local set=table.concat(ids,',')
+                                    local at=same[set]
+                                    if not at then out[#out+1]=option;same[set]=#out
+                                    elseif preferred(option,out[at]) then out[at]=option end
+                                end
+                            else reject(why or 'unknown') end
+                        end
+                    end
                 end
             end
         end
@@ -9830,7 +9892,7 @@ local M={}
 -- party's last living member while the party's mage, dead for three seconds, still counted).
 M.defaults={memberTicks=150,enemyTicks=90,reserveTicks=225,graceTicks=30,claimTicks=60,forgetTicks=450,
     headingMin=5,headingTicks=45,logCapacity=256,families={mage=true,priest=true,fighter=true,monster=true},
-    awayTicks=450,awaitTicks=4500,removalTicks=15,foeLimit=1024}
+    awayTicks=450,awaitTicks=4500,removalTicks=15,foeLimit=1024,groupRadius=560,combatRadius=1200,alertTicks=900}
 M.ticksPerSecond=15
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
@@ -9844,10 +9906,10 @@ function M.new(config)
     local sink=type(config.sink)=='function' and config.sink or nil
     local members,enemies,reservations,attempts,curses={},{},{},{},{}
     local foes,foeCount,away={},0,{}
-    local focus,lastTick=nil,nil
+    local focus,groupFocus,lastTick=nil,{},nil
     local log,nextRow,size={},1,0
     local counts={checkIns=0,advice=0,redirects=0,keeps=0,focusChanges=0,focusLost=0,attempts=0,ended=0,
-        released=0,sinkErrors=0,away=0,back=0,awayEnded=0,gone=0}
+        released=0,sinkErrors=0,away=0,back=0,awayEnded=0,gone=0,alerts=0}
     local api={}
 
     local function record(row)
@@ -9937,15 +9999,56 @@ function M.new(config)
             seen.px,seen.py,seen.ptick=e.x,e.y,tick
         end
     end
+    -- Whether two members belong to the same local fight at tick: within groupRadius of one
+    -- another, or linked by an active call-for-help root (api:alert). Nil member means whole area.
+    local function linked(a,b,tick)
+        if a==nil or b==nil or a==b then return true end
+        local ma,mb=members[a],members[b]
+        if not ma or not mb then return true end
+        if not (number(ma.x) and number(ma.y) and number(mb.x) and number(mb.y)) then return true end
+        local dist=targeting.distance(ma,mb)
+        if dist<=o.groupRadius then return true end
+        if dist<=o.combatRadius and ma.engagedAt and tick-ma.engagedAt<=o.enemyTicks and
+            mb.engagedAt and tick-mb.engagedAt<=o.enemyTicks then
+            return true
+        end
+        if ma.alertRoot~=nil and ma.alertRoot==mb.alertRoot and
+            ma.alertedUntil and ma.alertedUntil>=tick and mb.alertedUntil and mb.alertedUntil>=tick then
+            return true
+        end
+        return false
+    end
+    local function seenByLinked(map,member,tick,recentOnly)
+        if member==nil then
+            if not recentOnly then return true end
+            if type(map)~='table' then return false end
+            for s,at in pairs(map) do if members[s] and tick-at<=o.enemyTicks then return true end end
+            return false
+        end
+        if type(map)~='table' or next(map)==nil then return not recentOnly end
+        for s,at in pairs(map) do
+            if (not recentOnly or (members[s] and tick-at<=o.enemyTicks)) and linked(member,s,tick) then return true end
+        end
+        return false
+    end
+    local function copySeen(map,extraMember,tick)
+        local out={}
+        if type(map)=='table' then for k,v in pairs(map) do out[k]=v end end
+        if extraMember~=nil then out[extraMember]=tick end
+        return out
+    end
     -- An enemy out of play (kind 'charm' or 'maze') at at: kept apart from the picture, with what
     -- the picture knew of it, for when it comes back.
-    local function hold(target,kind,at,tick)
+    local function hold(target,kind,at,tick,byMember)
         local a=away[target]
+        local e=enemies[target]
         if not a or a.kind~=kind then
-            local e=enemies[target]
-            a={kind=kind,since=tick,hp=e and e.hp,maxHp=e and e.maxHp,state=e and e.state}
+            a={kind=kind,since=tick,hp=e and e.hp,maxHp=e and e.maxHp,state=e and e.state,
+                seenBy=copySeen(e and (next(e.seenBy)~=nil and e.seenBy or e.origin) or nil,byMember,tick)}
             away[target]=a;counts.away=counts.away+1
             record({kind='away',tick=tick,target=target,away=kind,x=at.x,y=at.y})
+        elseif byMember~=nil then
+            a.seenBy=a.seenBy or {};a.seenBy[byMember]=tick
         end
         a.x,a.y,a.lastTick=at.x,at.y,tick
         enemies[target]=nil
@@ -9960,6 +10063,24 @@ function M.new(config)
     end
 
     function api:isMember(member) return members[member]~=nil end
+    -- Link callerId and recipientIds into one alerted fight group for alertTicks.
+    function api:alert(callerId,recipientIds,tick)
+        if not id(callerId) or type(recipientIds)~='table' or not number(tick) then return 0 end
+        clock(tick)
+        local mc=members[callerId]
+        if not mc then return 0 end
+        local root=(mc.alertedUntil and mc.alertedUntil>=tick and mc.alertRoot) or callerId
+        mc.alertRoot=root;mc.alertedUntil=tick+o.alertTicks
+        local n=0
+        for _,rid in ipairs(recipientIds) do
+            if id(rid) and rid~=callerId and members[rid] then
+                members[rid].alertRoot=root;members[rid].alertedUntil=tick+o.alertTicks
+                n=n+1
+            end
+        end
+        if n>0 then counts.alerts=counts.alerts+1 end
+        return n
+    end
     -- member = {id, family}; frame = the member's plain perception frame.
     function api:checkIn(member,frame)
         if type(member)~='table' or not id(member.id) or type(frame)~='table' or not number(frame.tick) or
@@ -9970,11 +10091,12 @@ function M.new(config)
         members[member.id]=m;counts.checkIns=counts.checkIns+1
         for _,e in ipairs(type(frame.enemies)=='table' and frame.enemies or {}) do
             if id(e.id) then
+                m.engagedAt=tick
                 local seen=enemies[e.id] or {seenBy={}}
                 heading(seen,e,tick)
                 seen.lastTick=tick;seen.x,seen.y,seen.hp,seen.maxHp=e.x,e.y,e.hp,e.maxHp
                 seen.state,seen.held,seen.minHp,seen.statue=e.state,e.held,e.minHp,e.statue==true or nil
-                seen.seenBy[member.id]=tick
+                seen.seenBy[member.id]=tick;seen.origin=nil
                 enemies[e.id]=seen
                 if not foes[e.id] then
                     if foeCount>=o.foeLimit then foes,foeCount={},0 end
@@ -9988,7 +10110,7 @@ function M.new(config)
         for _,a in ipairs(type(frame.allies)=='table' and frame.allies or {}) do
             if id(a.id) and (foes[a.id] or number(a.player)) and targeting.charmed(a) and targeting.alive(a) and
                 number(a.x) and number(a.y) then
-                hold(a.id,'charm',a,tick)
+                hold(a.id,'charm',a,tick,member.id)
             end
         end
         -- A member no longer busy with its cast has finished it.
@@ -9997,20 +10119,34 @@ function M.new(config)
         return true
     end
 
-    -- The focus target: kept while it lives, someone sees it and attacks can take something
-    -- from it; otherwise the enemy seen by the most members, then the most wounded (by what it
-    -- has above its minimum hit points), then the nearest to the members who see it. An enemy
-    -- its minimum keeps where it is is no focus: it looks nearly dead and cannot die (lab batch
-    -- H9).
-    function api:focus(tick)
-        if focus and fresh(enemies[focus],tick) and open(enemies[focus]) and not enemies[focus].statue then return focus end
+    local function focusSlot(member,tick)
+        if member==nil then return 0 end
+        local slot=member
+        for k,m in pairs(members) do
+            if tick>=m.lastTick and tick-m.lastTick<=o.memberTicks and k<slot and linked(member,k,tick) then slot=k end
+        end
+        return slot
+    end
+
+    -- The focus target: kept while it lives, someone in the local group sees it and attacks can take
+    -- something from it; otherwise the enemy seen by the most linked members, then the most wounded
+    -- (by what it has above its minimum hit points), then the nearest to the members who see it.
+    function api:focus(tick,member)
+        local slot=focusSlot(member,tick)
+        local cur=slot==0 and focus or groupFocus[slot]
+        if cur and fresh(enemies[cur],tick) and open(enemies[cur]) and not enemies[cur].statue and
+            seenByLinked(enemies[cur].seenBy,member,tick,true) then
+            return cur
+        end
         local best,bestKey
         for key,e in pairs(enemies) do
             if fresh(e,tick) and open(e) then
                 local seen,far=0,0
-                for member,at in pairs(e.seenBy) do
-                    local m=members[member]
-                    if m and tick-at<=o.enemyTicks then seen=seen+1;far=far+targeting.distance(m,e) end
+                for s,at in pairs(e.seenBy) do
+                    local m=members[s]
+                    if m and tick-at<=o.enemyTicks and linked(member,s,tick) then
+                        seen=seen+1;far=far+targeting.distance(m,e)
+                    end
                 end
                 if seen>0 then
                     local k={e.statue and 0 or 1,seen,-targeting.room(e),-far/seen,-key}
@@ -10022,13 +10158,13 @@ function M.new(config)
                 end
             end
         end
-        if best~=focus then
+        if best~=cur then
             counts.focusChanges=counts.focusChanges+1
-            record({kind='focus',tick=tick,target=best,previous=focus,seenBy=bestKey and bestKey[2],
+            record({kind='focus',tick=tick,target=best,previous=cur,seenBy=bestKey and bestKey[2],
                 health=bestKey and -bestKey[3]})
-            focus=best
+            if slot==0 then focus=best else groupFocus[slot]=best;focus=best end
         end
-        return focus
+        return slot==0 and focus or groupFocus[slot]
     end
 
     local function advise(member,frame,spell,original,tick)
@@ -10041,7 +10177,7 @@ function M.new(config)
         local first=byId[original]
         if not first then return {action='keep',kind=kind,reason='original-unseen'} end
         local caster=frame.self
-        local target=api:focus(tick)
+        local target=api:focus(tick,member.id)
         if kind=='disable' then
             local busy=targeting.disabled(first) and 'disabled' or
                 (holder(original,tick) and holder(original,tick)~=member.id and 'reserved') or nil
@@ -10086,21 +10222,27 @@ function M.new(config)
 
     -- The group's plan as its members use it at tick: the focus target, who holds which disable
     -- reservation, who casts which debuff at which enemy (cursed[target][spell]), and the foes in
-    -- play (inPlay[id]: every living enemy of the picture; those out of play are not in it).
-    function api:plan(tick)
+    -- play (inPlay[id]: every living enemy of the local group's picture; those out of play are not
+    -- in it). When member is omitted, returns the whole area's plan.
+    function api:plan(tick,member)
         clock(tick)
         local reserved,cursed,inPlay={},{},{}
         for target,r in pairs(reservations) do
-            if r.untilTick>tick and members[r.owner] then reserved[target]=r.owner end
+            if r.untilTick>tick and members[r.owner] and linked(member,r.owner,tick) then reserved[target]=r.owner end
         end
         for target,held in pairs(curses) do
             for spell in pairs(held) do
                 local owner=cursing(target,spell,tick)
-                if owner then cursed[target]=cursed[target] or {};cursed[target][spell]=owner end
+                if owner and linked(member,owner,tick) then cursed[target]=cursed[target] or {};cursed[target][spell]=owner end
             end
         end
-        for key,e in pairs(enemies) do if targeting.alive(e) then inPlay[key]=true end end
-        return {focus=api:focus(tick),reserved=reserved,cursed=cursed,inPlay=inPlay}
+        for key,e in pairs(enemies) do
+            if targeting.alive(e) and (seenByLinked(e.seenBy,member,tick,false) or
+                (next(e.seenBy)==nil and seenByLinked(e.origin,member,tick,false))) then
+                inPlay[key]=true
+            end
+        end
+        return {focus=api:focus(tick,member),reserved=reserved,cursed=cursed,inPlay=inPlay}
     end
 
     -- A member's cast has started at target (after any redirect). Any cast counts for the
@@ -10132,16 +10274,18 @@ function M.new(config)
             role=role,target=cast.target,original=cast.original,redirected=cast.redirected or nil,
             typed=cast.typed or nil,own=cast.own or nil})
     end
-    -- Where the group last saw each living enemy it remembers, for a member that sees none (the
+    -- Where the local group last saw each living enemy it remembers, for a member that sees none (the
     -- engine's search, combat-intent/search.lua): {id, x, y, tick (when it was last seen), vx, vy
-    -- (its heading then, when known), by (whether a member other than member saw it then)}, by id.
+    -- (its heading then, when known), by (whether another linked member saw it then)}, by id.
     function api:clues(member,tick)
         clock(tick)
         local out={}
         for key,e in pairs(enemies) do
-            if targeting.alive(e) and e.lastTick<=tick and number(e.x) and number(e.y) then
+            if targeting.alive(e) and e.lastTick<=tick and number(e.x) and number(e.y) and
+                (seenByLinked(e.seenBy,member,tick,false) or
+                 (next(e.seenBy)==nil and seenByLinked(e.origin,member,tick,false))) then
                 local by=false
-                for m,at in pairs(e.seenBy) do if m~=member and at==e.lastTick then by=true end end
+                for m,at in pairs(e.seenBy) do if m~=member and at==e.lastTick and linked(member,m,tick) then by=true end end
                 out[#out+1]={id=key,x=e.x,y=e.y,tick=e.lastTick,vx=e.vx,vy=e.vy,by=by}
             end
         end
@@ -10169,6 +10313,17 @@ function M.new(config)
         table.sort(out)
         return out
     end
+    local function dropFocusTarget(target,tick,why)
+        local lost=focus==target
+        for s,f in pairs(groupFocus) do
+            if f==target then groupFocus[s]=nil;lost=true end
+        end
+        if lost then
+            counts.focusLost=counts.focusLost+1
+            record({kind='focus',tick=tick,previous=target,why=why})
+            if focus==target then focus=nil end
+        end
+    end
     -- What the check of target found at tick: kind 'maze', in a maze at at, where it stands and will
     -- come back; 'prison', imprisoned: forgotten; nil, in the game, and a mazed one that is out again
     -- (at) is seen where it vanished. Neither kind nor at: the creature is gone (dead, or no creature
@@ -10192,33 +10347,34 @@ function M.new(config)
                 enemies[target]=nil;counts.gone=counts.gone+1
                 record({kind='gone',tick=tick,target=target})
             end
-            if focus==target then
-                counts.focusLost=counts.focusLost+1
-                record({kind='focus',tick=tick,previous=focus,why='gone'})
-                focus=nil
-            end
+            dropFocusTarget(target,tick,'gone')
         elseif a and a.kind=='maze' then
+            local origin=a.seenBy
             gone(target,tick,at and 'back' or 'gone')
             if spot then
-                enemies[target]={seenBy={},lastTick=tick,x=at.x,y=at.y,hp=a.hp,maxHp=a.maxHp,state=a.state}
+                enemies[target]={seenBy={},origin=origin,lastTick=tick,x=at.x,y=at.y,hp=a.hp,maxHp=a.maxHp,state=a.state}
             end
         end
     end
     -- The enemies out of play at tick: {id, kind ('charm' or 'maze'), x, y, since, lastTick}, by id.
-    function api:away(tick)
+    function api:away(tick,member)
         clock(tick)
         local out={}
         for key,a in pairs(away) do
-            out[#out+1]={id=key,kind=a.kind,x=a.x,y=a.y,since=a.since,lastTick=a.lastTick}
+            if member==nil or seenByLinked(a.seenBy,member,tick,false) then
+                out[#out+1]={id=key,kind=a.kind,x=a.x,y=a.y,since=a.since,lastTick=a.lastTick}
+            end
         end
         table.sort(out,function(a,b) return a.id<b.id end)
         return out
     end
     -- The group's members at tick, by id: {id, family, x, y} (where each last checked in).
-    function api:members(tick)
+    function api:members(tick,member)
         local out={}
         for key,m in pairs(members) do
-            if tick>=m.lastTick and tick-m.lastTick<=o.memberTicks then out[#out+1]={id=key,family=m.family,x=m.x,y=m.y} end
+            if tick>=m.lastTick and tick-m.lastTick<=o.memberTicks and linked(member,key,tick) then
+                out[#out+1]={id=key,family=m.family,x=m.x,y=m.y}
+            end
         end
         table.sort(out,function(a,b) return a.id<b.id end)
         return out
@@ -10285,6 +10441,17 @@ function M.new(config)
             end
             if next(held)==nil then curses[key]=nil end
         end
+        for slot,f in pairs(groupFocus) do
+            if not fresh(enemies[f],tick) then
+                if f~=focus then
+                    local e=enemies[f]
+                    counts.focusLost=counts.focusLost+1
+                    record({kind='focus',tick=tick,previous=f,
+                        why=e and not targeting.alive(e) and 'dead' or away[f] and 'away' or 'unseen'})
+                end
+                groupFocus[slot]=nil
+            end
+        end
         if focus and not fresh(enemies[focus],tick) then
             local e=enemies[focus]
             counts.focusLost=counts.focusLost+1
@@ -10294,7 +10461,7 @@ function M.new(config)
         end
     end
     function api:invalidate(reason)
-        members,enemies,reservations,attempts,curses,focus,lastTick={},{},{},{},{},nil,nil
+        members,enemies,reservations,attempts,curses,focus,groupFocus,lastTick={},{},{},{},{},nil,{},nil
         foes,foeCount,away={},0,{}
         record({kind='invalidated',reason=reason})
     end
@@ -11378,33 +11545,34 @@ end
 return M
 end
 factories["combat-intent.prep"]=function(require)
--- SCS's preparation, phase 1 (Christopher, 2026-10-28: the engine takes over how creatures
--- prepare, first exactly as SCS does, "außer eben, dass AOE spells wirklich als AOE spells gecastet
--- werden", and is rebuilt later). SCS is the blueprint ([src] mage/ssl and caster_shared, credit
--- DavidW). The installer marks SCS's own preparation blocks above the hook (tools/hook_rule.py:
--- prep_kind): its prebuffs, which it casts at once while instantprep is still 0 (prebuff: a helper of
--- the spell, then the memorized spell spent, or a free precast such as its Stoneskin), its
--- contingencies and sequencers (contingency), its chain contingencies (chain) and its first-round
--- casts at the creature itself (opener). Each block asks the engine first, naming its kind, the spell
--- it casts and the spell it takes from the spellbook as the script writes them, and a block that ran
--- tells the engine so. SCS's helpers keep the spell's own area: its Haste prebuff reaches the allies
--- near the caster as the spell does.
+-- SCS's preparation, phase 2a (Christopher, 2026-10-28 and 2026-11-12: the engine takes over how
+-- creatures prepare; Phase 2a runs long all-day prebuffs out of sight and short combat-start
+-- prebuffs natively with zero delay in combat-intent/prebuff.lua, while Phase 2b will take over
+-- contingencies, spell sequencers and triggers next). SCS is the blueprint ([src] mage/ssl and
+-- caster_shared, credit DavidW). The installer marks SCS's own preparation blocks above the hook
+-- (tools/hook_rule.py: prep_kind): its prebuffs (prebuff), its contingencies and sequencers
+-- (contingency), its chain contingencies (chain) and its first-round casts at the creature itself
+-- (opener). Each block asks the engine first, naming its kind, the spell it casts and the spell it
+-- takes from the spellbook as the script writes them, and a block that ran tells the engine so.
 --
--- Phase 1: the engine chooses the first round of a creature it drives itself, so SCS's openers wait;
--- the rest runs as SCS has it unless the creature's orders hold it back (combat-intent/orders.lua):
--- prep=false holds all of it, noPrepIn holds all of it in the areas it names, and prepSkip names kinds
--- or spells to hold (the cast or the spent spell, in any case). An unknown kind runs as SCS has it.
--- Plain values only; nothing here touches the engine.
+-- Phase 2a: the engine chooses the first round of a creature it drives itself (opener held), and
+-- when nativePrebuffs is on it holds SCS's prebuff blocks as well because the engine applies
+-- long-duration and combat-start prebuffs natively; contingencies and chain contingencies continue
+-- to run as SCS built them until Phase 2b unless the creature's orders hold them back
+-- (combat-intent/orders.lua: prep=false, noPrepIn, prepSkip). Plain values only; nothing here
+-- touches the engine.
 local M={}
 M.KINDS={prebuff=true,contingency=true,chain=true,opener=true}
 
 local function named(s,name) return type(name)=='string' and name~='' and s==name:upper() end
 
 -- Whether the engine holds back a preparation block of kind that casts cast and spends spent ('' for
--- none), by the creature's orders (nil for none) and the area it stands in (nil or '' when unknown).
-function M.holds(kind,cast,spent,orders,area)
+-- none), by the creature's orders (nil for none), the area it stands in (nil or '' when unknown),
+-- and whether native prebuffs are active (nativePrebuffs==true).
+function M.holds(kind,cast,spent,orders,area,nativePrebuffs)
     if not M.KINDS[kind] then return false end
     if kind=='opener' then return true end
+    if kind=='prebuff' and nativePrebuffs==true then return true end
     if type(orders)~='table' then return false end
     if orders.prep==false then return true end
     if type(area)=='string' and area~='' then
@@ -11421,6 +11589,670 @@ function M.holds(kind,cast,spent,orders,area)
     end
     return false
 end
+return M
+end
+factories["combat-intent.prebuff"]=function(require)
+-- Native prebuff selection (Prep Phase 2a; Christopher, 2026-11-12: hostile casters prepare
+-- through our own code with zero delay, wearing hours-long buffs before combat even begins and
+-- firing combat-start prebuffs instantly on contact, while keeping every threshold and cap easy
+-- to tune). Phase 2b (contingencies, spell sequencers and triggers) follows next.
+--
+-- Runtime data classifies every memorized spell (We Overwrite: no hardcoded spell list gates a
+-- modded spell out). A spell qualifies when its classified roles protect or buff the caster or
+-- its allies without harming friends, summoning, raising, conjuring a slot-locking weapon or
+-- turning into an uncontrollable form. Plain invisibility stays with combat-intent/stealth.lua,
+-- Sanctuary stays tactical in live rounds, and ultra-short emergency immunities (< minShortSeconds,
+-- such as four-round weapon immunities) stay in the spellbook for live combat.
+-- Plain values only; nothing here touches the engine.
+local targeting=require('combat-intent.targeting')
+local M={}
+
+M.CONFIG={
+    -- Spells whose protection/buff lasts at least longSeconds (30 minutes = 1800s: Stoneskin,
+    -- Iron Skins, Armor, Mage Armor, Mind Blank) are 'long' all-day buffs that hostile casters
+    -- already keep up out of sight before combat starts.
+    longSeconds=1800,
+    -- Spells lasting at least minShortSeconds (6 rounds = 36s: Bless, Defensive Harmony, Chant,
+    -- Prayer, DUHM, Mirror Image, Blur, Shield, Haste, Minor Globe, Spirit Armor, Free Action,
+    -- Chaotic Commands, Improved Invisibility) and below longSeconds are 'short' fight-start
+    -- prebuffs. Shorter emergency spells (PfMW 24s, Mantle 24s, Improved Alacrity 12s) stay for
+    -- live rounds.
+    minShortSeconds=36,
+    -- Maximum native prebuffs cast per creature by game difficulty (1..5: Easy..Insane).
+    maxLongByDifficulty={1,2,4,6,8},
+    maxShortByDifficulty={0,1,3,5,7},
+    -- Default difficulty when the game option is unavailable.
+    defaultDifficulty=3,
+    -- Minimum caster level for out-of-sight 'long' prebuffs and fight-start 'short' prebuffs.
+    minLongLevel=1,
+    minShortLevel=1,
+    -- Spellbook lists eligible for automatic prebuffs (innates stay tactical combat abilities).
+    lists={mage=true,priest=true},
+}
+
+local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
+local function clamp(v,lo,hi) if v<lo then return lo elseif v>hi then return hi end return v end
+local function named(s,name) return type(name)=='string' and name~='' and s==name:upper() end
+
+local function merged(custom)
+    if type(custom)~='table' then return M.CONFIG end
+    local out={}
+    for k,v in pairs(M.CONFIG) do out[k]=custom[k]~=nil and custom[k] or v end
+    return out
+end
+
+local function forFriends(role)
+    if type(role)~='table' or type(role.who)~='table' then return false end
+    if role.who.self or role.who.target or role.who.party then return true end
+    if role.who.area then
+        local f=role.filters
+        return type(f)~='table' or f.allies==true or f.all==true
+    end
+    return false
+end
+
+local function ownOnly(who)
+    if type(who)~='table' then return false end
+    for k,v in pairs(who) do if v and k~='self' then return false end end
+    return who.self==true
+end
+
+local function harmsFriends(spell)
+    for _,name in ipairs({'damage','disable'}) do
+        local r=spell.roles[name]
+        if type(r)=='table' and type(r.who)=='table' then
+            if r.who.self or r.who.party or r.who.everyone or r.who.casterGroup then return true end
+            if r.who.area and type(r.filters)=='table' and (r.filters.allies or r.filters.all) then return true end
+        end
+    end
+    return false
+end
+
+-- Effective timed span of the spell's protection/buff roles. Cure or child-delivery helpers often
+-- carry permanent timing alongside a timed buff (Improved Invisibility 138s, Free Action 180s), so
+-- any positive timed effect sets the real span; a pure permanent protection without timed effects
+-- (such as an until-struck Stoneskin) counts as all-day.
+local function spanOf(p,b,cfg)
+    local timed=0
+    local permanent=false
+    for _,r in ipairs({p or false,b or false}) do
+        if type(r)=='table' then
+            if number(r.timed) and r.timed>timed then timed=r.timed end
+            if r.duration=='permanent' then permanent=true end
+        end
+    end
+    if timed>0 then return timed end
+    if permanent then return cfg.longSeconds end
+    return 0
+end
+
+local function priorityOf(spell,p,b,level,span)
+    local pk=type(p)=='table' and type(p.kinds)=='table' and p.kinds or {}
+    local bk=type(b)=='table' and type(b.kinds)=='table' and b.kinds or {}
+    local tier=120
+    if pk.stoneskin then tier=400
+    elseif (p and (p.immuneBy or p.bounceBy or p.deflectBy or p.trapBy)) or pk.magicResistance or pk.freeAction or
+        pk.chaosShield or pk.sevenEyes then
+        tier=300
+    elseif pk.mirror or pk.improvedInvisible or pk.weapons or pk.blur or pk.resist or pk.saves then
+        tier=220
+    elseif bk.haste or bk.improvedHaste or bk.bless or bk.chant or bk.aid or bk.raise or bk.luck or pk.armor or
+        bk.strength or bk.thac0 or bk.damage or bk.hp or bk.regeneration or type(spell.hits)=='table' then
+        tier=160
+    end
+    return tier+(number(level) and level or 1)*10+math.min(span,3600)/3600
+end
+
+-- Classify one spellbook row for native prebuffing: returns {phase='long'|'short', point=bool,
+-- priority=number, span=number, protection=..., buff=...} or nil and the rejection reason.
+function M.classify(row,custom)
+    local cfg=merged(custom)
+    if type(row)~='table' or type(row.resref)~='string' or row.resref=='' then return nil,'bad-row' end
+    if not (type(cfg.lists)=='table' and cfg.lists[row.list]) then return nil,'list' end
+    local spell=row.spell
+    if type(spell)~='table' or type(spell.roles)~='table' then return nil,'unclassified' end
+    if spell.partial then return nil,'partial' end
+    if spell.choice then return nil,'choice' end
+    local target=spell.target
+    local point=target=='point' and type(spell.area)=='table'
+    if target~='self' and target~='creature' and not point then return nil,'target' end
+    local p=forFriends(spell.roles.protection) and spell.roles.protection or nil
+    local b=forFriends(spell.roles.buff) and spell.roles.buff or nil
+    if not p and not b then return nil,'no-defence' end
+    if harmsFriends(spell) then return nil,'harms-friends' end
+    for _,name in ipairs({'damage','disable'}) do
+        local r=spell.roles[name]
+        if type(r)=='table' and type(r.who)=='table' and (r.who.target or r.who.point) then return nil,'attack' end
+    end
+    for _,name in ipairs({'summon','raise','prepare','move','unlock'}) do
+        local r=spell.roles[name]
+        if type(r)=='table' and type(r.who)=='table' and next(r.who) then return nil,'role-'..name end
+    end
+    local heal=spell.roles.heal
+    if type(heal)=='table' and type(heal.who)=='table' and next(heal.who) and not ownOnly(heal.who) then
+        return nil,'role-heal'
+    end
+    local pk=p and type(p.kinds)=='table' and p.kinds or {}
+    local bk=b and type(b.kinds)=='table' and b.kinds or {}
+    if pk.sanctuary then return nil,'sanctuary' end
+    if pk.invisible and not pk.improvedInvisible then return nil,'plain-invisibility' end
+    if bk.shapechange or bk.berserk or bk.alacrity or bk.weapon or type(spell.weapons)=='table' then
+        return nil,'tactical-form'
+    end
+    local span=spanOf(p,b,cfg)
+    if span<cfg.minShortSeconds then return nil,'too-short' end
+    local phase=span>=cfg.longSeconds and 'long' or 'short'
+    local level=number(row.level) and row.level or number(spell.level) and spell.level or 1
+    return {
+        resref=row.resref,
+        list=row.list,
+        level=level,
+        phase=phase,
+        point=point,
+        span=span,
+        priority=priorityOf(spell,p,b,level,span),
+        protection=p,
+        buff=b,
+    }
+end
+
+local function skippedByOrders(orders,area,resref)
+    if type(orders)~='table' then return false end
+    if orders.prep==false then return true end
+    if type(area)=='string' and area~='' then
+        local where=area:upper()
+        for _,a in ipairs(type(orders.noPrepIn)=='table' and orders.noPrepIn or {}) do
+            if named(where,a) then return true end
+        end
+    end
+    for _,s in ipairs(type(orders.prepSkip)=='table' and orders.prepSkip or {}) do
+        if type(s)=='string' then
+            local up=s:upper()
+            if up=='PREBUFF' or named(up,resref) then return true end
+        end
+    end
+    return false
+end
+
+local function reservedByOrders(orders,resref,diff)
+    if type(orders)~='table' then return 0 end
+    local need=0
+    if type(orders.opener)=='table' and (not number(orders.openerFrom) or diff>=orders.openerFrom) then
+        for _,step in ipairs(orders.opener) do
+            if type(step)=='string' and named(resref,step) then need=1;break end
+            if type(step)=='table' then
+                local hit=false
+                for _,entry in ipairs(step) do
+                    if type(entry)=='string' and named(resref,entry) then hit=true;break end
+                end
+                if hit then need=1;break end
+            end
+        end
+    end
+    local extraCount=0
+    for _,pair in ipairs({{orders.talkPrep,orders.talkFrom},{orders.prebuff,orders.prebuffFrom}}) do
+        local list,from=pair[1],pair[2]
+        if type(list)=='table' and (not number(from) or diff>=from) then
+            local c=0
+            for _,e in ipairs(list) do
+                if type(e)=='table' and type(e.spend)=='string' and named(resref,e.spend) then c=c+1 end
+            end
+            if c>extraCount then extraCount=c end
+        end
+    end
+    return need+extraCount
+end
+
+local function alreadyActive(caster,resref,info)
+    if type(caster)~='table' then return false end
+    local guard=type(caster.guard)=='table' and caster.guard or {}
+    if (type(guard.recast)=='table' and guard.recast[resref]) or
+        (type(guard.sources)=='table' and guard.sources[resref]) then
+        return true
+    end
+    local pk=info.protection and info.protection.kinds or {}
+    local bk=info.buff and info.buff.kinds or {}
+    local skins=tonumber(caster.skins) or tonumber(caster.stoneskins) or tonumber(guard.stoneskins) or 0
+    local mirror=tonumber(caster.mirror) or tonumber(guard.mirror) or 0
+    if pk.stoneskin and skins>0 then return true end
+    if pk.mirror and mirror>0 then return true end
+    local had=type(guard.kinds)=='table' and guard.kinds or {}
+    if pk.improvedInvisible and (had.improvedInvisible or targeting.has(caster.state,targeting.STATE.improvedInvisible)) then return true end
+    if bk.improvedHaste and had.improvedHaste then return true end
+    if bk.haste and not bk.improvedHaste and (had.haste or had.improvedHaste or targeting.has(caster.state,targeting.STATE.hasted)) then return true end
+    return false
+end
+
+-- Select the native prebuffs to fire now.
+-- input = {frame, caster, spells, difficulty, phase ('long', 'short' or 'both'), orders, area, level, config}
+-- Returns an ordered list of {resref, list, level, phase, point, span}.
+function M.select(input)
+    if type(input)~='table' then return {} end
+    local cfg=merged(input.config)
+    local caster=(type(input.frame)=='table' and input.frame.self) or input.caster or nil
+    local casterLevel=number(input.level) and input.level or (caster and number(caster.level) and caster.level) or nil
+    local diff=clamp(math.floor((number(input.difficulty) and input.difficulty or cfg.defaultDifficulty)+0.5),1,5)
+    local phase=input.phase or 'both'
+    local wantLong=(phase=='long' or phase=='both') and (casterLevel==nil or casterLevel>=cfg.minLongLevel)
+    local wantShort=(phase=='short' or phase=='both') and (casterLevel==nil or casterLevel>=cfg.minShortLevel)
+    if not wantLong and not wantShort then return {} end
+
+    local maxLong=wantLong and (cfg.maxLongByDifficulty[diff] or 0) or 0
+    local maxShort=wantShort and (cfg.maxShortByDifficulty[diff] or 0) or 0
+    if maxLong<=0 and maxShort<=0 then return {} end
+
+    local seen={}
+    local longPool,shortPool={},{}
+    for _,row in ipairs(type(input.spells)=='table' and input.spells or {}) do
+        if type(row)=='table' and number(row.ready) and row.ready>reservedByOrders(input.orders,row.resref,diff) and
+            row.usable~=false and not seen[row.resref] then
+            if not skippedByOrders(input.orders,input.area,row.resref) then
+                local info=M.classify(row,cfg)
+                if info and not alreadyActive(caster,row.resref,info) then
+                    seen[row.resref]=true
+                    if info.phase=='long' and maxLong>0 then longPool[#longPool+1]=info
+                    elseif info.phase=='short' and maxShort>0 then shortPool[#shortPool+1]=info end
+                end
+            end
+        end
+    end
+
+    local function byPriority(a,b)
+        if a.priority~=b.priority then return a.priority>b.priority end
+        return a.resref<b.resref
+    end
+    table.sort(longPool,byPriority)
+    table.sort(shortPool,byPriority)
+
+    local out={}
+    for i=1,math.min(#longPool,maxLong) do out[#out+1]=longPool[i] end
+    for i=1,math.min(#shortPool,maxShort) do out[#out+1]=shortPool[i] end
+    return out
+end
+
+return M
+end
+factories["combat-intent.calls"]=function(require)
+-- Creature-specific Call-for-Help & Flair Shout rules (Christopher, 2026-11-12).
+-- Replaces area-wide telepathy on open maps with local earshot radii, creature-type profiles
+-- ('silent', 'pack', 'warband', 'map'), difficulty-scaled hop caps (0 hops up to Core, 1 hop on
+-- Hard/Insane for warbands, never whole-map chain pulls), and rate-limited overhead flair shouts.
+-- Pure Lua; no EEex or global state here.
+local targeting=require('combat-intent.targeting')
+local M={}
+
+M.TICKS_PER_SECOND=15
+
+M.CONFIG={
+    alertSeconds=60,
+    relayRadiusFactor=0.85,
+    minGlobalShoutGapSeconds=8,
+    profiles={
+        silent={
+            radiusByDifficulty={0,0,0,0,0},
+            maxHopsByDifficulty={0,0,0,0,0},
+            sameRaceOnly=false,
+            shouts=false,
+            cooldownSeconds=0,
+            replyMinAlerted=99,
+        },
+        pack={
+            radiusByDifficulty={550,600,650,700,750},
+            maxHopsByDifficulty={0,0,0,0,0},
+            sameRaceOnly=true,
+            shouts=true,
+            cooldownSeconds=60,
+            replyMinAlerted=99,
+        },
+        warband={
+            radiusByDifficulty={600,650,700,800,850},
+            maxHopsByDifficulty={0,0,0,1,1},
+            sameRaceOnly=false,
+            shouts=true,
+            cooldownSeconds=45,
+            replyMinAlerted=3,
+        },
+        map={
+            radiusByDifficulty={99999,99999,99999,99999,99999},
+            maxHopsByDifficulty={0,0,0,0,0},
+            sameRaceOnly=false,
+            shouts=true,
+            cooldownSeconds=45,
+            replyMinAlerted=3,
+        },
+    },
+}
+
+-- Explicit RACE.IDS overrides checked before GENERAL.IDS (so intelligent undead like LICH and
+-- VAMPIRE stay 'warband' while mindless undead stay 'silent', and pack beasts stay 'pack').
+M.RACE_PROFILE={
+    -- Intelligent undead
+    LICH='warband',DEMILICH='warband',VAMPIRE='warband',VAMPYRE='warband',
+    -- Pack beasts
+    WOLF='pack',DOG='pack',WORG='pack',
+    -- Mindless undead, constructs, oozes, insects, arachnids & solitary/non-calling monsters
+    SKELETON='silent',ZOMBIE='silent',GHOUL='silent',SHADOW='silent',WRAITH='silent',
+    SPECTRE='silent',MUMMY='silent',GOLEM='silent',STATUE='silent',SLIME='silent',
+    ANKHEG='silent',SPIDER='silent',BEETLE='silent',CARRIONCRAWLER='silent',
+    BASILISK='silent',BEAR='silent',WYVERN='silent',MIMIC='silent',SHRIEKER='silent',
+    OTYUGH='silent',MYCONID='silent',SHAMBLING_MOUND='silent',CAT='silent',
+    UMBER_HULK='silent',ETTERCAP='silent',DRAGON='silent',
+    -- Intelligent warband & humanoid races
+    HUMAN='warband',ELF='warband',HALF_ELF='warband',DWARF='warband',HALFLING='warband',
+    GNOME='warband',HALFORC='warband',TIEFLING='warband',AASIMAR='warband',
+    DUERGAR='warband',SVIRFNEBLIN='warband',GITHYANKI='warband',
+    HOBGOBLIN='warband',GNOLL='warband',KOBOLD='warband',XVART='warband',
+    GIBBERLING='warband',ORC='warband',OGRE='warband',HALF_OGRE='warband',
+    OGRILLON='warband',GOBLIN='warband',BUGBEAR='warband',TASLOI='warband',
+    LIZARDMAN='warband',SAHUAGIN='warband',['KUO-TOA']='warband',YUANTI='warband',
+    DOPPLEGANGER='warband',RAKSHASA='warband',GENIE='warband',DEMONIC='warband',
+    IMP='warband',MEPHIT='warband',FAIRY='warband',SOLAR='warband',ANTISOLAR='warband',
+    PLANATAR='warband',DARKPLANATAR='warband',MIND_FLAYER='warband',BEHOLDER='warband',
+    DRIDER='warband',
+}
+
+M.GENERAL_PROFILE={
+    HUMANOID='warband',
+    GIANTHUMANOID='warband',
+    UNDEAD='silent',
+    ANIMAL='silent',
+    PLANT='silent',
+    MONSTER='silent',
+}
+
+-- Races that may fall back to M.LINES.DEFAULT when they have no dedicated race table in M.LINES.
+M.SPEAKING_RACES={
+    HUMAN=true,ELF=true,HALF_ELF=true,DWARF=true,HALFLING=true,GNOME=true,HALFORC=true,
+    TIEFLING=true,AASIMAR=true,DUERGAR=true,SVIRFNEBLIN=true,GITHYANKI=true,
+    ORC=true,GOBLIN=true,BUGBEAR=true,TASLOI=true,YUANTI=true,DOPPLEGANGER=true,
+    RAKSHASA=true,GENIE=true,DEMONIC=true,LICH=true,VAMPIRE=true,VAMPYRE=true,
+}
+
+M.LINES={
+    HOBGOBLIN={
+        {key='hob_1',text='Steel out! Take them!'},
+        {key='hob_2',text='Form on me! Intruders!'},
+        {key='hob_3',text='Cut them down! Move!'},
+        {key='hob_4',text='Blades up! Over here!'},
+    },
+    GNOLL={
+        {key='gnl_1',text='Fresh meat! Pack, to me!'},
+        {key='gnl_2',text='Tear them apart! Rrragh!'},
+        {key='gnl_3',text='Prey! Surround them!'},
+    },
+    KOBOLD={
+        {key='kob_1',text='Yip! Yip! Intruder - pack, come quick!'},
+        {key='kob_2',text='Kill-kill! More sticks and arrows here!'},
+        {key='kob_3',text='Aii! Big-folk! Help, help!'},
+    },
+    XVART={
+        {key='xvt_1',text='Eeee! Outsiders! Tribe, come!'},
+        {key='xvt_2',text='Stab them! All together!'},
+        {key='xvt_3',text='Aiiie! Help us, brothers!'},
+    },
+    OGRE={
+        {key='ogr_1',text='Smash little ones! Come crush!'},
+        {key='ogr_2',text='Meat here! Hit them hard!'},
+    },
+    HALF_OGRE={
+        {key='hog_1',text='Over here! Break their bones!'},
+        {key='hog_2',text='Crush them! Move in!'},
+    },
+    OGRILLON={
+        {key='ogl_1',text='Smash them flat! Over here!'},
+        {key='ogl_2',text='Little meat! Come pound them!'},
+    },
+    GIBBERLING={
+        {key='gib_1',text='*lets out a shrill, chittering shriek*'},
+        {key='gib_2',text='*howls in a frenzied chorus*'},
+    },
+    WOLF={
+        {key='wlf_1',text='*lets out a sharp howl*'},
+        {key='wlf_2',text='*snarls and howls to the pack*'},
+    },
+    WORG={
+        {key='wrg_1',text='*lets out a deep, hunting howl*'},
+        {key='wrg_2',text='*barks a low snarl to the pack*'},
+    },
+    DOG={
+        {key='dog_1',text='*barks furiously*'},
+        {key='dog_2',text='*growls and barks an alarm*'},
+    },
+    DEFAULT={
+        {key='war_1',text='To arms! Enemy spotted!'},
+        {key='war_2',text='Over here! On me!'},
+        {key='war_3',text='We have company - move in!'},
+        {key='war_4',text='Blades out! Over here!'},
+        {key='war_5',text='Take them down! Quickly!'},
+    },
+    REPLIES={
+        {key='rep_1',text='On my way!'},
+        {key='rep_2',text='Hold them - coming!'},
+        {key='rep_3',text='Moving in!'},
+    },
+}
+
+local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
+local function upper(v) return type(v)=='string' and #v>0 and v:upper() or nil end
+local function clampDiff(d)
+    if not number(d) then return 3 end
+    local n=math.floor(d)
+    if n<1 then return 1 elseif n>5 then return 5 end
+    return n
+end
+
+-- Flat sorted list of {key, text} for installer / test inspection.
+function M.allLines()
+    local seen,out={},{}
+    for _,list in pairs(M.LINES) do
+        for _,entry in ipairs(list) do
+            if not seen[entry.key] then
+                seen[entry.key]=true
+                out[#out+1]={key=entry.key,text=entry.text}
+            end
+        end
+    end
+    table.sort(out,function(a,b) return a.key<b.key end)
+    return out
+end
+
+-- Profile name ('silent', 'pack', 'warband', 'map') for actor + optional designer orders.
+function M.profileOf(actor,orders)
+    if type(orders)=='table' and type(orders.call)=='string' and M.CONFIG.profiles[orders.call] then
+        return orders.call
+    end
+    local race=type(actor)=='table' and upper(actor.race) or nil
+    if race and M.RACE_PROFILE[race] then return M.RACE_PROFILE[race] end
+    local gen=type(actor)=='table' and upper(actor.general) or nil
+    if gen and M.GENERAL_PROFILE[gen] then return M.GENERAL_PROFILE[gen] end
+    -- Unlabeled actor (e.g. unit-test humanoids without IDS metadata): warband default.
+    if race==nil and gen==nil then return 'warband' end
+    return 'silent'
+end
+
+local function speaksWords(actor)
+    if type(actor)~='table' then return false end
+    local race=upper(actor.race)
+    local gen=upper(actor.general)
+    if race and M.LINES[race] then return true end
+    if race and M.SPEAKING_RACES[race] then return true end
+    if gen=='HUMANOID' or gen=='GIANTHUMANOID' then return true end
+    if race==nil and gen==nil then return true end
+    return false
+end
+
+local function linePoolFor(actor,profileName)
+    if profileName=='silent' then return nil end
+    local race=type(actor)=='table' and upper(actor.race) or nil
+    if race and M.LINES[race] then return M.LINES[race],race end
+    if profileName=='pack' then return M.LINES.WOLF,'PACK' end
+    if speaksWords(actor) then return M.LINES.DEFAULT,'DEFAULT' end
+    return nil,nil
+end
+
+local function pickLine(pool,lastKey,rng)
+    if type(pool)~='table' or #pool==0 then return nil end
+    if #pool==1 then return pool[1] end
+    local candidates={}
+    for _,entry in ipairs(pool) do
+        if entry.key~=lastKey then candidates[#candidates+1]=entry end
+    end
+    if #candidates==0 then candidates=pool end
+    local idx=1
+    if type(rng)=='function' then
+        local r=rng()
+        if number(r) and r>=0 then
+            idx=(math.floor(r*#candidates)%#candidates)+1
+        end
+    end
+    return candidates[idx]
+end
+
+-- Per-area stateful call-for-help & shout coordinator.
+function M.new(customConfig)
+    local cfg={}
+    for k,v in pairs(M.CONFIG) do cfg[k]=v end
+    if type(customConfig)=='table' then
+        for k,v in pairs(customConfig) do cfg[k]=v end
+    end
+    local profiles=cfg.profiles or M.CONFIG.profiles
+
+    local calledUntil={}
+    local alertedUntil={}
+    local hopOf={}
+    local rootOf={}
+    local shoutCooldownUntil={}
+    local lastLineByBucket={}
+    local lastGlobalShoutTick=nil
+    local lastTick=nil
+    local counts={calls=0,alerted=0,shouts=0,replies=0}
+    local api={}
+
+    local function reset()
+        calledUntil,alertedUntil,hopOf,rootOf={},{},{},{}
+        shoutCooldownUntil,lastLineByBucket={},{}
+        lastGlobalShoutTick,lastTick=nil,nil
+    end
+
+    -- Evaluate whether caller alerts nearby allies among members ({id, x, y, race, general, orders}).
+    -- Returns {profile, root, alerted={ids...}, shouts={{id, key, text, reply?}, ...}}.
+    function api:call(caller,members,difficulty,tick,rng)
+        if type(caller)~='table' or caller.id==nil or not number(tick) then
+            return {profile='silent',alerted={},shouts={}}
+        end
+        if lastTick and tick<lastTick then reset() end
+        lastTick=tick
+
+        local profileName=M.profileOf(caller,caller.orders)
+        local prof=profiles[profileName] or profiles.silent
+        if profileName=='silent' then
+            return {profile='silent',alerted={},shouts={}}
+        end
+        if calledUntil[caller.id] and calledUntil[caller.id]>tick then
+            return {profile=profileName,root=rootOf[caller.id],alerted={},shouts={}}
+        end
+
+        local diff=clampDiff(difficulty)
+        local radius=(prof.radiusByDifficulty and prof.radiusByDifficulty[diff]) or 0
+        local maxHops=(prof.maxHopsByDifficulty and prof.maxHopsByDifficulty[diff]) or 0
+        local alertTicks=math.max(1,math.floor((cfg.alertSeconds or 60)*M.TICKS_PER_SECOND))
+
+        local activeAlert=alertedUntil[caller.id] and alertedUntil[caller.id]>=tick
+        local startHop=activeAlert and (hopOf[caller.id] or 0) or 0
+        local root=(activeAlert and rootOf[caller.id]) or caller.id
+        calledUntil[caller.id]=tick+alertTicks
+
+        if radius<=0 or startHop>maxHops or not (number(caller.x) and number(caller.y)) then
+            return {profile=profileName,root=root,alerted={},shouts={}}
+        end
+
+        local callerRace=upper(caller.race)
+        local visited={[caller.id]=true}
+        local queue={{actor=caller,hop=startHop}}
+        local head=1
+        local alerted={}
+        local responder,responderDist=nil,nil
+
+        while head<=#queue do
+            local cur=queue[head];head=head+1
+            local stepRadius=cur.hop==startHop and radius or math.floor(radius*(cfg.relayRadiusFactor or 0.85))
+            for _,m in ipairs(type(members)=='table' and members or {}) do
+                if type(m)=='table' and m.id~=nil and not visited[m.id] and number(m.x) and number(m.y) then
+                    local alreadyInRoot=alertedUntil[m.id] and alertedUntil[m.id]>=tick and rootOf[m.id]==root
+                    local mProfile=M.profileOf(m,m.orders)
+                    local targetOk=(prof.sameRaceOnly and mProfile=='pack' and callerRace~=nil and upper(m.race)==callerRace) or
+                        (not prof.sameRaceOnly and (mProfile=='warband' or mProfile=='map'))
+                    if not alreadyInRoot and targetOk then
+                        local d=targeting.distance(cur.actor,m)
+                        if d<=stepRadius then
+                            visited[m.id]=true
+                            alerted[#alerted+1]=m.id
+                            hopOf[m.id]=cur.hop+1
+                            rootOf[m.id]=root
+                            alertedUntil[m.id]=tick+alertTicks
+                            if cur.hop==startHop and (responderDist==nil or d<responderDist or (d==responderDist and m.id<responder.id)) then
+                                responder,responderDist=m,d
+                            end
+                            if cur.hop<maxHops then
+                                queue[#queue+1]={actor=m,hop=cur.hop+1}
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        table.sort(alerted)
+        if #alerted==0 then
+            return {profile=profileName,root=root,alerted={},shouts={}}
+        end
+
+        rootOf[caller.id]=root
+        hopOf[caller.id]=startHop
+        alertedUntil[caller.id]=tick+alertTicks
+        counts.calls=counts.calls+1
+        counts.alerted=counts.alerted+#alerted
+
+        local shouts={}
+        local minGap=math.floor((cfg.minGlobalShoutGapSeconds or 0)*M.TICKS_PER_SECOND)
+        local cooldownTicks=math.floor((prof.cooldownSeconds or 45)*M.TICKS_PER_SECOND)
+        local globalReady=lastGlobalShoutTick==nil or (tick-lastGlobalShoutTick)>=minGap
+        local rootReady=not shoutCooldownUntil[root] or shoutCooldownUntil[root]<=tick
+
+        if prof.shouts and globalReady and rootReady then
+            local pool,bucket=linePoolFor(caller,profileName)
+            local chosen=pool and pickLine(pool,lastLineByBucket[bucket],rng) or nil
+            if chosen then
+                lastLineByBucket[bucket]=chosen.key
+                shoutCooldownUntil[root]=tick+cooldownTicks
+                lastGlobalShoutTick=tick
+                shouts[#shouts+1]={id=caller.id,key=chosen.key,text=chosen.text}
+                counts.shouts=counts.shouts+1
+                local replyMin=prof.replyMinAlerted or 99
+                if #alerted>=replyMin and responder and speaksWords(responder) and profileName~='pack' then
+                    local rep=pickLine(M.LINES.REPLIES,lastLineByBucket.REPLIES,rng)
+                    if rep then
+                        lastLineByBucket.REPLIES=rep.key
+                        shouts[#shouts+1]={id=responder.id,key=rep.key,text=rep.text,reply=true}
+                        counts.replies=counts.replies+1
+                    end
+                end
+            end
+        end
+
+        return {profile=profileName,root=root,alerted=alerted,shouts=shouts}
+    end
+
+    function api:invalidate() reset() end
+    function api:inspect()
+        local out={}
+        for k,v in pairs(counts) do out[k]=v end
+        return {counts=out}
+    end
+
+    return api
+end
+
 return M
 end
 factories["combat-intent.talk"]=function(require)
@@ -11828,7 +12660,7 @@ M.scores={str=36,strExtra=37,int=38,dex=40}
 M.charm,M.maze=5,213
 -- The quiver slots, whose ammunition a launcher shoots, the fist slot, the magic weapon slot and
 -- the weapon slots (SLOTS.IDS).
-M.quiver={11,12,13}
+M.quiver={11,12,13,14}
 M.fistSlot=10
 M.magicSlot=34
 M.weaponSlots={35,36,37,38}
@@ -13023,6 +13855,7 @@ local sense=require('adapters.eeex.sense')
 local resources=require('adapters.eeex.resources')
 local spells=require('combat-intent.spells')
 local targeting=require('combat-intent.targeting')
+local calls=require('combat-intent.calls')
 local core=require('combat-intent.director')
 local M={}
 M.checkTicks=15
@@ -13033,19 +13866,90 @@ M.resref=sense.spellOf
 function M.new(g,options)
     options=options or {}
     local reader=options.reader or resources.new(g)
-    local directors,memberArea,memberFamily,lastCheck={},{},{},{}
+    local directors,areaCalls,memberArea,memberFamily,memberInfo,lastCheck={},{},{},{},{},{}
+    local shoutsOn=options.shouts~=false
     local cache,cached={},0
     local root,sink,choice
-    local counts={checkIns=0,starts=0,advised=0,redirected=0,own=0,errors=0,marks=0,markFailures=0,removalChecks=0}
+    local counts={checkIns=0,starts=0,advised=0,redirected=0,own=0,errors=0,marks=0,markFailures=0,
+        removalChecks=0,calls=0,shouts=0}
     local adapter={}
     local function now() return root and root.now and root.now() end
+    local function difficulty()
+        local ok,level=pcall(function()
+            local eg=g.EngineGlobals
+            local ch=eg and eg.g_pBaldurChitin
+            local game=ch and ch.m_pObjectGame
+            local opt=game and game.m_options
+            return (opt and opt.m_nDifficultyLevel) or (game and game.m_nDifficultyLevel)
+        end)
+        if ok and type(level)=='number' and level>=1 and level<=5 then return math.floor(level) end
+        return 3
+    end
     local function director(area)
         local d=directors[area]
         if not d then
-            d=core.new({area=area,families=options.families,sink=function(row) if sink then sink(row) end end})
+            d=core.new({area=area,families=options.families,groupRadius=options.groupRadius,
+                alertTicks=options.alertTicks,sink=function(row) if sink then sink(row) end end})
             directors[area]=d
         end
         return d
+    end
+    local function callManager(area)
+        local cm=areaCalls[area]
+        if not cm then
+            cm=calls.new(options.callsConfig)
+            areaCalls[area]=cm
+        end
+        return cm
+    end
+    local function recordInfo(id,sprite,frame)
+        local raw=sprite.m_resref and sprite.m_resref.get and sprite.m_resref:get() or nil
+        local resref=type(raw)=='string' and #raw>0 and raw:upper() or nil
+        local ai=sprite.m_typeAI
+        local idsName=type(reader.idsName)=='function' and reader.idsName or nil
+        local race=ai and idsName and idsName('RACE',ai.m_Race) or nil
+        local general=ai and idsName and idsName('GENERAL',ai.m_General) or nil
+        local ord=resref and choice and type(choice.orderFor)=='function' and choice:orderFor(resref) or nil
+        local info={id=id,x=frame.self.x,y=frame.self.y,race=race,general=general,resref=resref,orders=ord}
+        memberInfo[id]=info
+        return info
+    end
+    local function callHelp(area,d,callerInfo,tick)
+        local cm=callManager(area)
+        local active=d:members(tick)
+        local list={}
+        for _,m in ipairs(active) do
+            local info=memberInfo[m.id]
+            list[#list+1]={
+                id=m.id,x=m.x,y=m.y,
+                race=info and info.race or nil,
+                general=info and info.general or nil,
+                resref=info and info.resref or nil,
+                orders=info and info.orders or nil,
+            }
+        end
+        local rng=choice and type(choice.rng)=='function' and choice:rng() or nil
+        local res=cm:call(callerInfo,list,difficulty(),tick,rng)
+        if #res.alerted>0 then
+            d:alert(callerInfo.id,res.alerted,tick)
+            counts.calls=counts.calls+1
+            local shoutKeys={}
+            for _,s in ipairs(res.shouts) do
+                shoutKeys[#shoutKeys+1]=s.key
+                if shoutsOn and type(g.EEex_Sprite_DisplayTextRef)=='function' then
+                    local strref=type(g.BGSE_CALL_STRREFS)=='table' and g.BGSE_CALL_STRREFS[s.key] or nil
+                    local sp=type(strref)=='number' and g.EEex_GameObject_Get(s.id) or nil
+                    if sp and g.EEex_GameObject_IsSprite(sp,false) then
+                        local ok=pcall(g.EEex_Sprite_DisplayTextRef,sp,strref,{overHead=true})
+                        if ok then counts.shouts=counts.shouts+1 end
+                    end
+                end
+            end
+            if sink then
+                pcall(sink,{kind='call',area=area,tick=tick,member=callerInfo.id,profile=res.profile,
+                    alerted=res.alerted,shouts=#shoutKeys>0 and shoutKeys or nil})
+            end
+        end
     end
     local lastError,markError
     local function failed(where,err)
@@ -13097,6 +14001,11 @@ function M.new(g,options)
         local d=director(frame.area)
         if d:checkIn({id=id,family=family},frame) then
             memberArea[id],memberFamily[id]=frame.area,family;counts.checkIns=counts.checkIns+1
+            local info=recordInfo(id,sprite,frame)
+            if #frame.enemies>0 then
+                local okCall,errCall=pcall(callHelp,frame.area,d,info,tick)
+                if not okCall then failed('call',errCall) end
+            end
         end
         local ok,err=pcall(removals,d,tick)
         if not ok then failed('removed',err) end
@@ -13202,11 +14111,11 @@ function M.new(g,options)
         end
         return n
     end
-    local function planOf(d,tick)
-        local plan=d:plan(tick)
+    local function planOf(d,id,tick)
+        local plan=d:plan(tick,id)
         local keys={}
         for key in pairs(plan.inPlay) do keys[#keys+1]=key end
-        if settle(d,keys,tick)>0 then plan=d:plan(tick) end
+        if settle(d,keys,tick)>0 then plan=d:plan(tick,id) end
         return plan
     end
     local function cluesOf(d,id,tick)
@@ -13222,7 +14131,7 @@ function M.new(g,options)
         local area=memberArea[id]
         local d=area and directors[area]
         if not d then return nil end
-        local ok,plan=pcall(planOf,d,tick)
+        local ok,plan=pcall(planOf,d,id,tick)
         if ok then return plan end
         failed('plan',plan)
     end
@@ -13275,7 +14184,7 @@ function M.new(g,options)
         local area=memberArea[id]
         local d=area and directors[area]
         if not d then return {} end
-        local ok,list=pcall(d.away,d,tick)
+        local ok,list=pcall(d.away,d,tick,id)
         if ok then return list end
         failed('away',list)
         return {}
@@ -13284,24 +14193,26 @@ function M.new(g,options)
         local area=memberArea[id]
         local d=area and directors[area]
         if not d then return {} end
-        local ok,list=pcall(d.members,d,tick)
+        local ok,list=pcall(d.members,d,tick,id)
         if not ok then failed('group',list);return {} end
         local out={}
         for _,m in ipairs(list) do if m.id~=id then out[#out+1]=m end end
         return out
     end
+    function adapter:setShouts(v) shoutsOn=v==true end
     function adapter:setChoice(c) choice=c end
     function adapter:attach(r) root=r end
     function adapter:setSink(fn) assert(fn==nil or type(fn)=='function');sink=fn end
     function adapter:invalidate()
         for _,d in pairs(directors) do d:invalidate('session') end
-        directors,memberArea,memberFamily,lastCheck={},{},{},{}
+        for _,cm in pairs(areaCalls) do cm:invalidate() end
+        directors,areaCalls,memberArea,memberFamily,memberInfo,lastCheck={},{},{},{},{},{}
     end
     function adapter:inspect()
         local areas={}
         for area,d in pairs(directors) do areas[area]=d:inspect() end
         local copy={};for k,v in pairs(counts) do copy[k]=v end
-        return {counts=copy,areas=areas,problems=reader.problems,lastError=lastError or false,
+        return {counts=copy,areas=areas,shouts=shoutsOn,problems=reader.problems,lastError=lastError or false,
             markError=markError or false}
     end
     return adapter
@@ -14508,6 +15419,7 @@ local removal=require('combat-intent.removal')
 local search=require('combat-intent.search')
 local backstab=require('combat-intent.backstab')
 local prep=require('combat-intent.prep')
+local prebuff=require('combat-intent.prebuff')
 local rngs=require('kernel.rng')
 local M={}
 -- Every family a hook asks for (kernel/hook.lua): the ones api:setFamilies takes. The engine takes
@@ -14553,10 +15465,11 @@ M.judgeLimit=64
 -- Item slots a creature drinks from: the quick items and the backpack (SLOTS.IDS).
 M.itemFirst,M.itemLast=15,33
 -- Casts of the engine's own: Spell (SpellRES) and SpellPoint (SpellPointRES); ForceSpell and
--- ForceSpellPoint (ForceSpellRES, ForceSpellPointRES) for releases; UseItem for a potion. Each
--- holds the spell's or item's resref as its first string.
-M.CASTS={[31]=true,[95]=true,[113]=true,[114]=true,[34]=true}
+-- ForceSpellPoint (ForceSpellRES, ForceSpellPointRES) for releases; UseItem and UseItemPoint for a
+-- potion or thrown oil. Each holds the spell's or item's resref as its first string.
+M.CASTS={[31]=true,[95]=true,[113]=true,[114]=true,[34]=true,[97]=true}
 M.USE=34
+M.USE_POINT=97
 -- Decisions for friends: sanctuary keeps out enemies' casts, not these; heals and cures claim the
 -- allies they help.
 M.FRIENDLY={defence=true,heal=true,cure=true}
@@ -14571,7 +15484,8 @@ M.ATTACKS={[3]=true,[98]=true,[105]=true,[134]=true}
 -- (SLOT_WEAPON0 to 3).
 M.magicSlot=34
 M.strikeTicks=180
-M.WEAPON_SLOTS={[35]=true,[36]=true,[37]=true,[38]=true}
+M.HAND_SLOTS={[35]=true,[36]=true,[37]=true,[38]=true}
+M.WEAPON_SLOTS={[11]=true,[12]=true,[13]=true,[14]=true,[35]=true,[36]=true,[37]=true,[38]=true}
 -- A melee attack that cannot get to its target (M.stuck): the attacker has stood still for
 -- stuckTicks (no step of stillSlack or more) with its target beyond a swing's reach for the two of
 -- them (M.swingReach); the engine then leaves that target to its other choices for
@@ -14750,9 +15664,10 @@ end
 M.chain=chain
 -- The weapon a decision takes up first (decision.slot, abilityNum), the first line of its response:
 -- '' for none, nil for a bad one.
-local function takeUp(decision)
+local function takeUp(decision,allowQuiver)
     if decision.slot==nil then return '' end
-    if not M.WEAPON_SLOTS[decision.slot] or not whole(decision.abilityNum) then return nil end
+    local slots=allowQuiver and M.WEAPON_SLOTS or M.HAND_SLOTS
+    if not slots[decision.slot] or not whole(decision.abilityNum) then return nil end
     return 'SelectWeaponAbility('..decision.slot..','..decision.abilityNum..')'
 end
 -- The response that casts decision's spell (a release with ForceSpellRES), or strikes with the
@@ -14763,14 +15678,23 @@ end
 function M.response(decision)
     if type(decision)~='table' or not valid(decision.resref) then return nil end
     if decision.use then
-        if not decision.self then return nil end
-        return 'UseItem("'..decision.resref..'",Myself)'
+        if decision.self then return 'UseItem("'..decision.resref..'",Myself)' end
+        if decision.point then
+            local p=decision.point
+            if type(p)~='table' or not whole(p.x) or not whole(p.y) then return nil end
+            return 'UseItemPoint("'..decision.resref..'",['..p.x..'.'..p.y..'],0)'
+        end
+        local t=decision.target
+        if type(t)=='number' and t>=0 and t%1==0 then
+            return 'UseItem("'..decision.resref..'",EEex_Target("'..M.targetName..'"))'
+        end
+        return nil
     end
     if decision.kind=='strike' or decision.kind=='weapon' then
         local t=decision.target
         if type(t)~='number' or t<0 or t%1~=0 then return nil end
         local first=''
-        if decision.kind=='weapon' then first=takeUp(decision) end
+        if decision.kind=='weapon' then first=takeUp(decision,true) end
         if not first then return nil end
         return chain(first,'AttackOneRound(EEex_Target("'..M.targetName..'"))')
     end
@@ -14778,7 +15702,7 @@ function M.response(decision)
         local p=decision.point
         if type(p)~='table' or not whole(p.x) or not whole(p.y) then return nil end
         local first=''
-        if decision.kind=='flank' then first=takeUp(decision) end
+        if decision.kind=='flank' then first=takeUp(decision,false) end
         if not first then return nil end
         return chain(first,'MoveToPoint(['..p.x..'.'..p.y..'])')
     end
@@ -14893,6 +15817,8 @@ function M.new(g,options)
     end
     local rng=type(options.rng)=='table' and options.rng or rngs.new(seed)
     local enabled=options.enabled~=false
+    local prebuffsOn=options.prebuffs==true
+    local prebuffConfig=options.prebuffConfig
     local missing
     for _,name in ipairs(M.required) do
         if type(rawget(g,name))~='function' then missing=missing or name end
@@ -14943,7 +15869,7 @@ function M.new(g,options)
     local openings,openingCount={},0
     -- The creatures whose companion (orders.companion) came, by object id.
     local companions,companionCount={},0
-    local counts={companions=0,fightPrebuffs=0,openerSteps=0,talkHolds=0,talkExtras=0,preps=0,prepHolds=0,kept=0,cut=0,waits=0,marked=0,escapes=0,escaped=0,unescaped=0,zoneFailures=0,stayed=0,left=0,pains=0,witFailures=0,decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
+    local counts={companions=0,fightPrebuffs=0,longPrebuffs=0,nativePrebuffs=0,openerSteps=0,talkHolds=0,talkExtras=0,preps=0,prepHolds=0,kept=0,cut=0,waits=0,marked=0,escapes=0,escaped=0,unescaped=0,zoneFailures=0,stayed=0,left=0,pains=0,witFailures=0,decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
         hits=0,misses=0,errors=0,holds=0,frozen=0,marks=0,markFailures=0,defences=0,guarded=0,unguarded=0,
         guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0,arms=0,attacks=0,attackHits=0,stuck=0,
         weaponFailures=0,releases=0,heals=0,cures=0,potions=0,cared=0,uncared=0,summons=0,conjured=0,
@@ -15285,7 +16211,8 @@ function M.new(g,options)
                 for i,effect in ipairs(item(it.resref)) do
                     abilities[i]={effect=effect,uses=type(it.uses)=='table' and it.uses[i] or nil}
                 end
-                carried[#carried+1]={resref=it.resref,abilities=abilities}
+                local rec=reader.get('ITM',it.resref)
+                carried[#carried+1]={resref=it.resref,itemType=rec and rec.itemType or nil,abilities=abilities}
             end
         end
         return rows,carried
@@ -15664,10 +16591,10 @@ function M.new(g,options)
         s[what]=s[what]+n
         if what=='stay' then counts.stayed=counts.stayed+n else counts.left=counts.left+n end
     end
-    -- What the group has seen, for a decision's input: its enemies in zones (stays) and dispels at
-    -- them (dispels).
+    -- What the group has seen, for a decision's input: its enemies in zones (stays), dispels at
+    -- them (dispels), and the game's difficulty (1 to 5).
     local function lore(input)
-        input.stays,input.dispels=stays,dispels
+        input.stays,input.dispels,input.difficulty=stays,dispels,difficulty()
         return input
     end
     -- Forgets the zones of area that are gone (not in present).
@@ -16106,6 +17033,33 @@ function M.new(g,options)
     -- melee attack could not get to (unreachable), and the marks of what its hits bring (markHits). The foes out of play it readies itself for (returning) get
     -- the SPLPROT marks as the enemies in sight do: a cloud laid where a mazed foe will be back is
     -- weighed on it. Returns the fight as the group knows it (fightFor, with the group's plan).
+    local justPrebuffed={}
+    local function mergeJustPrebuffed(id,tick,selfView,grd)
+        local jp=justPrebuffed[id]
+        if not jp then return end
+        if tick<jp.tick or tick-jp.tick>2 then justPrebuffed[id]=nil;return end
+        if type(grd)~='table' then return end
+        grd.recast=grd.recast or {}
+        grd.sources=grd.sources or {}
+        grd.kinds=grd.kinds or {}
+        for _,entry in ipairs(jp.entries) do
+            grd.recast[entry.resref]=math.max(grd.recast[entry.resref] or 0,entry.span or 60)
+            grd.sources[entry.resref]=true
+            local pk=entry.protection and entry.protection.kinds or {}
+            local bk=entry.buff and entry.buff.kinds or {}
+            for k in pairs(pk) do grd.kinds[k]=math.max(grd.kinds[k] or 0,entry.span or 60) end
+            for k in pairs(bk) do grd.kinds[k]=math.max(grd.kinds[k] or 0,entry.span or 60) end
+            if pk.stoneskin then
+                if type(selfView)=='table' then selfView.skins=math.max(selfView.skins or 0,4) end
+                grd.stoneskins=math.max(grd.stoneskins or 0,4)
+            end
+            if pk.mirror then
+                if type(selfView)=='table' then selfView.mirror=math.max(selfView.mirror or 0,4) end
+                grd.mirror=math.max(grd.mirror or 0,4)
+            end
+        end
+    end
+
     local function situate(sprite,frame,rows,tick,returning,plan)
         mark(sprite,frame,rows)
         if returning then mark(sprite,{enemies=returning},rows) end
@@ -16117,6 +17071,7 @@ function M.new(g,options)
                 record({kind='error',where='guard',error=guardError})
             end
         end
+        mergeJustPrebuffed(sprite.m_id,tick,frame.self,frame.self.guard)
         -- What a removal could take from each enemy and what it carries, read only when a ready
         -- spell removes or weakens; an enemy whose effects cannot be read keeps none (its removal
         -- is worth nothing, a debuff counts on it in full).
@@ -16247,24 +17202,98 @@ function M.new(g,options)
     -- upvalues. opener.of: the opener of creature id with orders own at tick, for the choice: its steps
     -- and the one it takes next, from orders.openerFrom's difficulty up, for orders.openerSeconds from
     -- its first ask here; nil once that is over, all its steps are taken, or without one.
+    local function spendSlot(sprite,spendResref)
+        if type(spendResref)~='string' or spendResref=='' then return true end
+        local target=spendResref:upper()
+        for _,list in ipairs(creature.lists) do
+            local field,levels=list[2],list[3]
+            local refList=sprite[field]
+            if refList and refList.getReference then
+                for level=0,levels-1 do
+                    local spent=false
+                    g.EEex_Utility_IterateCPtrList(refList:getReference(level),function(spell)
+                        if text(spell.m_spellId:get())==target and type(spell.m_flags)=='number' and spell.m_flags%2==1 then
+                            spell.m_flags=spell.m_flags-1
+                            spent=true
+                            return true
+                        end
+                    end)
+                    if spent then return true end
+                end
+            end
+        end
+        return false
+    end
+    local function instantCast(sprite,castResref,spendResref,point)
+        local apply=rawget(g,'EEex_GameObject_ApplyEffect')
+        if type(apply)~='function' then return false end
+        local castUpper=castResref:upper()
+        if not reader.get('SPL',castUpper) then return false end
+        if spendResref and spendResref~='' and not spendSlot(sprite,spendResref) then return false end
+        local px=point and point.x or sprite.m_pos.x
+        local py=point and point.y or sprite.m_pos.y
+        local ok=pcall(apply,sprite,{
+            effectID=point and 148 or 146,
+            targetType=1,
+            effectAmount=0,
+            dwFlags=1,
+            durationType=1,
+            res=castUpper,
+            sourceID=sprite.m_id,
+            sourceTarget=point and -1 or sprite.m_id,
+            sourceX=sprite.m_pos.x,
+            sourceY=sprite.m_pos.y,
+            targetX=px,
+            targetY=py,
+            noSave=1,
+            immediateResolve=1,
+        })
+        return ok
+    end
+    local function nativePrebuffs()
+        return prebuffsOn and type(rawget(g,'EEex_GameObject_ApplyEffect'))=='function'
+    end
+    local function recordJustPrebuffed(id,tick,entries)
+        if #entries==0 then return end
+        local cur=justPrebuffed[id]
+        if cur and cur.tick==tick then
+            for _,e in ipairs(entries) do cur.entries[#cur.entries+1]=e end
+        else
+            local copy={}
+            for _,e in ipairs(entries) do copy[#copy+1]=e end
+            justPrebuffed[id]={tick=tick,entries=copy}
+        end
+    end
+    local function casterState(sprite,tick)
+        local level=0
+        for _,st in ipairs(creature.levelStats) do
+            local v=g.EEex_Sprite_GetStat(sprite,st)
+            if type(v)=='number' and v>level then level=v end
+        end
+        local ok,grd=pcall(sense.guard,g,sprite,tick,effectsOf,math.max(1,level),nil)
+        local guard=ok and grd or nil
+        mergeJustPrebuffed(sprite.m_id,tick,nil,guard)
+        return {level=level,state=g.EEex_Sprite_GetState(sprite),guard=guard}
+    end
     -- The actions that carry out a designer's preparation list (orders.talkPrep before speaking, or
     -- orders.prebuff when a fight starts in sight), one a line, once the game's difficulty is from or
     -- more. A cast: the spell cast (the spell itself, or a copy of it) of a spell it has ready (spend),
     -- and the spell spent, while the spell cast is in this game; 'buff-potion': the first potion it
-    -- carries that strengthens or protects itself.
-    local function extrasList(sprite,list,from)
-        if type(list)~='table' then return {} end
+    -- carries that strengthens or protects itself. When runInstant is true and EEex_GameObject_ApplyEffect
+    -- is present, spell casts execute synchronously in 0.00s and only potions stay in queued lines.
+    local function extrasList(sprite,list,from,runInstant)
+        if type(list)~='table' then return {},{} end
         local level=difficulty()
-        if type(from)=='number' and (level or 0)<from then return {} end
+        if type(from)=='number' and (level or 0)<from then return {},{} end
         local rows,carried=book(sprite)
-        local out,used={},{}
+        local out,fired,used={},{},{}
         for _,e in ipairs(list) do
             if e=='buff-potion' then
                 local found
                 for _,c in ipairs(type(carried)=='table' and carried or {}) do
                     for _,a in ipairs(c.abilities) do
                         local r=type(a.effect)=='table' and type(a.effect.roles)=='table' and a.effect.roles or {}
-                        for _,role in ipairs({r.buff,r.protection}) do
+                        for _,role in ipairs({r.buff or false,r.protection or false}) do
                             if type(role)=='table' and type(role.who)=='table' and role.who.self then found=found or c.resref end
                         end
                     end
@@ -16273,19 +17302,51 @@ function M.new(g,options)
                 if found then out[#out+1]=('UseItem("%s",Myself)'):format(found) end
             elseif type(e)=='table' and reader.get('SPL',e.cast:upper()) then
                 local sp=e.spend:upper()
+                local cu=e.cast:upper()
                 for _,row in ipairs(type(rows)=='table' and rows or {}) do
                     if row.resref==sp and type(row.ready)=='number' and row.ready>(used[sp] or 0) then
                         used[sp]=(used[sp] or 0)+1
-                        out[#out+1]=('ReallyForceSpellRES("%s",Myself)'):format(e.cast:upper())
-                        out[#out+1]=('RemoveSpellRES("%s")'):format(sp)
+                        if runInstant and instantCast(sprite,cu,sp,nil) then
+                            fired[#fired+1]=cu
+                            recordJustPrebuffed(sprite.m_id,now() or 0,{{resref=cu,span=120,
+                                protection=row.spell and row.spell.roles and row.spell.roles.protection or nil}})
+                        else
+                            out[#out+1]=('ReallyForceSpellRES("%s",Myself)'):format(cu)
+                            out[#out+1]=('RemoveSpellRES("%s")'):format(sp)
+                        end
                         break
                     end
                 end
             end
         end
-        return out
+        return out,fired
     end
-    local opener={done={},doneCount=0}
+    local opener={done={},doneCount=0,longDone={},longCount=0,shortDone={},shortCount=0}
+    local function runNativePrebuffs(sprite,own,area,phase,tick)
+        local rows=book(sprite)
+        if not rows then return {} end
+        local cs=casterState(sprite,tick)
+        local selected=prebuff.select({
+            caster=cs,
+            level=cs.level>0 and cs.level or nil,
+            spells=rows,
+            difficulty=difficulty() or 3,
+            phase=phase,
+            orders=own,
+            area=area,
+            config=prebuffConfig,
+        })
+        local fired,applied={},{}
+        for _,entry in ipairs(selected) do
+            local pt=entry.point and {x=sprite.m_pos.x,y=sprite.m_pos.y} or nil
+            if instantCast(sprite,entry.resref,entry.resref,pt) then
+                fired[#fired+1]=entry.resref
+                applied[#applied+1]=entry
+            end
+        end
+        if #applied>0 then recordJustPrebuffed(sprite.m_id,tick,applied) end
+        return fired
+    end
     function opener.holding(sprite,id,tick)
         local since=opener.done[id]
         if type(since)~='number' then return false end
@@ -16295,14 +17356,70 @@ function M.new(g,options)
         opener.done[id]=true
         return false
     end
-    function opener.prebuff(sprite,id,own,tick)
-        if opener.done[id] or type(own)~='table' or type(own.prebuff)~='table' then return nil end
-        local list=extrasList(sprite,own.prebuff,own.prebuffFrom)
-        if opener.doneCount>=M.cacheLimit then opener.done,opener.doneCount={},0 end
-        opener.doneCount=opener.doneCount+1
-        if #list==0 then opener.done[id]=true;return nil end
-        opener.done[id]=tick
-        return list
+    function opener.longPrebuff(sprite,frame,id,family,own,tick)
+        if not nativePrebuffs() or opener.longDone[id] then return nil end
+        if opener.longCount>=M.cacheLimit then opener.longDone,opener.longCount={},0 end
+        opener.longDone[id]=true;opener.longCount=opener.longCount+1
+        local fired=runNativePrebuffs(sprite,own,frame.area,'long',tick)
+        if #fired==0 then return nil end
+        readings=sense.memory(g)
+        counts.longPrebuffs=counts.longPrebuffs+1
+        counts.nativePrebuffs=counts.nativePrebuffs+1
+        record({kind='prebuff',tick=tick,member=id,resref=text(sprite.m_resref:get()),family=family,phase='long',
+            spells=fired,instant=true})
+        return {instant=true}
+    end
+    function opener.fightPrebuff(sprite,frame,id,family,own,tick)
+        local queued,fired={},{}
+        local hadDesigner=false
+        if not opener.done[id] and type(own)=='table' and type(own.prebuff)=='table' then
+            local q,f=extrasList(sprite,own.prebuff,own.prebuffFrom,true)
+            if opener.doneCount>=M.cacheLimit then opener.done,opener.doneCount={},0 end
+            opener.doneCount=opener.doneCount+1
+            opener.done[id]=#q>0 and tick or true
+            for _,line in ipairs(q) do queued[#queued+1]=line end
+            for _,sp in ipairs(f) do fired[#fired+1]=sp end
+            if #q>0 or #f>0 then hadDesigner=true end
+        end
+        local hadNative=false
+        if nativePrebuffs() and not opener.shortDone[id] then
+            if opener.shortCount>=M.cacheLimit then opener.shortDone,opener.shortCount={},0 end
+            opener.shortDone[id]=true;opener.shortCount=opener.shortCount+1
+            opener.longDone[id]=true
+            local f=runNativePrebuffs(sprite,own,frame.area,'both',tick)
+            for _,sp in ipairs(f) do fired[#fired+1]=sp end
+            if #f>0 then hadNative=true end
+        end
+        if not hadDesigner and not hadNative then return nil end
+        readings=sense.memory(g)
+        if hadNative then counts.nativePrebuffs=counts.nativePrebuffs+1 end
+        local resref=text(sprite.m_resref:get())
+        if #queued>0 then
+            opener.done[id]=tick
+            counts.claims=counts.claims+1
+            record({kind='prebuff',tick=tick,member=id,resref=resref,family=family,
+                phase=hadNative and 'short' or nil,spells=#fired>0 and fired or nil,
+                actions=table.concat(queued,' ')})
+            return {queued=queued}
+        end
+        if hadDesigner then counts.fightPrebuffs=counts.fightPrebuffs+1 end
+        record({kind='prebuff',tick=tick,member=id,resref=resref,family=family,phase='short',
+            spells=fired,instant=true})
+        return {instant=true}
+    end
+    function opener.talkPrebuff(sprite,id,own,tick)
+        if not nativePrebuffs() or opener.shortDone[id] then return nil end
+        if opener.shortCount>=M.cacheLimit then opener.shortDone,opener.shortCount={},0 end
+        opener.shortDone[id]=true;opener.shortCount=opener.shortCount+1
+        opener.longDone[id]=true
+        local area=sprite.m_pArea and text(sprite.m_pArea.m_resref:get()) or nil
+        local fired=runNativePrebuffs(sprite,own,area,'both',tick)
+        if #fired==0 then return nil end
+        readings=sense.memory(g)
+        counts.nativePrebuffs=counts.nativePrebuffs+1
+        record({kind='prebuff',tick=tick,member=id,resref=text(sprite.m_resref:get()),phase='talk',
+            spells=fired,instant=true})
+        return fired
     end
     function opener.of(id,own,tick)
         if type(own)~='table' or type(own.opener)~='table' then return nil end
@@ -16437,6 +17554,11 @@ function M.new(g,options)
         if unseen then
             local d=flee(sprite,id,tick,family)
             if d then return d end
+            local lp=opener.longPrebuff(sprite,frame,id,family,orderBook[text(sprite.m_resref:get())],tick)
+            if lp and lp.instant then
+                frame=sense.frame(g,sprite,tick,true,readings)
+                if not frame then return decline('no-frame') end
+            end
             returning=seeker:returning(frame,tick,mindFor(sprite,family),orderBook[text(sprite.m_resref:get())])
             if not returning and not M.ailing(frame) then
                 local rows,carried=book(sprite)
@@ -16446,12 +17568,11 @@ function M.new(g,options)
         else
             seeker:fight(sprite,frame,tick,orderBook[text(sprite.m_resref:get())])
             hider:fight(id)
-            local pb=opener.prebuff(sprite,id,orderBook[text(sprite.m_resref:get())],tick)
-            if pb then
-                counts.claims=counts.claims+1
-                record({kind='prebuff',tick=tick,member=id,resref=text(sprite.m_resref:get()),family=family,
-                    actions=table.concat(pb,' ')})
-                return {own=true,response=table.concat(pb,'\n'),kind='prebuff'}
+            local pb=opener.fightPrebuff(sprite,frame,id,family,orderBook[text(sprite.m_resref:get())],tick)
+            if pb and pb.queued then return {own=true,response=table.concat(pb.queued,'\n'),kind='prebuff'} end
+            if pb and pb.instant then
+                frame=sense.frame(g,sprite,tick,true,readings)
+                if not frame then return decline('no-frame') end
             end
         end
         local rows,carried=book(sprite)
@@ -16698,7 +17819,7 @@ function M.new(g,options)
             if not point then return 'skipped' end
             local kite,flank,position=decision.kind=='kite',decision.kind=='flank',decision.kind=='position'
             local first=''
-            if flank then first=takeUp(decision) end
+            if flank then first=takeUp(decision,false) end
             if not first then return 'skipped' end
             decision.response=chain(first,'MoveToPoint(['..point.x..'.'..point.y..'])')
             -- Its pace: the way to the spot the choice asked for over the seconds it gave the walk.
@@ -16965,12 +18086,13 @@ function M.new(g,options)
     -- its orders hold back (combat-intent/prep.lua). Any other creature keeps SCS's own. A 'prep' row
     -- with held=true says so once a creature, kind and spell.
     function api:holdsPrep(family,id,kind,cast,spent)
-        if not api:searches(family,id) then return false end
+        local inTalk=nativePrebuffs() and talks[id]~=nil and enabled and not missing and families[family]==true
+        if not api:searches(family,id) and not inTalk then return false end
         local ok,result=pcall(function()
             local sprite=get(id)
             local resref=text(sprite.m_resref:get())
             local area=sprite.m_pArea and text(sprite.m_pArea.m_resref:get()) or nil
-            if not prep.holds(kind,cast,spent,orderBook[resref],area) then return false end
+            if not prep.holds(kind,cast,spent,orderBook[resref],area,nativePrebuffs()) then return false end
             local key=tostring(id)..'|'..tostring(kind)..'|'..tostring(cast)
             if not prepHeld[key] then
                 if prepHeldCount>=M.cacheLimit then prepHeld,prepHeldCount={},0 end
@@ -17044,10 +18166,12 @@ function M.new(g,options)
             if event=='start' then
                 local own=orderBook[resref]
                 state.prior=g.EEex_Sprite_GetLocalInt(sprite,M.offscreen)
-                state.extras=type(own)=='table' and #extrasList(sprite,own.talkPrep,own.talkFrom)>0
+                local preview=type(own)=='table' and extrasList(sprite,own.talkPrep,own.talkFrom,false) or {}
+                state.extras=#preview>0
                 g.EEex_Sprite_SetLocalInt(sprite,M.offscreen,1)
                 counts.talkHolds=counts.talkHolds+1
                 record({kind='talk',tick=tick,member=id,resref=resref,phase='start',extras=state.extras})
+                opener.talkPrebuff(sprite,id,own,tick)
             end
             if restore then g.EEex_Sprite_SetLocalInt(sprite,M.offscreen,type(state.prior)=='number' and state.prior or 0) end
             if event=='done' or event=='timeout' then
@@ -17082,11 +18206,13 @@ function M.new(g,options)
             if not sprite then return end
             local resref=text(sprite.m_resref:get())
             local own=orderBook[resref]
-            local list=type(own)=='table' and extrasList(sprite,own.talkPrep,own.talkFrom) or {}
+            local list,fired={},{}
+            if type(own)=='table' then list,fired=extrasList(sprite,own.talkPrep,own.talkFrom,true) end
             for _,line in ipairs(list) do g.EEex_Action_QueueResponseStringOnAIBase(line,sprite) end
-            counts.talkExtras=counts.talkExtras+#list
+            if #fired>0 then readings=sense.memory(g) end
+            counts.talkExtras=counts.talkExtras+#list+#fired
             record({kind='talk',tick=now(),member=id,resref=resref,phase='extras',
-                actions=table.concat(list,' ')})
+                spells=#fired>0 and fired or nil,actions=table.concat(list,' ')})
         end)
         if not ok then failed('talk-act',err) end
     end
@@ -17175,6 +18301,16 @@ function M.new(g,options)
         orderBook,orderError=book,nil
         return true
     end
+    function api:setPrebuffs(v)
+        assert(type(v)=='boolean')
+        prebuffsOn=v
+    end
+    function api:orderFor(resref)
+        return type(resref)=='string' and orderBook[resref:upper()] or nil
+    end
+    function api:rng()
+        return function() return rng:nextInt(0,999999)/1000000 end
+    end
     function api:invalidate()
         pending,running,judging,memory,stop,resumed={},{},{},{},nil,nil
         lastDefence,known,stopCasts,strikes={},{},{},{}
@@ -17189,6 +18325,9 @@ function M.new(g,options)
         talks,talkCount={},0
         openings,openingCount={},0
         opener.done,opener.doneCount={},0
+        opener.longDone,opener.longCount={},0
+        opener.shortDone,opener.shortCount={},0
+        justPrebuffed={}
         companions,companionCount={},0
         outside,outsideCount={},0
         readings=sense.memory(g)
@@ -18072,12 +19211,12 @@ local M={}
 function M.install(g,options)
     options=options or {}
     if options.director==nil then
-        local ok,value=pcall(director.new,g)
+        local ok,value=pcall(director.new,g,{shouts=hook.ini(g,'Shouts')~=0})
         if ok then options.director=value end
     end
     if options.choice==nil then
         local ok,value=pcall(choice.new,g,{director=options.director,enabled=hook.ini(g,'Choice')~=0,
-            orders=encounters.orders()})
+            prebuffs=hook.ini(g,'Prebuffs')~=0,orders=encounters.orders()})
         if ok then options.choice=value end
     end
     local own=options.choice

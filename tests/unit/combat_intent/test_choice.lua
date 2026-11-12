@@ -1151,4 +1151,55 @@ do
 end
 groups=groups+1
 
+-- 29. Offensive potions and oils (itemType==9: POTN13 Oil of Fiery Burning point-area, POTN27 Potion
+-- of Fire Breath targeted, plus modded custom offensive potions under We Overwrite): clever fighters and
+-- casters evaluate carried attack potions against enemy clusters, reject friendly fire, skip dull minds
+-- and Story difficulty, and retain point coordinates on UseItemPoint decisions.
+do
+    local oilEffect=spells.classify({kind='ITM',resref='POTN13',flags=0,itemType=9,abilities={{form=3,flags=0,location=3,
+        target=4,range=30,speed=0,projectile=2,effects={fx(12,{p2=FIRE,dice=5,sides=6,save=4,special=256})}}}},
+        1,function(kind,key) if kind=='PRO' and key==2 then return area(80) end end,{level=1})
+    local breathEffect=spells.classify({kind='ITM',resref='POTN27',flags=0,itemType=9,abilities={{form=3,flags=0,location=3,
+        target=1,range=20,speed=0,projectile=2,effects={fx(12,{p2=FIRE,dice=6,sides=10,save=4,special=256})}}}},
+        1,function(kind,key) if kind=='PRO' and key==2 then return SINGLE end end,{level=1})
+
+    local cluster={enemy(11,{x=200,y=100,hp=25,maxHp=25}),enemy(12,{x=230,y=100,hp=25,maxHp=25}),enemy(13,{x=215,y=120,hp=25,maxHp=25})}
+    local f=enemies(input({family='fighter',difficulty=4,items={{resref='POTN13',itemType=9,abilities={{effect=oilEffect,uses=1}}}}}),cluster)
+    f.frame.self.weapon={item='TESTSWRD',damage=5,damageType=3,apr=1,thac0=14,ranged=false,flags=0,enchantment=0}
+    local d,why=choice.decide(f)
+    assert(d and d.resref=='POTN13' and d.use==true and d.kind=='damage' and d.mode=='point-area' and type(d.point)=='table',why)
+
+    -- Friendly fire inside the blast rejects the oil.
+    local ff=enemies(input({family='fighter',difficulty=4,items={{resref='POTN13',itemType=9,abilities={{effect=oilEffect,uses=1}}}}}),cluster)
+    ff.frame.allies={{id=2,x=210,y=100,hp=20,maxHp=20,state=0,resist={}}}
+    local ffOpts=choice.options(ff)
+    assert(#ffOpts==0)
+
+    -- Single-target Potion of Fire Breath (POTN27) and a custom modded acid flask (MODFLASK, We Overwrite).
+    local customFlask=spells.classify({kind='ITM',resref='MODFLASK',flags=0,itemType=9,abilities={{form=3,flags=0,location=3,
+        target=1,range=25,speed=0,projectile=2,effects={fx(12,{p2=1*65536,dice=8,sides=6})}}}},
+        1,function(kind,key) if kind=='PRO' and key==2 then return SINGLE end end,{level=1})
+    local singleFoe={enemy(11,{x=180,y=100,hp=30,maxHp=30})}
+    local fb=enemies(input({family='fighter',difficulty=3,items={{resref='POTN27',itemType=9,abilities={{effect=breathEffect,uses=1}}}}}),singleFoe)
+    local dBreath=choice.decide(fb)
+    assert(dBreath and dBreath.resref=='POTN27' and dBreath.use==true and dBreath.target==11 and dBreath.point==nil)
+    local mf=enemies(input({family='fighter',difficulty=3,items={{resref='MODFLASK',itemType=9,abilities={{effect=customFlask,uses=2}}}}}),singleFoe)
+    assert(choice.decide(mf).resref=='MODFLASK')
+
+    -- Excluded on dull creatures, Story difficulty (1), non-potion itemType (wands=35), or 0 uses left.
+    local dull=enemies(input({family='monster',difficulty=4,mind=mind.new({wit='dull',tactics=0}),
+        items={{resref='POTN27',itemType=9,abilities={{effect=breathEffect,uses=1}}}}}),singleFoe)
+    assert(#choice.options(dull)==0)
+    local story=enemies(input({family='fighter',difficulty=1,
+        items={{resref='POTN27',itemType=9,abilities={{effect=breathEffect,uses=1}}}}}),singleFoe)
+    assert(#choice.options(story)==0)
+    local wand=enemies(input({family='fighter',difficulty=4,
+        items={{resref='WAND05',itemType=35,abilities={{effect=breathEffect,uses=5}}}}}),singleFoe)
+    assert(#choice.options(wand)==0)
+    local empty=enemies(input({family='fighter',difficulty=4,
+        items={{resref='POTN27',itemType=9,abilities={{effect=breathEffect,uses=0}}}}}),singleFoe)
+    assert(#choice.options(empty)==0)
+end
+groups=groups+1
+
 return groups

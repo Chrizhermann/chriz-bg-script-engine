@@ -82,7 +82,7 @@ M.scores={str=36,strExtra=37,int=38,dex=40}
 M.charm,M.maze=5,213
 -- The quiver slots, whose ammunition a launcher shoots, the fist slot, the magic weapon slot and
 -- the weapon slots (SLOTS.IDS).
-M.quiver={11,12,13}
+M.quiver={11,12,13,14}
 M.fistSlot=10
 M.magicSlot=34
 M.weaponSlots={35,36,37,38}

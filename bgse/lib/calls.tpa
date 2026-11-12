@@ -1,0 +1,52 @@
+// Overhead call-for-help & pack flair strings resolved into dialog.tlk at install time
+// (combat-intent/calls.lua, adapters/eeex/director.lua). Emits double-quoted Lua keys so
+// BGSE_HOOKED's single-quoted script registry stays distinct in M_BGSEHK.lua.
+
+DEFINE_ACTION_FUNCTION bgse_add_call_line
+  STR_VAR bgse_key = ~~ bgse_text = ~~ bgse_acc = ~~
+  RET bgse_acc
+BEGIN
+  OUTER_SET bgse_strref = RESOLVE_STR_REF (~%bgse_text%~)
+  OUTER_TEXT_SPRINT bgse_acc ~%bgse_acc%  ["%bgse_key%"]=%bgse_strref%,%LNL%~
+END
+
+DEFINE_ACTION_FUNCTION bgse_register_call_strrefs
+  RET bgse_call_strrefs
+BEGIN
+  OUTER_TEXT_SPRINT bgse_call_strrefs ~~
+  LAF bgse_add_call_line STR_VAR bgse_key = ~dog_1~ bgse_text = ~*barks furiously*~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
+  LAF bgse_add_call_line STR_VAR bgse_key = ~dog_2~ bgse_text = ~*growls and barks an alarm*~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
+  LAF bgse_add_call_line STR_VAR bgse_key = ~gib_1~ bgse_text = ~*lets out a shrill, chittering shriek*~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
+  LAF bgse_add_call_line STR_VAR bgse_key = ~gib_2~ bgse_text = ~*howls in a frenzied chorus*~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
+  LAF bgse_add_call_line STR_VAR bgse_key = ~gnl_1~ bgse_text = ~Fresh meat! Pack, to me!~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
+  LAF bgse_add_call_line STR_VAR bgse_key = ~gnl_2~ bgse_text = ~Tear them apart! Rrragh!~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
+  LAF bgse_add_call_line STR_VAR bgse_key = ~gnl_3~ bgse_text = ~Prey! Surround them!~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
+  LAF bgse_add_call_line STR_VAR bgse_key = ~hob_1~ bgse_text = ~Steel out! Take them!~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
+  LAF bgse_add_call_line STR_VAR bgse_key = ~hob_2~ bgse_text = ~Form on me! Intruders!~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
+  LAF bgse_add_call_line STR_VAR bgse_key = ~hob_3~ bgse_text = ~Cut them down! Move!~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
+  LAF bgse_add_call_line STR_VAR bgse_key = ~hob_4~ bgse_text = ~Blades up! Over here!~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
+  LAF bgse_add_call_line STR_VAR bgse_key = ~hog_1~ bgse_text = ~Over here! Break their bones!~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
+  LAF bgse_add_call_line STR_VAR bgse_key = ~hog_2~ bgse_text = ~Crush them! Move in!~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
+  LAF bgse_add_call_line STR_VAR bgse_key = ~kob_1~ bgse_text = ~Yip! Yip! Intruder - pack, come quick!~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
+  LAF bgse_add_call_line STR_VAR bgse_key = ~kob_2~ bgse_text = ~Kill-kill! More sticks and arrows here!~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
+  LAF bgse_add_call_line STR_VAR bgse_key = ~kob_3~ bgse_text = ~Aii! Big-folk! Help, help!~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
+  LAF bgse_add_call_line STR_VAR bgse_key = ~ogl_1~ bgse_text = ~Smash them flat! Over here!~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
+  LAF bgse_add_call_line STR_VAR bgse_key = ~ogl_2~ bgse_text = ~Little meat! Come pound them!~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
+  LAF bgse_add_call_line STR_VAR bgse_key = ~ogr_1~ bgse_text = ~Smash little ones! Come crush!~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
+  LAF bgse_add_call_line STR_VAR bgse_key = ~ogr_2~ bgse_text = ~Meat here! Hit them hard!~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
+  LAF bgse_add_call_line STR_VAR bgse_key = ~rep_1~ bgse_text = ~On my way!~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
+  LAF bgse_add_call_line STR_VAR bgse_key = ~rep_2~ bgse_text = ~Hold them - coming!~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
+  LAF bgse_add_call_line STR_VAR bgse_key = ~rep_3~ bgse_text = ~Moving in!~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
+  LAF bgse_add_call_line STR_VAR bgse_key = ~war_1~ bgse_text = ~To arms! Enemy spotted!~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
+  LAF bgse_add_call_line STR_VAR bgse_key = ~war_2~ bgse_text = ~Over here! On me!~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
+  LAF bgse_add_call_line STR_VAR bgse_key = ~war_3~ bgse_text = ~We have company - move in!~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
+  LAF bgse_add_call_line STR_VAR bgse_key = ~war_4~ bgse_text = ~Blades out! Over here!~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
+  LAF bgse_add_call_line STR_VAR bgse_key = ~war_5~ bgse_text = ~Take them down! Quickly!~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
+  LAF bgse_add_call_line STR_VAR bgse_key = ~wlf_1~ bgse_text = ~*lets out a sharp howl*~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
+  LAF bgse_add_call_line STR_VAR bgse_key = ~wlf_2~ bgse_text = ~*snarls and howls to the pack*~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
+  LAF bgse_add_call_line STR_VAR bgse_key = ~wrg_1~ bgse_text = ~*lets out a deep, hunting howl*~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
+  LAF bgse_add_call_line STR_VAR bgse_key = ~wrg_2~ bgse_text = ~*barks a low snarl to the pack*~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
+  LAF bgse_add_call_line STR_VAR bgse_key = ~xvt_1~ bgse_text = ~Eeee! Outsiders! Tribe, come!~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
+  LAF bgse_add_call_line STR_VAR bgse_key = ~xvt_2~ bgse_text = ~Stab them! All together!~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
+  LAF bgse_add_call_line STR_VAR bgse_key = ~xvt_3~ bgse_text = ~Aiiie! Help us, brothers!~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
+END

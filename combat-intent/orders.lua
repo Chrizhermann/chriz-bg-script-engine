@@ -116,6 +116,8 @@ function M.check(o)
             if v~='guard' and v~='post' and v~='stand' then return false,k end
         elseif k=='insight' then
             if v~='exact' and v~='estimate' and v~='rough' and v~='none' then return false,k end
+        elseif k=='call' then
+            if v~='silent' and v~='pack' and v~='warband' and v~='map' then return false,k end
         elseif k=='prepSkip' then
             if type(v)~='table' or #v==0 then return false,k end
             for i,s in pairs(v) do

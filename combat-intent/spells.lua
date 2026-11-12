@@ -126,7 +126,9 @@ local function add(c,name,who,e,p)
         if hi then r.maxLevel=math.min(r.maxLevel or hi,hi) end
         if lo then r.minLevel=math.max(r.minLevel or lo,lo) end
     end
-    r.duration=longer(r.duration,seconds(e))
+    local span=seconds(e)
+    r.duration=longer(r.duration,span)
+    if number(span) and span>0 then r.timed=math.max(r.timed or 0,span) end
     if e.breakFree then r.breakFree=e.breakFree end
     -- A disable that also comes from an effect without a hit point limit has none (below).
     if name=='disable' and not HP_LIMITED[e.opcode] then r.anyHp=true;r.belowHp=nil end

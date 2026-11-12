@@ -60,4 +60,14 @@ assert(select(2,orders.check({prebuff={'buff-potion'},prebuffFrom=0}))=='prebuff
 assert(select(2,orders.check({prebuff={'buff-potion'},prebuffFrom=6}))=='prebuffFrom')
 groups=groups+1
 
+-- 5. Phase 2a native prebuffs (nativePrebuffs=true): the engine holds back SCS's 'prebuff' blocks even
+-- without orders (and even when orders={prep=true}), while letting 'contingency' and 'chain' run until
+-- Phase 2b; when nativePrebuffs=false ([BGSE] Prebuffs=0), 'prebuff' falls back to SCS unless orders hold it.
+assert(prep.holds('prebuff','dwsw408','WIZARD_STONE_SKIN',nil,nil,true)==true)
+assert(prep.holds('prebuff','dwsw212','WIZARD_MIRROR_IMAGE',{prep=true},'BG2300',true)==true)
+assert(prep.holds('contingency','WIZARD_IMPROVED_INVISIBILITY',nil,nil,nil,true)==false)
+assert(prep.holds('chain','dw#cc12','',nil,nil,true)==false)
+assert(prep.holds('prebuff','dwsw408','WIZARD_STONE_SKIN',nil,nil,false)==false)
+groups=groups+1
+
 return groups

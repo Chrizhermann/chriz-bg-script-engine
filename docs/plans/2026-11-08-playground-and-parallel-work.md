@@ -152,16 +152,46 @@ with scripts of their own (trolls, golems, wyverns, ankhegs, some of them also i
   after the 2-round alarm, plus `{{'SPWI302','SPWI309'}}` Hard+ opener and Britik guarding), and Cloakwood Mine entrance
   (`BGSEDRAS` pre-talk potion for Drasus, Genthore's *Oil of Speed*, Rezdan's *Chaos*/*Glitterdust* opener, and Kysus's
   *Remove Magic*/*Slow*/*Monster Summoning III* -> `DW#MS0` opener). Ready for Playground and lab playtesting.
-- **First live Playground observations to design next** (Christopher, 2026-11-12):
-  1. **Map-wide group hearing on wilderness maps (`BG2300` Hobgoblins):** `combat-intent/director.lua` still shares one
-     `sighted` picture across the entire area (`directors[area]`), and since `310b0de` long search walks no longer stop
-     early. Attacking two Hobgoblins outside the Friendly Arm Inn therefore brings all other placed enemies on the map.
-     Cool in camp/fortress scenes or as an optional higher-difficulty escalation for intelligent warbands, bad as a
-     blanket rule across unrelated wilderness packs: split or bound `director:clues` by earshot / group / kind while
-     keeping scripted set-piece alarms (`BGSE_Hunt` / `called`) map-wide.
-  2. **Non-boss encounters without Double Damage:** early simple packs feeling lighter without Double Damage is fine on
-     arrival, but players coming from SCS Insane + Double Damage must not find everything outside the main set pieces
-     toothless later on. Track ways to add tactical bite to mid-tier encounters over playtesting (smarter pack
-     coordination/earshot reinforcements by difficulty, mixed group roles/archers/consumables, selective extra
-     patrols/ambushes, creature kit/ability upgrades) without turning every map corner into a slog.
+- **Native Prebuffs (Prep Phase 2a), Local Fight Groups & Creature-Type Calls, and Offensive Consumables / 4-Quiver Ammo**
+  (2026-11-12, from Christopher's first live Playground session):
+  1. **Prep Phase 2a — Native `0.00s` Prebuff Engine (`combat-intent/prebuff.lua`, `combat-intent/prep.lua`,
+     `adapters/eeex/choice.lua`):** replaces SCS's slow script-queued `'prebuff'` blocks (`BGSE_Prep` holds `'prebuff'`
+     while `[BGSE] Prebuffs=1`; `Prebuffs=0` falls back cleanly to SCS). Spells are classified from live runtime SPL data
+     under We Overwrite (`M.CONFIG` in `combat-intent/prebuff.lua`): `'long'` all-day buffs (`>= 1800s`, e.g. *Stoneskin*,
+     *Iron Skins*, *Armor*, *Mind Blank*) fire synchronously out of sight (`unseen`) before combat contact so an invisible
+     scout or backstabber cannot catch a hostile mage unwarded; `'short'` fight-start buffs (`36..1799s`, e.g. *Mirror
+     Image*, *Shield*, *Blur*, *Haste*, *Minor Globe*, *Spirit Armor*, *Improved Invisibility*, *Bless*, *Chant*, *DUHM*,
+     *Free Action*, *Chaotic Commands*) fire in `0.00s` via `EEex_GameObject_ApplyEffect` (`op146` self / `op148` point at
+     the caster's feet, `dwFlags=1`) with synchronous spell-slot debit (`m_flags - 1`) and a same-tick `justPrebuffed`
+     bridge, proceeding in the exact same tick to the caster's round-1 combat action. Ultra-short tactical immunities
+     (`< 36s`: *PfMW*, *Mantle*, *Improved Alacrity*), *Sanctuary*, plain *Invisibility*, shapechanges and slot-locking
+     conjured weapons stay in the spellbook for live rounds.
+  2. **Prep Phase 2b & BG2 Completion Roadmap (tracked next):**
+     - **Prep Phase 2b:** take over `'contingency'` and `'chain'` in our own code (native Contingencies, Spell Sequencers,
+       Minor Sequencers, Spell Triggers and Chain Contingencies built from each caster's live memorized book + difficulty,
+       replacing SCS's remaining `dw#` contingency/sequencer setup blocks).
+     - **Remaining BG2/ToB items:** BG2 already uses the exact same runtime engine and covers 1,007 of 1,025 hostile
+       placed creatures (`tools/fight_census.py`); what separates BG2 from BG1 is only (a) Phase 2b high-level
+       contingencies/triggers/chain contingencies, (b) inspecting the ~18 remaining non-SCS placed BG2/ToB creatures with
+       bespoke scripts, and (c) BG2 / Ascension designed boss encounter passes (`encounters.lua`) once BG1's block list
+       moves forward.
+  3. **Local Fight Groups, Creature-Type Calls & Overhead Flair Shouts (`combat-intent/director.lua`,
+     `combat-intent/calls.lua`, `adapters/eeex/director.lua`, `bgse/lib/calls.tpa`):** replaces area-wide `director:clues`
+     telepathy on open maps (which pulled distant `BG2300` Hobgoblin packs from 2,000–3,900 px away) with local group
+     linking (`groupRadius = 560` px idle, `combatRadius = 1200` px when both members are actively engaged in combat with
+     the party, or linked via `director:alert`; scripted `BGSE_Hunt` / `orders.call='map'` alarms stay map-wide). Creature
+     call profiles in `calls.lua` (`M.CONFIG`): `'silent'` (mindless undead, constructs, oozes, insects/spiders, solitary
+     monsters), `'pack'` (`WOLF`, `DOG`, `WORG` — `sameRaceOnly=true`, `550..750` px, `0` hops, howl emotes without verbal
+     replies), and `'warband'` (intelligent humanoids/monsters + `LICH`/`VAMPIRE` — `600..850` px, `0` hops up to Core and
+     `1` relay hop on Hard/Insane). Rate-limited overhead shouts render via `EEex_Sprite_DisplayTextRef(..., {overHead=true})`
+     using WeiDU-resolved `BGSE_CALL_STRREFS` (`[BGSE] Shouts=0` mutes text).
+  4. **Offensive Consumables & All 4 Quiver Slots (`combat-intent/choice.lua`, `combat-intent/arsenal.lua`,
+     `adapters/eeex/sense.lua`):** intelligent enemies (`wit ~= 'dull'`, difficulty `>= 2`) evaluate offensive potions and
+     oils (`itemType == 9`: *Oil of Fiery Burning* `POTN13`, *Potion of Explosions* `POTN26`, *Potion of Fire Breath*
+     `POTN27`, plus modded offensive flasks under We Overwrite) via `UseItemPoint` / `UseItem`, and archers read and switch
+     across all four runtime quiver slots (`11..14` in `SLOTS.IDS`, `SelectWeaponAbility(11..14, 0)`).
+  5. **Mid-tier encounter pacing without Double Damage (ongoing playtest tuning):** keep early simple encounters fair while
+     using controlled warband relay hops on Hard/Insane, offensive consumables, enchanted ammo switching, and selective
+     encounter/patrol additions in later chapters so veterans coming from SCS Insane + Double Damage keep feeling real
+     bite outside main bosses.
 - **Later:** our own party AI script; our own classes, kits and races (see the main plan's ideas list).

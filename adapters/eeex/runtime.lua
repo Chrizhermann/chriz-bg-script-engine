@@ -10,12 +10,12 @@ local M={}
 function M.install(g,options)
     options=options or {}
     if options.director==nil then
-        local ok,value=pcall(director.new,g)
+        local ok,value=pcall(director.new,g,{shouts=hook.ini(g,'Shouts')~=0})
         if ok then options.director=value end
     end
     if options.choice==nil then
         local ok,value=pcall(choice.new,g,{director=options.director,enabled=hook.ini(g,'Choice')~=0,
-            orders=encounters.orders()})
+            prebuffs=hook.ini(g,'Prebuffs')~=0,orders=encounters.orders()})
         if ok then options.choice=value end
     end
     local own=options.choice

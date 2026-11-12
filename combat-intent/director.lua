@@ -34,7 +34,7 @@ local M={}
 -- party's last living member while the party's mage, dead for three seconds, still counted).
 M.defaults={memberTicks=150,enemyTicks=90,reserveTicks=225,graceTicks=30,claimTicks=60,forgetTicks=450,
     headingMin=5,headingTicks=45,logCapacity=256,families={mage=true,priest=true,fighter=true,monster=true},
-    awayTicks=450,awaitTicks=4500,removalTicks=15,foeLimit=1024}
+    awayTicks=450,awaitTicks=4500,removalTicks=15,foeLimit=1024,groupRadius=560,combatRadius=1200,alertTicks=900}
 M.ticksPerSecond=15
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
@@ -48,10 +48,10 @@ function M.new(config)
     local sink=type(config.sink)=='function' and config.sink or nil
     local members,enemies,reservations,attempts,curses={},{},{},{},{}
     local foes,foeCount,away={},0,{}
-    local focus,lastTick=nil,nil
+    local focus,groupFocus,lastTick=nil,{},nil
     local log,nextRow,size={},1,0
     local counts={checkIns=0,advice=0,redirects=0,keeps=0,focusChanges=0,focusLost=0,attempts=0,ended=0,
-        released=0,sinkErrors=0,away=0,back=0,awayEnded=0,gone=0}
+        released=0,sinkErrors=0,away=0,back=0,awayEnded=0,gone=0,alerts=0}
     local api={}
 
     local function record(row)
@@ -141,15 +141,56 @@ function M.new(config)
             seen.px,seen.py,seen.ptick=e.x,e.y,tick
         end
     end
+    -- Whether two members belong to the same local fight at tick: within groupRadius of one
+    -- another, or linked by an active call-for-help root (api:alert). Nil member means whole area.
+    local function linked(a,b,tick)
+        if a==nil or b==nil or a==b then return true end
+        local ma,mb=members[a],members[b]
+        if not ma or not mb then return true end
+        if not (number(ma.x) and number(ma.y) and number(mb.x) and number(mb.y)) then return true end
+        local dist=targeting.distance(ma,mb)
+        if dist<=o.groupRadius then return true end
+        if dist<=o.combatRadius and ma.engagedAt and tick-ma.engagedAt<=o.enemyTicks and
+            mb.engagedAt and tick-mb.engagedAt<=o.enemyTicks then
+            return true
+        end
+        if ma.alertRoot~=nil and ma.alertRoot==mb.alertRoot and
+            ma.alertedUntil and ma.alertedUntil>=tick and mb.alertedUntil and mb.alertedUntil>=tick then
+            return true
+        end
+        return false
+    end
+    local function seenByLinked(map,member,tick,recentOnly)
+        if member==nil then
+            if not recentOnly then return true end
+            if type(map)~='table' then return false end
+            for s,at in pairs(map) do if members[s] and tick-at<=o.enemyTicks then return true end end
+            return false
+        end
+        if type(map)~='table' or next(map)==nil then return not recentOnly end
+        for s,at in pairs(map) do
+            if (not recentOnly or (members[s] and tick-at<=o.enemyTicks)) and linked(member,s,tick) then return true end
+        end
+        return false
+    end
+    local function copySeen(map,extraMember,tick)
+        local out={}
+        if type(map)=='table' then for k,v in pairs(map) do out[k]=v end end
+        if extraMember~=nil then out[extraMember]=tick end
+        return out
+    end
     -- An enemy out of play (kind 'charm' or 'maze') at at: kept apart from the picture, with what
     -- the picture knew of it, for when it comes back.
-    local function hold(target,kind,at,tick)
+    local function hold(target,kind,at,tick,byMember)
         local a=away[target]
+        local e=enemies[target]
         if not a or a.kind~=kind then
-            local e=enemies[target]
-            a={kind=kind,since=tick,hp=e and e.hp,maxHp=e and e.maxHp,state=e and e.state}
+            a={kind=kind,since=tick,hp=e and e.hp,maxHp=e and e.maxHp,state=e and e.state,
+                seenBy=copySeen(e and (next(e.seenBy)~=nil and e.seenBy or e.origin) or nil,byMember,tick)}
             away[target]=a;counts.away=counts.away+1
             record({kind='away',tick=tick,target=target,away=kind,x=at.x,y=at.y})
+        elseif byMember~=nil then
+            a.seenBy=a.seenBy or {};a.seenBy[byMember]=tick
         end
         a.x,a.y,a.lastTick=at.x,at.y,tick
         enemies[target]=nil
@@ -164,6 +205,24 @@ function M.new(config)
     end
 
     function api:isMember(member) return members[member]~=nil end
+    -- Link callerId and recipientIds into one alerted fight group for alertTicks.
+    function api:alert(callerId,recipientIds,tick)
+        if not id(callerId) or type(recipientIds)~='table' or not number(tick) then return 0 end
+        clock(tick)
+        local mc=members[callerId]
+        if not mc then return 0 end
+        local root=(mc.alertedUntil and mc.alertedUntil>=tick and mc.alertRoot) or callerId
+        mc.alertRoot=root;mc.alertedUntil=tick+o.alertTicks
+        local n=0
+        for _,rid in ipairs(recipientIds) do
+            if id(rid) and rid~=callerId and members[rid] then
+                members[rid].alertRoot=root;members[rid].alertedUntil=tick+o.alertTicks
+                n=n+1
+            end
+        end
+        if n>0 then counts.alerts=counts.alerts+1 end
+        return n
+    end
     -- member = {id, family}; frame = the member's plain perception frame.
     function api:checkIn(member,frame)
         if type(member)~='table' or not id(member.id) or type(frame)~='table' or not number(frame.tick) or
@@ -174,11 +233,12 @@ function M.new(config)
         members[member.id]=m;counts.checkIns=counts.checkIns+1
         for _,e in ipairs(type(frame.enemies)=='table' and frame.enemies or {}) do
             if id(e.id) then
+                m.engagedAt=tick
                 local seen=enemies[e.id] or {seenBy={}}
                 heading(seen,e,tick)
                 seen.lastTick=tick;seen.x,seen.y,seen.hp,seen.maxHp=e.x,e.y,e.hp,e.maxHp
                 seen.state,seen.held,seen.minHp,seen.statue=e.state,e.held,e.minHp,e.statue==true or nil
-                seen.seenBy[member.id]=tick
+                seen.seenBy[member.id]=tick;seen.origin=nil
                 enemies[e.id]=seen
                 if not foes[e.id] then
                     if foeCount>=o.foeLimit then foes,foeCount={},0 end
@@ -192,7 +252,7 @@ function M.new(config)
         for _,a in ipairs(type(frame.allies)=='table' and frame.allies or {}) do
             if id(a.id) and (foes[a.id] or number(a.player)) and targeting.charmed(a) and targeting.alive(a) and
                 number(a.x) and number(a.y) then
-                hold(a.id,'charm',a,tick)
+                hold(a.id,'charm',a,tick,member.id)
             end
         end
         -- A member no longer busy with its cast has finished it.
@@ -201,20 +261,34 @@ function M.new(config)
         return true
     end
 
-    -- The focus target: kept while it lives, someone sees it and attacks can take something
-    -- from it; otherwise the enemy seen by the most members, then the most wounded (by what it
-    -- has above its minimum hit points), then the nearest to the members who see it. An enemy
-    -- its minimum keeps where it is is no focus: it looks nearly dead and cannot die (lab batch
-    -- H9).
-    function api:focus(tick)
-        if focus and fresh(enemies[focus],tick) and open(enemies[focus]) and not enemies[focus].statue then return focus end
+    local function focusSlot(member,tick)
+        if member==nil then return 0 end
+        local slot=member
+        for k,m in pairs(members) do
+            if tick>=m.lastTick and tick-m.lastTick<=o.memberTicks and k<slot and linked(member,k,tick) then slot=k end
+        end
+        return slot
+    end
+
+    -- The focus target: kept while it lives, someone in the local group sees it and attacks can take
+    -- something from it; otherwise the enemy seen by the most linked members, then the most wounded
+    -- (by what it has above its minimum hit points), then the nearest to the members who see it.
+    function api:focus(tick,member)
+        local slot=focusSlot(member,tick)
+        local cur=slot==0 and focus or groupFocus[slot]
+        if cur and fresh(enemies[cur],tick) and open(enemies[cur]) and not enemies[cur].statue and
+            seenByLinked(enemies[cur].seenBy,member,tick,true) then
+            return cur
+        end
         local best,bestKey
         for key,e in pairs(enemies) do
             if fresh(e,tick) and open(e) then
                 local seen,far=0,0
-                for member,at in pairs(e.seenBy) do
-                    local m=members[member]
-                    if m and tick-at<=o.enemyTicks then seen=seen+1;far=far+targeting.distance(m,e) end
+                for s,at in pairs(e.seenBy) do
+                    local m=members[s]
+                    if m and tick-at<=o.enemyTicks and linked(member,s,tick) then
+                        seen=seen+1;far=far+targeting.distance(m,e)
+                    end
                 end
                 if seen>0 then
                     local k={e.statue and 0 or 1,seen,-targeting.room(e),-far/seen,-key}
@@ -226,13 +300,13 @@ function M.new(config)
                 end
             end
         end
-        if best~=focus then
+        if best~=cur then
             counts.focusChanges=counts.focusChanges+1
-            record({kind='focus',tick=tick,target=best,previous=focus,seenBy=bestKey and bestKey[2],
+            record({kind='focus',tick=tick,target=best,previous=cur,seenBy=bestKey and bestKey[2],
                 health=bestKey and -bestKey[3]})
-            focus=best
+            if slot==0 then focus=best else groupFocus[slot]=best;focus=best end
         end
-        return focus
+        return slot==0 and focus or groupFocus[slot]
     end
 
     local function advise(member,frame,spell,original,tick)
@@ -245,7 +319,7 @@ function M.new(config)
         local first=byId[original]
         if not first then return {action='keep',kind=kind,reason='original-unseen'} end
         local caster=frame.self
-        local target=api:focus(tick)
+        local target=api:focus(tick,member.id)
         if kind=='disable' then
             local busy=targeting.disabled(first) and 'disabled' or
                 (holder(original,tick) and holder(original,tick)~=member.id and 'reserved') or nil
@@ -290,21 +364,27 @@ function M.new(config)
 
     -- The group's plan as its members use it at tick: the focus target, who holds which disable
     -- reservation, who casts which debuff at which enemy (cursed[target][spell]), and the foes in
-    -- play (inPlay[id]: every living enemy of the picture; those out of play are not in it).
-    function api:plan(tick)
+    -- play (inPlay[id]: every living enemy of the local group's picture; those out of play are not
+    -- in it). When member is omitted, returns the whole area's plan.
+    function api:plan(tick,member)
         clock(tick)
         local reserved,cursed,inPlay={},{},{}
         for target,r in pairs(reservations) do
-            if r.untilTick>tick and members[r.owner] then reserved[target]=r.owner end
+            if r.untilTick>tick and members[r.owner] and linked(member,r.owner,tick) then reserved[target]=r.owner end
         end
         for target,held in pairs(curses) do
             for spell in pairs(held) do
                 local owner=cursing(target,spell,tick)
-                if owner then cursed[target]=cursed[target] or {};cursed[target][spell]=owner end
+                if owner and linked(member,owner,tick) then cursed[target]=cursed[target] or {};cursed[target][spell]=owner end
             end
         end
-        for key,e in pairs(enemies) do if targeting.alive(e) then inPlay[key]=true end end
-        return {focus=api:focus(tick),reserved=reserved,cursed=cursed,inPlay=inPlay}
+        for key,e in pairs(enemies) do
+            if targeting.alive(e) and (seenByLinked(e.seenBy,member,tick,false) or
+                (next(e.seenBy)==nil and seenByLinked(e.origin,member,tick,false))) then
+                inPlay[key]=true
+            end
+        end
+        return {focus=api:focus(tick,member),reserved=reserved,cursed=cursed,inPlay=inPlay}
     end
 
     -- A member's cast has started at target (after any redirect). Any cast counts for the
@@ -336,16 +416,18 @@ function M.new(config)
             role=role,target=cast.target,original=cast.original,redirected=cast.redirected or nil,
             typed=cast.typed or nil,own=cast.own or nil})
     end
-    -- Where the group last saw each living enemy it remembers, for a member that sees none (the
+    -- Where the local group last saw each living enemy it remembers, for a member that sees none (the
     -- engine's search, combat-intent/search.lua): {id, x, y, tick (when it was last seen), vx, vy
-    -- (its heading then, when known), by (whether a member other than member saw it then)}, by id.
+    -- (its heading then, when known), by (whether another linked member saw it then)}, by id.
     function api:clues(member,tick)
         clock(tick)
         local out={}
         for key,e in pairs(enemies) do
-            if targeting.alive(e) and e.lastTick<=tick and number(e.x) and number(e.y) then
+            if targeting.alive(e) and e.lastTick<=tick and number(e.x) and number(e.y) and
+                (seenByLinked(e.seenBy,member,tick,false) or
+                 (next(e.seenBy)==nil and seenByLinked(e.origin,member,tick,false))) then
                 local by=false
-                for m,at in pairs(e.seenBy) do if m~=member and at==e.lastTick then by=true end end
+                for m,at in pairs(e.seenBy) do if m~=member and at==e.lastTick and linked(member,m,tick) then by=true end end
                 out[#out+1]={id=key,x=e.x,y=e.y,tick=e.lastTick,vx=e.vx,vy=e.vy,by=by}
             end
         end
@@ -373,6 +455,17 @@ function M.new(config)
         table.sort(out)
         return out
     end
+    local function dropFocusTarget(target,tick,why)
+        local lost=focus==target
+        for s,f in pairs(groupFocus) do
+            if f==target then groupFocus[s]=nil;lost=true end
+        end
+        if lost then
+            counts.focusLost=counts.focusLost+1
+            record({kind='focus',tick=tick,previous=target,why=why})
+            if focus==target then focus=nil end
+        end
+    end
     -- What the check of target found at tick: kind 'maze', in a maze at at, where it stands and will
     -- come back; 'prison', imprisoned: forgotten; nil, in the game, and a mazed one that is out again
     -- (at) is seen where it vanished. Neither kind nor at: the creature is gone (dead, or no creature
@@ -396,33 +489,34 @@ function M.new(config)
                 enemies[target]=nil;counts.gone=counts.gone+1
                 record({kind='gone',tick=tick,target=target})
             end
-            if focus==target then
-                counts.focusLost=counts.focusLost+1
-                record({kind='focus',tick=tick,previous=focus,why='gone'})
-                focus=nil
-            end
+            dropFocusTarget(target,tick,'gone')
         elseif a and a.kind=='maze' then
+            local origin=a.seenBy
             gone(target,tick,at and 'back' or 'gone')
             if spot then
-                enemies[target]={seenBy={},lastTick=tick,x=at.x,y=at.y,hp=a.hp,maxHp=a.maxHp,state=a.state}
+                enemies[target]={seenBy={},origin=origin,lastTick=tick,x=at.x,y=at.y,hp=a.hp,maxHp=a.maxHp,state=a.state}
             end
         end
     end
     -- The enemies out of play at tick: {id, kind ('charm' or 'maze'), x, y, since, lastTick}, by id.
-    function api:away(tick)
+    function api:away(tick,member)
         clock(tick)
         local out={}
         for key,a in pairs(away) do
-            out[#out+1]={id=key,kind=a.kind,x=a.x,y=a.y,since=a.since,lastTick=a.lastTick}
+            if member==nil or seenByLinked(a.seenBy,member,tick,false) then
+                out[#out+1]={id=key,kind=a.kind,x=a.x,y=a.y,since=a.since,lastTick=a.lastTick}
+            end
         end
         table.sort(out,function(a,b) return a.id<b.id end)
         return out
     end
     -- The group's members at tick, by id: {id, family, x, y} (where each last checked in).
-    function api:members(tick)
+    function api:members(tick,member)
         local out={}
         for key,m in pairs(members) do
-            if tick>=m.lastTick and tick-m.lastTick<=o.memberTicks then out[#out+1]={id=key,family=m.family,x=m.x,y=m.y} end
+            if tick>=m.lastTick and tick-m.lastTick<=o.memberTicks and linked(member,key,tick) then
+                out[#out+1]={id=key,family=m.family,x=m.x,y=m.y}
+            end
         end
         table.sort(out,function(a,b) return a.id<b.id end)
         return out
@@ -489,6 +583,17 @@ function M.new(config)
             end
             if next(held)==nil then curses[key]=nil end
         end
+        for slot,f in pairs(groupFocus) do
+            if not fresh(enemies[f],tick) then
+                if f~=focus then
+                    local e=enemies[f]
+                    counts.focusLost=counts.focusLost+1
+                    record({kind='focus',tick=tick,previous=f,
+                        why=e and not targeting.alive(e) and 'dead' or away[f] and 'away' or 'unseen'})
+                end
+                groupFocus[slot]=nil
+            end
+        end
         if focus and not fresh(enemies[focus],tick) then
             local e=enemies[focus]
             counts.focusLost=counts.focusLost+1
@@ -498,7 +603,7 @@ function M.new(config)
         end
     end
     function api:invalidate(reason)
-        members,enemies,reservations,attempts,curses,focus,lastTick={},{},{},{},{},nil,nil
+        members,enemies,reservations,attempts,curses,focus,groupFocus,lastTick={},{},{},{},{},nil,{},nil
         foes,foeCount,away={},0,{}
         record({kind='invalidated',reason=reason})
     end

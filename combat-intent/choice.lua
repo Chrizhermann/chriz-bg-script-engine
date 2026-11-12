@@ -242,6 +242,12 @@ M.rangeUnit=targeting.rangeUnit
 M.allyMargin=32
 -- Worth of one spell level, times the profile's economy.
 M.costPerLevel=0.03
+-- Offensive potions & oils (ITM itemType 9: Oil of Fiery Burning POTN13, Potion of Explosions
+-- POTN26, Potion of Fire Breath POTN27): treated as level-2 cost without slot scarcity, used by
+-- non-dull enemies from Easy (difficulty 2) upward.
+M.potionItemType=9
+M.attackItemLevel=2
+M.itemAttackMinDifficulty=2
 -- A disable lasting this long counts in full (three rounds).
 M.fullSeconds=harm.fullSeconds
 -- STATE_SILENCED, in the active state.
@@ -1084,18 +1090,20 @@ local function evaluate(input,row,spell,kind,mode,aim,ctx)
     if walk then worth=worth*weapons.paced(walk) end
     worth=worth+stop
     local level=number(row.level) and row.level or number(spell.level) and spell.level or 1
-    local cost=input.mind.economy*slots(input)*M.costPerLevel*level
+    local share=row.use and 1 or slots(input)
+    local cost=input.mind.economy*share*M.costPerLevel*level
     local option={resref=row.resref,kind=kind,mode=mode,worth=worth,cost=cost,score=worth-cost,hits=hits,slack=slack,
         speed=number(spell.speed) and spell.speed or 0,release=spell.release or nil,walk=walk,
-        interrupt=stop>0 and stop or nil}
+        interrupt=stop>0 and stop or nil,use=row.use or nil}
     if kind=='damage' then option.expected=expected end
     if sat and #sat>0 then option.lasting=sat end
     if aim.enemy and (mode=='creature' or mode=='creature-area') then option.target=aim.enemy.id
-    elseif mode=='point-area' and aim.enemy and not aim.enemy.away and aimable(caster,aim.enemy,spell) then
+    elseif mode=='point-area' and not row.use and aim.enemy and not aim.enemy.away and aimable(caster,aim.enemy,spell) then
         -- An area aimed at an enemy's spot goes at that enemy, as SCS casts its areas: the game sets
         -- it off where the enemy stands when the cast goes off, not where it stood when it was chosen
         -- (lab batch E8 v3: Neira's Unholy Blight at the spot of a charging hero, who had walked on by
-        -- then). One the caster cannot aim at (sanctuary, unseen) or out of play stays on the spot.
+        -- then). One the caster cannot aim at (sanctuary, unseen), an item thrown at a point, or one
+        -- out of play stays on the spot.
         option.target=aim.enemy.id;option.mode='creature-area'
     elseif mode=='point-area' then option.point={x=math.floor(aim.point.x+0.5),y=math.floor(aim.point.y+0.5)}
     elseif mode=='self-area' then option.self=true
@@ -1448,6 +1456,41 @@ function M.options(input,rejected)
                             elseif preferred(option,out[at]) then out[at]=option end
                         end
                     else reject(why or 'unknown') end
+                end
+            end
+        end
+    end
+    if not away and input.mind.wit~='dull' and (not number(input.difficulty) or input.difficulty>=M.itemAttackMinDifficulty) then
+        local seenItems={}
+        for _,it in ipairs(type(input.items)=='table' and input.items or {}) do
+            if type(it)=='table' and type(it.resref)=='string' and not seenItems[it.resref] and
+                it.itemType==M.potionItemType and type(it.abilities)=='table' then
+                local ab=it.abilities[1]
+                if type(ab)=='table' and (ab.uses==nil or (number(ab.uses) and ab.uses>0)) and type(ab.effect)=='table' then
+                    local kind,mode=M.attack(ab.effect)
+                    if kind then
+                        seenItems[it.resref]=true
+                        local row={resref=it.resref,level=M.attackItemLevel,ready=1,usable=true,use=true,spell=ab.effect}
+                        local seen,same={},{}
+                        local list=aims(input,ab.effect,mode)
+                        if #list==0 then reject('out-of-reach') end
+                        for _,aim in ipairs(list) do
+                            local option,why=evaluate(input,row,ab.effect,kind,mode,aim,ctx)
+                            if option then
+                                local key=tostring(option.target)..':'..(option.point and option.point.x..','..option.point.y or '')
+                                if not seen[key] then
+                                    seen[key]=true
+                                    local ids={}
+                                    for n,h in ipairs(option.hits) do ids[n]=tostring(h) end
+                                    table.sort(ids)
+                                    local set=table.concat(ids,',')
+                                    local at=same[set]
+                                    if not at then out[#out+1]=option;same[set]=#out
+                                    elseif preferred(option,out[at]) then out[at]=option end
+                                end
+                            else reject(why or 'unknown') end
+                        end
+                    end
                 end
             end
         end

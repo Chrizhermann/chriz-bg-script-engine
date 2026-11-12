@@ -8,7 +8,7 @@ TARGET = ROOT / 'bgse/lua/M_BGSE.lua'
 RECORDER_TARGET = ROOT / 'bgse/lua/M_BGSERC.lua'
 MODULES = ('kernel.manifest', 'kernel.trace', 'kernel.hook', 'kernel.rng', 'combat-intent.spells',
            'combat-intent.targeting', 'combat-intent.ids', 'combat-intent.harm', 'combat-intent.mind', 'combat-intent.threat', 'combat-intent.openers',
-           'combat-intent.weapons', 'combat-intent.arsenal', 'combat-intent.backstab', 'combat-intent.touch', 'combat-intent.defence', 'combat-intent.care', 'combat-intent.summons', 'combat-intent.orders', 'combat-intent.encounters', 'combat-intent.removal', 'combat-intent.zones', 'combat-intent.choice', 'combat-intent.director', 'combat-intent.doors', 'combat-intent.search', 'combat-intent.stealth', 'combat-intent.prep', 'combat-intent.talk','adapters.eeex.resources', 'adapters.eeex.sense', 'adapters.eeex.creature',
+           'combat-intent.weapons', 'combat-intent.arsenal', 'combat-intent.backstab', 'combat-intent.touch', 'combat-intent.defence', 'combat-intent.care', 'combat-intent.summons', 'combat-intent.orders', 'combat-intent.encounters', 'combat-intent.removal', 'combat-intent.zones', 'combat-intent.choice', 'combat-intent.director', 'combat-intent.doors', 'combat-intent.search', 'combat-intent.stealth', 'combat-intent.prep', 'combat-intent.prebuff', 'combat-intent.calls', 'combat-intent.talk', 'adapters.eeex.resources', 'adapters.eeex.sense', 'adapters.eeex.creature',
            'adapters.eeex.director', 'adapters.eeex.doors', 'adapters.eeex.search', 'adapters.eeex.stealth', 'adapters.eeex.choice', 'adapters.eeex.lower', 'adapters.eeex.hook', 'adapters.eeex.runtime')
 VERSION = '0.1.0-dev'
 

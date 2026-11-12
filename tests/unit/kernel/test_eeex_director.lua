@@ -663,4 +663,69 @@ assert(plan.inPlay[31]==nil and plan.inPlay[32]==true and #d:inspect().areas.AR0
 end)()
 groups=groups+1
 
+-- 13. Local fight groups without map-wide telepathy (BG2300 Hobgoblin packs at (660,1236), (2442,339),
+-- (4481,314)) + creature-type callHelp alerts and overhead EEex_Sprite_DisplayTextRef shouts.
+;(function()
+local w=world()
+w.EngineGlobals.g_pBaldurChitin.m_pObjectGame.m_options={m_nDifficultyLevel=5}
+local displayed={}
+w.EEex_Sprite_DisplayTextRef=function(sp,strref,opts)
+    displayed[#displayed+1]={id=sp.m_id,strref=strref,overHead=opts and opts.overHead}
+end
+local callsMod=require('combat-intent.calls')
+w.BGSE_CALL_STRREFS={}
+for i,entry in ipairs(callsMod.allLines()) do w.BGSE_CALL_STRREFS[entry.key]=50000+i end
+local readerIds={problems={},get=reader.get,lookup=reader.lookup,idsName=function(tableName,val)
+    if tableName=='RACE' then
+        if val==111 then return 'HOBGOBLIN' end
+        if val==115 then return 'SKELETON' end
+    end
+    if tableName=='GENERAL' then
+        if val==1 then return 'HUMANOID' end
+        if val==4 then return 'UNDEAD' end
+    end
+    return nil
+end}
+-- Pack A: h1 (660,1236) and h2 (720,1236) — 60px apart (linked directly); h3 (1420,1236) — 760px from h1 and 700px from h2
+-- (outside 560px groupRadius from both, inside 850px Hard/Insane warband call earshot!).
+-- Pack B: h4 (2442,339) — 1997px away on the far side of the map!
+-- Undead bystander: sk1 (720,1236) — silent skeleton, never called by warband.
+local h1=w.add(sprite(1,660,1236,255,{m_resref=str('HOBELITE'),m_typeAI={m_EnemyAlly=255,m_General=1,m_Race=111,m_Class=2,m_Specifics=0,m_Gender=1,m_Alignment=0}}))
+local h2=w.add(sprite(2,720,1236,255,{m_resref=str('HOBARCH'),m_typeAI={m_EnemyAlly=255,m_General=1,m_Race=111,m_Class=2,m_Specifics=0,m_Gender=1,m_Alignment=0}}))
+local h3=w.add(sprite(3,1420,1236,255,{m_resref=str('HOBSHAM'),m_typeAI={m_EnemyAlly=255,m_General=1,m_Race=111,m_Class=2,m_Specifics=0,m_Gender=1,m_Alignment=0}}))
+local h4=w.add(sprite(4,2442,339,255,{m_resref=str('HOBFAR'),m_typeAI={m_EnemyAlly=255,m_General=1,m_Race=111,m_Class=2,m_Specifics=0,m_Gender=1,m_Alignment=0}}))
+local sk1=w.add(sprite(5,720,1236,255,{m_resref=str('SKEL01'),m_typeAI={m_EnemyAlly=255,m_General=4,m_Race=115,m_Class=115,m_Specifics=0,m_Gender=0,m_Alignment=0}}))
+local pc=w.add(sprite(31,700,1236,2))
+
+local d=adapter.new(w,{reader=readerIds,shouts=true,rng=function() return 0.1 end})
+local logged={}
+d:setSink(function(row) logged[#logged+1]=row end)
+d:attach({now=function() return w.ticks end})
+
+-- Before callHelp: h2, h3, h4, sk1 check in first (idle, seeing no enemy); then h1 checks in seeing pc!
+w.ticks=100
+d:observe({id=2},'fighter')
+d:observe({id=3},'priest')
+d:observe({id=4},'fighter')
+d:observe({id=5},'monster')
+-- Temporarily silence callHelp via setEnabled? No, observe triggers callHelp when h1 sees pc!
+-- Let's verify what h1 seeing pc did:
+d:observe({id=1},'fighter')
+
+-- Pack B (h4 at 2442,339) has ZERO clues and ZERO focus — no map-wide telepathic pull!
+assert(#d:clues(4,100)==0 and d:plan(4,100).focus==nil)
+-- Nearby h2 (240px) AND earshot-alerted h3 (690px, linked via callHelp!) both have the clue on pc (31)!
+assert(#d:clues(2,100)==1 and d:clues(2,100)[1].id==31)
+assert(#d:clues(3,100)==1 and d:clues(3,100)[1].id==31)
+-- Overhead shout fired on h1 via EEex_Sprite_DisplayTextRef with overHead=true!
+assert(#displayed>=1 and displayed[1].id==1 and displayed[1].overHead==true and displayed[1].strref>50000)
+assert(d:inspect().counts.calls==1 and d:inspect().counts.shouts>=1)
+
+-- Disabling shouts keeps tactical alerts while suppressing overhead text.
+d:setShouts(false)
+assert(d:inspect().shouts==false)
+assert(d:inspect().counts.errors==0)
+end)()
+groups=groups+1
+
 return groups

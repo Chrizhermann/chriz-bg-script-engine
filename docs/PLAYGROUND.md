@@ -7,11 +7,15 @@ His own game and its saves stay out of it.
 
 - Start: `Start Playground.cmd` in `%USERPROFILE%\Games\Playground`.
 - Saves and options: `Documents\Chriz Playground`. The profile starts on Insane without double damage and without
-  maximum hit points. SCS's fine settings are not set, so SCS follows the game's slider.
+  maximum hit points, with `Debug Mode = 1` enabled (`Ctrl+Space` opens the console, `Ctrl+J` teleports to the cursor).
+  SCS's fine settings are not set, so SCS follows the game's slider.
 - Classes: vanilla for now. The folder still holds Artisan's Kitpack and Bardic Wonders; our own kit mod replaces them
   later.
 - The recorder writes to `game\bgse-playtest\<date-time>.jsonl`: orders, also those given in pause, what the enemies'
   AI decided, fights and reloads. `[BGSE] Recorder=0` in `Baldur.lua` turns it off. Enemies never read it.
+- Runtime switches in `Baldur.lua` under `[BGSE]`: `Choice=0` disables the combat choice engine, `Others=0` disables the
+  own monster/non-SCS hook, `Prebuffs=0` hands prebuff blocks back to SCS, and `Shouts=0` suppresses overhead call-for-help
+  text while keeping local earshot alerts active.
 - `python -I tools/read_playtest.py <file>` prints a summary per fight.
 
 ## Updating

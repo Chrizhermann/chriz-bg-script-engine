@@ -18,6 +18,7 @@ local sense=require('adapters.eeex.sense')
 local resources=require('adapters.eeex.resources')
 local spells=require('combat-intent.spells')
 local targeting=require('combat-intent.targeting')
+local calls=require('combat-intent.calls')
 local core=require('combat-intent.director')
 local M={}
 M.checkTicks=15
@@ -28,19 +29,90 @@ M.resref=sense.spellOf
 function M.new(g,options)
     options=options or {}
     local reader=options.reader or resources.new(g)
-    local directors,memberArea,memberFamily,lastCheck={},{},{},{}
+    local directors,areaCalls,memberArea,memberFamily,memberInfo,lastCheck={},{},{},{},{},{}
+    local shoutsOn=options.shouts~=false
     local cache,cached={},0
     local root,sink,choice
-    local counts={checkIns=0,starts=0,advised=0,redirected=0,own=0,errors=0,marks=0,markFailures=0,removalChecks=0}
+    local counts={checkIns=0,starts=0,advised=0,redirected=0,own=0,errors=0,marks=0,markFailures=0,
+        removalChecks=0,calls=0,shouts=0}
     local adapter={}
     local function now() return root and root.now and root.now() end
+    local function difficulty()
+        local ok,level=pcall(function()
+            local eg=g.EngineGlobals
+            local ch=eg and eg.g_pBaldurChitin
+            local game=ch and ch.m_pObjectGame
+            local opt=game and game.m_options
+            return (opt and opt.m_nDifficultyLevel) or (game and game.m_nDifficultyLevel)
+        end)
+        if ok and type(level)=='number' and level>=1 and level<=5 then return math.floor(level) end
+        return 3
+    end
     local function director(area)
         local d=directors[area]
         if not d then
-            d=core.new({area=area,families=options.families,sink=function(row) if sink then sink(row) end end})
+            d=core.new({area=area,families=options.families,groupRadius=options.groupRadius,
+                alertTicks=options.alertTicks,sink=function(row) if sink then sink(row) end end})
             directors[area]=d
         end
         return d
+    end
+    local function callManager(area)
+        local cm=areaCalls[area]
+        if not cm then
+            cm=calls.new(options.callsConfig)
+            areaCalls[area]=cm
+        end
+        return cm
+    end
+    local function recordInfo(id,sprite,frame)
+        local raw=sprite.m_resref and sprite.m_resref.get and sprite.m_resref:get() or nil
+        local resref=type(raw)=='string' and #raw>0 and raw:upper() or nil
+        local ai=sprite.m_typeAI
+        local idsName=type(reader.idsName)=='function' and reader.idsName or nil
+        local race=ai and idsName and idsName('RACE',ai.m_Race) or nil
+        local general=ai and idsName and idsName('GENERAL',ai.m_General) or nil
+        local ord=resref and choice and type(choice.orderFor)=='function' and choice:orderFor(resref) or nil
+        local info={id=id,x=frame.self.x,y=frame.self.y,race=race,general=general,resref=resref,orders=ord}
+        memberInfo[id]=info
+        return info
+    end
+    local function callHelp(area,d,callerInfo,tick)
+        local cm=callManager(area)
+        local active=d:members(tick)
+        local list={}
+        for _,m in ipairs(active) do
+            local info=memberInfo[m.id]
+            list[#list+1]={
+                id=m.id,x=m.x,y=m.y,
+                race=info and info.race or nil,
+                general=info and info.general or nil,
+                resref=info and info.resref or nil,
+                orders=info and info.orders or nil,
+            }
+        end
+        local rng=choice and type(choice.rng)=='function' and choice:rng() or nil
+        local res=cm:call(callerInfo,list,difficulty(),tick,rng)
+        if #res.alerted>0 then
+            d:alert(callerInfo.id,res.alerted,tick)
+            counts.calls=counts.calls+1
+            local shoutKeys={}
+            for _,s in ipairs(res.shouts) do
+                shoutKeys[#shoutKeys+1]=s.key
+                if shoutsOn and type(g.EEex_Sprite_DisplayTextRef)=='function' then
+                    local strref=type(g.BGSE_CALL_STRREFS)=='table' and g.BGSE_CALL_STRREFS[s.key] or nil
+                    local sp=type(strref)=='number' and g.EEex_GameObject_Get(s.id) or nil
+                    if sp and g.EEex_GameObject_IsSprite(sp,false) then
+                        local ok=pcall(g.EEex_Sprite_DisplayTextRef,sp,strref,{overHead=true})
+                        if ok then counts.shouts=counts.shouts+1 end
+                    end
+                end
+            end
+            if sink then
+                pcall(sink,{kind='call',area=area,tick=tick,member=callerInfo.id,profile=res.profile,
+                    alerted=res.alerted,shouts=#shoutKeys>0 and shoutKeys or nil})
+            end
+        end
     end
     local lastError,markError
     local function failed(where,err)
@@ -92,6 +164,11 @@ function M.new(g,options)
         local d=director(frame.area)
         if d:checkIn({id=id,family=family},frame) then
             memberArea[id],memberFamily[id]=frame.area,family;counts.checkIns=counts.checkIns+1
+            local info=recordInfo(id,sprite,frame)
+            if #frame.enemies>0 then
+                local okCall,errCall=pcall(callHelp,frame.area,d,info,tick)
+                if not okCall then failed('call',errCall) end
+            end
         end
         local ok,err=pcall(removals,d,tick)
         if not ok then failed('removed',err) end
@@ -197,11 +274,11 @@ function M.new(g,options)
         end
         return n
     end
-    local function planOf(d,tick)
-        local plan=d:plan(tick)
+    local function planOf(d,id,tick)
+        local plan=d:plan(tick,id)
         local keys={}
         for key in pairs(plan.inPlay) do keys[#keys+1]=key end
-        if settle(d,keys,tick)>0 then plan=d:plan(tick) end
+        if settle(d,keys,tick)>0 then plan=d:plan(tick,id) end
         return plan
     end
     local function cluesOf(d,id,tick)
@@ -217,7 +294,7 @@ function M.new(g,options)
         local area=memberArea[id]
         local d=area and directors[area]
         if not d then return nil end
-        local ok,plan=pcall(planOf,d,tick)
+        local ok,plan=pcall(planOf,d,id,tick)
         if ok then return plan end
         failed('plan',plan)
     end
@@ -270,7 +347,7 @@ function M.new(g,options)
         local area=memberArea[id]
         local d=area and directors[area]
         if not d then return {} end
-        local ok,list=pcall(d.away,d,tick)
+        local ok,list=pcall(d.away,d,tick,id)
         if ok then return list end
         failed('away',list)
         return {}
@@ -279,24 +356,26 @@ function M.new(g,options)
         local area=memberArea[id]
         local d=area and directors[area]
         if not d then return {} end
-        local ok,list=pcall(d.members,d,tick)
+        local ok,list=pcall(d.members,d,tick,id)
         if not ok then failed('group',list);return {} end
         local out={}
         for _,m in ipairs(list) do if m.id~=id then out[#out+1]=m end end
         return out
     end
+    function adapter:setShouts(v) shoutsOn=v==true end
     function adapter:setChoice(c) choice=c end
     function adapter:attach(r) root=r end
     function adapter:setSink(fn) assert(fn==nil or type(fn)=='function');sink=fn end
     function adapter:invalidate()
         for _,d in pairs(directors) do d:invalidate('session') end
-        directors,memberArea,memberFamily,lastCheck={},{},{},{}
+        for _,cm in pairs(areaCalls) do cm:invalidate() end
+        directors,areaCalls,memberArea,memberFamily,memberInfo,lastCheck={},{},{},{},{},{}
     end
     function adapter:inspect()
         local areas={}
         for area,d in pairs(directors) do areas[area]=d:inspect() end
         local copy={};for k,v in pairs(counts) do copy[k]=v end
-        return {counts=copy,areas=areas,problems=reader.problems,lastError=lastError or false,
+        return {counts=copy,areas=areas,shouts=shoutsOn,problems=reader.problems,lastError=lastError or false,
             markError=markError or false}
     end
     return adapter

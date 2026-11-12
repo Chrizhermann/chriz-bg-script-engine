@@ -523,6 +523,16 @@ def test_installer_matches_reference_and_is_reversible(tmp_path: Path) -> None:
     assert entries == sorted([f"['{n.lower()}']='{f}'," for n, (f, _) in HOOKED.items()] +
                              [f"['{n.lower()}']='auto'," for n in OWN]), registry
     assert 'BGSE_HOOKED={' in registry
+    assert 'BGSE_CALL_STRREFS={' in registry
+    import importlib
+    lua = importlib.import_module('lupa.lua51').LuaRuntime()
+    lua.execute("package.path=... .. '/?.lua;' .. package.path", ROOT.as_posix())
+    lua.execute(registry)
+    all_lines = lua.execute("return require('combat-intent.calls').allLines()")
+    call_strrefs = lua.globals().BGSE_CALL_STRREFS
+    for idx in range(1, len(all_lines) + 1):
+        entry = all_lines[idx]
+        assert isinstance(call_strrefs[entry['key']], int) and call_strrefs[entry['key']] >= 0, entry['key']
     # The engine's own hook: the fight scripts creatures carry that are not SCS's have it at their top and are
     # otherwise as they were, as tools/hook_rule.py says of their compiled form; the talk script beside one, the
     # fight scripts nobody carries and the SCS-hooked ones (which ask already) are not touched (UNTOUCHED, HOOKED
