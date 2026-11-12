@@ -5,6 +5,7 @@ local M={}
 M.sightRange=448
 M.ticksPerSecond=15
 M.fightQuietTicks=6*M.ticksPerSecond
+M.posTicks=M.ticksPerSecond
 M.rowLimit=500000
 M.spellLists={{'mage','m_memorizedSpellsMage',9},{'priest','m_memorizedSpellsPriest',7},
     {'innate','m_memorizedSpellsInnate',1}}
@@ -315,6 +316,11 @@ function Root:members(party,long)
     for _,entry in ipairs(party) do rows[#rows+1]=self:member(entry,long) end
     return rows
 end
+local function hpOf(sprite)
+    if type(sprite)~='table' and type(sprite)~='userdata' then return nil end
+    local ok,hp=pcall(function() return sprite.m_baseStats and sprite.m_baseStats.m_hitPoints end)
+    return ok and finite(hp) and hp or nil
+end
 function Root:target(action)
     local object=action.m_acteeID
     local id=object and object.m_Instance
@@ -324,6 +330,11 @@ function Root:target(action)
         if found then
             local resref=resrefOf(found)
             if resref~='' then target.resref=resref end
+            local hp=hpOf(found)
+            if hp~=nil then target.hp=hp end
+            if found.m_pos and finite(found.m_pos.x) and finite(found.m_pos.y) then
+                target.x=found.m_pos.x;target.y=found.m_pos.y
+            end
         end
         return target
     end
@@ -351,7 +362,8 @@ function Root:foes(party)
                 and self.g.EEex_GameObject_IsSprite(other,true) and living(self.g,other)
                 and other.m_typeAI and (other.m_typeAI.m_EnemyAlly or 0)>=200 then
                 seen[other.m_id]=true
-                rows[#rows+1]={id=other.m_id,resref=resrefOf(other),name=nameOf(self.g,other),x=other.m_pos.x,y=other.m_pos.y}
+                rows[#rows+1]={id=other.m_id,resref=resrefOf(other),name=nameOf(self.g,other),x=other.m_pos.x,y=other.m_pos.y,
+                    hp=hpOf(other)}
             end
         end,1,0)
     end
@@ -383,9 +395,37 @@ function Root:updateFight(party,tick)
     if #foes>0 then
         if not self.fight then
             local members=self:members(party,true)
-            self.fight={start=tick,lastSeen=tick,members=members,foes=foes}
+            local seen={}
+            for _,f in ipairs(foes) do seen[f.id]=true end
+            self.fight={start=tick,lastSeen=tick,lastPos=tick,members=members,foes=foes,seenIds=seen}
             self:emit({k='fight',t=tick,phase='start',members=members,foes=foes})
-        else self.fight.lastSeen=tick end
+        else
+            self.fight.lastSeen=tick
+            local joined={}
+            for _,f in ipairs(foes) do
+                if not self.fight.seenIds[f.id] then
+                    self.fight.seenIds[f.id]=true
+                    self.fight.foes[#self.fight.foes+1]=f
+                    joined[#joined+1]=f
+                end
+            end
+            if #joined>0 then self:emit({k='foes',t=tick,foes=joined}) end
+            if tick-self.fight.lastPos>=(M.posTicks or 15) then
+                self.fight.lastPos=tick
+                local partyRows={}
+                for _,entry in ipairs(party) do
+                    local sp=entry.sprite
+                    if sp and sp.m_pos and finite(sp.m_pos.x) and finite(sp.m_pos.y) then
+                        partyRows[#partyRows+1]={name=nameOf(self.g,sp),x=sp.m_pos.x,y=sp.m_pos.y,hp=hpOf(sp)}
+                    end
+                end
+                local foeRows={}
+                for _,f in ipairs(foes) do
+                    foeRows[#foeRows+1]={id=f.id,resref=f.resref,x=f.x,y=f.y,hp=f.hp}
+                end
+                self:emit({k='pos',t=tick,party=partyRows,foes=foeRows})
+            end
+        end
     elseif self.fight and tick-self.fight.lastSeen>=M.fightQuietTicks then self:endFight('quiet',party,tick) end
 end
 function Root:paused(tick)
@@ -477,8 +517,14 @@ function Root:action(sprite,action)
     self:guard('action',function()
         if not self.started or not self:isParty(sprite) then return end
         local tick=self:now()
-        self:emit({k='act',t=tick,member=nameOf(self.g,sprite),id=action.m_actionID or -1,
-            target=self:target(action),resource=self:resource(action)})
+        local row={k='act',t=tick,member=nameOf(self.g,sprite),id=action.m_actionID or -1,
+            target=self:target(action),resource=self:resource(action)}
+        if sprite.m_pos and finite(sprite.m_pos.x) and finite(sprite.m_pos.y) then
+            row.x=sprite.m_pos.x;row.y=sprite.m_pos.y
+        end
+        local hp=hpOf(sprite)
+        if hp~=nil then row.hp=hp end
+        self:emit(row)
     end)
 end
 function Root:worldInput()

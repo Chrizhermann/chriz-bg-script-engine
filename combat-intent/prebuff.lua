@@ -34,6 +34,14 @@ M.CONFIG={
     minShortLevel=1,
     -- Spellbook lists eligible for automatic prebuffs (innates stay tactical combat abilities).
     lists={mage=true,priest=true},
+    -- Overnight 12h rest-buff parity (SCS simulates casters having cast Stoneskin / Iron Skins
+    -- before resting, keeping their daytime memorized slots intact from Normal difficulty up).
+    freeRestBuffs=true,
+    restBuffMinDifficulty=2,
+    restBuffs={
+        {resref='SPWI408',list='mage',minSlotLevel=4},
+        {resref='SPPR506',list='priest',minSlotLevel=5},
+    },
 }
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
@@ -249,6 +257,19 @@ function M.select(input)
 
     local seen={}
     local longPool,shortPool={},{}
+    if wantLong and cfg.freeRestBuffs and diff>=(cfg.restBuffMinDifficulty or 2) then
+        for _,row in ipairs(type(input.restSpells)=='table' and input.restSpells or {}) do
+            if type(row)=='table' and type(row.resref)=='string' and not seen[row.resref] and
+                not skippedByOrders(input.orders,input.area,row.resref) then
+                local info=M.classify(row,cfg)
+                if info and info.phase=='long' and not alreadyActive(caster,row.resref,info) then
+                    info.free=true
+                    seen[row.resref]=true
+                    longPool[#longPool+1]=info
+                end
+            end
+        end
+    end
     for _,row in ipairs(type(input.spells)=='table' and input.spells or {}) do
         if type(row)=='table' and number(row.ready) and row.ready>reservedByOrders(input.orders,row.resref,diff) and
             row.usable~=false and not seen[row.resref] then

@@ -236,7 +236,7 @@ def test_cre_reads_the_fight_and_the_items():
     assert r['resref'] == 'CR1' and r['hp'] == 30 and r['maxHp'] == 40 and r['ac'] == -2
     assert r['thac0'] == 9 and r['apr'] == 7 and r['level'] == 9 and r['strength'] == 18
     assert r['saves'] == {'death': 10, 'wand': 11, 'poly': 12, 'breath': 13, 'spell': 14}
-    assert r['gender'] == 6 and r['general'] == 4 and r['alignment'] == 0x13 and r['ea'] == 255
+    assert r['gender'] == 6 and r['general'] == 4 and r['alignment'] == 0x13 and r['ea'] == 255 and r['kit'] == 0
     assert r['items'] == ['WEAPON1', 'POTN08'] and r['slots'][9] == 0 and r['slots'][0] == 65535
     assert r['opcodes'] == [271, 20] and ie.parse_cre(build_cre(wide=False), 'cr1')['opcodes'] == [271, 20]
     with pytest.raises(ie.FormatError):

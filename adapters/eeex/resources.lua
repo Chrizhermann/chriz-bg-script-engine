@@ -159,7 +159,7 @@ local function cre(v,resref)
     return {kind='CRE',resref=resref,hp=v.i16(0x24),maxHp=v.i16(0x26),ac=v.i16(0x48),thac0=v.u8(0x52),
         apr=v.u8(0x53),saves={death=v.u8(0x54),wand=v.u8(0x55),poly=v.u8(0x56),breath=v.u8(0x57),spell=v.u8(0x58)},
         level=math.max(v.u8(0x234),v.u8(0x235),v.u8(0x236)),strength=v.u8(0x238),strengthExtra=v.u8(0x239),
-        ea=v.u8(0x270),general=v.u8(0x271),race=v.u8(0x272),class=v.u8(0x273),specific=v.u8(0x274),
+        ea=v.u8(0x270),general=v.u8(0x271),race=v.u8(0x272),class=v.u8(0x273),kit=v.u16(0x246),specific=v.u8(0x274),
         gender=v.u8(0x275),alignment=v.u8(0x27B),items=items,slots=slots,opcodes=opcodes}
 end
 

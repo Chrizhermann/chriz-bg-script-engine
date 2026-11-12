@@ -85,28 +85,66 @@ def test_recorder_logic_and_fake_eeex_flow(backend):
         g.listeners.menu[1]();g.listeners.initialized[1]();root:tick()
         assert(root.started and g.dirSink and g.choiceSink and g.trace==true)
         g.objects[3]=corpse
+        hero.m_baseStats={m_hitPoints=28}
+        local foe2={m_id=2,m_resref=str('GNOLL'),dead=false,m_pos={x=45,y=55},
+            m_typeAI={m_EnemyAlly=255},m_baseStats={m_hitPoints=24,m_generalState=0}}
+        g.objects[2]=foe2
+        g.objects[4]=nil
         hero.m_queuedActions={{m_actionID=31,m_acteeID={m_Instance=2},m_string1={m_pchData=str('SPWI112')}}}
         game.m_worldTime.m_gameTime=101;root:tick()
+        -- Action carries actor x/y/hp and living target x/y/hp
+        g.listeners.started[1](hero,{m_actionID=31,m_acteeID={m_Instance=2},m_dest={x=0,y=0},
+            m_string1={m_pchData=str('')},m_specificID=2112})
         g.listeners.started[1](hero,{m_actionID=31,m_acteeID={m_Instance=-1},m_dest={x=80,y=90},
             m_string1={m_pchData=str('')},m_specificID=2112})
         g.listeners.key[1](77);g.listeners.bar[1]({mode='spell'},{id=3})
         g.dirSink({kind='decision',why='test'});g.choiceSink({kind='choice',why='test'})
         g.paused=true;game.m_worldTime.m_gameTime=102;root:tick()
         g.paused=false;game.m_worldTime.m_gameTime=103;root:tick()
-        assert(g.scans==1)
-        g.objects[2]=nil;game.m_worldTime.m_gameTime=192;root:tick()
+        -- Mid-fight reinforcement arrives + hero moves & takes damage at +15 ticks -> {k='foes'} & {k='pos'}!
+        local reinf={m_id=4,m_resref=str('KOBOLD7'),name='Kobold Guard',dead=false,m_pArea=area,
+            m_pos={x=90,y=95},m_typeAI={m_EnemyAlly=255},m_baseStats={m_hitPoints=15,m_generalState=0}}
+        g.objects[4]=reinf
+        hero.m_pos={x=40,y=20}
+        hero.m_baseStats={m_hitPoints=22}
+        game.m_worldTime.m_gameTime=117;root:tick()
         assert(g.scans==2)
+        g.objects[2]=nil;g.objects[4]=nil;game.m_worldTime.m_gameTime=210;root:tick()
+        assert(g.scans==3)
         g.listeners.destroyed[1]();g.listeners.initialized[1]();game.m_worldTime.m_gameTime=5;root:tick()
         local output=table.concat(g.lines)
         assert(output:find('"k":"session"') and output:find('"difficulty":5') and output:find('"area":"AR0001"')
             and output:find('"k":"queue"') and output:find('"x":10') and output:find('"y":20'))
         assert(not output:find('Corpse'))
-        assert(output:find('"k":"act"') and output:find('"k":"key"') and output:find('"k":"bar"'))
+        assert(output:find('"k":"act"') and output:find('"hp":28') and output:find('"k":"key"') and output:find('"k":"bar"'))
         assert(output:find('"resource":"SPWI112"') and output:find('"target":{"x":80,"y":90}'))
+        assert(output:find('"k":"foes"') and output:find('"KOBOLD7"') and output:find('"k":"pos"'))
+        assert(output:find('"foesDead":%["FOERES","KOBOLD7"%]') or output:find('"foesDead":%["KOBOLD7","FOERES"%]'))
         assert(output:find('"tag":"dir"') and output:find('"tag":"ch"') and output:find('"k":"pause"'))
         assert(output:find('"reason":"quiet"') and output:find('"k":"load"') and root:inspect().loads==1)
         return 23
     ''', str(ROOT / 'adapters/eeex/recorder.lua')) == 23
+
+
+def test_read_playtest_summarizes_joined_movement_hp_and_engine(tmp_path):
+    from tools import read_playtest
+    rec = tmp_path / 'play.jsonl'
+    rec.write_text('\n'.join([
+        '{"k":"fight","t":100,"phase":"start","members":[{"name":"Hero","x":0,"y":0,"hp":30,"items":{},"spells":{}}],"foes":[{"id":2,"name":"Gnoll"}]}',
+        '{"k":"act","t":105,"member":"Hero","id":3,"x":0,"y":0,"hp":30}',
+        '{"k":"foes","t":110,"foes":[{"id":4,"resref":"KOBOLD7","name":"Kobold Guard"}]}',
+        '{"k":"pos","t":115,"party":[{"name":"Hero","x":30,"y":40,"hp":22}],"foes":[{"id":2,"hp":10}]}',
+        '{"k":"eng","t":116,"tag":"ch","row":{"kind":"choice"}}',
+        '{"k":"fight","t":210,"phase":"end","length":110,"dead":[],"spent":{},"foesDead":["GNOLL","KOBOLD7"],"reason":"quiet"}',
+    ]), encoding='utf-8')
+    fights = list(read_playtest.summarize(read_playtest.read_rows(rec)))
+    assert len(fights) == 1
+    current, ending = fights[0]
+    assert len(current['joined']) == 1 and current['joined'][0]['resref'] == 'KOBOLD7'
+    assert current['moved']['Hero'] == 50
+    assert current['damage_taken']['Hero'] == 8
+    assert current['eng']['ch:choice'] == 1
+    assert ending['foesDead'] == ['GNOLL', 'KOBOLD7']
 
 
 def test_recorder_bundle_is_separate_from_combat_engine():

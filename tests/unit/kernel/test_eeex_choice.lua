@@ -5486,4 +5486,94 @@ records.TESTSKNL,records.TESTMIRS,records.TESTPFMW,records.TESTACID,records.TEST
 end)()
 groups=groups+1
 
+-- 57. Point-target instantCast fallback (target==4 -> effectID 148, sourceTarget -1), extrasList buff
+-- bridge preventing duplicate round-1 buff casts, and overnight SPWI408 / SPPR506 rest-buff parity with
+-- slot-level and specialist-kit / class exclusion checks.
+;(function()
+local w=world()
+tablesOf(w)
+w.EngineGlobals.g_pBaldurChitin.m_pObjectGame.m_options={m_nDifficultyLevel=3}
+local applied={}
+w.EEex_GameObject_ApplyEffect=function(sp,args)
+    applied[#applied+1]={id=sp.m_id,effectID=args.effectID,res=args.res,sourceTarget=args.sourceTarget,
+        tx=args.targetX,ty=args.targetY}
+end
+
+-- Real SPWI408 (Abjurer exclusion 0x40), SPPR506 (Cleric/Paladin exclusion 0x40000000), and point-AoE
+-- priest buff TESTPTBF (abilities[1].target == 4, Chant/Bless pattern).
+records.SPWI408=spl('SPWI408',4,{fx(218,{p1=6,duration=43200,target=1})},5,1)
+records.SPWI408.exclusion=0x40
+records.SPPR506=spl('SPPR506',5,{fx(218,{p1=6,duration=43200,target=1})},5,2)
+records.SPPR506.exclusion=0x40000000
+records.TESTPTBF={kind='SPL',resref='TESTPTBF',name=0,flags=0,spellType=2,exclusion=0,school=0,secondary=0,
+    level=2,casting={},abilities={{form=1,flags=0,location=2,target=4,targetCount=0,range=30,minLevel=1,speed=1,
+    projectile=3,effects={fx(130,{target=2,duration=60})}}}}
+records.TESTGLBE=spl('TESTGLBE',4,{fx(102,{p1=3,duration=180,target=1})},5,1)
+records.TESTFIRE=spl('TESTFIRE',3,{fx(12,{p2=8*65536,dice=6,sides=6})},1,1)
+
+local d=directors.new(w,{reader=reader})
+local c=choices.new(w,{reader=reader,director=d,seed=110,prebuffs=true,
+    orders={TESTPT={prebuff={{cast='TESTPTBF',spend='TESTPTBF'}},prebuffFrom=2}}})
+runtime.install(w,{director=d,choice=c,version='test'})
+
+-- Enchanter mage (kit=0x200) with 4th-level spell TESTGLBE memorized and NO SPWI408 -> gets free overnight
+-- SPWI408 (0 slots spent!), while Abjurer (kit=0x40) with 4th-level spell is excluded, and low mage (max lvl 3) gets none.
+local ench=w.add(sprite(1,100,120,255,{levels={[7]='s1'},stats={[1]=40,[34]=9},
+    m_typeAI={m_EnemyAlly=255,m_Class=1},m_baseStats={m_hitPoints=40,m_generalState=0,m_mageSpecialization=0x200}}))
+learn(ench,3,'TESTGLBE',1)
+local abj=w.add(sprite(2,100,400,255,{levels={[7]='s1'},stats={[1]=40,[34]=9},
+    m_typeAI={m_EnemyAlly=255,m_Class=1},m_baseStats={m_hitPoints=40,m_generalState=0,m_mageSpecialization=0x40}}))
+learn(abj,3,'TESTGLBE',1)
+local lowm=w.add(sprite(3,100,700,255,{levels={[7]='s1'},stats={[1]=25,[34]=5},
+    m_typeAI={m_EnemyAlly=255,m_Class=1},m_baseStats={m_hitPoints=25,m_generalState=0,m_mageSpecialization=0}}))
+learn(lowm,2,'TESTFIRE',1)
+
+-- Druid (m_Class=11) with 5th-level priest slot -> gets free SPPR506; Cleric (m_Class=3) -> excluded from SPPR506.
+local druid=w.add(sprite(4,100,1000,255,{levels={[7]='s1'},stats={[1]=45,[34]=10},
+    m_typeAI={m_EnemyAlly=255,m_Class=11},m_baseStats={m_hitPoints=45,m_generalState=0,m_mageSpecialization=0}}))
+druid.pbook={[4]={{m_spellId=str('TESTPTBF'),m_flags=1}}}
+druid.m_memorizedSpellsPriest=memorized(druid.pbook)
+druid.buttons={'TESTPTBF'}
+local cleric=w.add(sprite(5,100,1300,255,{levels={[7]='s1'},stats={[1]=45,[34]=10},
+    m_typeAI={m_EnemyAlly=255,m_Class=3},m_baseStats={m_hitPoints=45,m_generalState=0,m_mageSpecialization=0}}))
+cleric.pbook={[4]={{m_spellId=str('TESTPTBF'),m_flags=1}}}
+cleric.m_memorizedSpellsPriest=memorized(cleric.pbook)
+cleric.buttons={'TESTPTBF'}
+
+w.ticks=100
+w.BGSE_Claim(ench,'mage','s1')
+w.BGSE_Claim(abj,'mage','s1')
+w.BGSE_Claim(lowm,'mage','s1')
+w.BGSE_Claim(druid,'priest','s1')
+w.BGSE_Claim(cleric,'priest','s1')
+local skinIds={}
+for _,a in ipairs(applied) do skinIds[a.res..':'..a.id]=a end
+assert(skinIds['SPWI408:1'] and not skinIds['SPWI408:2'] and not skinIds['SPWI408:3'])
+assert(skinIds['SPPR506:4'] and not skinIds['SPPR506:5'])
+assert(ench.book[3][1].m_flags==1 and druid.pbook[4][1].m_flags==1)
+
+-- Point-target extrasList prebuff (TESTPTBF with target==4) fires via effectID 148 & sourceTarget -1 even
+-- when instantCast point argument is nil, AND populates justPrebuffed.buff!
+local pCaster=w.add(sprite(6,200,2000,255,{levels={[7]='s1'},m_resref=str('TESTPT'),stats={[1]=50,[34]=7},
+    m_typeAI={m_EnemyAlly=255,m_Class=3},m_baseStats={m_hitPoints=50,m_generalState=0}}))
+pCaster.pbook={[1]={{m_spellId=str('TESTPTBF'),m_flags=1},{m_spellId=str('TESTPTBF'),m_flags=1}}}
+pCaster.m_memorizedSpellsPriest=memorized(pCaster.pbook)
+pCaster.buttons={'TESTPTBF'}
+w.add(sprite(61,260,2000,2,{stats={[1]=40},m_baseStats={m_hitPoints=40,m_generalState=0}}))
+w.ticks=140
+w.BGSE_Claim(pCaster,'priest','s1')
+local ptHits=0
+for _,a in ipairs(applied) do
+    if a.id==6 and a.res=='TESTPTBF' then
+        assert(a.effectID==148 and a.sourceTarget==-1 and a.tx==200 and a.ty==2000)
+        ptHits=ptHits+1
+    end
+end
+assert(ptHits>=1)
+
+assert(c:inspect().counts.errors==0,c:inspect().lastError)
+records.SPWI408,records.SPPR506,records.TESTPTBF,records.TESTGLBE,records.TESTFIRE=nil,nil,nil,nil,nil
+end)()
+groups=groups+1
+
 return groups

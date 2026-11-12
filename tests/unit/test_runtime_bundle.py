@@ -32,6 +32,7 @@ def test_runtime_installs_the_handoff(backend):
     runtime.execute(build_runtime.build())
     assert runtime.execute('''
         assert(BGSE and BGSE.version == '0.1.0-dev' and #listeners == 1)
+        assert(BGSE.ui ~= nil and BGSE.inspect().ui.playerDefensiveContingencies == false)
         assert(package.loaded['kernel.hook'] == nil and package.loaded['adapters.eeex.hook'] == nil)
         assert(package.loaded['combat-intent.director'] == nil and BGSE.director ~= nil)
         -- No decider yet: every script pass falls through to SCS. The director's check-in

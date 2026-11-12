@@ -11670,6 +11670,14 @@ M.CONFIG={
     minShortLevel=1,
     -- Spellbook lists eligible for automatic prebuffs (innates stay tactical combat abilities).
     lists={mage=true,priest=true},
+    -- Overnight 12h rest-buff parity (SCS simulates casters having cast Stoneskin / Iron Skins
+    -- before resting, keeping their daytime memorized slots intact from Normal difficulty up).
+    freeRestBuffs=true,
+    restBuffMinDifficulty=2,
+    restBuffs={
+        {resref='SPWI408',list='mage',minSlotLevel=4},
+        {resref='SPPR506',list='priest',minSlotLevel=5},
+    },
 }
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end
@@ -11885,6 +11893,19 @@ function M.select(input)
 
     local seen={}
     local longPool,shortPool={},{}
+    if wantLong and cfg.freeRestBuffs and diff>=(cfg.restBuffMinDifficulty or 2) then
+        for _,row in ipairs(type(input.restSpells)=='table' and input.restSpells or {}) do
+            if type(row)=='table' and type(row.resref)=='string' and not seen[row.resref] and
+                not skippedByOrders(input.orders,input.area,row.resref) then
+                local info=M.classify(row,cfg)
+                if info and info.phase=='long' and not alreadyActive(caster,row.resref,info) then
+                    info.free=true
+                    seen[row.resref]=true
+                    longPool[#longPool+1]=info
+                end
+            end
+        end
+    end
     for _,row in ipairs(type(input.spells)=='table' and input.spells or {}) do
         if type(row)=='table' and number(row.ready) and row.ready>reservedByOrders(input.orders,row.resref,diff) and
             row.usable~=false and not seen[row.resref] then
@@ -13041,7 +13062,7 @@ local function cre(v,resref)
     return {kind='CRE',resref=resref,hp=v.i16(0x24),maxHp=v.i16(0x26),ac=v.i16(0x48),thac0=v.u8(0x52),
         apr=v.u8(0x53),saves={death=v.u8(0x54),wand=v.u8(0x55),poly=v.u8(0x56),breath=v.u8(0x57),spell=v.u8(0x58)},
         level=math.max(v.u8(0x234),v.u8(0x235),v.u8(0x236)),strength=v.u8(0x238),strengthExtra=v.u8(0x239),
-        ea=v.u8(0x270),general=v.u8(0x271),race=v.u8(0x272),class=v.u8(0x273),specific=v.u8(0x274),
+        ea=v.u8(0x270),general=v.u8(0x271),race=v.u8(0x272),class=v.u8(0x273),kit=v.u16(0x246),specific=v.u8(0x274),
         gender=v.u8(0x275),alignment=v.u8(0x27B),items=items,slots=slots,opcodes=opcodes}
 end
 
@@ -17824,19 +17845,22 @@ function M.new(g,options)
         local apply=rawget(g,'EEex_GameObject_ApplyEffect')
         if type(apply)~='function' then return false end
         local castUpper=castResref:upper()
-        if not reader.get('SPL',castUpper) then return false end
+        local splRec=reader.get('SPL',castUpper)
+        if not splRec then return false end
         if spendResref and spendResref~='' and not spendSlot(sprite,spendResref) then return false end
+        local firstAb=type(splRec.abilities)=='table' and splRec.abilities[1]
+        local usePoint=point~=nil or (type(firstAb)=='table' and firstAb.target==4)
         local px=point and point.x or sprite.m_pos.x
         local py=point and point.y or sprite.m_pos.y
         local ok=pcall(apply,sprite,{
-            effectID=point and 148 or 146,
+            effectID=usePoint and 148 or 146,
             targetType=1,
             effectAmount=0,
             dwFlags=1,
             durationType=1,
             res=castUpper,
             sourceID=sprite.m_id,
-            sourceTarget=point and -1 or sprite.m_id,
+            sourceTarget=usePoint and -1 or sprite.m_id,
             sourceX=sprite.m_pos.x,
             sourceY=sprite.m_pos.y,
             targetX=px,
@@ -18009,7 +18033,8 @@ function M.new(g,options)
                         if runInstant and instantCast(sprite,cu,sp,nil) then
                             fired[#fired+1]=cu
                             recordJustPrebuffed(sprite.m_id,now() or 0,{{resref=cu,span=120,
-                                protection=row.spell and row.spell.roles and row.spell.roles.protection or nil}})
+                                protection=row.spell and row.spell.roles and row.spell.roles.protection or nil,
+                                buff=row.spell and row.spell.roles and row.spell.roles.buff or nil}})
                         else
                             out[#out+1]=('ReallyForceSpellRES("%s",Myself)'):format(cu)
                             out[#out+1]=('RemoveSpellRES("%s")'):format(sp)
@@ -18025,10 +18050,59 @@ function M.new(g,options)
         local rows=book(sprite)
         if not rows then return {} end
         local cs=casterState(sprite,tick)
+        local lvl=cs.level>0 and cs.level or 1
+        local restSpells={}
+        local function hasBit(v,flag) return type(v)=='number' and math.floor(v/flag)%2==1 end
+        local CLERIC_EXCL={[3]=true,[6]=true,[8]=true,[14]=true,[15]=true,[17]=true,[18]=true}
+        local DRUID_EXCL={[11]=true,[12]=true,[16]=true,[21]=true}
+        local function restAllowed(splRec)
+            local excl=splRec and splRec.exclusion or 0
+            if excl==0 then return true end
+            local okK,kv=pcall(function() return sprite.m_baseStats and sprite.m_baseStats.m_mageSpecialization end)
+            local kit=okK and type(kv)=='number' and kv or nil
+            local okC,cv=pcall(function() return sprite.m_typeAI and sprite.m_typeAI.m_Class end)
+            local cls=okC and type(cv)=='number' and cv or nil
+            if kit==nil or cls==nil then
+                local cre=reader.get('CRE',text(sprite.m_resref:get()))
+                if cre then kit=kit or cre.kit; cls=cls or cre.class end
+            end
+            kit=kit or 0; cls=cls or 0
+            if kit>0 and kit~=0x4000 then
+                local bit=0x0040
+                while bit<=0x2000 do
+                    if hasBit(kit,bit) and hasBit(excl,bit) then return false end
+                    bit=bit*2
+                end
+            end
+            if hasBit(excl,0x40000000) and CLERIC_EXCL[cls] then return false end
+            if hasBit(excl,0x80000000) and DRUID_EXCL[cls] then return false end
+            return true
+        end
+        local maxByList={}
+        for _,row in ipairs(rows) do
+            if type(row.list)=='string' and type(row.level)=='number' then
+                local prev=maxByList[row.list] or 0
+                if row.level>prev then maxByList[row.list]=row.level end
+            end
+        end
+        local specs=(type(prebuffConfig)=='table' and prebuffConfig.restBuffs) or prebuff.CONFIG.restBuffs
+        for _,spec in ipairs(type(specs)=='table' and specs or {}) do
+            if (maxByList[spec.list] or 0)>=spec.minSlotLevel then
+                local splRec=reader.get('SPL',spec.resref)
+                if splRec and restAllowed(splRec) then
+                    local c=classify(spec.resref,lvl)
+                    if c then
+                        restSpells[#restSpells+1]={resref=spec.resref:upper(),list=spec.list,
+                            level=spec.minSlotLevel,ready=1,usable=true,free=true,spell=c}
+                    end
+                end
+            end
+        end
         local selected=prebuff.select({
             caster=cs,
             level=cs.level>0 and cs.level or nil,
             spells=rows,
+            restSpells=restSpells,
             difficulty=difficulty() or 3,
             phase=phase,
             orders=own,
@@ -18038,7 +18112,9 @@ function M.new(g,options)
         local fired,applied={},{}
         for _,entry in ipairs(selected) do
             local pt=entry.point and {x=sprite.m_pos.x,y=sprite.m_pos.y} or nil
-            if instantCast(sprite,entry.resref,entry.resref,pt) then
+            local spend
+            if not entry.free then spend=entry.resref end
+            if instantCast(sprite,entry.resref,spend,pt) then
                 fired[#fired+1]=entry.resref
                 applied[#applied+1]=entry
             end
@@ -19309,6 +19385,7 @@ function M.new(g,options)
         for _ in pairs(running) do busy=busy+1 end
         for _,mine in pairs(memory) do for _ in pairs(mine) do remembered=remembered+1 end end
         return {enabled=enabled,missing=missing or false,trace=trace,counts=copy(counts),reasons=copy(reasons),
+            defensiveContingencies=defensiveContingencies,
             pending=open,running=busy,judging=#judging,remembered=remembered,log=rows,lastError=lastError or false,
             markError=markError or false,guardError=guardError or false,weaponError=weaponError or false,
             wardError=wardError or false,zoneError=zoneError or false,witError=witError or false,
@@ -19724,12 +19801,13 @@ M.EVIL_CUTOFF=200
 -- with the member's own spells against its party, is Christopher's to decide, so the own hook leaves
 -- it alone.
 M.CHARMED_PC=254
-local function ini(g,key)
+local function ini(g,key,default)
+    local fallback=default==nil and 1 or default
     local get=rawget(g,'Infinity_GetINIValue')
-    if type(get)~='function' then return 1 end
-    local ok,value=pcall(get,'BGSE',key,1)
+    if type(get)~='function' then return fallback end
+    local ok,value=pcall(get,'BGSE',key,fallback)
     if ok and type(value)=='number' then return value end
-    return 1
+    return fallback
 end
 M.ini=ini
 function M.settings(g)
@@ -19741,6 +19819,7 @@ local function store(g,key,value)
     local set=rawget(g,'Infinity_SetINIValue')
     if type(set)=='function' then pcall(set,'BGSE',key,value and 1 or 0) end
 end
+M.store=store
 -- Game time, in ticks (15 per second). Every block of one script pass sees the same tick,
 -- and game time stands still while the game is paused.
 function M.gameTime(g)
@@ -20161,6 +20240,145 @@ function M.install(g,options)
 end
 return M
 end
+factories["adapters.eeex.ui"]=function(require)
+-- Optional Challenge-Mode Contingency UI filter (Christopher, 2026-11-12).
+--
+-- When [BGSE] PlayerDefensiveContingencies=1 is set in Baldur.lua, filters offensive spells
+-- (damage, disable, debuff, removal via combat-intent/contingency.isOffensive) out of the player's
+-- Contingency and Chain Contingency selection list (_G.filterContingencyMageSpells). Sequencers and
+-- Spell Triggers (SPWI420, SPWI710, SPWI809 and wild/innate variants) are never filtered.
+--
+-- Opt-in only: defaults to false. Uses live runtime SPL classification (We Overwrite).
+local resources=require('adapters.eeex.resources')
+local spells=require('combat-intent.spells')
+local contingency=require('combat-intent.contingency')
+
+local M={}
+M.cacheLimit=512
+
+-- Resrefs identifying Contingency and Chain Contingency UI screens (never Sequencers/Triggers).
+local CONTINGENCY_RESREFS={SPWI617=true,SPWI908=true,SPIN142=true,['DW#WZCND']=true}
+local SEQUENCER_RESREFS={SPWI420=true,SPWI710=true,SPWI809=true,SPIN143=true,SPIN144=true,SPIN145=true}
+
+-- True only when the UI is currently populating Contingency or Chain Contingency.
+function M.isContingencyScreen(g)
+    if type(g)~='table' then return false end
+    local resref=rawget(g,'contingencyResRef')
+    if type(resref)=='string' and resref~='' then
+        local up=resref:upper()
+        if SEQUENCER_RESREFS[up] then return false end
+        return CONTINGENCY_RESREFS[up]==true
+    end
+    return rawget(g,'showContingency')==true
+end
+
+function M.new(g,options)
+    g=g or _G
+    options=options or {}
+    local reader=options.reader or resources.new(g)
+    local enabled=options.playerDefensiveContingencies==true
+    local cache,cached={},0
+    local counts={hooked=0,filtered=0,kept=0}
+
+    local function classify(resref,level)
+        local up=resref:upper()
+        local lvl=type(level)=='number' and level>=1 and math.floor(level) or 1
+        local key=up..':'..lvl
+        if cache[key]==nil then
+            if cached>=M.cacheLimit then cache,cached={},0 end
+            local record=reader.get('SPL',up)
+            local index=record and spells.abilityForLevel(record,lvl)
+            cache[key]=index and spells.classify(record,index,reader.lookup,{level=lvl}) or false
+            cached=cached+1
+        end
+        return cache[key] or nil
+    end
+
+    local api={}
+
+    function api:setPlayerDefensiveContingencies(value)
+        enabled=(value==true)
+    end
+
+    function api:invalidate()
+        cache,cached={},0
+    end
+
+    function api:isOffensive(resref,level)
+        if type(resref)~='string' or resref=='' then return false end
+        local c=classify(resref,level)
+        return c~=nil and contingency.isOffensive(c)==true
+    end
+
+    function api:filterSpells(list)
+        if not enabled or not M.isContingencyScreen(g) or type(list)~='table' then
+            return list
+        end
+        local out={}
+        for _,item in ipairs(list) do
+            local level=type(item)=='table' and (item.casterLevel or item.level) or 1
+            if type(item)=='table' and api:isOffensive(item.resref,level) then
+                counts.filtered=counts.filtered+1
+            else
+                counts.kept=counts.kept+1
+                out[#out+1]=item
+            end
+        end
+        return out
+    end
+
+    function api:hookMenu()
+        rawset(g,'_bgseUiApi',api)
+        local orig=rawget(g,'filterContingencyMageSpells')
+        if type(orig)~='function' then return false end
+        local wrapper=rawget(g,'_bgseUiWrapper')
+        if orig~=wrapper then
+            rawset(g,'_bgseOrigFilterContingency',orig)
+        end
+        local base=rawget(g,'_bgseOrigFilterContingency')
+        if type(base)~='function' then return false end
+        if not wrapper then
+            wrapper=function(...)
+                local current=rawget(g,'_bgseUiApi')
+                local list=base(...)
+                if type(current)=='table' and type(current.filterSpells)=='function' then
+                    return current:filterSpells(list)
+                end
+                return list
+            end
+            rawset(g,'_bgseUiWrapper',wrapper)
+        end
+        if orig~=wrapper then
+            rawset(g,'filterContingencyMageSpells',wrapper)
+            counts.hooked=counts.hooked+1
+        end
+        return true
+    end
+
+    function api:inspect()
+        return {
+            playerDefensiveContingencies=enabled,
+            counts={hooked=counts.hooked,filtered=counts.filtered,kept=counts.kept},
+        }
+    end
+
+    api:hookMenu()
+    local addListener=rawget(g,'EEex_Menu_AddAfterMainFileLoadedListener')
+    if type(addListener)=='function' and not rawget(g,'_bgseUiMenuListener') then
+        rawset(g,'_bgseUiMenuListener',true)
+        pcall(addListener,function()
+            local current=rawget(g,'_bgseUiApi')
+            if type(current)=='table' and type(current.hookMenu)=='function' then
+                pcall(current.hookMenu,current)
+            end
+        end)
+    end
+
+    return api
+end
+
+return M
+end
 factories["adapters.eeex.runtime"]=function(require)
 -- The installed runtime: the BCS handoff gate with the fight director and the engine's own
 -- choice attached. Without the director or the choice (either failed to start) the gate still
@@ -20169,6 +20387,7 @@ factories["adapters.eeex.runtime"]=function(require)
 local hook=require('adapters.eeex.hook')
 local director=require('adapters.eeex.director')
 local choice=require('adapters.eeex.choice')
+local ui=require('adapters.eeex.ui')
 local encounters=require('combat-intent.encounters')
 local M={}
 function M.install(g,options)
@@ -20180,7 +20399,7 @@ function M.install(g,options)
     if options.choice==nil then
         local ok,value=pcall(choice.new,g,{director=options.director,enabled=hook.ini(g,'Choice')~=0,
             prebuffs=hook.ini(g,'Prebuffs')~=0,contingencies=hook.ini(g,'Contingencies')~=0,
-            defensiveContingencies=hook.ini(g,'DefensiveContingencies')==1,
+            defensiveContingencies=hook.ini(g,'DefensiveContingencies',0)==1,
             shouts=hook.ini(g,'Shouts')~=0,orders=encounters.orders()})
         if ok then options.choice=value end
     end
@@ -20192,7 +20411,28 @@ function M.install(g,options)
         if options.replaced==nil then options.replaced=function(object,info) return own:replaced(object,info) end end
         if options.director then options.director:setChoice(own) end
     end
-    return hook.install(g,options)
+    local uiInstance=options.ui
+    if uiInstance==nil then
+        local ok,value=pcall(ui.new,g,{playerDefensiveContingencies=hook.ini(g,'PlayerDefensiveContingencies',0)==1})
+        if ok then uiInstance=value end
+    end
+    local root=hook.install(g,options)
+    root.ui=uiInstance
+    function root.setDefensiveContingencies(value,persist)
+        if own then own:setDefensiveContingencies(value) end
+        if persist then hook.store(g,'DefensiveContingencies',value) end
+    end
+    function root.setPlayerDefensiveContingencies(value,persist)
+        if uiInstance then uiInstance:setPlayerDefensiveContingencies(value) end
+        if persist then hook.store(g,'PlayerDefensiveContingencies',value) end
+    end
+    local baseInspect=root.inspect
+    function root.inspect()
+        local state=baseInspect()
+        if uiInstance then state.ui=uiInstance:inspect() end
+        return state
+    end
+    return root
 end
 return M
 end

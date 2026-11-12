@@ -216,4 +216,31 @@ do
 end
 groups=groups+1
 
+-- 6. Overnight 12h rest-buff parity (freeRestBuffs): picks free restSpells in phase 'long' / 'both' from
+-- difficulty >= 2, spares memorized daytime SPWI408 slots, respects Easy (1), phase 'short', skins > 0,
+-- and designer orders (prep=false, noPrepIn, prepSkip).
+do
+    local skinMem=makeRow('SPWI408',spl('SPWI408',4,5,1,{fx(218,{p1=5,duration=43200})}),1,'mage')
+    local armor=makeRow('SPWI102',spl('SPWI102',1,5,1,{fx(0,{p1=6,p2=16,duration=32400})}),1,'mage')
+    local restSkin={resref='SPWI408',list='mage',level=4,ready=1,usable=true,free=true,spell=skinMem.spell}
+
+    -- Phase 'long' on Core (3): restSkin wins as free=true and blocks spending the memorized SPWI408 slot!
+    local picked=prebuff.select({spells={armor,skinMem},restSpells={restSkin},difficulty=3,phase='long',
+        caster={state=0,guard={}}})
+    assert(#picked==2 and picked[1].resref=='SPWI408' and picked[1].free==true and picked[2].resref=='SPWI102')
+
+    -- Also eligible in 'both' from Normal (2), never at Easy (1), never in 'short', never when skins > 0.
+    local normBoth=prebuff.select({spells={},restSpells={restSkin},difficulty=2,phase='both',caster={state=0,guard={}}})
+    assert(#normBoth==1 and normBoth[1].free==true)
+    assert(#prebuff.select({spells={},restSpells={restSkin},difficulty=1,phase='long',caster={state=0,guard={}}})==0)
+    assert(#prebuff.select({spells={},restSpells={restSkin},difficulty=4,phase='short',caster={state=0,guard={}}})==0)
+    assert(#prebuff.select({spells={},restSpells={restSkin},difficulty=4,phase='long',caster={state=0,skins=3,guard={}}})==0)
+
+    -- Respects designer skip controls.
+    assert(#prebuff.select({spells={},restSpells={restSkin},difficulty=4,phase='long',orders={prep=false}})==0)
+    assert(#prebuff.select({spells={},restSpells={restSkin},difficulty=4,phase='long',orders={noPrepIn={'BG1804'}},area='BG1804'})==0)
+    assert(#prebuff.select({spells={},restSpells={restSkin},difficulty=4,phase='long',orders={prepSkip={'SPWI408'}}})==0)
+end
+groups=groups+1
+
 return groups

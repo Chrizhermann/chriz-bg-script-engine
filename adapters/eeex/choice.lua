@@ -2086,19 +2086,22 @@ function M.new(g,options)
         local apply=rawget(g,'EEex_GameObject_ApplyEffect')
         if type(apply)~='function' then return false end
         local castUpper=castResref:upper()
-        if not reader.get('SPL',castUpper) then return false end
+        local splRec=reader.get('SPL',castUpper)
+        if not splRec then return false end
         if spendResref and spendResref~='' and not spendSlot(sprite,spendResref) then return false end
+        local firstAb=type(splRec.abilities)=='table' and splRec.abilities[1]
+        local usePoint=point~=nil or (type(firstAb)=='table' and firstAb.target==4)
         local px=point and point.x or sprite.m_pos.x
         local py=point and point.y or sprite.m_pos.y
         local ok=pcall(apply,sprite,{
-            effectID=point and 148 or 146,
+            effectID=usePoint and 148 or 146,
             targetType=1,
             effectAmount=0,
             dwFlags=1,
             durationType=1,
             res=castUpper,
             sourceID=sprite.m_id,
-            sourceTarget=point and -1 or sprite.m_id,
+            sourceTarget=usePoint and -1 or sprite.m_id,
             sourceX=sprite.m_pos.x,
             sourceY=sprite.m_pos.y,
             targetX=px,
@@ -2271,7 +2274,8 @@ function M.new(g,options)
                         if runInstant and instantCast(sprite,cu,sp,nil) then
                             fired[#fired+1]=cu
                             recordJustPrebuffed(sprite.m_id,now() or 0,{{resref=cu,span=120,
-                                protection=row.spell and row.spell.roles and row.spell.roles.protection or nil}})
+                                protection=row.spell and row.spell.roles and row.spell.roles.protection or nil,
+                                buff=row.spell and row.spell.roles and row.spell.roles.buff or nil}})
                         else
                             out[#out+1]=('ReallyForceSpellRES("%s",Myself)'):format(cu)
                             out[#out+1]=('RemoveSpellRES("%s")'):format(sp)
@@ -2287,10 +2291,59 @@ function M.new(g,options)
         local rows=book(sprite)
         if not rows then return {} end
         local cs=casterState(sprite,tick)
+        local lvl=cs.level>0 and cs.level or 1
+        local restSpells={}
+        local function hasBit(v,flag) return type(v)=='number' and math.floor(v/flag)%2==1 end
+        local CLERIC_EXCL={[3]=true,[6]=true,[8]=true,[14]=true,[15]=true,[17]=true,[18]=true}
+        local DRUID_EXCL={[11]=true,[12]=true,[16]=true,[21]=true}
+        local function restAllowed(splRec)
+            local excl=splRec and splRec.exclusion or 0
+            if excl==0 then return true end
+            local okK,kv=pcall(function() return sprite.m_baseStats and sprite.m_baseStats.m_mageSpecialization end)
+            local kit=okK and type(kv)=='number' and kv or nil
+            local okC,cv=pcall(function() return sprite.m_typeAI and sprite.m_typeAI.m_Class end)
+            local cls=okC and type(cv)=='number' and cv or nil
+            if kit==nil or cls==nil then
+                local cre=reader.get('CRE',text(sprite.m_resref:get()))
+                if cre then kit=kit or cre.kit; cls=cls or cre.class end
+            end
+            kit=kit or 0; cls=cls or 0
+            if kit>0 and kit~=0x4000 then
+                local bit=0x0040
+                while bit<=0x2000 do
+                    if hasBit(kit,bit) and hasBit(excl,bit) then return false end
+                    bit=bit*2
+                end
+            end
+            if hasBit(excl,0x40000000) and CLERIC_EXCL[cls] then return false end
+            if hasBit(excl,0x80000000) and DRUID_EXCL[cls] then return false end
+            return true
+        end
+        local maxByList={}
+        for _,row in ipairs(rows) do
+            if type(row.list)=='string' and type(row.level)=='number' then
+                local prev=maxByList[row.list] or 0
+                if row.level>prev then maxByList[row.list]=row.level end
+            end
+        end
+        local specs=(type(prebuffConfig)=='table' and prebuffConfig.restBuffs) or prebuff.CONFIG.restBuffs
+        for _,spec in ipairs(type(specs)=='table' and specs or {}) do
+            if (maxByList[spec.list] or 0)>=spec.minSlotLevel then
+                local splRec=reader.get('SPL',spec.resref)
+                if splRec and restAllowed(splRec) then
+                    local c=classify(spec.resref,lvl)
+                    if c then
+                        restSpells[#restSpells+1]={resref=spec.resref:upper(),list=spec.list,
+                            level=spec.minSlotLevel,ready=1,usable=true,free=true,spell=c}
+                    end
+                end
+            end
+        end
         local selected=prebuff.select({
             caster=cs,
             level=cs.level>0 and cs.level or nil,
             spells=rows,
+            restSpells=restSpells,
             difficulty=difficulty() or 3,
             phase=phase,
             orders=own,
@@ -2300,7 +2353,9 @@ function M.new(g,options)
         local fired,applied={},{}
         for _,entry in ipairs(selected) do
             local pt=entry.point and {x=sprite.m_pos.x,y=sprite.m_pos.y} or nil
-            if instantCast(sprite,entry.resref,entry.resref,pt) then
+            local spend
+            if not entry.free then spend=entry.resref end
+            if instantCast(sprite,entry.resref,spend,pt) then
                 fired[#fired+1]=entry.resref
                 applied[#applied+1]=entry
             end
@@ -3571,6 +3626,7 @@ function M.new(g,options)
         for _ in pairs(running) do busy=busy+1 end
         for _,mine in pairs(memory) do for _ in pairs(mine) do remembered=remembered+1 end end
         return {enabled=enabled,missing=missing or false,trace=trace,counts=copy(counts),reasons=copy(reasons),
+            defensiveContingencies=defensiveContingencies,
             pending=open,running=busy,judging=#judging,remembered=remembered,log=rows,lastError=lastError or false,
             markError=markError or false,guardError=guardError or false,weaponError=weaponError or false,
             wardError=wardError or false,zoneError=zoneError or false,witError=witError or false,

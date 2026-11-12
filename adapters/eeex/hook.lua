@@ -63,12 +63,13 @@ M.EVIL_CUTOFF=200
 -- with the member's own spells against its party, is Christopher's to decide, so the own hook leaves
 -- it alone.
 M.CHARMED_PC=254
-local function ini(g,key)
+local function ini(g,key,default)
+    local fallback=default==nil and 1 or default
     local get=rawget(g,'Infinity_GetINIValue')
-    if type(get)~='function' then return 1 end
-    local ok,value=pcall(get,'BGSE',key,1)
+    if type(get)~='function' then return fallback end
+    local ok,value=pcall(get,'BGSE',key,fallback)
     if ok and type(value)=='number' then return value end
-    return 1
+    return fallback
 end
 M.ini=ini
 function M.settings(g)
@@ -80,6 +81,7 @@ local function store(g,key,value)
     local set=rawget(g,'Infinity_SetINIValue')
     if type(set)=='function' then pcall(set,'BGSE',key,value and 1 or 0) end
 end
+M.store=store
 -- Game time, in ticks (15 per second). Every block of one script pass sees the same tick,
 -- and game time stands still while the game is paused.
 function M.gameTime(g)
