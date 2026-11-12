@@ -15,7 +15,9 @@ function M.install(g,options)
     end
     if options.choice==nil then
         local ok,value=pcall(choice.new,g,{director=options.director,enabled=hook.ini(g,'Choice')~=0,
-            prebuffs=hook.ini(g,'Prebuffs')~=0,orders=encounters.orders()})
+            prebuffs=hook.ini(g,'Prebuffs')~=0,contingencies=hook.ini(g,'Contingencies')~=0,
+            defensiveContingencies=hook.ini(g,'DefensiveContingencies')==1,
+            shouts=hook.ini(g,'Shouts')~=0,orders=encounters.orders()})
         if ok then options.choice=value end
     end
     local own=options.choice

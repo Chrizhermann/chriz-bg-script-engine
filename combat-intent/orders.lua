@@ -86,6 +86,41 @@ local function extra(v)
     return resref(v.cast) and resref(v.spend)
 end
 local function level(v) return number(v) and v>=1 and v<=5 and v==math.floor(v) end
+local CONDITIONS={seen=true,hp75=true,hp50=true,emergency=true}
+local function validSpellList(v,minN,maxN)
+    if type(v)~='table' or #v<minN or #v>maxN then return false end
+    for i,s in pairs(v) do if type(i)~='number' or not resref(s) then return false end end
+    return true
+end
+local function validContingency(v)
+    if v==false or resref(v) then return true end
+    if type(v)~='table' or not resref(v.spell) then return false end
+    for f,val in pairs(v) do
+        if f=='condition' then if not CONDITIONS[val] then return false end
+        elseif f~='spell' then return false end
+    end
+    return true
+end
+local function validChain(v)
+    if v==false or validSpellList(v,1,3) then return true end
+    if type(v)~='table' or not validSpellList(v.spells,1,3) then return false end
+    for f,val in pairs(v) do
+        if f=='condition' then if not CONDITIONS[val] then return false end
+        elseif f~='spells' then return false end
+    end
+    return true
+end
+local function validSequencers(v)
+    if v==false then return true end
+    if type(v)~='table' or next(v)==nil then return false end
+    local caps={minor=2,sequencer=3,trigger=3}
+    for f,val in pairs(v) do
+        local cap=caps[f]
+        if not cap then return false end
+        if val~=false and not validSpellList(val,2,cap) then return false end
+    end
+    return true
+end
 -- One step of an opener: a spell or item, a list of them, or {watch=seconds}.
 local function step(v)
     if resref(v) then return true end
@@ -139,6 +174,12 @@ function M.check(o)
         elseif k=='companion' then
             if type(v)~='table' or not resref(v.weak) or not resref(v.strong) or not level(v.strongFrom) then return false,k end
             for f in pairs(v) do if f~='weak' and f~='strong' and f~='strongFrom' then return false,k end end
+        elseif k=='contingency' then
+            if not validContingency(v) then return false,k end
+        elseif k=='chain' then
+            if not validChain(v) then return false,k end
+        elseif k=='sequencers' then
+            if not validSequencers(v) then return false,k end
         else return false,tostring(k) end
     end
     return true

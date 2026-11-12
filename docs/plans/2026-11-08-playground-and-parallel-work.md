@@ -166,15 +166,34 @@ with scripts of their own (trolls, golems, wyverns, ankhegs, some of them also i
      bridge, proceeding in the exact same tick to the caster's round-1 combat action. Ultra-short tactical immunities
      (`< 36s`: *PfMW*, *Mantle*, *Improved Alacrity*), *Sanctuary*, plain *Invisibility*, shapechanges and slot-locking
      conjured weapons stay in the spellbook for live rounds.
-  2. **Prep Phase 2b & BG2 Completion Roadmap (tracked next):**
-     - **Prep Phase 2b:** take over `'contingency'` and `'chain'` in our own code (native Contingencies, Spell Sequencers,
-       Minor Sequencers, Spell Triggers and Chain Contingencies built from each caster's live memorized book + difficulty,
-       replacing SCS's remaining `dw#` contingency/sequencer setup blocks).
-     - **Remaining BG2/ToB items:** BG2 already uses the exact same runtime engine and covers 1,007 of 1,025 hostile
-       placed creatures (`tools/fight_census.py`); what separates BG2 from BG1 is only (a) Phase 2b high-level
-       contingencies/triggers/chain contingencies, (b) inspecting the ~18 remaining non-SCS placed BG2/ToB creatures with
-       bespoke scripts, and (c) BG2 / Ascension designed boss encounter passes (`encounters.lua`) once BG1's block list
-       moves forward.
+  2. **Prep Phase 2b — Native Contingencies, Chain Contingencies, Sequencers & Spell Triggers + BG2 Census Closure**
+     (implemented 2026-11-12, `combat-intent/contingency.lua`, `adapters/eeex/choice.lua`, `bgse/setup-bgse.tp2`):
+     - **Native Contingencies, Chain Contingencies, Sequencers & Spell Triggers (`[BGSE] Contingencies=1` by default):**
+       `BGSE_Prep` now holds `'contingency'` and `'chain'` alongside `'prebuff'`, replacing SCS's remaining `dw#` setup
+       blocks (`Contingencies=0` falls back cleanly to SCS). Packages represent spells prepared the day before and rested
+       over (**zero today-slot debit**). Candidate spells are classified from each wizard's live runtime spellbook under
+       We Overwrite: Minor Sequencer (`BGSE#MS`, lvl `7+`, 2x lvl `<= 2`), Contingency (`lvl 12+`, 1x lvl `<= min(6, floor(lvl/3))`),
+       Spell Sequencer (`BGSE#SQ`, lvl `14+`, 3x lvl `<= 4`), Spell Trigger (`BGSE#TG`, lvl `16+`, 3x lvl `<= 6`), and Chain
+       Contingency (`lvl 18+`, 3x lvl `<= 8`, defensive/summon on Core and party-safe offensive on Hard/Insane). Pure dispel
+       spells (*Dispel/Remove Magic*) and indiscriminate friendly-fire AoEs are never auto-built.
+     - **True `0.00s` Live Evaluation + Fairness Guardrails:** Contingencies and Chain Contingencies evaluate live on every
+       hook pass without opcode-232's 100-tick heartbeat lag or `.BCS` delay, even mid-walk, mid-attack, or while waiting on
+       a round aura — strictly while `HP > 0` (**Guardrail #1:** a true one-shot blow to `0 HP` never fires a `< 50% HP`
+       Contingency). Every fired package plays the authentic `SPCONTIN` shimmer (`op215`, `dwFlags=1`, `duration=4`) +
+       combat-log & overhead callout (`Contingency - Fired`, `Chain Contingency - Fired`, `Minor Sequencer - Fired`, `Spell
+       Sequencer - Fired`, `Spell Trigger - Fired`), and virtual `BGSE#` releases enforce the 6-second round aura (`nativeAura`)
+       unless Improved Alacrity is active.
+     - **Challenge-Mode Option (`[BGSE] DefensiveContingencies=1`):** forbids all offensive spells (damage, disable, debuff,
+       and *Dispel/Remove Magic*) inside enemy Contingencies and Chain Contingencies (allowing only protections, buffs, and
+       summons while keeping offensive Sequencers/Triggers). For the matching **player-side** Challenge-Mode rule later in the
+       CEBG installer / `chriz-bg-magic`, hook `filterContingencyMageSpells()` in `UI.MENU` (using the same runtime spell
+       classification filter when `currentSpellLevel` is Contingency `SPWI617` or Chain Contingency `SPWI908`, while leaving
+       Minor Sequencer `SPWI420`, Spell Sequencer `SPWI710` and Spell Trigger `SPWI809` unrestricted).
+     - **BG2 & ToB Placed Census Closure (`HOOK-03`):** audited all 18 unhooked BG2/ToB placed hostile entries: 17 are
+       non-combat dream actors, portals, caged props or scriptless ambient animals, and the sole real fighter (`PPDJINN2.CRE`,
+       Spellhold Noble Djinni with leading-quote script typo `"djinni0`) is overwritten in `bgse/setup-bgse.tp2` to `PPDJINN2`
+       / `DJINNI01` (100% real placed combat coverage; bespoke BG2/Ascension boss tuning in `encounters.lua` follows BG1's
+       block list).
   3. **Local Fight Groups, Creature-Type Calls & Overhead Flair Shouts (`combat-intent/director.lua`,
      `combat-intent/calls.lua`, `adapters/eeex/director.lua`, `bgse/lib/calls.tpa`):** replaces area-wide `director:clues`
      telepathy on open maps (which pulled distant `BG2300` Hobgoblin packs from 2,000–3,900 px away) with local group

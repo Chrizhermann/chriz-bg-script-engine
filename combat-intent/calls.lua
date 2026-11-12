@@ -155,6 +155,13 @@ M.LINES={
         {key='rep_2',text='Hold them - coming!'},
         {key='rep_3',text='Moving in!'},
     },
+    CALLOUTS={
+        {key='cc_fired',text='Chain Contingency - Fired'},
+        {key='ctg_fired',text='Contingency - Fired'},
+        {key='msq_fired',text='Minor Sequencer - Fired'},
+        {key='seq_fired',text='Spell Sequencer - Fired'},
+        {key='trg_fired',text='Spell Trigger - Fired'},
+    },
 }
 
 local function number(v) return type(v)=='number' and v==v and v>-math.huge and v<math.huge end

@@ -1297,3 +1297,29 @@ def test_boss02_encounters_overwrite_slots_unslotted_items_talks_and_mulahey_wav
     assert _snapshot(tmp_path) == installed
     _install(tmp_path, '--force-uninstall-list', '0')
     assert _snapshot(tmp_path) == before
+
+
+@pytest.mark.parametrize('variant', ['typo', 'edited', 'fallback'])
+def test_ppdjinn2_overwrite_assigns_hooked_djinni_script_and_restores_cleanly(tmp_path: Path, variant: str) -> None:
+    _fake_game(tmp_path)
+    bcs_name = 'DJINNI01' if variant == 'fallback' else 'PPDJINN2'
+    (tmp_path / f'fixture/{bcs_name.lower()}.baf').write_text(
+        'IF\n  See(NearestEnemyOf(Myself))\nTHEN\n  RESPONSE #100\n    AttackReevaluate(NearestEnemyOf(Myself),30)\nEND\n',
+        encoding='ascii')
+    (tmp_path / 'fixture/djinni.tp2').write_text(
+        f'BACKUP ~fixture/backup-djinni~\nAUTHOR ~BGSE test~\nBEGIN ~djinni~\nCOMPILE ~fixture/{bcs_name.lower()}.baf~\n',
+        encoding='ascii')
+    _run(tmp_path, 'fixture/djinni.tp2', '--force-install-list', '0')
+    old_default = '"djinni0' if variant == 'typo' else ('CUSTOMDJ' if variant == 'edited' else '')
+    (tmp_path / 'override/PPDJINN2.CRE').write_bytes(_cre(['', '', '', '', old_default], []))
+
+    before = _snapshot(tmp_path)
+    output = _install(tmp_path, '--force-install-list', '0')
+    assert 'SUCCESSFULLY INSTALLED' in output, output
+    installed = _snapshot(tmp_path)
+    assert installed['override/ppdjinn2.cre'][0x268:0x270] == bcs_name.encode('ascii').ljust(8, b'\x00')
+    registry = installed['override/m_bgsehk.lua'].decode('ascii')
+    assert f"['{bcs_name.lower()}']='auto'," in registry
+
+    _install(tmp_path, '--force-uninstall-list', '0')
+    assert _snapshot(tmp_path) == before

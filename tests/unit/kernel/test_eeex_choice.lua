@@ -5328,4 +5328,162 @@ ITEMS.TESTOIL,ITEMS.TESTARW2,ITEMS.TESTPLNA=nil,nil,nil
 end)()
 groups=groups+1
 
+-- 56. Prep Phase 2b: native Contingencies & Chain Contingencies in 0.00s (zero slot debit, SPCONTIN +
+-- overhead callout, same-tick prebuff -> chain ordering, mid-round aura-wait 0.00s trigger, Guardrail #1
+-- one-shot kill protection, virtual BGSE#MS sequencer + nativeAura, and Challenge-Mode setDefensiveContingencies).
+;(function()
+local w=world()
+tablesOf(w)
+w.EngineGlobals.g_pBaldurChitin.m_pObjectGame.m_options={m_nDifficultyLevel=4}
+w.EEex_Sprite_GetCasterLevelForSpell=function(sp) return sp.stats[34] or 10 end
+w.BGSE_CALL_STRREFS={ctg_fired=9001,cc_fired=9002,msq_fired=9003,seq_fired=9004,trg_fired=9005}
+local applied,displayed={},{}
+w.EEex_GameObject_ApplyEffect=function(sp,args)
+    applied[#applied+1]={id=sp.m_id,effectID=args.effectID,res=args.res,dwFlags=args.dwFlags,
+        durationType=args.durationType,duration=args.duration,targetType=args.targetType,
+        tx=args.targetX,ty=args.targetY}
+    if args.res=='TESTSKNL' then sp.stats[88]=6 end
+end
+w.EEex_Sprite_DisplayTextRef=function(sp,strref,opts)
+    displayed[#displayed+1]={id=sp.m_id,strref=strref,overHead=opts and opts.overHead}
+end
+
+records.TESTSKNL=spl('TESTSKNL',4,{fx(218,{p1=6,duration=43200,target=1})},5,1)
+records.TESTMIRS=spl('TESTMIRS',2,{fx(159,{p1=5,duration=180,target=1})},5,1)
+records.TESTMIRS.abilities[1].speed=1
+records.TESTPFMW=spl('TESTPFMW',6,{fx(120,{p2=1,duration=24,target=1})},5,1)
+records.TESTACID=spl('TESTACID',2,{fx(12,{p2=1*65536,dice=8,sides=6})},1,2)
+records.TESTFING=spl('TESTFING',8,{fx(12,{p2=64*65536,dice=8,sides=6})},1,2)
+
+-- runtime.install defaults contingencies ON and honours [BGSE] Contingencies=0 / DefensiveContingencies=1.
+local wDef=world()
+wDef.EEex_GameObject_ApplyEffect=w.EEex_GameObject_ApplyEffect
+wDef.Infinity_GetINIValue=function(_,k)
+    if k=='Contingencies' then return 0 end
+    if k=='DefensiveContingencies' then return 1 end
+    return nil
+end
+local rDef=runtime.install(wDef,{reader=reader,version='test'})
+local mDef=wDef.add(sprite(9,0,0,255,{levels={[7]='s1'}}))
+assert(wDef.BGSE_Prep(mDef,'mage','s1','contingency','dw#ms0','')==false)
+rDef.choice:setContingencies(true)
+assert(wDef.BGSE_Prep(mDef,'mage','s1','contingency','dw#ms0','')==true)
+assert(wDef.BGSE_Prep(mDef,'mage','s1','chain','dw#cc12','')==true)
+
+local d=directors.new(w,{reader=reader})
+local c=choices.new(w,{reader=reader,director=d,seed=109,prebuffs=true,contingencies=true})
+local rows={}
+c:setSink(function(r) rows[#rows+1]=r end)
+local function lastKind(k)
+    for i=#rows,1,-1 do if rows[i].kind==k then return rows[i] end end
+end
+runtime.install(w,{director=d,choice=c,version='test'})
+
+local m=w.add(sprite(1,100,120,255,{levels={[7]='s1'},stats={[1]=40,[2]=8,[34]=18},m_baseStats={m_hitPoints=40,m_generalState=0}}))
+learn(m,3,'TESTSKNL',1)
+learn(m,1,'TESTMIRS',1)
+learn(m,5,'TESTPFMW',1)
+learn(m,1,'TESTACID',1)
+learn(m,7,'TESTFING',1)
+
+assert(w.BGSE_Prep(m,'mage','s1','contingency','dw#ms0','')==true)
+assert(w.BGSE_Prep(m,'mage','s1','chain','dw#cc12','')==true)
+c:setContingencies(false)
+assert(w.BGSE_Prep(m,'mage','s1','contingency','dw#ms0','')==false)
+assert(w.BGSE_Prep(m,'mage','s1','chain','dw#cc12','')==false)
+c:setContingencies(true)
+
+-- Combat contact at tick 120:
+-- 1) Prebuffs (TESTSKNL + TESTMIRS) fire FIRST in 0.00s (spending their 2 slots).
+-- 2) Chain Contingency ('seen': TESTSKNL + 2x TESTFING at foe11) fires in 0.00s with SPCONTIN + cc_fired,
+--    spending ZERO slots of TESTFING!
+-- 3) Emergency Contingency (TESTPFMW) stays armed in reserve because Stoneskin is active and HP == 100%!
+-- 4) Round-1 choice picks virtual Minor Sequencer BGSE#MS (2x TESTACID, 56 dmg, free innate) -> BGSE_Act
+--    fires both sub-spells via op146, plays SPCONTIN + msq_fired, sets firedsequencer=1, spends ZERO slots
+--    of TESTACID, queues 'NoAction()', and starts nativeAura!
+local foe11=w.add(sprite(11,180,120,2,{stats={[1]=120},m_baseStats={m_hitPoints=120,m_generalState=0}}))
+w.ticks=120
+assert(w.BGSE_Claim(m,'mage','s1')==true)
+assert(c:inspect().counts.chains==1 and c:inspect().counts.contingencies==0)
+assert(m.locals.chaincontingencyfired==1 and (m.locals.ContingencyFired or 0)==0)
+-- Prebuffs spent TESTSKNL & TESTMIRS, while TESTPFMW, TESTACID, and TESTFING all keep m_flags == 1!
+assert(m.book[3][1].m_flags==0 and m.book[1][1].m_flags==0)
+assert(m.book[5][1].m_flags==1 and m.book[1][2].m_flags==1 and m.book[7][1].m_flags==1)
+assert(#displayed==1 and displayed[1].strref==9002 and displayed[1].overHead==true)
+local chRow=lastKind('choice')
+assert(chRow and (chRow.spell=='BGSE#SQ' or chRow.spell=='BGSE#TG') and chRow.release==true)
+
+w.BGSE_Act(m)
+assert(w.queued[#w.queued].text=='NoAction()')
+assert(c:inspect().counts.nativeSequencers==1 and m.locals.firedsequencer==1)
+-- TESTACID memorized slot STILL untouched!
+assert(m.book[1][2].m_flags==1)
+assert(#displayed==2 and (displayed[2].strref==9004 or displayed[2].strref==9005))
+local sawShimmer,acidHits=false,0
+for _,a in ipairs(applied) do
+    if a.effectID==215 and a.res=='SPCONTIN' and a.durationType==0 and a.duration==4 then sawShimmer=true end
+    if a.effectID==146 and a.res=='TESTACID' and a.id==11 and a.targetType==2 then acidHits=acidHits+1 end
+end
+assert(sawShimmer and acidHits==3)
+
+-- Next tick (130): nativeAura is active (5.33s left), BGSE#MS is spent, and m has no weapon -> waits on aura!
+w.ticks=130
+assert(w.BGSE_Claim(m,'mage','s1')==true)
+local waitRow=lastKind('wait')
+assert(waitRow and waitRow.tick==130 and waitRow.reason=='aura')
+
+-- Mid-round at tick 135 (STILL inside waits[1]!): m takes a heavy hit dropping HP to 18/40 (45% <= 50%)!
+-- Emergency Contingency (TESTPFMW) fires IMMEDIATELY in 0.00s without waiting for aura or round end!
+m.m_baseStats.m_hitPoints=18
+w.ticks=135
+assert(w.BGSE_Claim(m,'mage','s1')==true)
+assert(c:inspect().counts.contingencies==1 and m.locals.ContingencyFired==1)
+assert(#displayed==3 and displayed[3].strref==9001)
+-- Zero slot debit on TESTPFMW!
+assert(m.book[5][1].m_flags==1)
+local ctgRow=lastKind('contingency')
+assert(ctgRow and ctgRow.tick==135 and ctgRow.spells[1]=='TESTPFMW',
+    tostring(ctgRow and ctgRow.tick)..':'..tostring(ctgRow and ctgRow.spells and ctgRow.spells[1]))
+
+-- Guardrail #1 (One-Shot Kill): mage m2 drops straight from 30/30 HP to 0 HP in one blow -> dead mage
+-- NEVER triggers its < 50% HP Contingency!
+local m2=w.add(sprite(2,100,900,255,{levels={[7]='s1'},stats={[1]=30,[2]=8,[34]=15},m_baseStats={m_hitPoints=30,m_generalState=0}}))
+learn(m2,3,'TESTSKNL',1)
+learn(m2,5,'TESTPFMW',1)
+w.add(sprite(21,260,900,2,{stats={[1]=80},m_baseStats={m_hitPoints=80,m_generalState=0}}))
+w.ticks=200
+assert(w.BGSE_Claim(m2,'mage','s1')==true)
+assert(c:inspect().counts.contingencies==1) -- still armed!
+m2.m_baseStats.m_hitPoints=0 -- one-shotted to 0 HP!
+w.ticks=205
+w.BGSE_Claim(m2,'mage','s1')
+assert(c:inspect().counts.contingencies==1 and (m2.locals.ContingencyFired or 0)==0)
+
+-- Challenge-Mode setDefensiveContingencies(true): rebuilds loadouts with zero offensive spells in Chain Contingency!
+c:setDefensiveContingencies(true)
+local m3=w.add(sprite(3,100,1700,255,{levels={[7]='s1'},stats={[1]=40,[2]=8,[34]=18},m_baseStats={m_hitPoints=40,m_generalState=0}}))
+learn(m3,3,'TESTSKNL',1)
+learn(m3,1,'TESTMIRS',1)
+learn(m3,5,'TESTPFMW',1)
+learn(m3,7,'TESTFING',1)
+local foe31=w.add(sprite(31,260,1700,2,{stats={[1]=100},m_baseStats={m_hitPoints=100,m_generalState=0}}))
+w.ticks=300
+assert(w.BGSE_Claim(m3,'mage','s1')==true)
+-- Defensive fallback Chain ('hp50') stays armed at 100% HP; when HP drops to 18/40, it fires ONLY wards, never TESTFING!
+assert(c:inspect().counts.chains==1)
+local fingBefore=0
+for _,a in ipairs(applied) do if a.res=='TESTFING' then fingBefore=fingBefore+1 end end
+m3.m_baseStats.m_hitPoints=18
+w.ticks=305
+assert(w.BGSE_Claim(m3,'mage','s1')==true)
+assert(c:inspect().counts.chains==2)
+local fingAfter=0
+for _,a in ipairs(applied) do if a.res=='TESTFING' then fingAfter=fingAfter+1 end end
+assert(fingAfter==fingBefore)
+
+assert(c:inspect().counts.errors==0,c:inspect().lastError)
+records.TESTSKNL,records.TESTMIRS,records.TESTPFMW,records.TESTACID,records.TESTFING=nil,nil,nil,nil,nil
+end)()
+groups=groups+1
+
 return groups

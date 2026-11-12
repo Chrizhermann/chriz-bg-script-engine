@@ -14,8 +14,10 @@ His own game and its saves stay out of it.
 - The recorder writes to `game\bgse-playtest\<date-time>.jsonl`: orders, also those given in pause, what the enemies'
   AI decided, fights and reloads. `[BGSE] Recorder=0` in `Baldur.lua` turns it off. Enemies never read it.
 - Runtime switches in `Baldur.lua` under `[BGSE]`: `Choice=0` disables the combat choice engine, `Others=0` disables the
-  own monster/non-SCS hook, `Prebuffs=0` hands prebuff blocks back to SCS, and `Shouts=0` suppresses overhead call-for-help
-  text while keeping local earshot alerts active.
+  own monster/non-SCS hook, `Prebuffs=0` hands prebuff blocks back to SCS, `Contingencies=0` hands contingencies, chain
+  contingencies and sequencers back to SCS, `DefensiveContingencies=1` enables the Challenge-Mode rule forbidding offensive
+  or dispel spells in enemy Contingencies and Chain Contingencies, and `Shouts=0` suppresses overhead call-for-help and
+  contingency-callout text while keeping local earshot alerts active.
 - `python -I tools/read_playtest.py <file>` prints a summary per fight.
 
 ## Updating

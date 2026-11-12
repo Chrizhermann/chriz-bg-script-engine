@@ -14,6 +14,8 @@ DEFINE_ACTION_FUNCTION bgse_register_call_strrefs
   RET bgse_call_strrefs
 BEGIN
   OUTER_TEXT_SPRINT bgse_call_strrefs ~~
+  LAF bgse_add_call_line STR_VAR bgse_key = ~cc_fired~ bgse_text = ~Chain Contingency - Fired~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
+  LAF bgse_add_call_line STR_VAR bgse_key = ~ctg_fired~ bgse_text = ~Contingency - Fired~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
   LAF bgse_add_call_line STR_VAR bgse_key = ~dog_1~ bgse_text = ~*barks furiously*~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
   LAF bgse_add_call_line STR_VAR bgse_key = ~dog_2~ bgse_text = ~*growls and barks an alarm*~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
   LAF bgse_add_call_line STR_VAR bgse_key = ~gib_1~ bgse_text = ~*lets out a shrill, chittering shriek*~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
@@ -30,6 +32,7 @@ BEGIN
   LAF bgse_add_call_line STR_VAR bgse_key = ~kob_1~ bgse_text = ~Yip! Yip! Intruder - pack, come quick!~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
   LAF bgse_add_call_line STR_VAR bgse_key = ~kob_2~ bgse_text = ~Kill-kill! More sticks and arrows here!~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
   LAF bgse_add_call_line STR_VAR bgse_key = ~kob_3~ bgse_text = ~Aii! Big-folk! Help, help!~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
+  LAF bgse_add_call_line STR_VAR bgse_key = ~msq_fired~ bgse_text = ~Minor Sequencer - Fired~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
   LAF bgse_add_call_line STR_VAR bgse_key = ~ogl_1~ bgse_text = ~Smash them flat! Over here!~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
   LAF bgse_add_call_line STR_VAR bgse_key = ~ogl_2~ bgse_text = ~Little meat! Come pound them!~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
   LAF bgse_add_call_line STR_VAR bgse_key = ~ogr_1~ bgse_text = ~Smash little ones! Come crush!~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
@@ -37,6 +40,8 @@ BEGIN
   LAF bgse_add_call_line STR_VAR bgse_key = ~rep_1~ bgse_text = ~On my way!~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
   LAF bgse_add_call_line STR_VAR bgse_key = ~rep_2~ bgse_text = ~Hold them - coming!~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
   LAF bgse_add_call_line STR_VAR bgse_key = ~rep_3~ bgse_text = ~Moving in!~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
+  LAF bgse_add_call_line STR_VAR bgse_key = ~seq_fired~ bgse_text = ~Spell Sequencer - Fired~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
+  LAF bgse_add_call_line STR_VAR bgse_key = ~trg_fired~ bgse_text = ~Spell Trigger - Fired~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
   LAF bgse_add_call_line STR_VAR bgse_key = ~war_1~ bgse_text = ~To arms! Enemy spotted!~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
   LAF bgse_add_call_line STR_VAR bgse_key = ~war_2~ bgse_text = ~Over here! On me!~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
   LAF bgse_add_call_line STR_VAR bgse_key = ~war_3~ bgse_text = ~We have company - move in!~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END

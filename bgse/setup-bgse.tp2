@@ -113,6 +113,24 @@ ACTION_BASH_FOR ~override~ ~^.+\.bcs$~ BEGIN
     END
   BUT_ONLY_IF_IT_CHANGES
 END
+// Spellhold's Noble Djinni (PPDJINN2.CRE in AR1514, the sole real combat actor among BG2's 18 census
+// entries without a hooked script; HOOK-03): overwrite its default script slot (0x268) with PPDJINN2
+// (or DJINNI01) instead of its broken '"djinni0' typo, before the CRE gift/teleport and carried passes.
+ACTION_IF (FILE_EXISTS_IN_GAME ~ppdjinn2.cre~) BEGIN
+  ACTION_IF (FILE_EXISTS_IN_GAME ~ppdjinn2.bcs~) BEGIN
+    COPY_EXISTING ~ppdjinn2.cre~ ~override~
+      PATCH_IF (BUFFER_LENGTH >= 0x2d4) BEGIN
+        WRITE_ASCII 0x268 ~PPDJINN2~ #8
+      END
+    BUT_ONLY_IF_IT_CHANGES
+  END ELSE ACTION_IF (FILE_EXISTS_IN_GAME ~djinni01.bcs~) BEGIN
+    COPY_EXISTING ~ppdjinn2.cre~ ~override~
+      PATCH_IF (BUFFER_LENGTH >= 0x2d4) BEGIN
+        WRITE_ASCII 0x268 ~DJINNI01~ #8
+      END
+    BUT_ONLY_IF_IT_CHANGES
+  END
+END
 // Creatures SCS lets teleport only by script get a real innate teleport, which the engine casts
 // like any spell (Christopher, 2026-10-26); one with a teleport of its own (most fiends have the
 // game's Teleport Without Error) keeps that one. Thieves SCS makes invisible for free hide with
