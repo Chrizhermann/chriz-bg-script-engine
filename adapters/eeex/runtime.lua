@@ -61,6 +61,11 @@ function M.install(g,options)
         if arenaInstance then arenaInstance:setEnabled(value) end
         if persist then hook.store(g,'ArenaLocks',value) end
     end
+    local baseSetEnabled=root.setEnabled
+    function root.setEnabled(value,persist)
+        baseSetEnabled(value,persist)
+        if arenaInstance then arenaInstance:invalidate(); arenaInstance:guardedStep() end
+    end
     function root.setChallengeMode(value,persist)
         challengeOn=(value==true)
         if uiInstance then uiInstance:setPlayerDefensiveContingencies(challengeOn) end

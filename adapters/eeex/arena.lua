@@ -31,15 +31,12 @@ local function cleanString(raw)
     return (raw:match('^[^%z]*') or ''):upper()
 end
 
-local function triggerName(trig)
-    if not trig or not trig.m_scriptName or type(trig.m_scriptName.get)~='function' then return '' end
-    local ok,raw=pcall(trig.m_scriptName.get,trig.m_scriptName)
-    return ok and cleanString(raw) or ''
-end
-
-local function areaName(area)
-    if not area or not area.m_resref or type(area.m_resref.get)~='function' then return '' end
-    local ok,raw=pcall(area.m_resref.get,area.m_resref)
+local function readText(field)
+    if field==nil then return '' end
+    local ok,raw=pcall(function() return field:get() end)
+    if not ok or type(raw)~='string' then
+        ok,raw=pcall(function() return field.m_pchData:get() end)
+    end
     return ok and cleanString(raw) or ''
 end
 
@@ -89,15 +86,20 @@ local function flagsAddress(g,trig)
 end
 
 local function readFlags(g,addr)
-    if type(addr)~='number' or type(rawget(g,'EEex_ReadU32'))~='function' then return nil end
-    local ok,val=pcall(g.EEex_ReadU32,addr)
-    if ok and type(val)=='number' then return val end
+    if type(addr)~='number' then return nil end
+    local fn=rawget(g,'EEex_ReadU32') or rawget(g,'EEex_Read32')
+    if type(fn)~='function' then return nil end
+    local ok,val=pcall(fn,addr)
+    if ok and type(val)=='number' then
+        if val<0 then val=val+4294967296 end
+        return val
+    end
     return nil
 end
 
 local function writeFlags(g,addr,flags)
     if type(addr)~='number' then return false end
-    local fn=rawget(g,'EEex_WriteU32') or rawget(g,'EEex_Write32')
+    local fn=rawget(g,'EEex_Write32') or rawget(g,'EEex_WriteU32')
     if type(fn)~='function' then return false end
     local ok=pcall(fn,addr,flags)
     return ok==true
@@ -145,7 +147,7 @@ local function collectTriggers(g,area,want)
                 if obj and obj.m_objectType==trigType then
                     local trig=type(castObj)=='function' and castObj(obj) or obj
                     if trig and trig.m_triggerType==M.TRIGGER_TRAVEL then
-                        local name=triggerName(trig)
+                        local name=readText(trig.m_scriptName)
                         if want[name] then
                             out[#out+1]={name=name,trig=trig}
                         end
@@ -164,8 +166,14 @@ end
 
 local function isAliveSprite(g,sprite)
     if sprite.m_active~=nil and sprite.m_active==0 then return false end
+    local getState=rawget(g,'EEex_Sprite_GetState')
+    local state=nil
+    if type(getState)=='function' then
+        local ok,val=pcall(getState,sprite)
+        if ok and type(val)=='number' then state=val end
+    end
     local stats=sprite.m_baseStats
-    local state=stats and stats.m_generalState
+    if type(state)~='number' then state=stats and stats.m_generalState end
     if type(state)~='number' then return false end
     local band=rawget(g,'EEex_BAnd')
     if type(band)=='function' then
@@ -173,39 +181,71 @@ local function isAliveSprite(g,sprite)
     elseif math.floor(state/64)%64~=0 then
         return false
     end
-    local hp=stats.m_hitPoints
-    if type(hp)=='number' and hp<=0 then return false end
+    local hp=stats and stats.m_hitPoints
+    if type(hp)~='number' or hp<=0 then return false end
     return true
 end
 
+local function spriteEA(obj)
+    local okLive,ea=pcall(function() return obj.m_liveTypeAI.m_EnemyAlly end)
+    if okLive and type(ea)=='number' then return ea end
+    local okType,ea2=pcall(function() return obj.m_typeAI.m_EnemyAlly end)
+    if okType and type(ea2)=='number' then return ea2 end
+    return 0
+end
+
 local function countLivingHostiles(g,area)
-    local count=0
+    local count,seen=0,{}
     local getObj=rawget(g,'EEex_GameObject_Get')
     local isSprite=rawget(g,'EEex_GameObject_IsSprite')
-    iterateList(g,area.m_lVertSort,function(id)
-        if type(id)=='number' and type(getObj)=='function' then
-            local obj=getObj(id)
-            if obj and (type(isSprite)~='function' or isSprite(obj,false)) then
-                local ea=obj.m_typeAI and obj.m_typeAI.m_EnemyAlly or 0
-                if ea>=M.HOSTILE_MIN_EA and ea~=M.CHARMED_PC_EA and isAliveSprite(g,obj) then
-                    count=count+1
+    if type(getObj)~='function' then return 0 end
+    for _,list in ipairs({area.m_lVertSort,area.m_lVertSortBack}) do
+        iterateList(g,list,function(id)
+            if type(id)=='number' and not seen[id] then
+                seen[id]=true
+                local obj=getObj(id)
+                if obj and (type(isSprite)~='function' or isSprite(obj,false)) then
+                    local ea=spriteEA(obj)
+                    if ea>=M.HOSTILE_MIN_EA and ea~=M.CHARMED_PC_EA and isAliveSprite(g,obj) then
+                        count=count+1
+                    end
                 end
             end
-        end
-    end)
+        end)
+    end
     return count
 end
 
-local function findPartySpeaker(g,areaKey)
+local function currentArea(g)
+    local getArea=rawget(g,'EEex_Area_GetVisible')
+    if type(getArea)=='function' then
+        local okArea,area=pcall(getArea)
+        if okArea and area~=nil then return area end
+    end
     local getter=rawget(g,'EEex_Sprite_GetInPortrait')
-    if type(getter)~='function' then return nil end
-    for i=0,5 do
-        local ok,sp=pcall(getter,i)
-        if ok and sp and sp.m_pArea and areaName(sp.m_pArea)==areaKey and isAliveSprite(g,sp) then
-            return sp
+    if type(getter)=='function' then
+        for i=0,5 do
+            local ok,sp=pcall(getter,i)
+            if ok and sp then
+                local okArea,pArea=pcall(function() return sp.m_pArea end)
+                if okArea and pArea~=nil then return pArea end
+            end
         end
     end
     return nil
+end
+
+local function partyInArea(g,areaKey)
+    local party={}
+    local getter=rawget(g,'EEex_Sprite_GetInPortrait')
+    if type(getter)~='function' then return party end
+    for i=0,5 do
+        local ok,sp=pcall(getter,i)
+        if ok and sp and sp.m_pArea and readText(sp.m_pArea.m_resref)==areaKey and isAliveSprite(g,sp) then
+            party[#party+1]=sp
+        end
+    end
+    return party
 end
 
 local function lockTrigger(g,area,item)
@@ -216,8 +256,11 @@ local function lockTrigger(g,area,item)
     local prior=isDeactivated(flags) and 2 or 1
     if not setAreaVar(g,area,item.tag,prior) then return false end
     if prior==1 then
-        writeFlags(g,addr,setDeactivated(flags))
-        if type(item.trig.SetDrawPoly)=='function' then pcall(item.trig.SetDrawPoly,item.trig,0) end
+        if not writeFlags(g,addr,setDeactivated(flags)) then
+            setAreaVar(g,area,item.tag,0)
+            return false
+        end
+        pcall(function() item.trig:SetDrawPoly(0) end)
     end
     return true
 end
@@ -227,9 +270,11 @@ local function unlockTrigger(g,area,item)
     if saved==0 then return false end
     local addr=flagsAddress(g,item.trig)
     local flags=readFlags(g,addr)
-    if saved==1 and flags then
-        writeFlags(g,addr,clearDeactivated(flags))
-        if type(item.trig.SetDrawPoly)=='function' then pcall(item.trig.SetDrawPoly,item.trig,0) end
+    if saved==1 then
+        if not flags or not writeFlags(g,addr,clearDeactivated(flags)) then
+            return false
+        end
+        pcall(function() item.trig:SetDrawPoly(1) end)
     end
     setAreaVar(g,area,item.tag,0)
     return true
@@ -244,7 +289,12 @@ function M.new(g,options)
     local counts={locked=0,unlocked=0,ticks=0}
     local lastArea,lastTick=nil,nil
     local dirty=true
-    local combatFile=nil
+    local checkPending=true
+    local lastFastMs=nil
+    local lastError=false
+    local lastHostiles=nil
+    local lastCombat=false
+    local combatFile,seeEvilFile=nil,nil
 
     local function engineOn()
         if type(isEngineEnabled)=='function' then
@@ -254,12 +304,12 @@ function M.new(g,options)
         return hook.ini(g,'Enabled')~=0
     end
 
-    local function inCombat(speaker)
+    local function inCombat(party)
         if type(options.inCombat)=='function' then
-            local ok,res=pcall(options.inCombat,speaker)
+            local ok,res=pcall(options.inCombat,party[1])
             return ok and res==true
         end
-        if not speaker then return false end
+        if #party==0 then return false end
         local parse=rawget(g,'EEex_Trigger_ParseConditionalString')
         local eval=rawget(g,'EEex_Trigger_EvalScriptFileConditionalAsAIBase')
         if type(parse)~='function' or type(eval)~='function' then return false end
@@ -267,9 +317,21 @@ function M.new(g,options)
             local ok,parsed=pcall(parse,'CombatCounterGT(0)')
             if ok and parsed then combatFile=parsed end
         end
-        if not combatFile then return false end
-        local ok,res=pcall(eval,combatFile,speaker)
-        return ok and res==true
+        if combatFile then
+            local ok,res=pcall(eval,combatFile,party[1])
+            if ok and res==true then return true end
+        end
+        if not seeEvilFile then
+            local ok,parsed=pcall(parse,'See([EVILCUTOFF])')
+            if ok and parsed then seeEvilFile=parsed end
+        end
+        if seeEvilFile then
+            for _,sp in ipairs(party) do
+                local ok,res=pcall(eval,seeEvilFile,sp)
+                if ok and res==true then return true end
+            end
+        end
+        return false
     end
 
     local function announce(speaker)
@@ -283,44 +345,33 @@ function M.new(g,options)
 
     local api={}
 
-    function api:setEnabled(value)
-        local nextVal=(value==true)
-        if nextVal~=enabled then
-            enabled=nextVal
-            dirty=true
-        end
-    end
-
-    function api:setEngineCheck(fn)
-        isEngineEnabled=fn
-        dirty=true
-    end
-
     function api:invalidate()
-        lastArea,lastTick=nil,nil
-        dirty=true
+        lastArea,lastTick,lastFastMs=nil,nil,nil
+        dirty,checkPending=true,true
+        lastHostiles,lastCombat=nil,false
         if combatFile and type(combatFile.free)=='function' then
             pcall(combatFile.free,combatFile)
         end
-        combatFile=nil
+        if seeEvilFile and type(seeEvilFile.free)=='function' then
+            pcall(seeEvilFile.free,seeEvilFile)
+        end
+        combatFile,seeEvilFile=nil,nil
     end
 
     function api:onDestroyed()
-        rawset(g,'_bgseArenaInitSeen',false)
         api:invalidate()
     end
 
     function api:step()
+        lastError=false
         counts.ticks=counts.ticks+1
-        local getArea=rawget(g,'EEex_Area_GetVisible')
-        if type(getArea)~='function' then return false end
-        local okArea,area=pcall(getArea)
-        if not okArea or not area then return false end
-        local key=areaName(area)
+        local area=currentArea(g)
+        if not area then return false end
+        local key=readText(area.m_resref)
         local want=locks[key]
         if not want then
-            lastArea=key
-            dirty=false
+            lastArea,lastHostiles,lastCombat=key,nil,false
+            dirty,checkPending=false,false
             return false
         end
         local tick=nil
@@ -329,10 +380,15 @@ function M.new(g,options)
         if not dirty and key==lastArea and tick~=nil and tick==lastTick then
             return false
         end
+        if key~=lastArea then checkPending=true end
         lastArea,lastTick,dirty=key,tick,false
 
         local items=collectTriggers(g,area,want)
-        if #items==0 then return false end
+        if #items==0 then
+            lastHostiles,lastCombat=nil,false
+            checkPending=false
+            return false
+        end
 
         local active=enabled and engineOn()
         local anyLocked=false
@@ -344,16 +400,21 @@ function M.new(g,options)
         end
 
         if not active then
+            lastHostiles,lastCombat=nil,false
             if anyLocked then
                 for _,item in ipairs(items) do
                     if unlockTrigger(g,area,item) then counts.unlocked=counts.unlocked+1 end
                 end
             end
+            checkPending=false
             return false
         end
 
+        checkPending=true
         local hostiles=countLivingHostiles(g,area)
+        lastHostiles=hostiles
         if hostiles==0 then
+            lastCombat=false
             if anyLocked then
                 for _,item in ipairs(items) do
                     if unlockTrigger(g,area,item) then counts.unlocked=counts.unlocked+1 end
@@ -362,8 +423,10 @@ function M.new(g,options)
             return false
         end
 
-        local speaker=findPartySpeaker(g,key)
-        if anyLocked or inCombat(speaker) then
+        local party=partyInArea(g,key)
+        local combat=inCombat(party)
+        lastCombat=combat
+        if anyLocked or combat then
             local newlyLocked=0
             for _,item in ipairs(items) do
                 if lockTrigger(g,area,item) then
@@ -371,14 +434,58 @@ function M.new(g,options)
                     counts.locked=counts.locked+1
                 end
             end
-            if newlyLocked>0 then announce(speaker) end
+            if newlyLocked>0 then announce(party[1]) end
         end
         return false
+    end
+
+    function api:guardedStep()
+        local ok,res=pcall(api.step,api)
+        if not ok then
+            lastError=tostring(res)
+            return false
+        end
+        return res==true
+    end
+
+    function api:fastStep()
+        if not enabled and not dirty and not checkPending then return false end
+        local getTicks=rawget(g,'Infinity_GetClockTicks')
+        if type(getTicks)=='function' then
+            local okMs,nowMs=pcall(getTicks)
+            if okMs and type(nowMs)=='number' then
+                if not dirty and lastFastMs~=nil and nowMs>=lastFastMs and (nowMs-lastFastMs)<20 then
+                    return false
+                end
+                lastFastMs=nowMs
+            end
+        end
+        return api:guardedStep()
+    end
+
+    function api:setEnabled(value)
+        local nextVal=(value==true)
+        if nextVal~=enabled then
+            enabled=nextVal
+            dirty=true
+            lastFastMs=nil
+            api:guardedStep()
+        end
+    end
+
+    function api:setEngineCheck(fn)
+        isEngineEnabled=fn
+        dirty=true
+        lastFastMs=nil
     end
 
     function api:inspect()
         return {
             enabled=enabled,
+            lastError=lastError,
+            lastArea=lastArea or false,
+            lastHostiles=lastHostiles,
+            lastCombat=lastCombat,
             counts={locked=counts.locked,unlocked=counts.unlocked,ticks=counts.ticks},
         }
     end
@@ -386,9 +493,8 @@ function M.new(g,options)
     rawset(g,'_bgseArenaApi',api)
     rawset(g,'BGSE_Arena_Tick',function()
         local current=rawget(g,'_bgseArenaApi')
-        if type(current)=='table' and type(current.step)=='function' then
-            local ok,res=pcall(current.step,current)
-            if ok then return res==true end
+        if type(current)=='table' and type(current.fastStep)=='function' then
+            return current:fastStep()
         end
         return false
     end)
@@ -411,6 +517,12 @@ function M.new(g,options)
         end)
     end
 
+    local addReload=rawget(g,'EEex_Menu_AddAfterMainFileReloadedListener')
+    if type(addReload)=='function' and not rawget(g,'_bgseArenaMenuReloadListener') then
+        rawset(g,'_bgseArenaMenuReloadListener',true)
+        pcall(addReload,function() pushMenu() end)
+    end
+
     local addInit=rawget(g,'EEex_GameState_AddInitializedListener')
     if type(addInit)=='function' and not rawget(g,'_bgseArenaInitListener') then
         rawset(g,'_bgseArenaInitListener',true)
@@ -419,6 +531,15 @@ function M.new(g,options)
             local current=rawget(g,'_bgseArenaApi')
             if type(current)=='table' and type(current.invalidate)=='function' then pcall(current.invalidate,current) end
             pushMenu()
+        end)
+    end
+
+    local addLists=rawget(g,'EEex_Opcode_AddDeferredListsResolvedListener') or rawget(g,'EEex_Opcode_AddListsResolvedListener')
+    if type(addLists)=='function' and not rawget(g,'_bgseArenaListsListener') then
+        rawset(g,'_bgseArenaListsListener',true)
+        pcall(addLists,function()
+            local current=rawget(g,'_bgseArenaApi')
+            if type(current)=='table' and type(current.fastStep)=='function' then pcall(current.fastStep,current) end
         end)
     end
 

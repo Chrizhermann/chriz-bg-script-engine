@@ -84,24 +84,36 @@ def test_arena_lock_unlock_duplicates_bit_preservation_and_callout(backend):
         local encounters = require('combat-intent.encounters')
 
         local objects, vars, mem = {}, {}, {}
-        local combatActive, engineOn, shouts, gt = false, true, 1, 100
+        local combatActive, seeActive, engineOn, shouts, gt, clockMs = false, false, true, 1, 100, 1000
+        local writeFail = false
         local announced, freedFiles, evaledMenus, pushedMenus = {}, 0, {}, {}
-        local menuCb, initCb, destroyCb
+        local menuCb, reloadCb, initCb, listsCb, destroyCb
 
-        local function makeTrigger(id, name, trigType, left, top, initialFlags)
+        local function callable(fn)
+            return setmetatable({}, {__call = function(_, ...) return fn(...) end})
+        end
+
+        local function makeTrigger(id, name, trigType, left, top, initialFlags, asCallable)
             local tok = {kind = 'entry', id = id}
             local base = id * 1000
             mem[base + 0x20] = initialFlags
-            local trig = {
+            local getFn = function() return name end
+            local trig
+            local drawFn = function(self, arg)
+                self.drawPolyCalls = self.drawPolyCalls + 1
+                self.drawPolyArgs[#self.drawPolyArgs + 1] = arg
+            end
+            trig = {
                 m_id = id,
                 m_objectType = 0x41,
                 m_triggerType = trigType,
-                m_scriptName = {get = function() return name end},
+                m_scriptName = {get = asCallable and callable(getFn) or getFn},
                 m_rBounding = {left = left, top = top},
                 m_newEntryPoint = tok,
                 _base = base,
                 drawPolyCalls = 0,
-                SetDrawPoly = function(self) self.drawPolyCalls = self.drawPolyCalls + 1 end,
+                drawPolyArgs = {},
+                SetDrawPoly = asCallable and callable(drawFn) or drawFn,
             }
             objects[id] = trig
             return trig
@@ -119,15 +131,15 @@ def test_arena_lock_unlock_duplicates_bit_preservation_and_callout(backend):
             return sp
         end
 
-        local t1 = makeTrigger(101, 'Door0614\\0oint 1', 2, 152, 409, 0x0)
-        local t2 = makeTrigger(102, 'Door0614\\0oint 2', 2, 739, 173, 0x100)
-        local t3 = makeTrigger(103, 'Door0621', 2, 331, 271, 0x4)
-        local nonTravel = makeTrigger(104, 'Door0614', 1, 10, 20, 0x0)
+        local t1 = makeTrigger(101, 'Door0614\\0oint 1', 2, 152, 409, 0x0, true)
+        local t2 = makeTrigger(102, 'Door0614\\0oint 2', 2, 739, 173, 0x100, false)
+        local t3 = makeTrigger(103, 'Door0621', 2, 331, 271, 0x4, false)
+        local nonTravel = makeTrigger(104, 'Door0614', 1, 10, 20, 0x0, false)
         local foe = makeSprite(201, 255, 0, 30, 1)
         local pc = makeSprite(301, 2, 0, 50, 1)
 
         local area = {
-            m_resref = {get = function() return 'BG0615\\0\\0' end},
+            m_resref = {get = callable(function() return 'BG0615\\0\\0' end)},
             m_lVertSortBack = {101, 102, 104},
             m_lVertSort = {103, 201, 301},
         }
@@ -136,6 +148,7 @@ def test_arena_lock_unlock_duplicates_bit_preservation_and_callout(backend):
         local g = {
             CGameObjectType = {TRIGGER = 0x41},
             EEex_EngineGlobal_CBaldurChitin = {m_pObjectGame = {m_worldTime = {m_gameTime = gt}}},
+            Infinity_GetClockTicks = function() return clockMs end,
             EEex_Area_GetVisible = function() return area end,
             EEex_Area_GetVariableInt = function(_, key) return vars[key] or 0 end,
             EEex_Area_SetVariableInt = function(_, key, val) vars[key] = val end,
@@ -148,7 +161,10 @@ def test_arena_lock_unlock_duplicates_bit_preservation_and_callout(backend):
             EEex_Sprite_GetInPortrait = function(slot) return slot == 0 and pc or nil end,
             EEex_UDToPtr = function(tok) return objects[tok.id]._base end,
             EEex_ReadU32 = function(addr) return mem[addr] end,
-            EEex_WriteU32 = function(addr, val) mem[addr] = val end,
+            EEex_Write32 = function(addr, val)
+                if writeFail then error('write blocked') end
+                mem[addr] = val
+            end,
             EEex_BAnd = function(a, b)
                 local res, bit = 0, 1
                 while a > 0 and b > 0 do
@@ -158,10 +174,14 @@ def test_arena_lock_unlock_duplicates_bit_preservation_and_callout(backend):
                 return res
             end,
             EEex_Trigger_ParseConditionalString = function(s)
-                assert(s == 'CombatCounterGT(0)')
-                return {free = function() freedFiles = freedFiles + 1 end}
+                assert(s == 'CombatCounterGT(0)' or s == 'See([EVILCUTOFF])')
+                return {kind = s, free = function() freedFiles = freedFiles + 1 end}
             end,
-            EEex_Trigger_EvalScriptFileConditionalAsAIBase = function() return combatActive end,
+            EEex_Trigger_EvalScriptFileConditionalAsAIBase = function(file)
+                if file.kind == 'CombatCounterGT(0)' then return combatActive end
+                if file.kind == 'See([EVILCUTOFF])' then return seeActive end
+                return false
+            end,
             Infinity_GetINIValue = function(_, key, dflt)
                 if key == 'Shouts' then return shouts end
                 return dflt
@@ -171,7 +191,9 @@ def test_arena_lock_unlock_duplicates_bit_preservation_and_callout(backend):
                 announced[#announced + 1] = {id = sp.m_id, ref = ref, overHead = opts and opts.overHead}
             end,
             EEex_Menu_AddAfterMainFileLoadedListener = function(fn) menuCb = fn end,
+            EEex_Menu_AddAfterMainFileReloadedListener = function(fn) reloadCb = fn end,
             EEex_GameState_AddInitializedListener = function(fn) initCb = fn end,
+            EEex_Opcode_AddDeferredListsResolvedListener = function(fn) listsCb = fn end,
             EEex_GameState_AddDestroyedListener = function(fn) destroyCb = fn end,
             EEex_Menu_Eval = function(src) evaledMenus[#evaledMenus + 1] = src end,
             Infinity_PushMenu = function(name) pushedMenus[#pushedMenus + 1] = name end,
@@ -188,45 +210,60 @@ def test_arena_lock_unlock_duplicates_bit_preservation_and_callout(backend):
             isEnabled = function() return engineOn end,
         })
 
-        -- Menu & GameState lifecycle listeners push BGSE_ARENA_TICK and run BGSE_Arena_Tick().
-        assert(type(menuCb) == 'function' and type(initCb) == 'function' and type(destroyCb) == 'function')
+        -- Menu, reload, deferred-lists & GameState lifecycle listeners push BGSE_ARENA_TICK and run fastStep().
+        assert(type(menuCb) == 'function' and type(reloadCb) == 'function'
+            and type(initCb) == 'function' and type(listsCb) == 'function' and type(destroyCb) == 'function')
         menuCb()
         assert(#evaledMenus == 1 and evaledMenus[1]:find('BGSE_ARENA_TICK', 1, true) and #pushedMenus == 0)
         initCb()
-        assert(#pushedMenus == 1 and pushedMenus[1] == 'BGSE_ARENA_TICK')
+        assert(#pushedMenus == 1 and pushedMenus[1] == 'BGSE_ARENA_TICK' and g._bgseArenaInitSeen == true)
+        reloadCb()
+        assert(#pushedMenus == 2 and pushedMenus[2] == 'BGSE_ARENA_TICK')
 
-        -- Outside combat: triggers remain unlocked.
+        -- Outside combat: triggers remain unlocked; same-tick listsCb call within 20ms is rate-limited.
         g.BGSE_Arena_Tick()
         assert(mem[t1._base + 0x20] == 0x0 and mem[t2._base + 0x20] == 0x100 and mem[t3._base + 0x20] == 0x4)
-        assert(inst:inspect().counts.locked == 0)
+        assert(inst:inspect().counts.locked == 0 and inst:inspect().lastError == false)
+        assert(inst:inspect().lastArea == 'BG0615' and inst:inspect().lastHostiles == 1 and inst:inspect().lastCombat == false)
+        local ticksAtMs1000 = inst:inspect().counts.ticks
+        clockMs = 1010
+        listsCb()
+        assert(inst:inspect().counts.ticks == ticksAtMs1000)
+        clockMs = 1025
+        listsCb()
+        assert(inst:inspect().counts.ticks == ticksAtMs1000 + 1)
 
         -- Combat begins: lock Door0614#1 (0->0x100, var=1), Door0614#2 (keep 0x100, var=2), Door0621 (0x4->0x104, var=1).
         combatActive = true
         setTick(101)
         inst:step()
-        assert(mem[t1._base + 0x20] == 0x100 and t1.drawPolyCalls == 1)
+        assert(mem[t1._base + 0x20] == 0x100 and t1.drawPolyCalls == 1 and t1.drawPolyArgs[1] == 0)
         assert(mem[t2._base + 0x20] == 0x100 and t2.drawPolyCalls == 0)
-        assert(mem[t3._base + 0x20] == 0x104 and t3.drawPolyCalls == 1)
+        assert(mem[t3._base + 0x20] == 0x104 and t3.drawPolyCalls == 1 and t3.drawPolyArgs[1] == 0)
         assert(mem[nonTravel._base + 0x20] == 0x0)
         assert(vars.BGSE_LK_DOOR0614_152_409_1 == 1)
         assert(vars.BGSE_LK_DOOR0614_739_173_2 == 2)
         assert(vars.BGSE_LK_DOOR0621_331_271_1 == 1)
         assert(#announced == 1 and announced[1].ref == 9001 and announced[1].overHead == true)
-        assert(inst:inspect().counts.locked == 3)
+        assert(inst:inspect().counts.locked == 3 and inst:inspect().lastCombat == true)
 
         -- Same tick short-circuits cleanly without duplicate work.
         local ticksBefore = inst:inspect().counts.ticks
         inst:step()
         assert(inst:inspect().counts.ticks == ticksBefore + 1 and #announced == 1)
 
-        -- Next tick: CombatCounterGT(0) dips to false while living hostile stands -> stay locked, no second shout.
+        -- Sleeping living hostile in m_lVertSortBack keeps triggers locked even when front list has no living foes.
         combatActive = false
+        foe.m_typeAI.m_EnemyAlly = 254
+        local sleeper = makeSprite(205, 255, 0x20, 12, 1)
+        area.m_lVertSortBack = {101, 102, 104, 205}
         setTick(102)
         inst:step()
         assert(mem[t1._base + 0x20] == 0x100 and mem[t3._base + 0x20] == 0x104 and #announced == 1)
+        assert(inst:inspect().lastHostiles == 1)
 
         -- Charmed PC (254), inactive (m_active=0), HP=0, and dead state (0x800) do not count as living hostiles.
-        foe.m_typeAI.m_EnemyAlly = 254
+        sleeper.m_baseStats.m_generalState = 0x800
         local dead = makeSprite(202, 255, 0x800, 10, 1)
         local inactive = makeSprite(203, 255, 0, 10, 0)
         local zeroHp = makeSprite(204, 255, 0, 0, 1)
@@ -234,51 +271,75 @@ def test_arena_lock_unlock_duplicates_bit_preservation_and_callout(backend):
         setTick(103)
         inst:step()
 
-        -- Living hostiles == 0: immediate unlock restores only var==1 triggers, keeps pre-existing var==2 deactivated!
-        assert(mem[t1._base + 0x20] == 0x0 and t1.drawPolyCalls == 2)
+        -- Living hostiles == 0: immediate unlock restores only var==1 triggers (SetDrawPoly(1)), keeps pre-existing var==2!
+        assert(mem[t1._base + 0x20] == 0x0 and t1.drawPolyCalls == 2 and t1.drawPolyArgs[2] == 1)
         assert(mem[t2._base + 0x20] == 0x100 and t2.drawPolyCalls == 0)
-        assert(mem[t3._base + 0x20] == 0x4 and t3.drawPolyCalls == 2)
+        assert(mem[t3._base + 0x20] == 0x4 and t3.drawPolyCalls == 2 and t3.drawPolyArgs[2] == 1)
         assert(vars.BGSE_LK_DOOR0614_152_409_1 == 0)
         assert(vars.BGSE_LK_DOOR0614_739_173_2 == 0)
         assert(vars.BGSE_LK_DOOR0621_331_271_1 == 0)
-        assert(inst:inspect().counts.unlocked == 3)
+        assert(inst:inspect().counts.unlocked == 3 and inst:inspect().lastHostiles == 0)
 
-        -- Restore living hostile, lock again, then turn off via setEnabled(false) -> immediate unlock even mid-combat!
+        -- See([EVILCUTOFF]) locks immediately even when CombatCounterGT(0) is still false; failed write rolls back var.
         foe.m_typeAI.m_EnemyAlly = 255
-        combatActive = true
+        combatActive = false
+        seeActive = true
+        writeFail = true
         setTick(104)
         inst:step()
-        assert(mem[t1._base + 0x20] == 0x100 and #announced == 2)
-
-        inst:setEnabled(false)
+        assert(mem[t1._base + 0x20] == 0x0 and vars.BGSE_LK_DOOR0614_152_409_1 == 0)
+        writeFail = false
         setTick(105)
         inst:step()
+        assert(mem[t1._base + 0x20] == 0x100 and mem[t3._base + 0x20] == 0x104 and #announced == 3)
+
+        -- setEnabled(false) unlocks immediately on call without waiting for the next tick!
+        seeActive = false
+        inst:setEnabled(false)
         assert(mem[t1._base + 0x20] == 0x0 and mem[t3._base + 0x20] == 0x4 and inst:inspect().counts.unlocked == 6)
 
-        -- Engine gate off also unlocks a locked arena immediately.
+        -- Disabled fastStep skips after checking area once; turn back on via setEnabled(true) locks immediately.
+        local ticksOff = inst:inspect().counts.ticks
+        clockMs = 1100
+        g.BGSE_Arena_Tick()
+        assert(inst:inspect().counts.ticks == ticksOff)
+        combatActive = true
         inst:setEnabled(true)
-        setTick(106)
-        inst:step()
-        assert(mem[t1._base + 0x20] == 0x100)
+        assert(mem[t1._base + 0x20] == 0x100 and #announced == 4)
+
+        -- Engine gate off also unlocks a locked arena immediately.
         engineOn = false
         setTick(107)
         inst:step()
         assert(mem[t1._base + 0x20] == 0x0 and mem[t3._base + 0x20] == 0x4)
 
-        -- Game destroyed listener invalidates state and frees cached CombatCounterGT(0) script handle.
+        -- Game destroyed listener invalidates state, frees both trigger handles, and keeps _bgseArenaInitSeen true.
         assert(freedFiles == 0)
         destroyCb()
-        assert(freedFiles == 1)
+        assert(freedFiles == 2 and g._bgseArenaInitSeen == true)
+
+        -- Error inside step() is contained by guardedStep() and surfaced in inspect().lastError.
+        local origVisible = g.EEex_Area_GetVisible
+        local badArea = setmetatable({}, {__index = function() error('area read fault') end})
+        g.EEex_Area_GetVisible = function() return badArea end
+        engineOn = true
+        inst:invalidate()
+        clockMs = 1200
+        g.BGSE_Arena_Tick()
+        assert(type(inst:inspect().lastError) == 'string' and inst:inspect().lastError:find('area read fault', 1, true))
+        g.EEex_Area_GetVisible = origVisible
 
         -- Reload recovery: fresh instance sees saved vars from before load (var=1 with 0x100 set).
-        engineOn = true
         combatActive = false
+        seeActive = false
         mem[t1._base + 0x20] = 0x100
         mem[t2._base + 0x20] = 0x100
         mem[t3._base + 0x20] = 0x104
         vars.BGSE_LK_DOOR0614_152_409_1 = 1
         vars.BGSE_LK_DOOR0614_739_173_2 = 2
         vars.BGSE_LK_DOOR0621_331_271_1 = 1
+        -- Also exercise EEex_Area_GetVisible returning nil -> fallback to portrait 0 m_pArea.
+        g.EEex_Area_GetVisible = function() return nil end
         local reloaded = arena.new(g, {
             enabled = true,
             locks = encounters.arenaLocks(),
@@ -289,12 +350,25 @@ def test_arena_lock_unlock_duplicates_bit_preservation_and_callout(backend):
         setTick(108)
         reloaded:step()
         assert(mem[t1._base + 0x20] == 0x100 and mem[t3._base + 0x20] == 0x104 and #announced == shoutsBeforeReload)
+        assert(reloaded:inspect().lastError == false)
         -- If hostiles died before/on reload, unlocks on first tick!
         foe.m_baseStats.m_hitPoints = 0
         setTick(109)
         reloaded:step()
         assert(mem[t1._base + 0x20] == 0x0 and mem[t2._base + 0x20] == 0x100 and mem[t3._base + 0x20] == 0x4)
         assert(vars.BGSE_LK_DOOR0614_152_409_1 == 0 and vars.BGSE_LK_DOOR0621_331_271_1 == 0)
+
+        -- Non-arena area clears checkPending so disabled fastStep only inspects once on area change.
+        reloaded:setEnabled(false)
+        area.m_resref = {get = callable(function() return 'BG2300\\0\\0' end)}
+        reloaded:invalidate()
+        clockMs = 1300
+        g.BGSE_Arena_Tick()
+        local nonArenaTicks = reloaded:inspect().counts.ticks
+        assert(reloaded:inspect().lastArea == 'BG2300')
+        clockMs = 1350
+        g.BGSE_Arena_Tick()
+        assert(reloaded:inspect().counts.ticks == nonArenaTicks)
 
         return true
         """,
@@ -308,7 +382,8 @@ def test_runtime_install_destroy_and_reinstall_arena_listeners(backend):
         backend,
         """
         local runtime = require('adapters.eeex.runtime')
-        local menuCbs, initCbs, destroyCbs, pushed, freed = {}, {}, {}, {}, 0
+        local menuCbs, reloadCbs, initCbs, listsCbs, destroyCbs, pushed, freed = {}, {}, {}, {}, {}, {}, 0
+        local vars, flags, combatOn, gt = {}, 0, false, 10
         local t1 = {
             m_objectType = 0x41,
             m_triggerType = 2,
@@ -334,8 +409,10 @@ def test_runtime_install_destroy_and_reinstall_arena_listeners(backend):
                 return fallback
             end,
             EEex_Menu_AddAfterMainFileLoadedListener = function(fn) menuCbs[#menuCbs + 1] = fn end,
+            EEex_Menu_AddAfterMainFileReloadedListener = function(fn) reloadCbs[#reloadCbs + 1] = fn end,
             EEex_Menu_Eval = function() end,
             EEex_GameState_AddInitializedListener = function(fn) initCbs[#initCbs + 1] = fn end,
+            EEex_Opcode_AddDeferredListsResolvedListener = function(fn) listsCbs[#listsCbs + 1] = fn end,
             EEex_GameState_AddDestroyedListener = function(fn) destroyCbs[#destroyCbs + 1] = fn end,
             Infinity_PushMenu = function(name) pushed[#pushed + 1] = name end,
             EEex_Area_GetVisible = function() return area end,
@@ -347,36 +424,51 @@ def test_runtime_install_destroy_and_reinstall_arena_listeners(backend):
             EEex_GameObject_Get = function(id) return id == 1 and t1 or foe end,
             EEex_GameObject_IsSprite = function(o) return o == foe end,
             EEex_Sprite_GetInPortrait = function(i) return i == 0 and pc or nil end,
-            EEex_Area_GetVariableInt = function() return 0 end,
+            EEex_Area_GetVariableInt = function(_, key) return vars[key] or 0 end,
+            EEex_Area_SetVariableInt = function(_, key, val) vars[key] = val end,
             EEex_UDToPtr = function() return 1000 end,
-            EEex_ReadU32 = function() return 0 end,
-            EEex_WriteU32 = function() end,
+            EEex_ReadU32 = function() return flags end,
+            EEex_Write32 = function(_, val) flags = val end,
             EEex_Trigger_ParseConditionalString = function()
                 return { free = function() freed = freed + 1 end }
             end,
-            EEex_Trigger_EvalScriptFileConditionalAsAIBase = function() return false end,
-            WorldTimer = { GetGameTime = function() return 10 end },
+            EEex_Trigger_EvalScriptFileConditionalAsAIBase = function() return combatOn end,
+            EEex_EngineGlobal_CBaldurChitin = { m_pObjectGame = { m_worldTime = { m_gameTime = gt } } },
         }
 
         local root1 = runtime.install(g, {director = false, choice = false})
-        assert(#destroyCbs == 1 and #menuCbs == 2 and #initCbs == 1)
+        assert(#destroyCbs == 1 and #menuCbs == 2 and #reloadCbs == 1 and #initCbs == 1 and #listsCbs == 1)
         for _, fn in ipairs(menuCbs) do fn() end
         assert(#pushed == 0)
         initCbs[1]()
         assert(#pushed == 1 and pushed[1] == 'BGSE_ARENA_TICK')
-        g.BGSE_Arena_Tick()
+        reloadCbs[1]()
+        assert(#pushed == 2 and pushed[2] == 'BGSE_ARENA_TICK')
+        listsCbs[1]()
         destroyCbs[1]()
-        assert(freed == 1 and g._bgseArenaInitSeen == false and g._bgseArenaMenuLoaded == true)
+        assert(freed == 2 and g._bgseArenaInitSeen == true and g._bgseArenaMenuLoaded == true)
 
-        -- Second install on the same global table updates current arena and respects menu/init state.
+        -- Second install on the same global table updates current arena and respects menu/init/reload state.
         initCbs[1]()
-        assert(#pushed == 2)
+        assert(#pushed == 3)
         local root2 = runtime.install(g, {director = false, choice = false})
         assert(root2.arena ~= root1.arena)
-        assert(#pushed == 3 and #destroyCbs == 1 and #initCbs == 1)
-        g.BGSE_Arena_Tick()
+        assert(#pushed == 4 and #destroyCbs == 1 and #initCbs == 1 and #listsCbs == 1)
+        combatOn = true
+        gt = 11
+        g.EEex_EngineGlobal_CBaldurChitin.m_pObjectGame.m_worldTime.m_gameTime = gt
+        listsCbs[1]()
+        assert(flags == 0x100 and vars.BGSE_LK_DOOR2100_10_20_1 == 1)
+
+        -- runtime.setEnabled(false) unlocks immediately without waiting for another tick!
+        root2.setEnabled(false)
+        assert(flags == 0x0 and vars.BGSE_LK_DOOR2100_10_20_1 == 0)
+
+        root2.setEnabled(true)
+        assert(flags == 0x100 and vars.BGSE_LK_DOOR2100_10_20_1 == 1)
+
         destroyCbs[1]()
-        assert(freed == 2 and g._bgseArenaInitSeen == false)
+        assert(freed == 4 and g._bgseArenaInitSeen == true)
 
         return true
         """,
