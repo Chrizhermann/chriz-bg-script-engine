@@ -130,8 +130,8 @@ do
         assert(type(entry.text)=='string' and entry.text~='' and not seenText[entry.text],entry.text)
         seenKey[entry.key],seenText[entry.text]=true,true
     end
-    assert(#all==40)
-    assert(seenKey.cc_fired and seenKey.ctg_fired and seenKey.msq_fired and seenKey.seq_fired and seenKey.trg_fired)
+    assert(#all==41)
+    assert(seenKey.arena_locked and seenKey.cc_fired and seenKey.ctg_fired and seenKey.msq_fired and seenKey.seq_fired and seenKey.trg_fired)
 end
 groups=groups+1
 

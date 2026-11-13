@@ -14,6 +14,7 @@ DEFINE_ACTION_FUNCTION bgse_register_call_strrefs
   RET bgse_call_strrefs
 BEGIN
   OUTER_TEXT_SPRINT bgse_call_strrefs ~~
+  LAF bgse_add_call_line STR_VAR bgse_key = ~arena_locked~ bgse_text = ~Exits sealed while foes remain!~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
   LAF bgse_add_call_line STR_VAR bgse_key = ~cc_fired~ bgse_text = ~Chain Contingency - Fired~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
   LAF bgse_add_call_line STR_VAR bgse_key = ~ctg_fired~ bgse_text = ~Contingency - Fired~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END
   LAF bgse_add_call_line STR_VAR bgse_key = ~dog_1~ bgse_text = ~*barks furiously*~ bgse_acc = EVAL ~%bgse_call_strrefs%~ RET bgse_call_strrefs = bgse_acc END

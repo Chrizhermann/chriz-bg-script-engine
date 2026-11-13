@@ -713,8 +713,9 @@ local function followReach(input,spell,role,e)
         if a and (not aim.enemy or role.who.area) then
             reaches=targeting.distance(aim.point,e)<=a.radius
             if reaches and a.filter~='enemies' then
+                local ruthless=type(input.orders)=='table' and input.orders.ruthless==true
                 for _,ally in ipairs(list(input.frame.allies)) do
-                    if targeting.alive(ally) and targeting.distance(aim.point,ally)<=a.radius+M.allyMargin then reaches=false end
+                    if (not ruthless or targeting.charmed(ally)) and targeting.alive(ally) and targeting.distance(aim.point,ally)<=a.radius+M.allyMargin then reaches=false end
                 end
                 local caster=input.frame.self
                 local at=aim.walk and castFrom(caster,aim.point,spell) or caster
@@ -790,8 +791,9 @@ function M.options(input,rejected,attack)
                     if a and (not aim.enemy or role.who.area) then
                         local center=aim.point
                         if a.filter~='enemies' then
+                            local ruthless=type(input.orders)=='table' and input.orders.ruthless==true
                             for _,ally in ipairs(list(frame.allies)) do
-                                if targeting.alive(ally) and targeting.distance(center,ally)<=a.radius+M.allyMargin then blocked=true end
+                                if (not ruthless or targeting.charmed(ally)) and targeting.alive(ally) and targeting.distance(center,ally)<=a.radius+M.allyMargin then blocked=true end
                             end
                             local at=aim.walk and castFrom(caster,center,spell) or caster
                             if not aim.self and targeting.distance(center,at)<=a.radius+M.allyMargin then blocked=true end

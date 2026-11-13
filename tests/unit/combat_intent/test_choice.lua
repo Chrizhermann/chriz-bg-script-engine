@@ -630,6 +630,7 @@ assert(orders.check({hide=true}) and orders.check({hide=false,guard=true}) and s
 assert(orders.check({await='guard'}) and orders.check({await='post'}) and orders.check({await='stand',guard=true}))
 assert(select(2,orders.check({await='wait'}))=='await' and select(2,orders.check({await=true}))=='await')
 assert(orders.check({leave=true}) and orders.check({leave=false,guard=true}) and select(2,orders.check({leave=1}))=='leave')
+assert(orders.check({ruthless=true}) and orders.check({ruthless=false}) and select(2,orders.check({ruthless='yes'}))=='ruthless')
 groups=groups+1
 
 -- 22. Interrupting (Christopher, 2026-10-25: worth decides, "with a bonus for interrupting an
@@ -964,6 +965,8 @@ do
     local beside=enemy(12,{x=420,y=100,away='charm',back=10})
     rejected={}
     assert(find(readied({mazed(10),beside}),'TESTSTRM',rejected)==nil and rejected['charmed-in-area']==4)
+    rejected={}
+    assert(find(readied({mazed(10),beside},nil,{orders={ruthless=true}}),'TESTSTRM',rejected)==nil and rejected['charmed-in-area']==4)
     beside.protections={{opcode=102,p1=4}}
     o=find(readied({mazed(10),beside}),'TESTSTRM')
     assert(o and #o.hits==1 and o.hits[1]==11 and o.lasting[1].stay==2)
@@ -1199,6 +1202,27 @@ do
     local empty=enemies(input({family='fighter',difficulty=4,
         items={{resref='POTN27',itemType=9,abilities={{effect=breathEffect,uses=0}}}}}),singleFoe)
     assert(#choice.options(empty)==0)
+end
+groups=groups+1
+
+-- Ruthless AoE orders: allow friendly-fire blasts past ordinary allies, but never over a charmed
+-- companion (state 0x2000 in frame.allies; calm away=='charm' tested above) or the caster.
+do
+    local blast=spell('TESTRUTH',3,{fx(12,{p2=FIRE,dice=6,sides=6,save=4})},{target=4},area(190))
+    local twoFoes={enemy(11,{x=400,y=100}),enemy(12,{x=430,y=100})}
+    local i=enemies(input({spells={row('TESTRUTH',blast,3)}}),twoFoes)
+    i.frame.allies={{id=2,x=415,y=100,hp=80,maxHp=80,state=0}}
+    local rej={}
+    assert(#choice.options(i,rej)==0 and rej['ally-in-area']>0)
+    i.orders={ruthless=true}
+    local d=choice.decide(i)
+    assert(d.resref=='TESTRUTH' and #d.hits==2)
+    i.frame.allies={{id=2,x=415,y=100,hp=80,maxHp=80,state=0x2000}}
+    rej={}
+    assert(#choice.options(i,rej)==0 and rej['charmed-in-area']>0 and select(2,choice.decide(i))=='no-option')
+    i=enemies(input({orders={ruthless=true},spells={row('TESTRUTH',blast,3)}}),{enemy(11,{x=120,y=100})})
+    rej={}
+    assert(#choice.options(i,rej)==0 and rej['caster-in-area']>0 and select(2,choice.decide(i))=='no-option')
 end
 groups=groups+1
 

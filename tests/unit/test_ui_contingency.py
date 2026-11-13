@@ -167,7 +167,7 @@ def test_ui_hooks_after_menu_load_and_respects_ini_flag(backend):
     # Simulate UI.MENU not yet loaded when M_BGSE installs: remove filterContingencyMageSpells first.
     lua.execute('savedOrig = filterContingencyMageSpells; filterContingencyMageSpells = nil')
     lua.execute("require('adapters.eeex.runtime').install(_G, {version = 'test'})")
-    assert lua.eval('#menuListeners') == 1
+    assert lua.eval('#menuListeners') == 2
     assert lua.eval('BGSE.inspect().ui.playerDefensiveContingencies') is True
     assert lua.eval('BGSE.inspect().choice.defensiveContingencies') is True
     # Also test setDefensiveContingencies persistence on root.
@@ -175,15 +175,16 @@ def test_ui_hooks_after_menu_load_and_respects_ini_flag(backend):
     assert lua.eval("iniWrites['BGSE.DefensiveContingencies']") == 0
     assert lua.eval('BGSE.inspect().choice.defensiveContingencies') is False
 
-    # Now UI.MENU loads and defines filterContingencyMageSpells; menu listener hooks it once cleanly!
+    # Now UI.MENU loads and defines filterContingencyMageSpells; menu listeners run once cleanly!
     lua.execute('''
         filterContingencyMageSpells = savedOrig
-        menuListeners[1]()
+        for _, fn in ipairs(menuListeners) do fn() end
         -- Reinstall must not double-wrap or stack base calls.
         local wrapCalls = 0
         local orig = _bgseOrigFilterContingency
         _bgseOrigFilterContingency = function(...) wrapCalls = wrapCalls + 1; return orig(...) end
         require('adapters.eeex.runtime').install(_G, {version = 'test'})
+        assert(#menuListeners == 2)
         contingencyResRef = 'SPWI617'
         local out = filterContingencyMageSpells()
         assert(#out == 4)

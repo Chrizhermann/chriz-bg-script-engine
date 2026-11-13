@@ -1,0 +1,14 @@
+// Centeol's lair (BOSS-03, Christopher 2026-11-13): on Hard+ a single Phase Spider ambush predator answers
+// when Centeol turns hostile and BGSE is active.
+IF
+  Global("BGSE_Spidph","MYAREA",0)
+  DifficultyGT(NORMAL)
+  Allegiance("CENTEOL",ENEMY)
+  !StateCheck("CENTEOL",STATE_REALLY_DEAD)
+  EEex_LuaTrigger("return BGSE~=nil and BGSE.gate~=nil and BGSE.gate:on()==true")
+THEN
+  RESPONSE #100
+    SetGlobal("BGSE_Spidph","MYAREA",1)
+    CreateCreature("SPIDPH",[649.269],0)
+    Continue()
+END

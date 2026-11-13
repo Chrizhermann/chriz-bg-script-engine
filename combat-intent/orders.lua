@@ -32,6 +32,9 @@
 -- or spells, as SCS's blocks cast or spend them; noPrepIn holds back all of SCS's preparation when
 -- the creature stands in one of the areas it names (combat-intent/prep.lua).
 --
+-- ruthless=true allows area offensive, debuff and removal spells even when allies stand in the blast
+-- area; foes charmed by the caster's side and the caster itself are still protected.
+--
 -- leave=true lets the creature leave the fight for good as its SCS script has it (its vanishing exit
 -- when badly hurt, bgse/lib/hook.tpa); by default the engine keeps it in the fight (Christopher,
 -- 2026-10-28: nobody leaves for good, or almost nobody).
@@ -145,7 +148,7 @@ function M.check(o)
             elseif not selector(v) then return false,'target' end
         elseif k=='always' then
             if type(v)~='boolean' then return false,'always' end
-        elseif k=='guard' or k=='hide' or k=='prep' or k=='doors' or k=='leave' then
+        elseif k=='guard' or k=='hide' or k=='prep' or k=='doors' or k=='leave' or k=='ruthless' then
             if type(v)~='boolean' then return false,k end
         elseif k=='await' then
             if v~='guard' and v~='post' and v~='stand' then return false,k end

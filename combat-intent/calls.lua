@@ -156,6 +156,7 @@ M.LINES={
         {key='rep_3',text='Moving in!'},
     },
     CALLOUTS={
+        {key='arena_locked',text='Exits sealed while foes remain!'},
         {key='cc_fired',text='Chain Contingency - Fired'},
         {key='ctg_fired',text='Contingency - Fired'},
         {key='msq_fired',text='Minor Sequencer - Fired'},

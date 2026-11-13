@@ -69,6 +69,33 @@ M.ORDERS={
     GENTHO={opener={'POTN14'},openerFrom=4},
     REZDAN={opener={{'SPWI508','SPWI224'}},openerFrom=4},
     KYSUS={opener={{'SPWI302','SPWI312','SPWI504'},'DW#MS0'},openerFrom=4},
+    -- Natasha, Cloakwood Mines L3 (BOSS-03, 2026-11-13): ruthless Invoker who fires AoE spells even when
+    -- prison guards stand in the blast, backed by a twin Snilloc's Snowball Swarm Minor Sequencer.
+    NATASH={ruthless=true,sequencers={minor={'SPWI204','SPWI204'}}},
+    -- Oni / Ogre Mage, Cloakwood Mines L3 (BOSS-03, 2026-11-13): opens instantly hasted on every difficulty.
+    OGREMA03={talkPrep={{cast='SPWI305',spend='SPWI305'}},talkFrom=1,
+        prebuff={{cast='SPWI305',spend='SPWI305'}},prebuffFrom=1},
+    -- Davaeorn, Cloakwood Mines L4 (BOSS-03, 2026-11-13): from Hard, enters combat with his Lesser Fire
+    -- Elemental already bound (BGSE516P, no 3-round self-paralysis; prebuff only so WIZELSUM sees ENEMY).
+    DAVAEO={prebuff={{cast='BGSE516P',spend='SPWI516'}},prebuffFrom=4},
+    -- Iron Throne top floor, Baldur's Gate (BOSS-03, 2026-11-13): from Core, Alai hastes the team and Diyab
+    -- lays down Protection from Evil 10' Radius and Defensive Harmony.
+    ALAI={talkPrep={{cast='SPWI305',spend='SPWI305'}},talkFrom=3,
+        prebuff={{cast='SPWI305',spend='SPWI305'}},prebuffFrom=3},
+    DIYAB={talkPrep={{cast='SPPR408',spend='SPPR408'},{cast='SPPR406',spend='SPPR406'}},talkFrom=3,
+        prebuff={{cast='SPPR408',spend='SPPR408'},{cast='SPPR406',spend='SPPR406'}},prebuffFrom=3},
+}
+
+-- Boss arena exit travel-region names keyed by area resref (BG1-in-EET BG* and standalone AR*).
+M.ARENA_LOCKS={
+    BG5405={'Door5404'},
+    AR5405={'Door5404'},
+    BG2101={'Door2100'},
+    AR2101={'Door2100'},
+    BG1803={'Door1802','Door1801'},
+    AR1803={'Door1802','Door1801'},
+    BG0615={'Door0614','Door0621'},
+    AR0615={'Door0614','Door0621'},
 }
 
 local function copy(v)
@@ -79,4 +106,6 @@ local function copy(v)
 end
 -- A copy of the orders, so that whoever takes them cannot change this book.
 function M.orders() return copy(M.ORDERS) end
+-- A copy of the boss arena exit lock table.
+function M.arenaLocks() return copy(M.ARENA_LOCKS) end
 return M

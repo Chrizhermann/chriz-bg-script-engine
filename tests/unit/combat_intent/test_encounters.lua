@@ -14,7 +14,7 @@ for resref,o in pairs(encounters.ORDERS) do
     assert(orders.check(o),resref)
     count=count+1
 end
-assert(count==19)
+assert(count==24)
 for _,resref in ipairs({'TARNES','KARLAT','NEIRA','LAMALH','ZEELA','TELKA','MANEIR','MOLKAR','DRAKAR','HALACA','MORVIN'}) do
     local o=encounters.ORDERS[resref]
     assert(o.target=='protagonist' and o.bonus==encounters.LIGHT and not o.always,resref)
@@ -95,6 +95,27 @@ assert(encounters.ORDERS.DRASUS.talkPrep[1]=='buff-potion' and encounters.ORDERS
 assert(encounters.ORDERS.GENTHO.opener[1]=='POTN14' and encounters.ORDERS.GENTHO.openerFrom==4)
 assert(encounters.ORDERS.REZDAN.opener[1][1]=='SPWI508' and encounters.ORDERS.REZDAN.openerFrom==4)
 assert(encounters.ORDERS.KYSUS.opener[1][3]=='SPWI504' and encounters.ORDERS.KYSUS.opener[2]=='DW#MS0')
+assert(encounters.ORDERS.NATASH.ruthless==true)
+assert(encounters.ORDERS.NATASH.sequencers.minor[1]=='SPWI204' and encounters.ORDERS.NATASH.sequencers.minor[2]=='SPWI204')
+assert(encounters.ORDERS.OGREMA03.prebuffFrom==1 and encounters.ORDERS.OGREMA03.prebuff[1].cast=='SPWI305')
+assert(encounters.ORDERS.OGREMA03.talkFrom==1 and encounters.ORDERS.OGREMA03.talkPrep[1].cast=='SPWI305')
+assert(encounters.ORDERS.DAVAEO.prebuffFrom==4)
+assert(encounters.ORDERS.DAVAEO.prebuff[1].cast=='BGSE516P' and encounters.ORDERS.DAVAEO.prebuff[1].spend=='SPWI516')
+assert(encounters.ORDERS.ALAI.prebuffFrom==3 and encounters.ORDERS.ALAI.prebuff[1].cast=='SPWI305')
+assert(encounters.ORDERS.ALAI.talkFrom==3 and encounters.ORDERS.ALAI.talkPrep[1].cast=='SPWI305')
+assert(encounters.ORDERS.DIYAB.prebuffFrom==3 and encounters.ORDERS.DIYAB.prebuff[1].cast=='SPPR408' and encounters.ORDERS.DIYAB.prebuff[2].cast=='SPPR406')
+assert(encounters.ORDERS.DIYAB.talkFrom==3 and encounters.ORDERS.DIYAB.talkPrep[1].cast=='SPPR408' and encounters.ORDERS.DIYAB.talkPrep[2].cast=='SPPR406')
+local locks=encounters.arenaLocks()
+assert(locks.BG5405[1]=='Door5404' and locks.AR5405[1]=='Door5404')
+assert(locks.BG2101[1]=='Door2100' and locks.AR2101[1]=='Door2100')
+assert(locks.BG1803[1]=='Door1802' and locks.BG1803[2]=='Door1801')
+assert(locks.AR1803[1]=='Door1802' and locks.AR1803[2]=='Door1801')
+assert(locks.BG0615[1]=='Door0614' and locks.BG0615[2]=='Door0621')
+assert(locks.AR0615[1]=='Door0614' and locks.AR0615[2]=='Door0621')
+locks.BG0615[1]='OTHER'
+locks.NEWAREA={'X'}
+assert(encounters.ARENA_LOCKS.BG0615[1]=='Door0614' and encounters.ARENA_LOCKS.NEWAREA==nil)
+assert(encounters.arenaLocks().BG0615[1]=='Door0614' and encounters.arenaLocks().NEWAREA==nil)
 groups=groups+1
 
 return groups

@@ -150,6 +150,8 @@ function M.install(g,options)
     local settings=M.settings(g)
     local clock=options.now or function() return M.gameTime(g) end
     local director,choice,prepare,held=options.director,options.choice,options.prepare,options.held
+    if director==false then director=nil end
+    if choice==false then choice=nil end
     local replaced=options.replaced
     local walker=options.lower
     if walker==nil then
@@ -484,6 +486,9 @@ function M.install(g,options)
             if type(current)=='table' and type(current.forget)=='function' then pcall(current.forget) end
             if type(current)=='table' and current.director then pcall(current.director.invalidate,current.director) end
             if type(current)=='table' and current.choice then pcall(current.choice.invalidate,current.choice) end
+            if type(current)=='table' and current.arena and type(current.arena.onDestroyed)=='function' then
+                pcall(current.arena.onDestroyed,current.arena)
+            end
         end)
         root.listening=true
     end

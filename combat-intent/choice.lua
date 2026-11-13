@@ -1039,8 +1039,11 @@ local function evaluate(input,row,spell,kind,mode,aim,ctx)
         else
             local inside,near=shape(spell,caster,center,aim.point)
             if a.filter~='enemies' then
+                local ruthless=type(input.orders)=='table' and input.orders.ruthless==true
                 for _,ally in ipairs(type(frame.allies)=='table' and frame.allies or {}) do
-                    if targeting.alive(ally) and near(ally) and not spared(input,spell,ally) then return nil,'ally-in-area' end
+                    if (not ruthless or targeting.charmed(ally)) and targeting.alive(ally) and near(ally) and not spared(input,spell,ally) then
+                        return nil,ruthless and 'charmed-in-area' or 'ally-in-area'
+                    end
                 end
                 -- Nor on a foe the caster's side charmed, wherever the caster last saw it: harming it
                 -- breaks the charm by the rules text (Christopher, 2026-10-29).

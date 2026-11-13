@@ -640,4 +640,38 @@ assert(removal.on(i,disp,e,3)==0)
 end)()
 groups=groups+1
 
+-- Ruthless AoE removal (M.options and followReach): ordinary allies may stand in the radius, but
+-- charmed companions (state 0x2000) and the caster itself remain protected.
+(function()
+    local rdisp=spell('RUTHDISP',3,{fx(58,{p2=1})},{target=4},area(190))
+    local hasty=ward(16,{source='RUTHHST',power=3,level=10})
+    local re=enemy(11,{x=350,y=100,wards={hasty}})
+    local i=input({spells={row('RUTHDISP',rdisp,3)}})
+    i.frame.enemies={re}
+    i.frame.allies={fighter(2,{x=330,y=100,state=0})}
+    assert(#removal.options(i)==0)
+    i.orders={insight='exact',ruthless=true}
+    assert(#removal.options(i)==1 and removal.options(i)[1].resref=='RUTHDISP')
+    i.frame.allies={fighter(2,{x=330,y=100,state=0x2000})}
+    assert(#removal.options(i)==0)
+    i.frame.allies={};i.frame.self.x=280
+    assert(#removal.options(i)==0)
+
+    local screen=ward(101,{source='SCWALL',secondary=41,dispellable=false},{p2=58})
+    local open=spell('RUTHOPEN',5,{fx(221,{p1=9,p2=41,resist=2})})
+    local unsafe=spell('RUTHUNSF',3,{fx(58,{p2=1,resist=0})},{target=4},area(190))
+    local rf=enemy(11,{x=350,y=100,wards={screen,hasty}})
+    local j=input({spells={row('RUTHOPEN',open,5),row('RUTHUNSF',unsafe,3)}})
+    j.frame.enemies={rf}
+    j.frame.allies={fighter(2,{x=330,y=100,state=0})}
+    assert(removal.on(j,open,rf,5)==0)
+    j.orders={insight='exact',ruthless=true}
+    assert(removal.on(j,open,rf,5)>0)
+    j.frame.allies={fighter(2,{x=330,y=100,state=0x2000})}
+    assert(removal.on(j,open,rf,5)==0)
+    j.frame.allies={};j.frame.self.x=280
+    assert(removal.on(j,open,rf,5)==0)
+end)()
+groups=groups+1
+
 return groups
