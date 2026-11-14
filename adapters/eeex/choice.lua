@@ -2533,6 +2533,13 @@ function M.new(g,options)
         opener.loadoutCount=opener.loadoutCount+1
         return anyBuilt and built or nil
     end
+    local function replacedScsSequencer(resref,tiers)
+        local up=type(resref)=='string' and resref:upper() or ''
+        if tiers.minor and (up:sub(1,5)=='DW#MS' or up=='DW#DT11') then return true end
+        if tiers.sequencer and up:sub(1,5)=='DW#SQ' then return true end
+        if tiers.trigger and (up:sub(1,5)=='DW#TG' or up=='DW#DT0') then return true end
+        return false
+    end
     function opener.appendSequencers(sprite,snapshot,rows)
         if not nativeContingencies() then return end
         local id=sprite.m_id
@@ -2540,6 +2547,19 @@ function M.new(g,options)
         local area=sprite.m_pArea and text(sprite.m_pArea.m_resref:get()) or nil
         local loadout=opener.ensureLoadout(sprite,id,orderBook[resref],area,snapshot,rows)
         if not loadout or not loadout.sequencers or #loadout.sequencers==0 then return end
+        local tiers={}
+        for _,seq in ipairs(loadout.sequencers) do
+            if seq.tier then tiers[seq.tier]=true end
+        end
+        local write=0
+        for i=1,#rows do
+            local r=rows[i]
+            if not (r.list=='innate' and replacedScsSequencer(r.resref,tiers)) then
+                write=write+1
+                rows[write]=r
+            end
+        end
+        for i=write+1,#rows do rows[i]=nil end
         local spent=opener.seqSpent[id]
         local canUse=not targeting.disabled({state=g.EEex_Sprite_GetState(sprite)})
         for _,seq in ipairs(loadout.sequencers) do

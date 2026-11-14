@@ -5580,4 +5580,134 @@ records.SPWI408,records.SPPR506,records.TESTPTBF,records.TESTGLBE,records.TESTFI
 end)()
 groups=groups+1
 
+-- 58. opener.appendSequencers strips SCS sequencer innates whose tier is replaced by
+-- loadout.sequencers (even after BGSE#MS/#SQ/#TG is spent), restores them when native
+-- contingencies turn off, and preserves innates of unreplaced tiers in auto/partial overrides.
+;(function()
+local w=world()
+tablesOf(w)
+w.EngineGlobals.g_pBaldurChitin.m_pObjectGame.m_options={m_nDifficultyLevel=3}
+w.EEex_GameObject_ApplyEffect=function() end
+w.EEex_Sprite_GetCasterLevelForSpell=function(sp) return sp.stats[34] or 10 end
+
+records.TESTACID=spl('TESTACID',2,{fx(12,{p2=16*65536,dice=3,sides=6})},1,1)
+records.TESTMM=spl('TESTMM',1,{fx(12,{p2=0,dice=4,sides=4})},1,1)
+records['DW#MS4']=spl('DW#MS4',1,{fx(12,{p2=0,dice=7,sides=6})},1,1)
+records['DW#DT11']=spl('DW#DT11',1,{fx(12,{p2=0,dice=20,sides=6})},1,1)
+records['DW#SQ1']=spl('DW#SQ1',1,{fx(12,{p2=0,dice=20,sides=6})},1,1)
+records['DW#TG1']=spl('DW#TG1',1,{fx(12,{p2=0,dice=20,sides=6})},1,1)
+records['DW#DT0']=spl('DW#DT0',1,{fx(12,{p2=0,dice=20,sides=6})},1,1)
+
+local orders={
+    TESTNAT={sequencers={minor={'TESTACID','TESTACID'}}},
+    TESTSQ={sequencers={sequencer={'TESTACID','TESTACID','TESTACID'}}},
+    TESTTRG={sequencers={trigger={'TESTACID','TESTACID','TESTACID'}}},
+}
+local d=directors.new(w,{reader=reader})
+local c=choices.new(w,{reader=reader,director=d,seed=111,contingencies=true,orders=orders})
+local rows={}
+c:setSink(function(r) rows[#rows+1]=r end)
+local function lastKind(k)
+    for i=#rows,1,-1 do if rows[i].kind==k then return rows[i] end end
+end
+runtime.install(w,{director=d,choice=c,version='test'})
+
+local function addFoe(id,y)
+    return w.add(sprite(id,180,y,2,{stats={[1]=200},m_baseStats={m_hitPoints=200,m_generalState=0}}))
+end
+local function addMage(id,y,resref,level)
+    local sp=sprite(id,100,y,255,{levels={[7]='s1'},m_resref=resref and str(resref) or nil,
+        stats={[1]=60,[2]=level,[34]=level},m_baseStats={m_hitPoints=60,m_generalState=0}})
+    sp.m_queuedActions={m_nCount=0}
+    return w.add(sp)
+end
+
+-- (a) Explicit minor sequencer suppresses DW#MS4 on Round 1, keeps DW#MS4 suppressed on
+--     Round 2 after BGSE#MS is spent, and restores DW#MS4 when setContingencies(false).
+local mNat=addMage(1,120,'TESTNAT',9)
+gift(mNat,'DW#MS4')
+learn(mNat,0,'TESTMM',1)
+addFoe(11,120)
+
+w.ticks=100
+assert(w.BGSE_Claim(mNat,'mage','s1')==true)
+assert(lastKind('choice').spell=='BGSE#MS')
+w.BGSE_Act(mNat)
+
+w.ticks=200
+assert(w.BGSE_Claim(mNat,'mage','s1')==true)
+assert(lastKind('choice').spell=='TESTMM')
+
+c:setContingencies(false)
+w.ticks=400
+assert(w.BGSE_Claim(mNat,'mage','s1')==true)
+assert(lastKind('choice').spell=='DW#MS4')
+c:setContingencies(true)
+
+-- (b) DW#DT11 is also suppressed when the minor tier is replaced.
+local mDt11=addMage(2,720,'TESTNAT',9)
+gift(mDt11,'DW#DT11')
+learn(mDt11,0,'TESTMM',1)
+addFoe(21,720)
+w.ticks=500
+assert(w.BGSE_Claim(mDt11,'mage','s1')==true)
+assert(lastKind('choice').spell=='BGSE#MS')
+
+-- (c) Only replaced tiers are stripped: overriding minor leaves DW#SQ1 intact.
+local mCross=addMage(3,1320,'TESTNAT',9)
+gift(mCross,'DW#MS4')
+gift(mCross,'DW#SQ1')
+learn(mCross,0,'TESTMM',1)
+addFoe(31,1320)
+w.ticks=600
+assert(w.BGSE_Claim(mCross,'mage','s1')==true)
+assert(lastKind('choice').spell=='DW#SQ1')
+
+-- (d) Explicit sequencer replaces DW#SQ1; explicit trigger replaces DW#TG1 and DW#DT0.
+local mSeq=addMage(4,1920,'TESTSQ',14)
+gift(mSeq,'DW#SQ1')
+learn(mSeq,0,'TESTMM',1)
+addFoe(41,1920)
+w.ticks=700
+assert(w.BGSE_Claim(mSeq,'mage','s1')==true)
+assert(lastKind('choice').spell=='BGSE#SQ')
+
+local mTrg1=addMage(5,2520,'TESTTRG',16)
+gift(mTrg1,'DW#TG1')
+learn(mTrg1,0,'TESTMM',1)
+addFoe(51,2520)
+w.ticks=800
+assert(w.BGSE_Claim(mTrg1,'mage','s1')==true)
+assert(lastKind('choice').spell=='BGSE#TG')
+
+local mDt0=addMage(6,3120,'TESTTRG',16)
+gift(mDt0,'DW#DT0')
+learn(mDt0,0,'TESTMM',1)
+addFoe(61,3120)
+w.ticks=900
+assert(w.BGSE_Claim(mDt0,'mage','s1')==true)
+assert(lastKind('choice').spell=='BGSE#TG')
+
+-- (e) Without orders.sequencers, existing DW#MS4 suppresses auto BGSE#MS and stays available
+--     alongside auto-built BGSE#SQ, firing on Round 2 once BGSE#SQ is spent.
+local mAuto=addMage(7,3720,nil,14)
+gift(mAuto,'DW#MS4')
+learn(mAuto,1,'TESTACID',1)
+learn(mAuto,0,'TESTMM',1)
+addFoe(71,3720)
+w.ticks=1000
+assert(w.BGSE_Claim(mAuto,'mage','s1')==true)
+assert(lastKind('choice').spell=='BGSE#SQ')
+w.BGSE_Act(mAuto)
+
+w.ticks=1100
+assert(w.BGSE_Claim(mAuto,'mage','s1')==true)
+assert(lastKind('choice').spell=='DW#MS4')
+
+assert(c:inspect().counts.errors==0,c:inspect().lastError)
+records.TESTACID,records.TESTMM=nil,nil
+records['DW#MS4'],records['DW#DT11'],records['DW#SQ1'],records['DW#TG1'],records['DW#DT0']=nil,nil,nil,nil,nil
+end)()
+groups=groups+1
+
 return groups

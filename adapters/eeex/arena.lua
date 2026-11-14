@@ -249,9 +249,17 @@ local function partyInArea(g,areaKey)
 end
 
 local function lockTrigger(g,area,item)
-    if getAreaVar(g,area,item.tag)~=0 then return false end
+    local saved=getAreaVar(g,area,item.tag)
     local addr=flagsAddress(g,item.trig)
     local flags=readFlags(g,addr)
+    if saved~=0 then
+        if saved==1 and flags and not isDeactivated(flags) then
+            if writeFlags(g,addr,setDeactivated(flags)) then
+                pcall(function() item.trig:SetDrawPoly(0) end)
+            end
+        end
+        return false
+    end
     if not flags then return false end
     local prior=isDeactivated(flags) and 2 or 1
     if not setAreaVar(g,area,item.tag,prior) then return false end

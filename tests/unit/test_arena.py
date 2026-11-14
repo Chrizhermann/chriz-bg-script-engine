@@ -329,12 +329,14 @@ def test_arena_lock_unlock_duplicates_bit_preservation_and_callout(backend):
         assert(type(inst:inspect().lastError) == 'string' and inst:inspect().lastError:find('area read fault', 1, true))
         g.EEex_Area_GetVisible = origVisible
 
-        -- Reload recovery: fresh instance sees saved vars from before load (var=1 with 0x100 set).
+        -- Reload recovery: fresh instance sees saved vars from before load, even when reloading reset
+        -- runtime trigger flags (0x100 cleared back to 0x0 / 0x4 on .ARE reload): var==1 re-applies
+        -- bit 0x100 + SetDrawPoly(0) without touching var==2, counts.locked, or re-announcing.
         combatActive = false
         seeActive = false
-        mem[t1._base + 0x20] = 0x100
-        mem[t2._base + 0x20] = 0x100
-        mem[t3._base + 0x20] = 0x104
+        mem[t1._base + 0x20] = 0x0
+        mem[t2._base + 0x20] = 0x0
+        mem[t3._base + 0x20] = 0x4
         vars.BGSE_LK_DOOR0614_152_409_1 = 1
         vars.BGSE_LK_DOOR0614_739_173_2 = 2
         vars.BGSE_LK_DOOR0621_331_271_1 = 1
@@ -345,15 +347,32 @@ def test_arena_lock_unlock_duplicates_bit_preservation_and_callout(backend):
             locks = encounters.arenaLocks(),
             isEnabled = function() return engineOn end,
         })
-        -- With living hostile still present on reload, keep lock without re-announcing.
+        -- With living hostile still present on reload, write failure skips SetDrawPoly(0); retrying
+        -- succeeds and restores var==1 trigger flags without touching var==2, counts.locked, or announcing.
         local shoutsBeforeReload = #announced
+        local t1PolyBefore, t2PolyBefore, t3PolyBefore = t1.drawPolyCalls, t2.drawPolyCalls, t3.drawPolyCalls
+        writeFail = true
+        setTick(1075)
+        reloaded:step()
+        assert(mem[t1._base + 0x20] == 0x0 and mem[t3._base + 0x20] == 0x4)
+        assert(t1.drawPolyCalls == t1PolyBefore and t3.drawPolyCalls == t3PolyBefore)
+        writeFail = false
         setTick(108)
         reloaded:step()
-        assert(mem[t1._base + 0x20] == 0x100 and mem[t3._base + 0x20] == 0x104 and #announced == shoutsBeforeReload)
+        assert(mem[t1._base + 0x20] == 0x100 and mem[t2._base + 0x20] == 0x0 and mem[t3._base + 0x20] == 0x104)
+        assert(t1.drawPolyCalls == t1PolyBefore + 1 and t1.drawPolyArgs[t1.drawPolyCalls] == 0)
+        assert(t2.drawPolyCalls == t2PolyBefore)
+        assert(t3.drawPolyCalls == t3PolyBefore + 1 and t3.drawPolyArgs[t3.drawPolyCalls] == 0)
+        assert(#announced == shoutsBeforeReload and reloaded:inspect().counts.locked == 0)
         assert(reloaded:inspect().lastError == false)
-        -- If hostiles died before/on reload, unlocks on first tick!
-        foe.m_baseStats.m_hitPoints = 0
+        -- Subsequent living-hostile ticks see 0x100 already restored and do not re-call SetDrawPoly(0).
         setTick(109)
+        reloaded:step()
+        assert(t1.drawPolyCalls == t1PolyBefore + 1 and t3.drawPolyCalls == t3PolyBefore + 1)
+        -- Restore t2 pre-existing 0x100 and kill hostiles before testing unlock on next tick!
+        mem[t2._base + 0x20] = 0x100
+        foe.m_baseStats.m_hitPoints = 0
+        setTick(110)
         reloaded:step()
         assert(mem[t1._base + 0x20] == 0x0 and mem[t2._base + 0x20] == 0x100 and mem[t3._base + 0x20] == 0x4)
         assert(vars.BGSE_LK_DOOR0614_152_409_1 == 0 and vars.BGSE_LK_DOOR0621_331_271_1 == 0)
