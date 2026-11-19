@@ -76,6 +76,12 @@ fests. Do **not** assume the party has vanilla wands (such as *Wand of Fire* or 
 judging AoE or crowd pressure — vanilla wands break BG1's curve and will be reworked or replaced by scrolls — and
 never give standard wands to our own designed enemies.
 
+**World Spice & non-boss pacing (Christopher, 2026-11-19):** standard wilderness and side areas are allowed to feel
+calmer without double damage; do **not** turn regular packs into Tactics Remix-style caster/priest/potion-spam walls,
+and keep early companion routes (such as the Gnoll Stronghold for Dynaheir) fairly beatable early on. Instead, add
+targeted, lore-grounded tactical "spice" gradually across the world alongside our block-by-block SCS encounter
+replacements. See [2026-11-19-world-spice-and-encounter-pacing.md](plans/2026-11-19-world-spice-and-encounter-pacing.md).
+
 ## Tools
 
 - `python -I tools/scout.py <lab game folder> NEIRA [KARLAT ...] [--where]`: who a creature is, its scores,
