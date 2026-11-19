@@ -12,8 +12,9 @@ Recorded from Christopher's direction on **2026-11-19** to guide long-term encou
    - Do **not** stamp generic packs with artificial caster/priest/elite templates everywhere (e.g., six groups of gnolls where every pack suddenly has a fully prebuffed mage, a buff-spamming cleric, elites, and potion-chugging grunts).
    - Every enemy upgrade must stay grounded in the area's lore, ecology, and believable creature identity.
 
-3. **Targeted "World Spice" instead of blanket difficulty inflation.**
-   - Keep standard pockets approachable, while sprinkling memorable, well-placed tactical surprises, interesting terrain/positions, occasional smarter sub-leaders, or distinct small set pieces across the world so a playthrough stays tense and never turns sleepy.
+3. **Targeted "World Spice" and real spikes of difficulty — instead of blanket inflation.**
+   - Keep standard pockets approachable, while deliberately making selected encounters, landmarks, and areas noticeably harder and trickier so the playthrough keeps real bite (example archetype: *Wolf of Ulcaster* — a memorable, dangerous landmark encounter that rewards preparation without being an unfair unavoidable instant-death trap when stumbled upon by accident).
+   - **Immersion-preserving upgrades are explicitly on the table:** raising or refining creature stats (beyond strict 2e Rules-as-Written where vanilla stats are flat or soft, as long as they remain believable in the Forgotten Realms), making creatures smarter, editing existing packs, and **selectively** placing a clan shaman, priest, mage, elite fighter, or named leader where the location justifies it (never stamped across every pack like Tactics Remix).
    - Respect early progression goals — **Gnoll Stronghold (Dynaheir)** is the canonical example: players often go there early to recruit a companion, so the stronghold must stay very beatable early on while still feeling like a real, lively gnoll fortress rather than flat filler (or an overtuned caster-spam wall).
 
 4. **Two-track rollout (long-term, iterative).**
