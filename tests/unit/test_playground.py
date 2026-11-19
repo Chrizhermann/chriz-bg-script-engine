@@ -97,3 +97,56 @@ def test_update_switches_debug_mode_on_without_resetting_other_options(tmp_path:
     after = baldur.read_text(encoding='utf-8').splitlines()
     assert "SetPrivateProfileString('Program Options','Debug Mode','1')" in after
     assert "SetPrivateProfileString('Game Options','Difficulty Level','3')" in after
+
+
+def test_four_mod_stack_uninstalls_reverse_and_installs_forward(tmp_path: Path, monkeypatch):
+    game = tmp_path / 'game'
+    game.mkdir()
+    for name in ('bgse', 'chriz-bg-kits', 'chriz-bg-magic', 'chriz-bg-playable-races'):
+        (game / name).mkdir()
+    for tp2 in (playground.KITS_TP2, playground.MAGIC_TP2, playground.RACES_TP2):
+        (game / tp2).write_text('x', encoding='ascii')
+    full_log = (
+        '~SETUP-CHRIZ-BG-PLAYABLE-RACES.TP2~ #0 #101 // Hobgoblin\n'
+        '~SETUP-CHRIZ-BG-MAGIC.TP2~ #0 #0 // Magic\n'
+        '~SETUP-CHRIZ-BG-KITS.TP2~ #0 #100 // Kernel\n'
+        '~SETUP-CHRIZ-BG-KITS.TP2~ #0 #110 // Races\n'
+        '~BGSE/SETUP-BGSE.TP2~ #0 #0 // Engine\n'
+        '~BGSE/SETUP-BGSE.TP2~ #0 #10 // Recorder\n'
+    )
+    (game / 'WeiDU.log').write_text(full_log, encoding='ascii')
+    out_calls = []
+    monkeypatch.setattr(playground, 'weidu', lambda cfg, root, label, *a: out_calls.append((label, a)))
+    playground.take_out({}, tmp_path)
+    assert out_calls == [
+        ('engine-out', (playground.ENGINE_TP2, '--force-uninstall-list', '10', '0')),
+        ('kits-out', (playground.KITS_TP2, '--force-uninstall-list', '110', '100')),
+        ('magic-out', (playground.MAGIC_TP2, '--force-uninstall-list', '0')),
+        ('races-out', (playground.RACES_TP2, '--force-uninstall-list', '101')),
+    ]
+
+    in_calls = []
+
+    def unpack(repo, ref, names, where):
+        in_calls.append(('unpack', ref, names[0]))
+        if 'bgse' in names:
+            (where / 'bgse').mkdir(exist_ok=True)
+            (where / 'bgse' / 'setup-bgse.tp2').write_text('DESIGNATED 0\nDESIGNATED 10\n', encoding='ascii')
+        return ref
+
+    monkeypatch.setattr(playground, 'unpack', unpack)
+    monkeypatch.setattr(playground, 'weidu', lambda cfg, root, label, *a: in_calls.append((label, a)))
+    cfg = {'races_repo': 'r', 'magic_repo': 'm', 'kits_repo': 'k', 'engine_repo': 'e',
+           'races_components': ['101'], 'kits_components': ['100', '110']}
+    done = playground.put_in(cfg, tmp_path, 'E1', 'M1', kits='K1', races='R1')
+    assert in_calls == [
+        ('unpack', 'R1', playground.RACES_TP2),
+        ('races-in', (playground.RACES_TP2, '--force-install-list', '101')),
+        ('unpack', 'M1', playground.MAGIC_TP2),
+        ('magic-in', (playground.MAGIC_TP2, '--force-install-list', '0')),
+        ('unpack', 'K1', playground.KITS_TP2),
+        ('kits-in', (playground.KITS_TP2, '--force-install-list', '100', '110')),
+        ('unpack', 'E1', 'bgse'),
+        ('engine-in', (playground.ENGINE_TP2, '--force-install-list', '0', '10')),
+    ]
+    assert done['races'] == 'R1' and done['magic'] == 'M1' and done['kits'] == 'K1' and done['engine'] == 'E1'
