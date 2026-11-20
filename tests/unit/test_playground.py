@@ -150,3 +150,9 @@ def test_four_mod_stack_uninstalls_reverse_and_installs_forward(tmp_path: Path, 
         ('engine-in', (playground.ENGINE_TP2, '--force-install-list', '0', '10')),
     ]
     assert done['races'] == 'R1' and done['magic'] == 'M1' and done['kits'] == 'K1' and done['engine'] == 'E1'
+
+
+def test_kits_components_auto_discovers_all_except_alt_111():
+    tp2 = 'BEGIN @1 DESIGNATED 100\nBEGIN @2 DESIGNATED 110\nBEGIN @3 DESIGNATED 111\nBEGIN @4 DESIGNATED 201\nBEGIN @5 DESIGNATED 202\n'
+    assert playground.kits_components(tp2) == ['100', '110', '201', '202']
+    assert playground.kits_components(tp2, ['100', '111']) == ['100', '111']

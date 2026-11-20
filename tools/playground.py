@@ -32,8 +32,17 @@ ENGINE_FILES = ('bgse',)
 KITS_FILES = (KITS_TP2, 'chriz-bg-kits')
 MAGIC_FILES = (MAGIC_TP2, 'chriz-bg-magic', 'defs')
 RACES_FILES = (RACES_TP2, 'chriz-bg-playable-races')
-KITS_COMPONENTS = ('100', '110', '200', '210', '220', '300', '310', '320')
+KITS_COMPONENTS = ('100', '110', '200', '201', '202', '203', '204', '210', '220', '300', '310', '320')
+KITS_SKIP = frozenset(('111',))
 RACES_COMPONENTS = ('101',)
+
+
+def kits_components(tp2_text, configured=None):
+    """Component numbers to install from setup-chriz-bg-kits.tp2: explicit list, or all except alt 111."""
+    if configured:
+        return [str(c) for c in configured]
+    found = [m.group(1) for m in re.finditer(r'\bDESIGNATED\s+(\d+)\b', tp2_text) if m.group(1) not in KITS_SKIP]
+    return found or list(KITS_COMPONENTS)
 # The intended setup (AGENTS.md): Insane without double damage, no maximum hit points, and the debug console on.
 PROFILE = (('Game Options', 'Difficulty Level', '5'),
            ('Game Options', 'Suppress Extra Difficulty Damage', '1'),
@@ -149,7 +158,9 @@ def put_in(config, root, engine, magic, kits=None, races=None):
     weidu(config, root, 'magic-in', MAGIC_TP2, '--force-install-list', '0')
     if config.get('kits_repo') and kits:
         done['kits'] = unpack(config['kits_repo'], kits, KITS_FILES, game)
-        kit_list = [str(c) for c in (config.get('kits_components') or KITS_COMPONENTS)]
+        kits_tp2 = game / KITS_TP2
+        kits_text = kits_tp2.read_text(encoding='utf-8', errors='replace') if kits_tp2.exists() else ''
+        kit_list = kits_components(kits_text, config.get('kits_components'))
         weidu(config, root, 'kits-in', KITS_TP2, '--force-install-list', *kit_list)
     done['engine'] = unpack(config['engine_repo'], engine, ENGINE_FILES, game)
     # Component 0 the engine, 10 the playtest recorder.
@@ -193,7 +204,6 @@ def setup(args):
     if args.kits_repo:
         config['kits_repo'] = str(Path(args.kits_repo).resolve())
         config['kits'] = args.kits or 'main'
-        config['kits_components'] = list(KITS_COMPONENTS)
     if args.races_repo:
         config['races_repo'] = str(Path(args.races_repo).resolve())
         config['races'] = args.races or 'claude/we-overwrite'
