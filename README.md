@@ -36,7 +36,7 @@ to prevent confusion with existing Infinity Engine mods.
 
 ## Part 2 — Development Status, Architecture & License
 
-### Current Status (Nov 2026 — Private, Active Lab Development)
+### Current Status (Nov 2026 — Active Lab Development, Pre-Release)
 
 No public release has shipped yet. Current verified work on `main` runs in disposable EET
 `2.7.3.0` + EEex + SCS + Chriz BG Magic labs and the **Playground**:

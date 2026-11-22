@@ -83,8 +83,8 @@ while the encounter lab's strongest party has levels 2 to 4.
 - Dialogue paths: a DLG's states and replies with their texts, triggers and actions tell which replies lead to
   the fight (the encounter lab picks them by their text: Silke's party refuses to kill the "thugs", Greywolf's
   stands against him).
-- Labs (read-only for scouting): the no-SR lab `C:\Users\chris\Games\BGSE-Lab\eet-nosr-2\game`, the SR lab
-  `C:\Users\chris\Games\BGSE-Lab\scs-reference\game`. Never Christopher's own game.
+- Labs (read-only for scouting): the no-SR lab `%USERPROFILE%\Games\BGSE-Lab\eet-nosr-2\game`, the SR lab
+  `%USERPROFILE%\Games\BGSE-Lab\scs-reference\game`. Never Christopher's own game.
 - Scripts and dialogs: decompile a copy with WeiDU into a scratch folder (as `tools/hook_agree.py` does);
   never run WeiDU in a game folder outside a disposable lab.
 
