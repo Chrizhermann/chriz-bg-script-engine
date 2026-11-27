@@ -723,7 +723,7 @@ function M.new(g,options)
         record({kind='error',where=where,error=tostring(err):sub(1,200)})
     end
     -- The engine's own search for enemies a creature cannot see (adapters/eeex/search.lua).
-    local seeker=searches.new(g,{director=director,record=record,rng=rng,reader=reader})
+    local seeker=searches.new(g,{director=director,record=record,rng=rng,reader=reader,ambushes=options.ambushes})
     -- Wit (combat-intent/mind.lua): the game's difficulty (1 to 5), nil when it cannot be read.
     local function difficulty()
         local ok,value=pcall(function() return g.EngineGlobals.g_pBaldurChitin.m_pObjectGame.m_options.m_nDifficultyLevel end)
@@ -3606,6 +3606,10 @@ function M.new(g,options)
     function api:setShouts(v)
         assert(type(v)=='boolean')
         shoutsOn=v
+    end
+    function api:setAmbushes(v)
+        assert(type(v)=='boolean')
+        seeker:setAmbushes(v)
     end
     function api:orderFor(resref)
         return type(resref)=='string' and orderBook[resref:upper()] or nil

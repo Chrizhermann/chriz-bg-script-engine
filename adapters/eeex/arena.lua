@@ -293,6 +293,8 @@ function M.new(g,options)
     options=options or {}
     local enabled=options.enabled==true
     local isEngineEnabled=options.isEnabled
+    local onTick=options.onTick
+    local onInit=options.onInit
     local locks=normalizeLocks(options.locks)
     local counts={locked=0,unlocked=0,ticks=0}
     local lastArea,lastTick=nil,nil
@@ -499,12 +501,17 @@ function M.new(g,options)
     end
 
     rawset(g,'_bgseArenaApi',api)
+    rawset(g,'_bgseArenaOnTick',type(onTick)=='function' and onTick or nil)
+    rawset(g,'_bgseArenaOnInit',type(onInit)=='function' and onInit or nil)
     rawset(g,'BGSE_Arena_Tick',function()
         local current=rawget(g,'_bgseArenaApi')
+        local res=false
         if type(current)=='table' and type(current.fastStep)=='function' then
-            return current:fastStep()
+            res=current:fastStep()
         end
-        return false
+        local extra=rawget(g,'_bgseArenaOnTick')
+        if type(extra)=='function' then pcall(extra) end
+        return res
     end)
 
     local function pushMenu()
@@ -538,6 +545,8 @@ function M.new(g,options)
             rawset(g,'_bgseArenaInitSeen',true)
             local current=rawget(g,'_bgseArenaApi')
             if type(current)=='table' and type(current.invalidate)=='function' then pcall(current.invalidate,current) end
+            local extraInit=rawget(g,'_bgseArenaOnInit')
+            if type(extraInit)=='function' then pcall(extraInit) end
             pushMenu()
         end)
     end
@@ -548,6 +557,8 @@ function M.new(g,options)
         pcall(addLists,function()
             local current=rawget(g,'_bgseArenaApi')
             if type(current)=='table' and type(current.fastStep)=='function' then pcall(current.fastStep,current) end
+            local extra=rawget(g,'_bgseArenaOnTick')
+            if type(extra)=='function' then pcall(extra) end
         end)
     end
 

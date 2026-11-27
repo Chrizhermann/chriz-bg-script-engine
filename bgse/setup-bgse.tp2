@@ -20,6 +20,7 @@ REQUIRE_PREDICATE (IDS_OF_SYMBOL (~ACTION~ ~EEex_LuaAction~) = 472)
 INCLUDE ~bgse/lib/hook.tpa~
 INCLUDE ~bgse/lib/encounter.tpa~
 INCLUDE ~bgse/lib/calls.tpa~
+INCLUDE ~bgse/lib/ambush.tpa~
 
 COPY ~bgse/lua/M_BGSE.lua~ ~override~
 
@@ -259,6 +260,7 @@ OUTER_SET bgse_designed = 0
 OUTER_SET bgse_lines = 0
 OUTER_SET bgse_new = 0
 INCLUDE ~bgse/encounters.tpa~
+LAF bgse_install_ambushes RET bgse_ambush_scripts bgse_ambush_blocks END
 // The engine's own hook (2026-11-10: the engine takes over every creature, also one without an SCS script, such
 // as BG1's gnolls, xvarts, ankhegs and wyverns). A script gets one hook block at its top when a creature carries
 // it (a creature file's five slots, an area actor's six, the five of a creature stored in an area), it holds an
@@ -369,6 +371,7 @@ PRINT ~BGSE idle: %bgse_idle% SCS idle gates (no enemy perceived, not in a fight
 PRINT ~BGSE hunt: %bgse_called% walks at party members a creature does not perceive, in scripts the SCS rule did not hook, yield to the engine's search.~
 PRINT ~BGSE talk: %bgse_talked% SCS talk-on-sight blocks wait while the engine prepares the creature.~
 PRINT ~BGSE encounter: %bgse_designed% designed creatures changed, %bgse_lines% lines added to dialogues, %bgse_new% new creatures made.~
+PRINT ~BGSE ambush: %bgse_ambush_scripts% random-encounter scripts updated (%bgse_ambush_blocks% ambush blocks given sensible positions).~
 PRINT ~BGSE own: %bgse_owned% fight scripts that are not SCS's ask the engine first.~
 
 BEGIN ~Chriz BG Script Engine: record a playtest (experimental, needs EEex)~

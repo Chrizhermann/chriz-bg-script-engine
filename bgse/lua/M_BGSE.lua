@@ -12938,6 +12938,342 @@ function M.extras(state,facts)
 end
 return M
 end
+factories["combat-intent.ambush"]=function(require)
+-- Pure ambush-approach and rest-interruption perimeter policy (Christopher, 2026-11-28).
+-- No engine/EEex calls; operates on plain scalar tables only.
+local M = {}
+
+M.AREAS = {
+    BG5600 = true, BG5601 = true,
+    BG5700 = true, BG5701 = true,
+    BG5800 = true, BG5801 = true,
+    BG5900 = true, BG5901 = true,
+    BG6000 = true, BG6001 = true,
+    BG6100 = true,
+    AR0041 = true, AR0042 = true, AR0043 = true,
+    AR0044 = true, AR0045 = true, AR0046 = true,
+    BD0063 = true,
+}
+
+M.EVIL_CUTOFF = 200
+M.CHARMED_PC = 254
+
+M.REST_JUMP_TICKS = 4500   -- 1 in-game hour (300s * 15 ticks/s)
+M.REST_TOO_CLOSE = 240
+M.REST_MIN_DIST = 280
+M.REST_MAX_DIST = 420
+M.REST_RELAXED_MAX_DIST = 520
+M.MIN_SPACING = 56
+M.RELAXED_SPACING = 40
+
+local function distSq(a, b)
+    local dx = a.x - b.x
+    local dy = a.y - b.y
+    return dx * dx + dy * dy
+end
+
+function M.isAmbushArea(area)
+    if type(area) ~= 'string' or #area == 0 then return false end
+    return M.AREAS[area:upper()] == true
+end
+
+function M.shouldApproach(input)
+    if type(input) ~= 'table' then return false end
+    if input.enabled ~= true then return false end
+    if not M.isAmbushArea(input.area) then return false end
+    local ea = input.ea
+    if type(ea) ~= 'number' or ea < M.EVIL_CUTOFF or ea == M.CHARMED_PC then return false end
+    if input.fought ~= nil and input.fought ~= false then return false end
+    if input.gaveUp ~= nil and input.gaveUp ~= false then return false end
+    return true
+end
+
+function M.nearestParty(selfPos, party)
+    if type(selfPos) ~= 'table' or type(selfPos.x) ~= 'number' or type(selfPos.y) ~= 'number' then return nil end
+    if type(party) ~= 'table' then return nil end
+    local best, bestSq = nil, nil
+    for _, p in ipairs(party) do
+        if type(p) == 'table' and type(p.x) == 'number' and type(p.y) == 'number' and type(p.id) == 'number' then
+            local sq = distSq(selfPos, p)
+            if not best or sq < bestSq or (sq == bestSq and p.id < best.id) then
+                best, bestSq = p, sq
+            end
+        end
+    end
+    return best
+end
+
+local function minDistSqToList(pt, list)
+    local best = nil
+    for _, item in ipairs(list) do
+        local sq = distSq(pt, item)
+        if not best or sq < best then best = sq end
+    end
+    return best
+end
+
+local function centroid(list)
+    local sx, sy, n = 0, 0, 0
+    for _, item in ipairs(list) do
+        if type(item) == 'table' and type(item.x) == 'number' and type(item.y) == 'number' then
+            sx = sx + item.x
+            sy = sy + item.y
+            n = n + 1
+        end
+    end
+    if n == 0 then return nil end
+    return {x = sx / n, y = sy / n}
+end
+
+local function pickCandidate(hostile, party, placed, candidates, minPartySq, maxPartySq, minSpaceSq, center)
+    local hx = (hostile.x or center.x) - center.x
+    local hy = (hostile.y or center.y) - center.y
+    local best, bestScore = nil, nil
+    for _, c in ipairs(candidates) do
+        if type(c) == 'table' and type(c.x) == 'number' and type(c.y) == 'number' then
+            local pSq = minDistSqToList(c, party)
+            if pSq and pSq >= minPartySq and pSq <= maxPartySq then
+                local spaceOk = true
+                for _, o in ipairs(placed) do
+                    if distSq(c, o) < minSpaceSq then
+                        spaceOk = false
+                        break
+                    end
+                end
+                if spaceOk then
+                    local cx = c.x - center.x
+                    local cy = c.y - center.y
+                    -- Prefer candidates keeping the hostile's general direction from the party centroid
+                    local dotPenalty = 0
+                    if (hx ~= 0 or hy ~= 0) and (cx ~= 0 or cy ~= 0) then
+                        local dot = hx * cx + hy * cy
+                        local magSq = (hx * hx + hy * hy) * (cx * cx + cy * cy)
+                        if dot <= 0 then
+                            dotPenalty = 1e9 - dot
+                        else
+                            -- Normalized alignment penalty (0 = exact direction, up to 1e6)
+                            dotPenalty = math.floor((1 - (dot * dot) / magSq) * 1e6)
+                        end
+                    end
+                    local midSq = ((M.REST_MIN_DIST + M.REST_MAX_DIST) / 2) ^ 2
+                    local score = dotPenalty + math.abs(pSq - midSq) * 0.001
+                    if not best or score < bestScore or (score == bestScore and (c.x < best.x or (c.x == best.x and c.y < best.y))) then
+                        best, bestScore = c, score
+                    end
+                end
+            end
+        end
+    end
+    return best
+end
+
+function M.restPerimeter(party, hostiles, candidates)
+    local out = {}
+    if type(party) ~= 'table' or #party == 0 then return out end
+    if type(hostiles) ~= 'table' or #hostiles == 0 then return out end
+    if type(candidates) ~= 'table' or #candidates == 0 then return out end
+    local center = centroid(party)
+    if not center then return out end
+
+    local tooCloseSq = M.REST_TOO_CLOSE * M.REST_TOO_CLOSE
+    local toMove, placed = {}, {}
+    for _, h in ipairs(hostiles) do
+        if type(h) == 'table' and type(h.id) == 'number' and type(h.x) == 'number' and type(h.y) == 'number' then
+            local pSq = minDistSqToList(h, party)
+            if pSq and pSq < tooCloseSq then
+                toMove[#toMove + 1] = h
+            else
+                placed[#placed + 1] = {x = h.x, y = h.y}
+            end
+        end
+    end
+    if #toMove == 0 then return out end
+    table.sort(toMove, function(a, b) return a.id < b.id end)
+
+    local minSq = M.REST_MIN_DIST * M.REST_MIN_DIST
+    local maxSq = M.REST_MAX_DIST * M.REST_MAX_DIST
+    local relaxedMaxSq = M.REST_RELAXED_MAX_DIST * M.REST_RELAXED_MAX_DIST
+    local spaceSq = M.MIN_SPACING * M.MIN_SPACING
+    local relaxedSpaceSq = M.RELAXED_SPACING * M.RELAXED_SPACING
+
+    for _, h in ipairs(toMove) do
+        local chosen = pickCandidate(h, party, placed, candidates, minSq, maxSq, spaceSq, center)
+            or pickCandidate(h, party, placed, candidates, minSq, relaxedMaxSq, spaceSq, center)
+            or pickCandidate(h, party, placed, candidates, minSq, relaxedMaxSq, relaxedSpaceSq, center)
+        if chosen then
+            local pt = {id = h.id, x = math.floor(chosen.x + 0.5), y = math.floor(chosen.y + 0.5)}
+            out[#out + 1] = pt
+            placed[#placed + 1] = {x = pt.x, y = pt.y}
+        end
+    end
+    return out
+end
+
+return M
+end
+factories["combat-intent.respawn"]=function(require)
+-- Pure Fog-of-War respawn governance policy (Christopher, 2026-11-28).
+-- Primary lever: minimum distance to any living party member (no off-screen spawns right behind
+-- the party). Secondary lever: area-tier cooldown (no wave cap - preserves infinite dungeon nests).
+-- Pure scalar Lua; no engine/EEex calls.
+local M = {}
+
+M.SIGHT_RANGE = 448
+M.FIRE_RADIUS = 192
+M.DEFAULT_MIN_DIST = 1100
+M.FLOOR_MIN_DIST = 640
+M.HOLD_COUNTDOWN = 150
+M.RELEASE_COUNTDOWN = 30
+M.DISABLE_MAX_COUNTDOWN = 90
+M.DENSE_SPAWN_COUNT = 6
+
+M.COOLDOWNS = {
+    infested = 900,    -- 1 turn / 10 rounds (60s * 15 ticks/s)
+    dungeon = 9000,    -- 2 in-game hours (600s * 15 ticks/s)
+    wilderness = 54000 -- 12 in-game hours (3600s * 15 ticks/s)
+}
+
+M.INFESTED = {
+    BG5201 = true,
+    BG3901 = true,
+    BG5100 = true,
+    BG2100 = true,
+    BG0123 = true,
+    BG0224 = true,
+    BG0225 = true,
+    BG0226 = true,
+    AR0202 = true,
+    AR0404 = true,
+    AR0701 = true,
+    AR1201 = true,
+    AR1202 = true,
+    AR1300 = 'SPRITE_IS_DEADTORGAL',
+    AR1302 = 'SPRITE_IS_DEADTORGAL',
+    AR1303 = 'SPRITE_IS_DEADTORGAL',
+    AR1401 = 'SPRITE_IS_DEADSHADEL',
+}
+
+function M.tier(input)
+    if type(input) ~= 'table' then return 'dungeon' end
+    local area = type(input.area) == 'string' and input.area:upper() or ''
+    local entry = M.INFESTED[area]
+    if entry == true then
+        return 'infested'
+    elseif type(entry) == 'string' then
+        if input.bossDead ~= true then return 'infested' end
+    end
+    local outdoor = input.outdoor == true
+    local spawnCount = type(input.spawnCount) == 'number' and input.spawnCount or 0
+    if not outdoor and spawnCount >= M.DENSE_SPAWN_COUNT then
+        return 'infested'
+    end
+    if outdoor then return 'wilderness' end
+    return 'dungeon'
+end
+
+function M.cooldownTicks(input)
+    return M.COOLDOWNS[M.tier(input)] or M.COOLDOWNS.dungeon
+end
+
+function M.minDistance(mapDiag)
+    if type(mapDiag) == 'number' and mapDiag > 0 then
+        local scaled = math.floor(mapDiag * 0.65)
+        if scaled < M.DEFAULT_MIN_DIST then
+            return math.max(M.FLOOR_MIN_DIST, scaled)
+        end
+    end
+    return M.DEFAULT_MIN_DIST
+end
+
+function M.hasFired(prevCountdown, curCountdown, hadHostileNear)
+    if hadHostileNear == true then return true end
+    if type(prevCountdown) == 'number' and type(curCountdown) == 'number' then
+        if prevCountdown <= 45 and curCountdown > prevCountdown then
+            return true
+        end
+    end
+    return false
+end
+
+function M.evaluate(input)
+    local tick = type(input.tick) == 'number' and math.max(0, math.floor(input.tick)) or 0
+    local saved = type(input.saved) == 'number' and math.max(0, math.floor(input.saved)) or 0
+    local partyDist = type(input.partyDist) == 'number' and input.partyDist or nil
+    local countdown = type(input.countdown) == 'number' and input.countdown or 0
+    local wasHeld = input.wasHeld == true
+    local fired = input.fired == true
+    local cooldown = type(input.cooldown) == 'number' and math.max(1, math.floor(input.cooldown)) or M.COOLDOWNS.dungeon
+    local minDist = type(input.minDist) == 'number' and math.max(0, input.minDist) or M.DEFAULT_MIN_DIST
+
+    local function holdResult(newSaved, reason)
+        return {
+            saved = newSaved,
+            hold = true,
+            nextCountdown = math.max(countdown, M.HOLD_COUNTDOWN),
+            ready = 0,
+            reason = reason,
+        }
+    end
+
+    if saved == 0 then
+        if fired or (partyDist ~= nil and partyDist <= M.SIGHT_RANGE) then
+            local newSaved = math.max(1, tick + cooldown)
+            if partyDist == nil or partyDist < minDist or tick < newSaved then
+                return holdResult(newSaved, 'armed')
+            end
+            return {
+                saved = newSaved,
+                hold = false,
+                nextCountdown = nil,
+                ready = 1,
+                reason = 'open',
+            }
+        end
+        return {
+            saved = 0,
+            hold = false,
+            nextCountdown = nil,
+            ready = nil,
+            reason = 'fresh',
+        }
+    end
+
+    -- Clamp anomalous future target if game clock is unexpectedly far behind saved.
+    if tick + 900 < saved and (saved - tick) > cooldown * 2 then
+        saved = math.max(1, tick + cooldown)
+    end
+
+    if fired and not wasHeld then
+        saved = math.max(1, tick + cooldown)
+    end
+
+    if partyDist ~= nil and partyDist < minDist then
+        return holdResult(saved, 'distance')
+    end
+    if tick < saved then
+        return holdResult(saved, 'cooldown')
+    end
+
+    if wasHeld and countdown > M.RELEASE_COUNTDOWN then
+        return {
+            saved = saved,
+            hold = false,
+            nextCountdown = M.RELEASE_COUNTDOWN,
+            ready = 1,
+            reason = 'released',
+        }
+    end
+    return {
+        saved = saved,
+        hold = false,
+        nextCountdown = nil,
+        ready = 1,
+        reason = 'open',
+    }
+end
+
+return M
+end
 factories["adapters.eeex.resources"]=function(require)
 -- In-game twin of tools/ie_resources.py: the same SPL, ITM, EFF, PRO and CRE records, read from the
 -- engine's resource table through EEex (Fetch, then Demand, as EEex_Resource_Demand does; CRes
@@ -14992,6 +15328,7 @@ factories["adapters.eeex.search"]=function(require)
 -- member has moved away from the walk's spot.
 local sense=require('adapters.eeex.sense')
 local search=require('combat-intent.search')
+local ambush=require('combat-intent.ambush')
 local targeting=require('combat-intent.targeting')
 local doorRules=require('combat-intent.doors')
 local doorReader=require('adapters.eeex.doors')
@@ -15057,6 +15394,7 @@ function M.new(g,options)
     local record=type(options.record)=='function' and options.record or function() end
     local rng=options.rng
     local reader=options.reader
+    local ambushes=options.ambushes~=false
     local states,stateCount={},0
     local counts={hunts=0,walks=0,looks=0,returns=0,gaveUp=0,detects=0,modals=0,teleports=0,hitClues=0,guards=0,
         stuck=0,guardFailures=0,awaits=0,guardWalks=0,readyFailures=0,doors=0,doorsOpened=0,doorsShut=0,
@@ -15151,7 +15489,7 @@ function M.new(g,options)
             if s.guard then counts.guards=counts.guards+1 end
         end
         s.since,s.gaveUp,s.tactical,s.act,s.aim,s.back,s.stuck,s.awaiting=nil,nil,nil,nil,nil,nil,0,nil
-        s.searched,s.clues,s.hits,s.called={},{},{},nil
+        s.searched,s.clues,s.hits,s.called,s.ambushTick={},{},{},nil,nil
     end
 
     -- Whether two creatures stand in the same area.
@@ -15299,6 +15637,30 @@ function M.new(g,options)
                 local object=g.EEex_GameObject_Get(c.id)
                 if object and g.EEex_GameObject_IsSprite(object,false) and together(object,sprite) then
                     out[#out+1]={kind='called',id=c.id,x=object.m_pos.x,y=object.m_pos.y,tick=c.tick}
+                end
+            end
+        end
+        -- Sensible Fog-of-War travel ambushes: until first contact (not s.fought, not s.gaveUp),
+        -- approach the nearest living party member in the same area so relocated packs converge.
+        local ambushesOn=type(ambushes)=='function' and ambushes()==true or ambushes==true
+        if #out==0 and ambush.shouldApproach({enabled=ambushesOn,area=frame.area,ea=frame.self.ea,
+            fought=s.fought,gaveUp=s.gaveUp}) then
+            local getter=rawget(g,'EEex_Sprite_GetInPortrait')
+            if type(getter)=='function' then
+                local party={}
+                for i=0,5 do
+                    local okP,p=pcall(getter,i)
+                    if okP and p and g.EEex_GameObject_IsSprite(p,false) and together(p,sprite) then
+                        local okPos,px,py=pcall(function() return p.m_pos.x,p.m_pos.y end)
+                        if okPos and type(px)=='number' and type(py)=='number' and not away[p.m_id] then
+                            party[#party+1]={id=p.m_id,x=px,y=py}
+                        end
+                    end
+                end
+                local nearest=ambush.nearestParty(frame.self,party)
+                if nearest then
+                    if not s.ambushTick or tick<s.ambushTick then s.ambushTick=tick end
+                    out[#out+1]={kind='called',id=nearest.id,x=nearest.x,y=nearest.y,tick=s.ambushTick}
                 end
             end
         end
@@ -15588,6 +15950,10 @@ function M.new(g,options)
         if not a then return end
         s.act=nil
         if a.kind=='door' and type(tick)=='number' then judged(s,id,a,tick,why or 'stop') end
+    end
+    function seeker:setAmbushes(value)
+        if type(value)=='function' then ambushes=value
+        else ambushes=(value==true) end
     end
     function seeker:invalidate() states,stateCount={},0 end
     function seeker:inspect()
@@ -16520,7 +16886,7 @@ function M.new(g,options)
         record({kind='error',where=where,error=tostring(err):sub(1,200)})
     end
     -- The engine's own search for enemies a creature cannot see (adapters/eeex/search.lua).
-    local seeker=searches.new(g,{director=director,record=record,rng=rng,reader=reader})
+    local seeker=searches.new(g,{director=director,record=record,rng=rng,reader=reader,ambushes=options.ambushes})
     -- Wit (combat-intent/mind.lua): the game's difficulty (1 to 5), nil when it cannot be read.
     local function difficulty()
         local ok,value=pcall(function() return g.EngineGlobals.g_pBaldurChitin.m_pObjectGame.m_options.m_nDifficultyLevel end)
@@ -19404,6 +19770,10 @@ function M.new(g,options)
         assert(type(v)=='boolean')
         shoutsOn=v
     end
+    function api:setAmbushes(v)
+        assert(type(v)=='boolean')
+        seeker:setAmbushes(v)
+    end
     function api:orderFor(resref)
         return type(resref)=='string' and orderBook[resref:upper()] or nil
     end
@@ -19875,7 +20245,8 @@ M.ini=ini
 function M.settings(g)
     local families={}
     for family,key in pairs(M.keys) do families[family]=ini(g,key)~=0 end
-    return {enabled=ini(g,'Enabled')~=0,families=families,others=ini(g,'Others')~=0}
+    return {enabled=ini(g,'Enabled')~=0,families=families,others=ini(g,'Others')~=0,
+        ambushes=ini(g,'Ambushes')~=0,respawns=ini(g,'Respawns')~=0}
 end
 local function store(g,key,value)
     local set=rawget(g,'Infinity_SetINIValue')
@@ -19961,6 +20332,7 @@ function M.install(g,options)
     if walker==false then walker=nil end
     local dutyFaults=0
     local others=settings.others~=false
+    local ambushes=options.ambushes~=false and settings.ambushes~=false
     -- id -> the block that queued the hook's last response (sn, rs, rn) and the actions it queued;
     -- owned counts them (at most M.ownLimit: creatures that died with a record keep it until then).
     local mine,owned={},0
@@ -20120,12 +20492,19 @@ function M.install(g,options)
         if choice then choice:setEnabled(value) end
         if persist then store(g,'Choice',value) end
     end
+    function root.setAmbushes(value,persist)
+        assert(type(value)=='boolean')
+        ambushes=value
+        if choice and type(choice.setAmbushes)=='function' then choice:setAmbushes(value) end
+        if persist then store(g,'Ambushes',value) end
+    end
     -- Experiments install a decider here: function(actor, family) -> nil | {response=...} | {hold=true}.
     function root.setDecider(fn) gate:setDecider(fn) end
     function root.inspect()
         local state=gate:inspect()
         state.replaced={count=replacing.count,errors=replacing.errors}
         state.others=others
+        state.ambushes=ambushes
         if walker then
             local ok,value=pcall(walker.inspect)
             state.lower=ok and value or {error=tostring(value)}
@@ -20277,6 +20656,11 @@ function M.install(g,options)
             gate:act(actor(object))
         end)
     end
+    -- True when sensible travel ambush coordinates are enabled ([BGSE] Enabled=1 and Ambushes=1).
+    g.BGSE_AmbushOn=function()
+        local ok,value=pcall(function() return gate:on()==true and ambushes==true end)
+        return ok and value==true
+    end
     -- Engine state is session-local: a load or a return to the menu forgets every claim.
     -- One listener serves every reinstall; it always reaches the current root.
     if not root.listening and type(rawget(g,'EEex_GameState_AddDestroyedListener'))=='function' then
@@ -20288,6 +20672,9 @@ function M.install(g,options)
             if type(current)=='table' and current.choice then pcall(current.choice.invalidate,current.choice) end
             if type(current)=='table' and current.arena and type(current.arena.onDestroyed)=='function' then
                 pcall(current.arena.onDestroyed,current.arena)
+            end
+            if type(current)=='table' and current.respawn and type(current.respawn.onDestroyed)=='function' then
+                pcall(current.respawn.onDestroyed,current.respawn)
             end
         end)
         root.listening=true
@@ -20742,6 +21129,8 @@ function M.new(g,options)
     options=options or {}
     local enabled=options.enabled==true
     local isEngineEnabled=options.isEnabled
+    local onTick=options.onTick
+    local onInit=options.onInit
     local locks=normalizeLocks(options.locks)
     local counts={locked=0,unlocked=0,ticks=0}
     local lastArea,lastTick=nil,nil
@@ -20948,12 +21337,17 @@ function M.new(g,options)
     end
 
     rawset(g,'_bgseArenaApi',api)
+    rawset(g,'_bgseArenaOnTick',type(onTick)=='function' and onTick or nil)
+    rawset(g,'_bgseArenaOnInit',type(onInit)=='function' and onInit or nil)
     rawset(g,'BGSE_Arena_Tick',function()
         local current=rawget(g,'_bgseArenaApi')
+        local res=false
         if type(current)=='table' and type(current.fastStep)=='function' then
-            return current:fastStep()
+            res=current:fastStep()
         end
-        return false
+        local extra=rawget(g,'_bgseArenaOnTick')
+        if type(extra)=='function' then pcall(extra) end
+        return res
     end)
 
     local function pushMenu()
@@ -20987,6 +21381,8 @@ function M.new(g,options)
             rawset(g,'_bgseArenaInitSeen',true)
             local current=rawget(g,'_bgseArenaApi')
             if type(current)=='table' and type(current.invalidate)=='function' then pcall(current.invalidate,current) end
+            local extraInit=rawget(g,'_bgseArenaOnInit')
+            if type(extraInit)=='function' then pcall(extraInit) end
             pushMenu()
         end)
     end
@@ -20997,6 +21393,8 @@ function M.new(g,options)
         pcall(addLists,function()
             local current=rawget(g,'_bgseArenaApi')
             if type(current)=='table' and type(current.fastStep)=='function' then pcall(current.fastStep,current) end
+            local extra=rawget(g,'_bgseArenaOnTick')
+            if type(extra)=='function' then pcall(extra) end
         end)
     end
 
@@ -21015,6 +21413,703 @@ end
 
 return M
 end
+factories["adapters.eeex.respawn"]=function(require)
+-- Fog-of-War respawn governance and rest-interruption perimeter (Christopher, 2026-11-28).
+--
+-- Default-ON whenever [BGSE] Enabled=1 (not gated behind Challenge Mode):
+-- - [BGSE] Respawns=1 (default ON): governs CGameSpawning points via minimum party distance
+--   (1100 px, scaled on smaller dungeon floors) and area-tier cooldowns (1 turn infested,
+--   2 in-game hours dungeon, 12 in-game hours wilderness), without capping waves.
+-- - [BGSE] Ambushes=1 (default ON): on in-place rest interruptions (>= 1 game hour jump in
+--   the same area), moves hostiles spawned inside melee range (< 240 px) onto open camp
+--   perimeter spots (280..420 px) via JumpToPoint + FaceObject.
+local hook = require('adapters.eeex.hook')
+local ambush = require('combat-intent.ambush')
+local respawn = require('combat-intent.respawn')
+
+local M = {}
+
+M.OUTDOOR_BIT = 0x1
+M.DEAD_STATE_MASK = 0xFC0
+M.HOSTILE_MIN_EA = 200
+M.CHARMED_PC_EA = 254
+M.SCAN_TICKS = 15
+M.META_CACHE_LIMIT = 128
+
+local TICK_MENU = [[
+menu
+{
+    name "BGSE_WORLD_TICK"
+    ignoreEsc
+    label
+    {
+        enabled "BGSE_World_Tick()"
+    }
+}
+]]
+
+local function cleanString(raw)
+    if type(raw) ~= 'string' then return '' end
+    return (raw:match('^[^%z]*') or ''):upper()
+end
+
+local function readText(field)
+    if field == nil then return '' end
+    local ok, raw = pcall(function() return field:get() end)
+    if not ok or type(raw) ~= 'string' then
+        ok, raw = pcall(function() return field.m_pchData:get() end)
+    end
+    return ok and cleanString(raw) or ''
+end
+
+local function iterateList(g, list, fn)
+    if not list then return end
+    local iter = rawget(g, 'EEex_Utility_IterateCPtrList')
+    if type(iter) == 'function' then
+        pcall(iter, list, fn)
+        return
+    end
+    if type(list) == 'table' then
+        for _, v in ipairs(list) do fn(v) end
+    end
+end
+
+local function isAliveSprite(g, sprite)
+    if sprite.m_active ~= nil and sprite.m_active == 0 then return false end
+    local getState = rawget(g, 'EEex_Sprite_GetState')
+    local state = nil
+    if type(getState) == 'function' then
+        local ok, val = pcall(getState, sprite)
+        if ok and type(val) == 'number' then state = val end
+    end
+    local stats = sprite.m_baseStats
+    if type(state) ~= 'number' then state = stats and stats.m_generalState end
+    if type(state) ~= 'number' then return false end
+    local band = rawget(g, 'EEex_BAnd')
+    if type(band) == 'function' then
+        if band(state, M.DEAD_STATE_MASK) ~= 0 then return false end
+    elseif math.floor(state / 64) % 64 ~= 0 then
+        return false
+    end
+    local hp = stats and stats.m_hitPoints
+    if type(hp) ~= 'number' or hp <= 0 then return false end
+    return true
+end
+
+local function spriteEA(obj)
+    local okLive, ea = pcall(function() return obj.m_liveTypeAI.m_EnemyAlly end)
+    if okLive and type(ea) == 'number' then return ea end
+    local okType, ea2 = pcall(function() return obj.m_typeAI.m_EnemyAlly end)
+    if okType and type(ea2) == 'number' then return ea2 end
+    return 0
+end
+
+local function isSummonedOrClone(obj)
+    local okS, sumId = pcall(function() return obj.m_lSummonedBy and obj.m_lSummonedBy.m_Instance end)
+    if okS and type(sumId) == 'number' and sumId ~= -1 then return true end
+    local okC, copyId = pcall(function() return obj.m_nCopyParent end)
+    if okC and type(copyId) == 'number' and copyId ~= -1 then return true end
+    return false
+end
+
+local function currentArea(g)
+    local getArea = rawget(g, 'EEex_Area_GetVisible')
+    if type(getArea) == 'function' then
+        local okArea, area = pcall(getArea)
+        if okArea and area ~= nil then return area end
+    end
+    local getter = rawget(g, 'EEex_Sprite_GetInPortrait')
+    if type(getter) == 'function' then
+        for i = 0, 5 do
+            local ok, sp = pcall(getter, i)
+            if ok and sp then
+                local okArea, pArea = pcall(function() return sp.m_pArea end)
+                if okArea and pArea ~= nil then return pArea end
+            end
+        end
+    end
+    return nil
+end
+
+local function partyInArea(g, areaKey)
+    local party = {}
+    local getter = rawget(g, 'EEex_Sprite_GetInPortrait')
+    if type(getter) ~= 'function' then return party end
+    for i = 0, 5 do
+        local ok, sp = pcall(getter, i)
+        if ok and sp and sp.m_pArea and readText(sp.m_pArea.m_resref) == areaKey and isAliveSprite(g, sp) then
+            local okPos, x, y = pcall(function() return sp.m_pos.x, sp.m_pos.y end)
+            if okPos and type(x) == 'number' and type(y) == 'number' then
+                party[#party + 1] = {id = sp.m_id or i, x = x, y = y, sprite = sp}
+            end
+        end
+    end
+    return party
+end
+
+local function getAreaVar(g, area, name)
+    local fn = rawget(g, 'EEex_Area_GetVariableInt')
+    if type(fn) ~= 'function' then return 0 end
+    local ok, val = pcall(fn, area, name)
+    if ok and type(val) == 'number' then return val end
+    return 0
+end
+
+local function setAreaVar(g, area, name, val)
+    local fn = rawget(g, 'EEex_Area_SetVariableInt')
+    if type(fn) ~= 'function' then return false end
+    local ok = pcall(fn, area, name, val)
+    return ok == true
+end
+
+local function getGlobalInt(g, name)
+    local fn = rawget(g, 'EEex_GameState_GetGlobalInt')
+    if type(fn) == 'function' then
+        local ok, val = pcall(fn, name)
+        if ok and type(val) == 'number' then return val end
+    end
+    local ok2, val2 = pcall(function()
+        return g.EngineGlobals.g_pBaldurChitin.m_pObjectGame.m_variables:getInt(name)
+    end)
+    if ok2 and type(val2) == 'number' then return val2 end
+    return 0
+end
+
+local function demandResource(g, resref, kind)
+    local fetch = rawget(g, 'EEex_Resource_Fetch')
+    local toPtr = rawget(g, 'EEex_UDToPtr')
+    local u8 = rawget(g, 'EEex_ReadU8')
+    if type(fetch) ~= 'function' or type(toPtr) ~= 'function' or type(u8) ~= 'function' then
+        return nil
+    end
+    local ok, base, size = pcall(function()
+        local res = fetch(resref, kind)
+        if res == nil then return nil end
+        local data = res:Demand()
+        local ptr = data ~= nil and toPtr(data) or nil
+        return ptr, res.nSize
+    end)
+    if not ok or type(base) ~= 'number' or base <= 0 or type(size) ~= 'number' or size <= 0 then
+        return nil
+    end
+    local u16 = rawget(g, 'EEex_ReadU16') or function(a) return u8(a) + u8(a + 1) * 256 end
+    local u32 = rawget(g, 'EEex_ReadU32') or function(a) return u16(a) + u16(a + 2) * 65536 end
+    local i32 = rawget(g, 'EEex_Read32') or function(a)
+        local v = u32(a)
+        return v >= 2147483648 and v - 4294967296 or v
+    end
+    local strFn = rawget(g, 'EEex_ReadLString') or function(a, n)
+        local t = {}
+        for i = 0, n - 1 do
+            local b = u8(a + i)
+            if b == 0 then break end
+            t[#t + 1] = string.char(b)
+        end
+        return table.concat(t)
+    end
+    return {base = base, size = size, u8 = u8, u16 = u16, u32 = u32, i32 = i32, str = strFn}
+end
+
+local function readAreaMeta(g, area, areaKey)
+    local outdoor = false
+    local wed = areaKey
+    local okType, kind = pcall(function() return area.m_header.m_areaType end)
+    if not okType or type(kind) ~= 'number' then
+        okType, kind = pcall(function() return area.m_header.reference.m_areaType end)
+    end
+    if okType and type(kind) == 'number' then
+        outdoor = (math.floor(kind / M.OUTDOOR_BIT) % 2 == 1)
+    end
+    local okWed, wedField = pcall(function() return area.m_pResWED or area.m_header.m_resWED end)
+    if okWed and wedField ~= nil then
+        local w = readText(wedField)
+        if w ~= '' then wed = w end
+    end
+    if not okType or wed == areaKey then
+        local v = demandResource(g, areaKey, 'ARE')
+        if v and v.size >= 0x4C then
+            if not okType then
+                local flags = v.u32(v.base + 0x48)
+                outdoor = (math.floor(flags / M.OUTDOOR_BIT) % 2 == 1)
+            end
+            local rw = cleanString(v.str(v.base + 0x08, 8))
+            if rw ~= '' then wed = rw end
+        end
+    end
+    local mapDiag = nil
+    local sr = demandResource(g, wed .. 'SR', 'BMP')
+    if sr and sr.size >= 26 and sr.u8(sr.base) == 0x42 and sr.u8(sr.base + 1) == 0x4D then
+        local w = sr.i32(sr.base + 18)
+        local h = math.abs(sr.i32(sr.base + 22))
+        if w > 0 and h > 0 then
+            mapDiag = math.sqrt((w * 16) ^ 2 + (h * 12) ^ 2)
+        end
+    end
+    return {outdoor = outdoor, mapDiag = mapDiag}
+end
+
+function M.new(g, options)
+    g = g or _G
+    options = options or {}
+    local respawnsEnabled = options.respawns ~= false
+    local ambushesEnabled = options.ambushes ~= false
+    local isEngineEnabled = options.isEnabled
+
+    local metaCache, metaCount = {}, 0
+    local heldPoints, prevCountdowns = {}, {}
+    local knownHostiles = {}
+    local lastAreaKey, lastTick = nil, nil
+    local lastSpawnArea, lastSpawnTick = nil, nil
+    local lastFastMs = nil
+    local dirty, checkPending = true, true
+    local lastError = false
+    local counts = {
+        ticks = 0,
+        held = 0,
+        released = 0,
+        armed = 0,
+        restJumps = 0,
+        restRelocated = 0,
+    }
+
+    local function engineOn()
+        if type(isEngineEnabled) == 'function' then
+            local ok, res = pcall(isEngineEnabled)
+            return ok and res == true
+        end
+        return hook.ini(g, 'Enabled') ~= 0
+    end
+
+    local function areaMeta(area, areaKey)
+        local cached = metaCache[areaKey]
+        if cached then return cached end
+        if metaCount >= M.META_CACHE_LIMIT then
+            metaCache, metaCount = {}, 0
+        end
+        local meta = readAreaMeta(g, area, areaKey)
+        metaCache[areaKey] = meta
+        metaCount = metaCount + 1
+        return meta
+    end
+
+    local function collectHostiles(area)
+        local out, byId, seen = {}, {}, {}
+        local getObj = rawget(g, 'EEex_GameObject_Get')
+        local isSprite = rawget(g, 'EEex_GameObject_IsSprite')
+        if type(getObj) ~= 'function' then return out, byId end
+        for _, list in ipairs({area.m_lVertSort, area.m_lVertSortBack}) do
+            iterateList(g, list, function(id)
+                if type(id) == 'number' and not seen[id] then
+                    seen[id] = true
+                    local obj = getObj(id)
+                    if obj and (type(isSprite) ~= 'function' or isSprite(obj, false)) then
+                        local ea = spriteEA(obj)
+                        if ea >= M.HOSTILE_MIN_EA and ea ~= M.CHARMED_PC_EA and isAliveSprite(g, obj) then
+                            local okPos, x, y = pcall(function() return obj.m_pos.x, obj.m_pos.y end)
+                            if okPos and type(x) == 'number' and type(y) == 'number' then
+                                local entry = {
+                                    id = id,
+                                    x = x,
+                                    y = y,
+                                    summoned = isSummonedOrClone(obj),
+                                    sprite = obj,
+                                }
+                                out[#out + 1] = entry
+                                byId[id] = entry
+                            end
+                        end
+                    end
+                end
+            end)
+        end
+        return out, byId
+    end
+
+    local function collectSpawns(area)
+        local out, seen = {}, {}
+        local getObj = rawget(g, 'EEex_GameObject_Get')
+        local castObj = rawget(g, 'EEex_GameObject_CastUserType')
+        local types = rawget(g, 'CGameObjectType')
+        local spawnType = type(types) == 'table' and types.SPAWNING or 0x20
+        if type(getObj) ~= 'function' then return out end
+        local ordinals = {}
+        for _, list in ipairs({area.m_lVertSort, area.m_lVertSortBack}) do
+            iterateList(g, list, function(id)
+                if type(id) == 'number' and not seen[id] then
+                    seen[id] = true
+                    local obj = getObj(id)
+                    if obj and obj.m_objectType == spawnType then
+                        local sp = type(castObj) == 'function' and castObj(obj) or obj
+                        if sp then
+                            local okPos, x, y = pcall(function() return sp.m_pos.x, sp.m_pos.y end)
+                            if okPos and type(x) == 'number' and type(y) == 'number' then
+                                local ix, iy = math.floor(x + 0.5), math.floor(y + 0.5)
+                                local xy = ix .. '_' .. iy
+                                ordinals[xy] = (ordinals[xy] or 0) + 1
+                                local tag = string.format('BGSE_SP_%d_%d_%d', ix, iy, ordinals[xy])
+                                out[#out + 1] = {id = id, x = ix, y = iy, tag = tag, sp = sp}
+                            end
+                        end
+                    end
+                end
+            end)
+        end
+        return out
+    end
+
+    local function snapCandidates(area, party)
+        local sx, sy = 0, 0
+        for _, p in ipairs(party) do sx, sy = sx + p.x, sy + p.y end
+        local cx, cy = sx / #party, sy / #party
+        local openFn = rawget(g, 'EEex_Area_GetNearestOpenPosition')
+        local cands, seenPt = {}, {}
+        for _, radius in ipairs({300, 350, 400, 460}) do
+            for a = 0, 15 do
+                local theta = a * (math.pi / 8)
+                local px = math.max(16, math.floor(cx + math.cos(theta) * radius + 0.5))
+                local py = math.max(12, math.floor(cy + math.sin(theta) * radius + 0.5))
+                if type(openFn) == 'function' then
+                    local ok, ox, oy = pcall(openFn, area, px, py, 3, nil, -1)
+                    if ok and type(ox) == 'number' and type(oy) == 'number' and ox >= 0 and oy >= 0 then
+                        px, py = math.floor(ox + 0.5), math.floor(oy + 0.5)
+                    end
+                end
+                local key = px .. ':' .. py
+                if not seenPt[key] then
+                    seenPt[key] = true
+                    cands[#cands + 1] = {x = px, y = py}
+                end
+            end
+        end
+        return cands
+    end
+
+    local function relocateRestAmbush(area, party, newHostiles)
+        local queueFn = rawget(g, 'EEex_Action_QueueResponseStringOnAIBase')
+        if type(queueFn) ~= 'function' or #party == 0 then return end
+        local candidates = snapCandidates(area, party)
+        local moves = ambush.restPerimeter(party, newHostiles, candidates)
+        for _, mv in ipairs(moves) do
+            local target = nil
+            for _, h in ipairs(newHostiles) do
+                if h.id == mv.id then target = h; break end
+            end
+            if target and target.sprite then
+                local cmd = string.format('JumpToPoint([%d.%d])\nFaceObject(NearestEnemyOf(Myself))', mv.x, mv.y)
+                local ok = pcall(queueFn, cmd, target.sprite)
+                if ok then counts.restRelocated = counts.restRelocated + 1 end
+            end
+        end
+    end
+
+    local function minPartyDist(pt, party)
+        local best = nil
+        for _, p in ipairs(party) do
+            local dx, dy = pt.x - p.x, pt.y - p.y
+            local d = math.sqrt(dx * dx + dy * dy)
+            if not best or d < best then best = d end
+        end
+        return best
+    end
+
+    local function hadNewHostileNear(pt, newlyAppeared)
+        local rSq = respawn.FIRE_RADIUS * respawn.FIRE_RADIUS
+        for _, h in ipairs(newlyAppeared) do
+            if not h.summoned then
+                local dx, dy = h.x - pt.x, h.y - pt.y
+                if dx * dx + dy * dy <= rSq then return true end
+            end
+        end
+        return false
+    end
+
+    local api = {}
+
+    function api:invalidate()
+        lastAreaKey, lastTick = nil, nil
+        lastSpawnArea, lastSpawnTick = nil, nil
+        lastFastMs = nil
+        heldPoints, prevCountdowns, knownHostiles = {}, {}, {}
+        dirty, checkPending = true, true
+    end
+
+    function api:onDestroyed()
+        metaCache, metaCount = {}, 0
+        api:invalidate()
+    end
+
+    function api:step()
+        lastError = false
+        counts.ticks = counts.ticks + 1
+        local area = currentArea(g)
+        if not area then return false end
+        local areaKey = readText(area.m_resref)
+        if areaKey == '' then return false end
+
+        local tick = nil
+        local okTime, gt = pcall(hook.gameTime, g)
+        if okTime and type(gt) == 'number' then tick = gt end
+        if tick == nil then return false end
+
+        local activeEngine = engineOn()
+        local sameArea = (areaKey == lastAreaKey)
+        local restJump = sameArea and lastTick ~= nil and (tick - lastTick) >= ambush.REST_JUMP_TICKS
+        local needSpawnScan = dirty or (areaKey ~= lastSpawnArea) or restJump
+            or lastSpawnTick == nil or tick < lastSpawnTick or (tick - lastSpawnTick) >= M.SCAN_TICKS
+
+        if not sameArea then
+            heldPoints, prevCountdowns = {}, {}
+            knownHostiles = {}
+        end
+
+        local hostiles, hostileById = collectHostiles(area)
+        local newlyAppeared = {}
+        if sameArea then
+            for _, h in ipairs(hostiles) do
+                if not knownHostiles[h.id] and not h.summoned then
+                    newlyAppeared[#newlyAppeared + 1] = h
+                end
+            end
+        end
+
+        local party = nil
+        if restJump and ambushesEnabled and activeEngine and #newlyAppeared > 0 then
+            counts.restJumps = counts.restJumps + 1
+            party = partyInArea(g, areaKey)
+            if #party > 0 then
+                relocateRestAmbush(area, party, newlyAppeared)
+            end
+        elseif restJump then
+            counts.restJumps = counts.restJumps + 1
+        end
+
+        -- Refresh hostile snapshot for this area
+        knownHostiles = {}
+        for id in pairs(hostileById) do knownHostiles[id] = true end
+        lastAreaKey, lastTick = areaKey, tick
+
+        if not needSpawnScan then
+            return false
+        end
+        lastSpawnArea, lastSpawnTick, dirty = areaKey, tick, false
+
+        local spawns = collectSpawns(area)
+        if #spawns == 0 then
+            checkPending = respawnsEnabled or ambushesEnabled
+            return false
+        end
+        checkPending = true
+
+        if not (respawnsEnabled and activeEngine) then
+            for _, item in ipairs(spawns) do
+                if heldPoints[item.tag] then
+                    local okC, cd = pcall(function() return item.sp.m_countdown end)
+                    if okC and type(cd) == 'number' and cd > respawn.DISABLE_MAX_COUNTDOWN then
+                        pcall(function() item.sp.m_countdown = respawn.DISABLE_MAX_COUNTDOWN end)
+                    end
+                    pcall(function() item.sp.bReady = 1 end)
+                    heldPoints[item.tag] = nil
+                    counts.released = counts.released + 1
+                end
+            end
+            return false
+        end
+
+        party = party or partyInArea(g, areaKey)
+        local meta = areaMeta(area, areaKey)
+        local entry = respawn.INFESTED[areaKey]
+        local bossDead = type(entry) == 'string' and getGlobalInt(g, entry) ~= 0 or false
+        local cooldown = respawn.cooldownTicks({
+            area = areaKey,
+            outdoor = meta.outdoor,
+            spawnCount = #spawns,
+            bossDead = bossDead,
+        })
+        local minDist = respawn.minDistance(meta.mapDiag)
+
+        for _, item in ipairs(spawns) do
+            local sp = item.sp
+            local saved = getAreaVar(g, area, item.tag)
+            local okC, curCountdown = pcall(function() return sp.m_countdown end)
+            if not okC or type(curCountdown) ~= 'number' then curCountdown = 0 end
+            local wasHeld = heldPoints[item.tag] == true
+            local nearSpawn = sameArea and hadNewHostileNear(item, newlyAppeared)
+            local fired = respawn.hasFired(prevCountdowns[item.tag], curCountdown, nearSpawn)
+            local pDist = #party > 0 and minPartyDist(item, party) or nil
+
+            local res = respawn.evaluate({
+                tick = tick,
+                saved = saved,
+                partyDist = pDist,
+                countdown = curCountdown,
+                wasHeld = wasHeld,
+                fired = fired,
+                cooldown = cooldown,
+                minDist = minDist,
+            })
+
+            if res.saved ~= saved then
+                setAreaVar(g, area, item.tag, res.saved)
+            end
+            if type(res.nextCountdown) == 'number' then
+                pcall(function() sp.m_countdown = res.nextCountdown end)
+                prevCountdowns[item.tag] = res.nextCountdown
+            else
+                prevCountdowns[item.tag] = curCountdown
+            end
+            if res.ready ~= nil then
+                pcall(function() sp.bReady = res.ready end)
+            end
+
+            if res.hold then
+                if not wasHeld then
+                    if res.reason == 'armed' then counts.armed = counts.armed + 1 end
+                    counts.held = counts.held + 1
+                end
+                heldPoints[item.tag] = true
+            else
+                if wasHeld then counts.released = counts.released + 1 end
+                heldPoints[item.tag] = nil
+            end
+        end
+        return false
+    end
+
+    function api:guardedStep()
+        local ok, res = pcall(api.step, api)
+        if not ok then
+            lastError = tostring(res)
+            return false
+        end
+        return res == true
+    end
+
+    function api:fastStep()
+        if not respawnsEnabled and not ambushesEnabled and not dirty and not checkPending then
+            return false
+        end
+        local getTicks = rawget(g, 'Infinity_GetClockTicks')
+        if type(getTicks) == 'function' then
+            local okMs, nowMs = pcall(getTicks)
+            if okMs and type(nowMs) == 'number' then
+                if not dirty and lastFastMs ~= nil and nowMs >= lastFastMs and (nowMs - lastFastMs) < 50 then
+                    return false
+                end
+                lastFastMs = nowMs
+            end
+        end
+        return api:guardedStep()
+    end
+
+    function api:setRespawnsEnabled(value)
+        local nextVal = (value == true)
+        if nextVal ~= respawnsEnabled then
+            respawnsEnabled = nextVal
+            dirty = true
+            lastFastMs = nil
+            api:guardedStep()
+        end
+    end
+
+    function api:setAmbushesEnabled(value)
+        local nextVal = (value == true)
+        if nextVal ~= ambushesEnabled then
+            ambushesEnabled = nextVal
+            dirty = true
+            lastFastMs = nil
+        end
+    end
+
+    function api:inspect()
+        local held = 0
+        for _ in pairs(heldPoints) do held = held + 1 end
+        return {
+            respawns = respawnsEnabled,
+            ambushes = ambushesEnabled,
+            lastArea = lastAreaKey or false,
+            held = held,
+            lastError = lastError,
+            counts = {
+                ticks = counts.ticks,
+                held = counts.held,
+                released = counts.released,
+                armed = counts.armed,
+                restJumps = counts.restJumps,
+                restRelocated = counts.restRelocated,
+            },
+        }
+    end
+
+    if options.hookListeners ~= false then
+        rawset(g, '_bgseWorldApi', api)
+        rawset(g, 'BGSE_World_Tick', function()
+            local current = rawget(g, '_bgseWorldApi')
+            if type(current) == 'table' and type(current.fastStep) == 'function' then
+                return current:fastStep()
+            end
+            return false
+        end)
+
+        local function pushMenu()
+            local push = rawget(g, 'Infinity_PushMenu')
+            if rawget(g, '_bgseWorldMenuLoaded') == true and rawget(g, '_bgseWorldInitSeen') == true and type(push) == 'function' then
+                pcall(push, 'BGSE_WORLD_TICK')
+            end
+        end
+
+        local addMenu = rawget(g, 'EEex_Menu_AddAfterMainFileLoadedListener')
+        if type(addMenu) == 'function' and not rawget(g, '_bgseWorldMenuListener') then
+            rawset(g, '_bgseWorldMenuListener', true)
+            pcall(addMenu, function()
+                local eval = rawget(g, 'EEex_Menu_Eval')
+                if type(eval) == 'function' then pcall(eval, TICK_MENU) end
+                rawset(g, '_bgseWorldMenuLoaded', true)
+                pushMenu()
+            end)
+        end
+
+        local addReload = rawget(g, 'EEex_Menu_AddAfterMainFileReloadedListener')
+        if type(addReload) == 'function' and not rawget(g, '_bgseWorldMenuReloadListener') then
+            rawset(g, '_bgseWorldMenuReloadListener', true)
+            pcall(addReload, function() pushMenu() end)
+        end
+
+        local addInit = rawget(g, 'EEex_GameState_AddInitializedListener')
+        if type(addInit) == 'function' and not rawget(g, '_bgseWorldInitListener') then
+            rawset(g, '_bgseWorldInitListener', true)
+            pcall(addInit, function()
+                rawset(g, '_bgseWorldInitSeen', true)
+                local current = rawget(g, '_bgseWorldApi')
+                if type(current) == 'table' and type(current.invalidate) == 'function' then pcall(current.invalidate, current) end
+                pushMenu()
+            end)
+        end
+
+        local addLists = rawget(g, 'EEex_Opcode_AddDeferredListsResolvedListener') or rawget(g, 'EEex_Opcode_AddListsResolvedListener')
+        if type(addLists) == 'function' and not rawget(g, '_bgseWorldListsListener') then
+            rawset(g, '_bgseWorldListsListener', true)
+            pcall(addLists, function()
+                local current = rawget(g, '_bgseWorldApi')
+                if type(current) == 'table' and type(current.fastStep) == 'function' then pcall(current.fastStep, current) end
+            end)
+        end
+
+        local addDestroy = rawget(g, 'EEex_GameState_AddDestroyedListener')
+        if options.hookDestroyed ~= true and type(addDestroy) == 'function' and not rawget(g, '_bgseWorldDestroyListener') then
+            rawset(g, '_bgseWorldDestroyListener', true)
+            pcall(addDestroy, function()
+                local current = rawget(g, '_bgseWorldApi')
+                if type(current) == 'table' and type(current.onDestroyed) == 'function' then pcall(current.onDestroyed, current) end
+            end)
+        end
+
+        pushMenu()
+    end
+    return api
+end
+
+return M
+end
 factories["adapters.eeex.runtime"]=function(require)
 -- The installed runtime: the BCS handoff gate with the fight director and the engine's own
 -- choice attached. Without the director or the choice (either failed to start) the gate still
@@ -21025,6 +22120,7 @@ local director=require('adapters.eeex.director')
 local choice=require('adapters.eeex.choice')
 local ui=require('adapters.eeex.ui')
 local arena=require('adapters.eeex.arena')
+local respawn=require('adapters.eeex.respawn')
 local encounters=require('combat-intent.encounters')
 local M={}
 function M.install(g,options)
@@ -21033,11 +22129,14 @@ function M.install(g,options)
         local ok,value=pcall(director.new,g,{shouts=hook.ini(g,'Shouts')~=0})
         if ok then options.director=value end
     end
+    local ambushesOn=hook.ini(g,'Ambushes')~=0
+    local respawnsOn=hook.ini(g,'Respawns')~=0
+    options.ambushes=ambushesOn
     if options.choice==nil then
         local ok,value=pcall(choice.new,g,{director=options.director,enabled=hook.ini(g,'Choice')~=0,
             prebuffs=hook.ini(g,'Prebuffs')~=0,contingencies=hook.ini(g,'Contingencies')~=0,
             defensiveContingencies=hook.ini(g,'DefensiveContingencies',0)==1,
-            shouts=hook.ini(g,'Shouts')~=0,orders=encounters.orders()})
+            shouts=hook.ini(g,'Shouts')~=0,ambushes=ambushesOn,orders=encounters.orders()})
         if ok then options.choice=value end
     end
     local own=options.choice
@@ -21056,17 +22155,27 @@ function M.install(g,options)
         if ok then uiInstance=value end
     end
     local rootRef=nil
+    local respawnInstance=options.respawn
+    if respawnInstance==nil then
+        local ok,value=pcall(respawn.new,g,{respawns=respawnsOn,ambushes=ambushesOn,
+            hookListeners=(options.arena==false),hookDestroyed=true,
+            isEnabled=function() return rootRef~=nil and rootRef.gate~=nil and rootRef.gate:on()==true end})
+        if ok then respawnInstance=value end
+    end
     local arenaInstance=options.arena
     if arenaInstance==nil then
         local ok,value=pcall(arena.new,g,{enabled=hook.ini(g,'ArenaLocks',challengeDefault)==1,
             locks=encounters.arenaLocks(),hookDestroyed=true,
-            isEnabled=function() return rootRef~=nil and rootRef.gate~=nil and rootRef.gate:on()==true end})
+            isEnabled=function() return rootRef~=nil and rootRef.gate~=nil and rootRef.gate:on()==true end,
+            onTick=function() if respawnInstance then respawnInstance:fastStep() end end,
+            onInit=function() if respawnInstance then respawnInstance:invalidate() end end})
         if ok then arenaInstance=value end
     end
     local root=hook.install(g,options)
     rootRef=root
     root.ui=uiInstance
     root.arena=arenaInstance
+    root.respawn=respawnInstance
     function root.setDefensiveContingencies(value,persist)
         if own then own:setDefensiveContingencies(value) end
         if persist then hook.store(g,'DefensiveContingencies',value) end
@@ -21079,10 +22188,20 @@ function M.install(g,options)
         if arenaInstance then arenaInstance:setEnabled(value) end
         if persist then hook.store(g,'ArenaLocks',value) end
     end
+    function root.setRespawns(value,persist)
+        if respawnInstance then respawnInstance:setRespawnsEnabled(value) end
+        if persist then hook.store(g,'Respawns',value) end
+    end
+    local baseSetAmbushes=root.setAmbushes
+    function root.setAmbushes(value,persist)
+        baseSetAmbushes(value,persist)
+        if respawnInstance then respawnInstance:setAmbushesEnabled(value) end
+    end
     local baseSetEnabled=root.setEnabled
     function root.setEnabled(value,persist)
         baseSetEnabled(value,persist)
         if arenaInstance then arenaInstance:invalidate(); arenaInstance:guardedStep() end
+        if respawnInstance then respawnInstance:invalidate(); respawnInstance:guardedStep() end
     end
     function root.setChallengeMode(value,persist)
         challengeOn=(value==true)
@@ -21096,6 +22215,7 @@ function M.install(g,options)
         state.challengeMode=challengeOn
         if uiInstance then state.ui=uiInstance:inspect() end
         if arenaInstance then state.arena=arenaInstance:inspect() end
+        if respawnInstance then state.respawn=respawnInstance:inspect() end
         return state
     end
     return root
