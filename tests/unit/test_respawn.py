@@ -88,13 +88,14 @@ def test_respawn_policy_tiers_distances_and_unbounded_cycles(backend):
                 tick = tick, saved = saved, partyDist = 1400, countdown = 150,
                 wasHeld = true, fired = false, cooldown = 9000, minDist = 1100,
             })
-            assert(rel.reason == 'released' and rel.hold == false and rel.ready == 1 and rel.nextCountdown == 30)
+            assert(rel.reason == 'released' and rel.hold == false and rel.ready == 1 and rel.saved == 0 and rel.nextCountdown == 0)
 
+            -- Party returns inside 448..800 px activation zone, point fires a real wave and re-arms
             local nextWave = respawn.evaluate({
-                tick = tick + 5, saved = saved, partyDist = 1300, countdown = 240,
+                tick = tick + 5, saved = rel.saved, partyDist = 600, countdown = 240,
                 wasHeld = false, fired = true, cooldown = 9000, minDist = 1100,
             })
-            assert(nextWave.reason == 'cooldown' and nextWave.hold == true)
+            assert(nextWave.reason == 'armed' and nextWave.hold == true)
             saved = nextWave.saved
             assert(saved == tick + 5 + 9000)
         end
@@ -187,11 +188,12 @@ def test_eeex_respawn_adapter_governance_and_rest_perimeter(backend):
         api:step()
         assert(sp1.bReady == 0 and sp1.m_countdown == 150)
 
-        -- Party moves >= 1040 px away: released to 30 and bReady=1
+        -- Party moves >= 1040 px away: released to 0 and bReady=1, area var reset to 0 for next FoW wave
         pc.m_pos.x = 1500
         setTime(2030)
         api:step()
-        assert(sp1.bReady == 1 and sp1.m_countdown == 30)
+        assert(sp1.bReady == 1 and sp1.m_countdown == 0)
+        assert((areaVars['BGSE_SP_400_400_1'] or 0) == 0)
 
         -- Disable respawns cleanly unholds held points
         pc.m_pos.x = 700
@@ -255,5 +257,149 @@ def test_eeex_respawn_adapter_governance_and_rest_perimeter(backend):
         assert(d >= 280 and d <= 420)
         local st = api:inspect()
         assert(st.counts.restJumps == 1 and st.counts.restRelocated == 1)
+        """,
+    )
+
+
+@pytest.mark.parametrize('backend', ['lua51', 'luajit21'])
+def test_eeex_respawn_native_cgamespawning_memory_layout(backend):
+    bmp = list(_bmp_header_bytes(80, 80))  # diag = 1600 -> minDist = 1040
+    _run_lua(
+        backend,
+        f"""
+        local respawnMod = require('adapters.eeex.respawn')
+        local bmpBytes = {{{','.join(str(b) for b in bmp)}}}
+
+        local gameTime = 1000
+        local areaVars = {{}}
+        local area = {{
+            m_resref = {{get = function() return 'AR0701' end}},
+            m_header = {{m_areaType = 0}},
+            m_lVertSort = {{101, 102}},
+            m_lVertSortBack = {{}},
+        }}
+        local pc = {{
+            m_id = 1, m_active = 1, m_pArea = area,
+            m_pos = {{x = 1200, y = 400}},
+            m_baseStats = {{m_hitPoints = 40, m_generalState = 0}},
+            m_typeAI = {{m_EnemyAlly = 2}},
+        }}
+        local pcAlly = {{
+            m_id = 2, m_active = 1, m_pArea = area,
+            m_pos = {{x = 1220, y = 400}},
+            m_baseStats = {{m_hitPoints = 40, m_generalState = 0}},
+            m_typeAI = {{m_EnemyAlly = 255}}, -- unreset recruited NPC EA must NEVER be treated as hostile
+            m_lSummonedBy = {{m_Instance = -1}},
+            m_nCopyParent = -1,
+        }}
+
+        -- Real native userdata mocks (EEex CGameSpawning layout: +0xDA wMethod, +0xE6 wEnabled, +0xF4 m_countdown)
+        local mem = {{
+            -- sp1: wMethod=0 (unconditional ready), wEnabled=1, .ARE garbage in +0xF4 (16843009)
+            [0x20000 + 0xDA] = 0,
+            [0x20000 + 0xE6] = 1,
+            [0x20000 + 0xF4] = 16843009,
+            -- sp2: wEnabled=0 (deactivated) -> never touched
+            [0x30000 + 0xDA] = 0,
+            [0x30000 + 0xE6] = 0,
+            [0x30000 + 0xF4] = 0,
+        }}
+        local function makeSpawnUd(base, x, y)
+            local ud = newproxy(true)
+            getmetatable(ud).__index = {{
+                m_id = base,
+                m_objectType = 0x20,
+                m_pos = {{x = x, y = y}},
+                _ptr = base,
+            }}
+            return ud
+        end
+        local sp1 = makeSpawnUd(0x20000, 400, 400)
+        local sp2 = makeSpawnUd(0x30000, 420, 400)
+        local objs = {{[101] = sp1, [102] = sp2, [1] = pc, [2] = pcAlly}}
+        area.m_lVertSort = {{101, 102, 1}}
+        local queued = {{}}
+
+        local g = {{
+            CGameObjectType = {{SPAWNING = 0x20}},
+            EngineGlobals = {{g_pBaldurChitin = {{m_pObjectGame = {{m_worldTime = {{m_gameTime = 1000}}}}}}}},
+            EEex_Area_GetVisible = function() return area end,
+            EEex_Sprite_GetInPortrait = function(i)
+                if i == 0 then return pc end
+                if i == 1 then return pcAlly end
+                return nil
+            end,
+            EEex_GameObject_Get = function(id) return objs[id] end,
+            EEex_GameObject_IsSprite = function(o) return o and o.m_objectType ~= 0x20 end,
+            EEex_Area_GetVariableInt = function(_, k) return areaVars[k] or 0 end,
+            EEex_Area_SetVariableInt = function(_, k, v) areaVars[k] = v end,
+            EEex_GameState_GetGlobalInt = function() return 0 end,
+            EEex_Resource_Fetch = function(res, kind)
+                if res == 'AR0701SR' and kind == 'BMP' then
+                    return {{Demand = function() return bmpBytes end, nSize = #bmpBytes}}
+                end
+                return nil
+            end,
+            EEex_UDToPtr = function(t)
+                if type(t) == 'table' then return 1000 end
+                if type(t) == 'userdata' then return t._ptr end
+                return 0
+            end,
+            EEex_ReadU8 = function(ptr) return bmpBytes[ptr - 1000 + 1] or 0 end,
+            EEex_ReadU16 = function(addr) return mem[addr] or 0 end,
+            EEex_WriteU16 = function(addr, v) mem[addr] = v end,
+            EEex_Read32 = function(addr) return mem[addr] or 0 end,
+            EEex_Write32 = function(addr, v) mem[addr] = v end,
+            EEex_Action_QueueResponseStringOnAIBase = function(cmd, sp)
+                queued[#queued + 1] = {{id = sp.m_id, cmd = cmd}}
+            end,
+        }}
+        local function setTime(t)
+            gameTime = t
+            g.EngineGlobals.g_pBaldurChitin.m_pObjectGame.m_worldTime.m_gameTime = t
+        end
+
+        local api = respawnMod.new(g, {{hookListeners = false, isEnabled = function() return true end}})
+
+        -- Distant: sp1 untouched (wMethod stays 0), sp2 skipped
+        api:step()
+        assert(mem[0x20000 + 0xDA] == 0 and (areaVars['BGSE_SP_400_400_1'] or 0) == 0)
+
+        -- Sight: holds sp1 via bits 1+4 (wMethod=5), m_countdown=150; sp2 still 0
+        pc.m_pos.x = 700
+        setTime(1015)
+        api:step()
+        assert(mem[0x20000 + 0xDA] == 5 and mem[0x20000 + 0xF4] == 150)
+        assert(mem[0x30000 + 0xDA] == 0)
+
+        -- After cooldown and >= 1040 px away: restores original wMethod=0, m_countdown=0, saved=0
+        pc.m_pos.x = 1500
+        pcAlly.m_pos.x = 1520
+        setTime(2000)
+        api:step()
+        assert(mem[0x20000 + 0xDA] == 0 and mem[0x20000 + 0xF4] == 0)
+        assert((areaVars['BGSE_SP_400_400_1'] or 0) == 0)
+
+        -- Engine fires sp1 natively while party is at 600 px (wMethod flips 0->4, countdown=90):
+        -- BGSE detects waiting edge and re-arms cooldown + holds countdown at >= 150
+        pc.m_pos.x = 1000
+        pcAlly.m_pos.x = 1020
+        mem[0x20000 + 0xDA] = 4
+        mem[0x20000 + 0xF4] = 90
+        setTime(2030)
+        api:step()
+        assert(mem[0x20000 + 0xDA] == 5 and mem[0x20000 + 0xF4] == 150)
+        assert(areaVars['BGSE_SP_400_400_1'] == 2930)
+
+        -- Kill switch Respawns=false cleanly restores original wMethod=0 and clamps countdown <= 90
+        api:setRespawnsEnabled(false)
+        assert(mem[0x20000 + 0xDA] == 0 and mem[0x20000 + 0xF4] == 90)
+
+        -- Portrait member pcAlly with EA=255 entering area on +4800 rest jump is never treated as hostile
+        pcAlly.m_pos.x = pc.m_pos.x + 20
+        area.m_lVertSort = {{101, 102, 1, 2}}
+        setTime(7000)
+        api:step()
+        assert(#queued == 0 and api:inspect().counts.restRelocated == 0)
         """,
     )

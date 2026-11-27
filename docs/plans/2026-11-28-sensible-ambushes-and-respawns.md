@@ -51,3 +51,17 @@ Explicitly **out of scope** for Overhaul v1 defaults and deferred to future Chal
 - Travel ambush exit locks (`ArenaLocks` remains Challenge Mode only).
 - Anti-farming limits or finite wave caps on area respawns.
 - Wandering area patrols replacing static spawn points.
+
+---
+
+## 4. Live Lab Verification
+
+Verified end-to-end against a clean EET standing lab (`WeiDU` components `0` and `10`, `19/19` live checks passing, zero runtime errors, `0` file drift after uninstall and restore; `530/530` offline tests and `5/5` targeted respawn mutations passing):
+
+- **Installer & Default-ON:** Relocated `204` ambush blocks across `17` EET random-encounter scripts cleanly, defaulting `[BGSE] Enabled=1`, `[BGSE] Ambushes=1`, `[BGSE] Respawns=1`, and `ChallengeMode=0`.
+- **BG1 & BG2 Travel Ambushes:** Verified Fog-of-War flanking squads and `'called'` approach (`BG5600`, `BG5900`, `AR0045` 11-enemy warband at `>= 478.5 px`), dialogue/taunt spacing (`BG6100` Lamalha, `AR0041` Suna Seni `328.4 px` / allies `375.5..435.7 px`), untouched story coordinates (`AR0042` Renfeld), planar cutscene stability (`AR0044` Githyanki), and live kill switch toggling (`BG5700` `[BGSE] Ambushes=0` restoring vanilla close spawns).
+- **Rest-Interruption Perimeter (`BG2800`):** Verified `>= 4500`-tick jumps relocate nearby non-summoned ambushers to the `264..420 px` camp perimeter while ignoring summoned units, outer enemies, and `< 4500`-tick combat spawns.
+- **Fog-of-War Respawns:** Verified `BG5201` fresh distant spawns, `+900`-tick infested cooldown arming on sighting, distance-hold blocking (`< 1100 px`) past elapsed cooldown, `3` consecutive hold -> release -> real `CGameSpawning` wave -> re-arm cycles without any wave cap, `AR1302` dynamic `~900` -> `~9000` transition when `SPRITE_IS_DEADTORGAL` flips, and `BG3200` `54000`-tick wilderness persistence across travel, `SaveGame`, and live `BGSE.setRespawns(false)` release.
+- **Live Engine Fixes Validated In-Game:**
+  1. Native `CGameSpawning` memory access in `adapters/eeex/respawn.lua` reading/writing inline `wMethod` (`0xDA`), `wEnabled` (`0xE6`), and `m_countdown` (`0xF4`), restoring original `wMethod` bits on release, and excluding party portrait sprites from hostile scans.
+  2. Resetting governed area variables to `0` on release in `combat-intent/respawn.lua` so vanilla `CGameSpawning::DoAIUpdate`'s `< 800 px` Fog-of-War check reliably fires endless subsequent waves.

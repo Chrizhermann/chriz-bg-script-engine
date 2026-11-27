@@ -140,17 +140,17 @@ function M.evaluate(input)
         return holdResult(saved, 'cooldown')
     end
 
-    if wasHeld and countdown > M.RELEASE_COUNTDOWN then
+    if wasHeld then
         return {
-            saved = saved,
+            saved = 0,
             hold = false,
-            nextCountdown = M.RELEASE_COUNTDOWN,
+            nextCountdown = 0,
             ready = 1,
             reason = 'released',
         }
     end
     return {
-        saved = saved,
+        saved = 0,
         hold = false,
         nextCountdown = nil,
         ready = 1,

@@ -96,6 +96,95 @@ local function isSummonedOrClone(obj)
     return false
 end
 
+local function hasBit(v, bit)
+    return type(v) == 'number' and math.floor(v / bit) % 2 == 1
+end
+
+-- Real CGameSpawning in EEex v1.3.1 stores CAreaFileRandomMonsterSpawningPoint inline at
+-- +0x60: +0xDA wMethod (bit 1=wait-countdown, bit 2=one-shot, bit 4=waiting), +0xE6 wEnabled,
+-- +0xF4 m_countdown. Plain table mocks in unit tests use .bReady / .m_countdown directly.
+local function readSpawn(g, sp)
+    if type(sp) == 'userdata' then
+        local toPtr = rawget(g, 'EEex_UDToPtr')
+        local r16 = rawget(g, 'EEex_ReadU16')
+        local r32 = rawget(g, 'EEex_Read32')
+        if type(toPtr) ~= 'function' or type(r16) ~= 'function' or type(r32) ~= 'function' then
+            return {active = false}
+        end
+        local okP, ptr = pcall(toPtr, sp)
+        if not okP or type(ptr) ~= 'number' or ptr == 0 then return {active = false} end
+        local okE, wEnabled = pcall(r16, ptr + 0xE6)
+        local okM, wMethod = pcall(r16, ptr + 0xDA)
+        if not okE or type(wEnabled) ~= 'number' or not okM or type(wMethod) ~= 'number' then
+            return {active = false}
+        end
+        if wEnabled == 0 or (hasBit(wMethod, 2) and hasBit(wMethod, 4)) then
+            return {active = false}
+        end
+        local waiting = hasBit(wMethod, 4)
+        local rawCd = 0
+        if waiting then
+            local okC, cd = pcall(r32, ptr + 0xF4)
+            if okC and type(cd) == 'number' and cd >= 0 and cd <= 200000 then
+                rawCd = cd
+            end
+        end
+        return {
+            active = true,
+            native = true,
+            ptr = ptr,
+            wMethod = wMethod,
+            waiting = waiting,
+            ready = waiting and 0 or 1,
+            countdown = rawCd,
+        }
+    end
+    local curCountdown = type(sp.m_countdown) == 'number' and sp.m_countdown or 0
+    local waiting = (sp.bReady == 0)
+    return {
+        active = true,
+        native = false,
+        waiting = waiting,
+        ready = sp.bReady or 1,
+        countdown = curCountdown,
+    }
+end
+
+local function writeSpawn(g, info, sp, hold, nextCountdown, ready, origMethod)
+    if not info or not info.active then return false end
+    if info.native then
+        local w16 = rawget(g, 'EEex_WriteU16')
+        local w32 = rawget(g, 'EEex_Write32')
+        if type(w16) ~= 'function' or type(w32) ~= 'function' then return false end
+        local baseMethod = type(origMethod) == 'number' and origMethod
+            or (info.waiting and (info.wMethod - 4) or info.wMethod)
+        if hold then
+            local method = baseMethod
+            if not hasBit(method, 1) then method = method + 1 end
+            if not hasBit(method, 4) then method = method + 4 end
+            local cd = type(nextCountdown) == 'number' and nextCountdown or respawn.HOLD_COUNTDOWN
+            pcall(w16, info.ptr + 0xDA, method)
+            pcall(w32, info.ptr + 0xF4, cd)
+            return true
+        end
+        if type(origMethod) == 'number' or info.waiting then
+            local method = hasBit(baseMethod, 4) and (baseMethod - 4) or baseMethod
+            pcall(w16, info.ptr + 0xDA, method)
+        end
+        if type(nextCountdown) == 'number' then
+            pcall(w32, info.ptr + 0xF4, nextCountdown)
+        end
+        return true
+    end
+    if type(nextCountdown) == 'number' then
+        pcall(function() sp.m_countdown = nextCountdown end)
+    end
+    if ready ~= nil then
+        pcall(function() sp.bReady = ready end)
+    end
+    return true
+end
+
 local function currentArea(g)
     local getArea = rawget(g, 'EEex_Area_GetVisible')
     if type(getArea) == 'function' then
@@ -240,7 +329,7 @@ function M.new(g, options)
     local isEngineEnabled = options.isEnabled
 
     local metaCache, metaCount = {}, 0
-    local heldPoints, prevCountdowns = {}, {}
+    local heldPoints, prevCountdowns, prevWaiting = {}, {}, {}
     local knownHostiles = {}
     local lastAreaKey, lastTick = nil, nil
     local lastSpawnArea, lastSpawnTick = nil, nil
@@ -276,14 +365,29 @@ function M.new(g, options)
         return meta
     end
 
-    local function collectHostiles(area)
+    local function collectPartyIds()
+        local ids = {}
+        local getter = rawget(g, 'EEex_Sprite_GetInPortrait')
+        if type(getter) == 'function' then
+            for i = 0, 5 do
+                local ok, sp = pcall(getter, i)
+                if ok and sp then
+                    local okId, pid = pcall(function() return sp.m_id end)
+                    if okId and type(pid) == 'number' then ids[pid] = true end
+                end
+            end
+        end
+        return ids
+    end
+
+    local function collectHostiles(area, partyIds)
         local out, byId, seen = {}, {}, {}
         local getObj = rawget(g, 'EEex_GameObject_Get')
         local isSprite = rawget(g, 'EEex_GameObject_IsSprite')
         if type(getObj) ~= 'function' then return out, byId end
         for _, list in ipairs({area.m_lVertSort, area.m_lVertSortBack}) do
             iterateList(g, list, function(id)
-                if type(id) == 'number' and not seen[id] then
+                if type(id) == 'number' and not seen[id] and not (partyIds and partyIds[id]) then
                     seen[id] = true
                     local obj = getObj(id)
                     if obj and (type(isSprite) ~= 'function' or isSprite(obj, false)) then
@@ -413,7 +517,7 @@ function M.new(g, options)
         lastAreaKey, lastTick = nil, nil
         lastSpawnArea, lastSpawnTick = nil, nil
         lastFastMs = nil
-        heldPoints, prevCountdowns, knownHostiles = {}, {}, {}
+        heldPoints, prevCountdowns, prevWaiting, knownHostiles = {}, {}, {}, {}
         dirty, checkPending = true, true
     end
 
@@ -442,11 +546,12 @@ function M.new(g, options)
             or lastSpawnTick == nil or tick < lastSpawnTick or (tick - lastSpawnTick) >= M.SCAN_TICKS
 
         if not sameArea then
-            heldPoints, prevCountdowns = {}, {}
+            heldPoints, prevCountdowns, prevWaiting = {}, {}, {}
             knownHostiles = {}
         end
 
-        local hostiles, hostileById = collectHostiles(area)
+        local partyIds = collectPartyIds()
+        local hostiles, hostileById = collectHostiles(area, partyIds)
         local newlyAppeared = {}
         if sameArea then
             for _, h in ipairs(hostiles) do
@@ -486,13 +591,16 @@ function M.new(g, options)
 
         if not (respawnsEnabled and activeEngine) then
             for _, item in ipairs(spawns) do
-                if heldPoints[item.tag] then
-                    local okC, cd = pcall(function() return item.sp.m_countdown end)
-                    if okC and type(cd) == 'number' and cd > respawn.DISABLE_MAX_COUNTDOWN then
-                        pcall(function() item.sp.m_countdown = respawn.DISABLE_MAX_COUNTDOWN end)
+                local origMethod = heldPoints[item.tag]
+                if origMethod ~= nil then
+                    local info = readSpawn(g, item.sp)
+                    local nextCd = nil
+                    if info.active and info.countdown > respawn.DISABLE_MAX_COUNTDOWN then
+                        nextCd = respawn.DISABLE_MAX_COUNTDOWN
                     end
-                    pcall(function() item.sp.bReady = 1 end)
+                    writeSpawn(g, info, item.sp, false, nextCd, 1, origMethod)
                     heldPoints[item.tag] = nil
+                    prevWaiting[item.tag] = false
                     counts.released = counts.released + 1
                 end
             end
@@ -513,47 +621,51 @@ function M.new(g, options)
 
         for _, item in ipairs(spawns) do
             local sp = item.sp
-            local saved = getAreaVar(g, area, item.tag)
-            local okC, curCountdown = pcall(function() return sp.m_countdown end)
-            if not okC or type(curCountdown) ~= 'number' then curCountdown = 0 end
-            local wasHeld = heldPoints[item.tag] == true
-            local nearSpawn = sameArea and hadNewHostileNear(item, newlyAppeared)
-            local fired = respawn.hasFired(prevCountdowns[item.tag], curCountdown, nearSpawn)
-            local pDist = #party > 0 and minPartyDist(item, party) or nil
+            local info = readSpawn(g, sp)
+            if info.active then
+                local saved = getAreaVar(g, area, item.tag)
+                local origMethod = heldPoints[item.tag]
+                local wasHeld = (origMethod ~= nil)
+                local nearSpawn = sameArea and hadNewHostileNear(item, newlyAppeared)
+                local nativeEdge = (info.native and not wasHeld and prevWaiting[item.tag] == false and info.waiting == true)
+                local fired = respawn.hasFired(prevCountdowns[item.tag], info.countdown, nearSpawn or nativeEdge)
+                local pDist = #party > 0 and minPartyDist(item, party) or nil
 
-            local res = respawn.evaluate({
-                tick = tick,
-                saved = saved,
-                partyDist = pDist,
-                countdown = curCountdown,
-                wasHeld = wasHeld,
-                fired = fired,
-                cooldown = cooldown,
-                minDist = minDist,
-            })
+                local res = respawn.evaluate({
+                    tick = tick,
+                    saved = saved,
+                    partyDist = pDist,
+                    countdown = info.countdown,
+                    wasHeld = wasHeld,
+                    fired = fired,
+                    cooldown = cooldown,
+                    minDist = minDist,
+                })
 
-            if res.saved ~= saved then
-                setAreaVar(g, area, item.tag, res.saved)
-            end
-            if type(res.nextCountdown) == 'number' then
-                pcall(function() sp.m_countdown = res.nextCountdown end)
-                prevCountdowns[item.tag] = res.nextCountdown
-            else
-                prevCountdowns[item.tag] = curCountdown
-            end
-            if res.ready ~= nil then
-                pcall(function() sp.bReady = res.ready end)
-            end
-
-            if res.hold then
-                if not wasHeld then
-                    if res.reason == 'armed' then counts.armed = counts.armed + 1 end
-                    counts.held = counts.held + 1
+                if res.saved ~= saved then
+                    setAreaVar(g, area, item.tag, res.saved)
                 end
-                heldPoints[item.tag] = true
-            else
-                if wasHeld then counts.released = counts.released + 1 end
-                heldPoints[item.tag] = nil
+
+                if res.hold then
+                    local nextBase = origMethod
+                    if nextBase == nil then
+                        nextBase = info.native and (info.waiting and (info.wMethod - 4) or info.wMethod) or true
+                    end
+                    writeSpawn(g, info, sp, true, res.nextCountdown, res.ready, nextBase)
+                    if not wasHeld then
+                        if res.reason == 'armed' then counts.armed = counts.armed + 1 end
+                        counts.held = counts.held + 1
+                    end
+                    heldPoints[item.tag] = nextBase
+                    prevWaiting[item.tag] = true
+                else
+                    writeSpawn(g, info, sp, false, res.nextCountdown, res.ready, origMethod)
+                    if wasHeld then counts.released = counts.released + 1 end
+                    heldPoints[item.tag] = nil
+                    prevWaiting[item.tag] = (res.reason == 'released') and false or info.waiting
+                end
+
+                prevCountdowns[item.tag] = type(res.nextCountdown) == 'number' and res.nextCountdown or info.countdown
             end
         end
         return false
