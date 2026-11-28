@@ -229,6 +229,8 @@ local removal=require('combat-intent.removal')
 local search=require('combat-intent.search')
 local backstab=require('combat-intent.backstab')
 local prep=require('combat-intent.prep')
+local prebuff=require('combat-intent.prebuff')
+local contingency=require('combat-intent.contingency')
 local rngs=require('kernel.rng')
 local M={}
 -- Every family a hook asks for (kernel/hook.lua): the ones api:setFamilies takes. The engine takes
@@ -274,10 +276,11 @@ M.judgeLimit=64
 -- Item slots a creature drinks from: the quick items and the backpack (SLOTS.IDS).
 M.itemFirst,M.itemLast=15,33
 -- Casts of the engine's own: Spell (SpellRES) and SpellPoint (SpellPointRES); ForceSpell and
--- ForceSpellPoint (ForceSpellRES, ForceSpellPointRES) for releases; UseItem for a potion. Each
--- holds the spell's or item's resref as its first string.
-M.CASTS={[31]=true,[95]=true,[113]=true,[114]=true,[34]=true}
+-- ForceSpellPoint (ForceSpellRES, ForceSpellPointRES) for releases; UseItem and UseItemPoint for a
+-- potion or thrown oil. Each holds the spell's or item's resref as its first string.
+M.CASTS={[31]=true,[95]=true,[113]=true,[114]=true,[34]=true,[97]=true}
 M.USE=34
+M.USE_POINT=97
 -- Decisions for friends: sanctuary keeps out enemies' casts, not these; heals and cures claim the
 -- allies they help.
 M.FRIENDLY={defence=true,heal=true,cure=true}
@@ -292,7 +295,8 @@ M.ATTACKS={[3]=true,[98]=true,[105]=true,[134]=true}
 -- (SLOT_WEAPON0 to 3).
 M.magicSlot=34
 M.strikeTicks=180
-M.WEAPON_SLOTS={[35]=true,[36]=true,[37]=true,[38]=true}
+M.HAND_SLOTS={[35]=true,[36]=true,[37]=true,[38]=true}
+M.WEAPON_SLOTS={[11]=true,[12]=true,[13]=true,[14]=true,[35]=true,[36]=true,[37]=true,[38]=true}
 -- A melee attack that cannot get to its target (M.stuck): the attacker has stood still for
 -- stuckTicks (no step of stillSlack or more) with its target beyond a swing's reach for the two of
 -- them (M.swingReach); the engine then leaves that target to its other choices for
@@ -471,9 +475,10 @@ end
 M.chain=chain
 -- The weapon a decision takes up first (decision.slot, abilityNum), the first line of its response:
 -- '' for none, nil for a bad one.
-local function takeUp(decision)
+local function takeUp(decision,allowQuiver)
     if decision.slot==nil then return '' end
-    if not M.WEAPON_SLOTS[decision.slot] or not whole(decision.abilityNum) then return nil end
+    local slots=allowQuiver and M.WEAPON_SLOTS or M.HAND_SLOTS
+    if not slots[decision.slot] or not whole(decision.abilityNum) then return nil end
     return 'SelectWeaponAbility('..decision.slot..','..decision.abilityNum..')'
 end
 -- The response that casts decision's spell (a release with ForceSpellRES), or strikes with the
@@ -484,14 +489,23 @@ end
 function M.response(decision)
     if type(decision)~='table' or not valid(decision.resref) then return nil end
     if decision.use then
-        if not decision.self then return nil end
-        return 'UseItem("'..decision.resref..'",Myself)'
+        if decision.self then return 'UseItem("'..decision.resref..'",Myself)' end
+        if decision.point then
+            local p=decision.point
+            if type(p)~='table' or not whole(p.x) or not whole(p.y) then return nil end
+            return 'UseItemPoint("'..decision.resref..'",['..p.x..'.'..p.y..'],0)'
+        end
+        local t=decision.target
+        if type(t)=='number' and t>=0 and t%1==0 then
+            return 'UseItem("'..decision.resref..'",EEex_Target("'..M.targetName..'"))'
+        end
+        return nil
     end
     if decision.kind=='strike' or decision.kind=='weapon' then
         local t=decision.target
         if type(t)~='number' or t<0 or t%1~=0 then return nil end
         local first=''
-        if decision.kind=='weapon' then first=takeUp(decision) end
+        if decision.kind=='weapon' then first=takeUp(decision,true) end
         if not first then return nil end
         return chain(first,'AttackOneRound(EEex_Target("'..M.targetName..'"))')
     end
@@ -499,9 +513,20 @@ function M.response(decision)
         local p=decision.point
         if type(p)~='table' or not whole(p.x) or not whole(p.y) then return nil end
         local first=''
-        if decision.kind=='flank' then first=takeUp(decision) end
+        if decision.kind=='flank' then first=takeUp(decision,false) end
         if not first then return nil end
         return chain(first,'MoveToPoint(['..p.x..'.'..p.y..'])')
+    end
+    if decision.resref:sub(1,5)=='BGSE#' then
+        if decision.point then
+            local p=decision.point
+            if not whole(p.x) or not whole(p.y) then return nil end
+            return 'NoAction()'
+        end
+        if decision.self then return 'NoAction()' end
+        local t=decision.target
+        if type(t)=='number' and t>=0 and t%1==0 then return 'NoAction()' end
+        return nil
     end
     local cast=decision.release and 'ForceSpell' or 'Spell'
     if decision.point then
@@ -535,9 +560,10 @@ function M.doorResponse(point,behind,way,spell)
     return chain(walk,unlock,'OpenDoor('..door..')',on)
 end
 
--- Whether a friend in frame (the creature itself or an ally it sees) has lost hit points, is held
--- or has a condition a cure takes away: then heals and cures are weighed with no enemy in sight.
--- A charmed ally is a foe the creature's side charmed, no friend (combat-intent/threat.lua).
+-- Whether a friend in frame (the creature itself or an ally it sees) has lost hit points, is held,
+-- has drained levels, or has a condition a cure takes away: then heals and cures are weighed with no
+-- enemy in sight. A charmed ally is a foe the creature's side charmed, no friend
+-- (combat-intent/threat.lua).
 function M.ailing(frame)
     local friends={frame.self}
     for _,a in ipairs(frame.allies) do
@@ -545,10 +571,27 @@ function M.ailing(frame)
     end
     for _,f in ipairs(friends) do
         if type(f.hp)=='number' and type(f.maxHp)=='number' and f.hp<f.maxHp then return true end
-        if (f.held or 0)>0 then return true end
+        if (f.held or 0)>0 or (f.drained or 0)>0 then return true end
         for _,bit in ipairs(M.CONDITION_BITS) do
             if targeting.has(f.state,bit) then return true end
         end
+    end
+    return false
+end
+
+function M.careSnapshot(f)
+    local cond=type(f.guard)=='table' and f.guard.conditions
+    return {hp=f.hp,state=f.state,held=f.held,drained=f.drained,
+        abilityDrain=type(cond)=='table' and (cond.abilityDrain or 0)>0 or nil}
+end
+
+function M.careHelped(g,friend,before,now,tick)
+    if type(now.hp)=='number' and type(before.hp)=='number' and now.hp>before.hp then return true end
+    if (before.held or 0)>0 and (now.held or 0)==0 then return true end
+    if (before.drained or 0)>(now.drained or 0) then return true end
+    if before.abilityDrain and not sense.abilityDrained(g,friend,tick) then return true end
+    for _,bit in ipairs(M.CONDITION_BITS) do
+        if targeting.has(before.state,bit) and not targeting.has(now.state,bit) then return true end
     end
     return false
 end
@@ -596,6 +639,12 @@ function M.new(g,options)
     end
     local rng=type(options.rng)=='table' and options.rng or rngs.new(seed)
     local enabled=options.enabled~=false
+    local prebuffsOn=options.prebuffs==true
+    local prebuffConfig=options.prebuffConfig
+    local contingenciesOn=options.contingencies==true
+    local defensiveContingencies=options.defensiveContingencies==true
+    local shoutsOn=options.shouts~=false
+    local contingencyConfig=options.contingencyConfig
     local missing
     for _,name in ipairs(M.required) do
         if type(rawget(g,name))~='function' then missing=missing or name end
@@ -646,7 +695,10 @@ function M.new(g,options)
     local openings,openingCount={},0
     -- The creatures whose companion (orders.companion) came, by object id.
     local companions,companionCount={},0
-    local counts={companions=0,openerSteps=0,talkHolds=0,talkExtras=0,preps=0,prepHolds=0,kept=0,cut=0,waits=0,marked=0,escapes=0,escaped=0,unescaped=0,zoneFailures=0,stayed=0,left=0,pains=0,witFailures=0,decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
+    -- Shared opener / native preparation state table (kept in one table so decide stays within Lua 5.1's 60-upvalue limit).
+    local opener={done={},doneCount=0,longDone={},longCount=0,shortDone={},shortCount=0,
+        loadouts={},loadoutCount=0,ctgFired={},chainFired={},seqSpent={},nativeAura={}}
+    local counts={companions=0,fightPrebuffs=0,longPrebuffs=0,nativePrebuffs=0,contingencies=0,chains=0,nativeSequencers=0,openerSteps=0,talkHolds=0,talkExtras=0,preps=0,prepHolds=0,kept=0,cut=0,waits=0,marked=0,escapes=0,escaped=0,unescaped=0,zoneFailures=0,stayed=0,left=0,pains=0,witFailures=0,decisions=0,claims=0,declines=0,performed=0,skipped=0,started=0,lost=0,interrupted=0,
         hits=0,misses=0,errors=0,holds=0,frozen=0,marks=0,markFailures=0,defences=0,guarded=0,unguarded=0,
         guardFailures=0,openers=0,touches=0,strikes=0,strikeHits=0,strikeMisses=0,arms=0,attacks=0,attackHits=0,stuck=0,
         weaponFailures=0,releases=0,heals=0,cures=0,potions=0,cared=0,uncared=0,summons=0,conjured=0,
@@ -671,7 +723,7 @@ function M.new(g,options)
         record({kind='error',where=where,error=tostring(err):sub(1,200)})
     end
     -- The engine's own search for enemies a creature cannot see (adapters/eeex/search.lua).
-    local seeker=searches.new(g,{director=director,record=record,rng=rng,reader=reader})
+    local seeker=searches.new(g,{director=director,record=record,rng=rng,reader=reader,ambushes=options.ambushes})
     -- Wit (combat-intent/mind.lua): the game's difficulty (1 to 5), nil when it cannot be read.
     local function difficulty()
         local ok,value=pcall(function() return g.EngineGlobals.g_pBaldurChitin.m_pObjectGame.m_options.m_nDifficultyLevel end)
@@ -981,6 +1033,7 @@ function M.new(g,options)
             rows[#rows+1]={resref=s.resref,list=s.list,level=s.level,ready=s.ready,memorized=s.memorized,
                 usable=s.usable,spell=classify(s.resref,level)}
         end
+        if opener.appendSequencers then opener.appendSequencers(sprite,snapshot,rows) end
         local carried={}
         for _,it in ipairs(snapshot.items) do
             if it.slot>=M.itemFirst and it.slot<=M.itemLast then
@@ -988,7 +1041,8 @@ function M.new(g,options)
                 for i,effect in ipairs(item(it.resref)) do
                     abilities[i]={effect=effect,uses=type(it.uses)=='table' and it.uses[i] or nil}
                 end
-                carried[#carried+1]={resref=it.resref,abilities=abilities}
+                local rec=reader.get('ITM',it.resref)
+                carried[#carried+1]={resref=it.resref,itemType=rec and rec.itemType or nil,abilities=abilities}
             end
         end
         return rows,carried
@@ -1140,12 +1194,7 @@ function M.new(g,options)
                 local before=type(a.before)=='table' and a.before[id]
                 if friend and before then
                     local now=sense.actor(g,friend)
-                    local better=type(now.hp)=='number' and type(before.hp)=='number' and now.hp>before.hp
-                    if (before.held or 0)>0 and (now.held or 0)==0 then better=true end
-                    for _,bit in ipairs(M.CONDITION_BITS) do
-                        if targeting.has(before.state,bit) and not targeting.has(now.state,bit) then better=true end
-                    end
-                    if better then helped=helped+1 end
+                    if M.careHelped(g,friend,before,now,a.ended) then helped=helped+1 end
                 end
             end
             if helped>0 then counts.cared=counts.cared+1 else counts.uncared=counts.uncared+1 end
@@ -1372,10 +1421,10 @@ function M.new(g,options)
         s[what]=s[what]+n
         if what=='stay' then counts.stayed=counts.stayed+n else counts.left=counts.left+n end
     end
-    -- What the group has seen, for a decision's input: its enemies in zones (stays) and dispels at
-    -- them (dispels).
+    -- What the group has seen, for a decision's input: its enemies in zones (stays), dispels at
+    -- them (dispels), and the game's difficulty (1 to 5).
     local function lore(input)
-        input.stays,input.dispels=stays,dispels
+        input.stays,input.dispels,input.difficulty=stays,dispels,difficulty()
         return input
     end
     -- Forgets the zones of area that are gone (not in present).
@@ -1814,6 +1863,64 @@ function M.new(g,options)
     -- melee attack could not get to (unreachable), and the marks of what its hits bring (markHits). The foes out of play it readies itself for (returning) get
     -- the SPLPROT marks as the enemies in sight do: a cloud laid where a mazed foe will be back is
     -- weighed on it. Returns the fight as the group knows it (fightFor, with the group's plan).
+    local justPrebuffed={}
+    local function mergeSpan(cur,span)
+        local s=type(span)=='number' and span or 60
+        return type(cur)=='number' and math.max(cur,s) or (cur or s)
+    end
+    local function mergeJustPrebuffed(id,tick,selfView,grd)
+        local jp=justPrebuffed[id]
+        if not jp then return end
+        if tick<jp.tick or tick-jp.tick>2 then justPrebuffed[id]=nil;return end
+        if type(grd)~='table' then return end
+        grd.recast=grd.recast or {}
+        grd.sources=grd.sources or {}
+        grd.kinds=grd.kinds or {}
+        local copiedRoles=false
+        for _,entry in ipairs(jp.entries) do
+            grd.recast[entry.resref]=mergeSpan(grd.recast[entry.resref],entry.span)
+            grd.sources[entry.resref]=true
+            local pk=entry.protection and entry.protection.kinds or {}
+            local bk=entry.buff and entry.buff.kinds or {}
+            for k in pairs(pk) do grd.kinds[k]=mergeSpan(grd.kinds[k],entry.span) end
+            for k in pairs(bk) do grd.kinds[k]=mergeSpan(grd.kinds[k],entry.span) end
+            if entry.protection then
+                if not copiedRoles then
+                    local oldRoles=type(grd.roles)=='table' and grd.roles or {}
+                    local newRoles={}
+                    for k,v in pairs(oldRoles) do newRoles[k]=v end
+                    local oldProt=type(newRoles.protection)=='table' and newRoles.protection or {}
+                    local newProt={kinds={},weapons={}}
+                    for k,v in pairs(oldProt) do
+                        if k~='kinds' and k~='weapons' then newProt[k]=v end
+                    end
+                    for k,v in pairs(type(oldProt.kinds)=='table' and oldProt.kinds or {}) do newProt.kinds[k]=v end
+                    for k,v in pairs(type(oldProt.weapons)=='table' and oldProt.weapons or {}) do newProt.weapons[k]=v end
+                    newRoles.protection=newProt
+                    grd.roles=newRoles
+                    copiedRoles=true
+                end
+                local np=grd.roles.protection
+                for k in pairs(pk) do np.kinds[k]=true end
+                for k,v in pairs(type(entry.protection.weapons)=='table' and entry.protection.weapons or {}) do
+                    if type(v)=='number' and type(np.weapons[k])=='number' then
+                        np.weapons[k]=math.max(np.weapons[k],v)
+                    else
+                        np.weapons[k]=v
+                    end
+                end
+            end
+            if pk.stoneskin then
+                if type(selfView)=='table' then selfView.skins=math.max(selfView.skins or 0,4) end
+                grd.stoneskins=math.max(grd.stoneskins or 0,4)
+            end
+            if pk.mirror then
+                if type(selfView)=='table' then selfView.mirror=math.max(selfView.mirror or 0,4) end
+                grd.mirror=math.max(grd.mirror or 0,4)
+            end
+        end
+    end
+
     local function situate(sprite,frame,rows,tick,returning,plan)
         mark(sprite,frame,rows)
         if returning then mark(sprite,{enemies=returning},rows) end
@@ -1825,6 +1932,7 @@ function M.new(g,options)
                 record({kind='error',where='guard',error=guardError})
             end
         end
+        mergeJustPrebuffed(sprite.m_id,tick,frame.self,frame.self.guard)
         -- What a removal could take from each enemy and what it carries, read only when a ready
         -- spell removes or weakens; an enemy whose effects cannot be read keeps none (its removal
         -- is worth nothing, a debuff counts on it in full).
@@ -1852,7 +1960,8 @@ function M.new(g,options)
         frame.self.magicItem=held(sprite)~=nil
         -- Seconds until the casting aura frees: casts wait for it (combat-intent/choice.lua). Under
         -- Improved Alacrity (aura cleansing) it holds no cast back.
-        frame.self.aura=not frame.self.alacrity and M.auraLeft(g.EEex_Sprite_GetCastTimer(sprite)) or 0
+        frame.self.aura=not frame.self.alacrity and math.max(M.auraLeft(g.EEex_Sprite_GetCastTimer(sprite)),
+            opener.auraLeft and opener.auraLeft(sprite.m_id,tick) or 0) or 0
         -- The enemies its melee attack could not get to (attacked): out of its melee choices until
         -- that mark ends, while they stand beyond a swing's reach of it (combat-intent/weapons.lua).
         local marks=unreached[sprite.m_id]
@@ -1955,7 +2064,383 @@ function M.new(g,options)
     -- upvalues. opener.of: the opener of creature id with orders own at tick, for the choice: its steps
     -- and the one it takes next, from orders.openerFrom's difficulty up, for orders.openerSeconds from
     -- its first ask here; nil once that is over, all its steps are taken, or without one.
-    local opener={}
+    local function spendSlot(sprite,spendResref)
+        if type(spendResref)~='string' or spendResref=='' then return true end
+        local target=spendResref:upper()
+        for _,list in ipairs(creature.lists) do
+            local field,levels=list[2],list[3]
+            local refList=sprite[field]
+            if refList and refList.getReference then
+                for level=0,levels-1 do
+                    local spent=false
+                    g.EEex_Utility_IterateCPtrList(refList:getReference(level),function(spell)
+                        if text(spell.m_spellId:get())==target and type(spell.m_flags)=='number' and spell.m_flags%2==1 then
+                            spell.m_flags=spell.m_flags-1
+                            spent=true
+                            return true
+                        end
+                    end)
+                    if spent then return true end
+                end
+            end
+        end
+        return false
+    end
+    local function instantCast(sprite,castResref,spendResref,point)
+        local apply=rawget(g,'EEex_GameObject_ApplyEffect')
+        if type(apply)~='function' then return false end
+        local castUpper=castResref:upper()
+        local splRec=reader.get('SPL',castUpper)
+        if not splRec then return false end
+        if spendResref and spendResref~='' and not spendSlot(sprite,spendResref) then return false end
+        local firstAb=type(splRec.abilities)=='table' and splRec.abilities[1]
+        local usePoint=point~=nil or (type(firstAb)=='table' and firstAb.target==4)
+        local px=point and point.x or sprite.m_pos.x
+        local py=point and point.y or sprite.m_pos.y
+        local ok=pcall(apply,sprite,{
+            effectID=usePoint and 148 or 146,
+            targetType=1,
+            effectAmount=0,
+            dwFlags=1,
+            durationType=1,
+            res=castUpper,
+            sourceID=sprite.m_id,
+            sourceTarget=usePoint and -1 or sprite.m_id,
+            sourceX=sprite.m_pos.x,
+            sourceY=sprite.m_pos.y,
+            targetX=px,
+            targetY=py,
+            noSave=1,
+            immediateResolve=1,
+        })
+        return ok
+    end
+    local function nativePrebuffs()
+        return prebuffsOn and type(rawget(g,'EEex_GameObject_ApplyEffect'))=='function'
+    end
+    local function nativeContingencies()
+        return contingenciesOn and type(rawget(g,'EEex_GameObject_ApplyEffect'))=='function'
+    end
+    local function displayCallout(sprite,key)
+        local apply=rawget(g,'EEex_GameObject_ApplyEffect')
+        if type(apply)=='function' then
+            pcall(apply,sprite,{
+                effectID=215,
+                targetType=1,
+                effectAmount=0,
+                dwFlags=1,
+                durationType=0,
+                duration=4,
+                res='SPCONTIN',
+                sourceID=sprite.m_id,
+                sourceTarget=sprite.m_id,
+                sourceX=sprite.m_pos.x,
+                sourceY=sprite.m_pos.y,
+                targetX=sprite.m_pos.x,
+                targetY=sprite.m_pos.y,
+                noSave=1,
+                immediateResolve=1,
+            })
+        end
+        if shoutsOn and type(key)=='string' and type(rawget(g,'EEex_Sprite_DisplayTextRef'))=='function' then
+            local refs=rawget(g,'BGSE_CALL_STRREFS')
+            local strref=type(refs)=='table' and refs[key] or nil
+            if type(strref)=='number' then
+                pcall(g.EEex_Sprite_DisplayTextRef,sprite,strref,{overHead=true})
+            end
+        end
+    end
+    local function instantCastAt(caster,castResref,delivery,enemySprite,point,subSpell)
+        local apply=rawget(g,'EEex_GameObject_ApplyEffect')
+        if type(apply)~='function' then return false end
+        local castUpper=castResref:upper()
+        local rec=reader.get('SPL',castUpper)
+        if not rec then return false end
+        if delivery=='enemy' then
+            if not enemySprite then return false end
+            local isPoint=type(subSpell)=='table' and subSpell.target=='point'
+            if not isPoint and type(rec.abilities)=='table' and type(rec.abilities[1])=='table' and rec.abilities[1].target==4 then
+                isPoint=true
+            end
+            if isPoint then
+                local ok=pcall(apply,caster,{
+                    effectID=148,
+                    targetType=1,
+                    effectAmount=0,
+                    dwFlags=1,
+                    durationType=1,
+                    res=castUpper,
+                    sourceID=caster.m_id,
+                    sourceTarget=-1,
+                    sourceX=caster.m_pos.x,
+                    sourceY=caster.m_pos.y,
+                    targetX=enemySprite.m_pos.x,
+                    targetY=enemySprite.m_pos.y,
+                    noSave=1,
+                    immediateResolve=1,
+                })
+                return ok
+            end
+            local ok=pcall(apply,enemySprite,{
+                effectID=146,
+                targetType=2,
+                effectAmount=0,
+                dwFlags=1,
+                durationType=1,
+                res=castUpper,
+                sourceID=caster.m_id,
+                sourceTarget=enemySprite.m_id,
+                sourceX=caster.m_pos.x,
+                sourceY=caster.m_pos.y,
+                targetX=enemySprite.m_pos.x,
+                targetY=enemySprite.m_pos.y,
+                noSave=1,
+                immediateResolve=1,
+            })
+            return ok
+        end
+        if delivery=='feet' or point~=nil then
+            local px=point and point.x or caster.m_pos.x
+            local py=point and point.y or caster.m_pos.y
+            local ok=pcall(apply,caster,{
+                effectID=148,
+                targetType=1,
+                effectAmount=0,
+                dwFlags=1,
+                durationType=1,
+                res=castUpper,
+                sourceID=caster.m_id,
+                sourceTarget=-1,
+                sourceX=caster.m_pos.x,
+                sourceY=caster.m_pos.y,
+                targetX=px,
+                targetY=py,
+                noSave=1,
+                immediateResolve=1,
+            })
+            return ok
+        end
+        return instantCast(caster,castUpper,nil,nil)
+    end
+    local function recordJustPrebuffed(id,tick,entries)
+        if #entries==0 then return end
+        local cur=justPrebuffed[id]
+        if cur and cur.tick==tick then
+            for _,e in ipairs(entries) do cur.entries[#cur.entries+1]=e end
+        else
+            local copy={}
+            for _,e in ipairs(entries) do copy[#copy+1]=e end
+            justPrebuffed[id]={tick=tick,entries=copy}
+        end
+    end
+    local function casterState(sprite,tick)
+        local level=0
+        for _,st in ipairs(creature.levelStats) do
+            local v=g.EEex_Sprite_GetStat(sprite,st)
+            if type(v)=='number' and v>level then level=v end
+        end
+        local ok,grd=pcall(sense.guard,g,sprite,tick,effectsOf,math.max(1,level),nil)
+        local guard=ok and grd or nil
+        mergeJustPrebuffed(sprite.m_id,tick,nil,guard)
+        return {level=level,state=g.EEex_Sprite_GetState(sprite),guard=guard}
+    end
+    -- The actions that carry out a designer's preparation list (orders.talkPrep before speaking, or
+    -- orders.prebuff when a fight starts in sight), one a line, once the game's difficulty is from or
+    -- more. A cast: the spell cast (the spell itself, or a copy of it) of a spell it has ready (spend),
+    -- and the spell spent, while the spell cast is in this game; 'buff-potion': the first potion it
+    -- carries that strengthens or protects itself. When runInstant is true and EEex_GameObject_ApplyEffect
+    -- is present, spell casts execute synchronously in 0.00s and only potions stay in queued lines.
+    local function extrasList(sprite,list,from,runInstant)
+        if type(list)~='table' then return {},{} end
+        local level=difficulty()
+        if type(from)=='number' and (level or 0)<from then return {},{} end
+        local rows,carried=book(sprite)
+        local out,fired,used={},{},{}
+        for _,e in ipairs(list) do
+            if e=='buff-potion' then
+                local found
+                for _,c in ipairs(type(carried)=='table' and carried or {}) do
+                    for _,a in ipairs(c.abilities) do
+                        local r=type(a.effect)=='table' and type(a.effect.roles)=='table' and a.effect.roles or {}
+                        for _,role in ipairs({r.buff or false,r.protection or false}) do
+                            if type(role)=='table' and type(role.who)=='table' and role.who.self then found=found or c.resref end
+                        end
+                    end
+                    if found then break end
+                end
+                if found then out[#out+1]=('UseItem("%s",Myself)'):format(found) end
+            elseif type(e)=='table' and reader.get('SPL',e.cast:upper()) then
+                local sp=e.spend:upper()
+                local cu=e.cast:upper()
+                for _,row in ipairs(type(rows)=='table' and rows or {}) do
+                    if row.resref==sp and type(row.ready)=='number' and row.ready>(used[sp] or 0) then
+                        used[sp]=(used[sp] or 0)+1
+                        if runInstant and instantCast(sprite,cu,sp,nil) then
+                            fired[#fired+1]=cu
+                            recordJustPrebuffed(sprite.m_id,now() or 0,{{resref=cu,span=120,
+                                protection=row.spell and row.spell.roles and row.spell.roles.protection or nil,
+                                buff=row.spell and row.spell.roles and row.spell.roles.buff or nil}})
+                        else
+                            out[#out+1]=('ReallyForceSpellRES("%s",Myself)'):format(cu)
+                            out[#out+1]=('RemoveSpellRES("%s")'):format(sp)
+                        end
+                        break
+                    end
+                end
+            end
+        end
+        return out,fired
+    end
+    local function runNativePrebuffs(sprite,own,area,phase,tick)
+        local rows=book(sprite)
+        if not rows then return {} end
+        local cs=casterState(sprite,tick)
+        local lvl=cs.level>0 and cs.level or 1
+        local restSpells={}
+        local function hasBit(v,flag) return type(v)=='number' and math.floor(v/flag)%2==1 end
+        local CLERIC_EXCL={[3]=true,[6]=true,[8]=true,[14]=true,[15]=true,[17]=true,[18]=true}
+        local DRUID_EXCL={[11]=true,[12]=true,[16]=true,[21]=true}
+        local function restAllowed(splRec)
+            local excl=splRec and splRec.exclusion or 0
+            if excl==0 then return true end
+            local okK,kv=pcall(function() return sprite.m_baseStats and sprite.m_baseStats.m_mageSpecialization end)
+            local kit=okK and type(kv)=='number' and kv or nil
+            local okC,cv=pcall(function() return sprite.m_typeAI and sprite.m_typeAI.m_Class end)
+            local cls=okC and type(cv)=='number' and cv or nil
+            if kit==nil or cls==nil then
+                local cre=reader.get('CRE',text(sprite.m_resref:get()))
+                if cre then kit=kit or cre.kit; cls=cls or cre.class end
+            end
+            kit=kit or 0; cls=cls or 0
+            if kit>0 and kit~=0x4000 then
+                local bit=0x0040
+                while bit<=0x2000 do
+                    if hasBit(kit,bit) and hasBit(excl,bit) then return false end
+                    bit=bit*2
+                end
+            end
+            if hasBit(excl,0x40000000) and CLERIC_EXCL[cls] then return false end
+            if hasBit(excl,0x80000000) and DRUID_EXCL[cls] then return false end
+            return true
+        end
+        local maxByList={}
+        for _,row in ipairs(rows) do
+            if type(row.list)=='string' and type(row.level)=='number' then
+                local prev=maxByList[row.list] or 0
+                if row.level>prev then maxByList[row.list]=row.level end
+            end
+        end
+        local specs=(type(prebuffConfig)=='table' and prebuffConfig.restBuffs) or prebuff.CONFIG.restBuffs
+        for _,spec in ipairs(type(specs)=='table' and specs or {}) do
+            if (maxByList[spec.list] or 0)>=spec.minSlotLevel then
+                local splRec=reader.get('SPL',spec.resref)
+                if splRec and restAllowed(splRec) then
+                    local c=classify(spec.resref,lvl)
+                    if c then
+                        restSpells[#restSpells+1]={resref=spec.resref:upper(),list=spec.list,
+                            level=spec.minSlotLevel,ready=1,usable=true,free=true,spell=c}
+                    end
+                end
+            end
+        end
+        local selected=prebuff.select({
+            caster=cs,
+            level=cs.level>0 and cs.level or nil,
+            spells=rows,
+            restSpells=restSpells,
+            difficulty=difficulty() or 3,
+            phase=phase,
+            orders=own,
+            area=area,
+            config=prebuffConfig,
+        })
+        local fired,applied={},{}
+        for _,entry in ipairs(selected) do
+            local pt=entry.point and {x=sprite.m_pos.x,y=sprite.m_pos.y} or nil
+            local spend
+            if not entry.free then spend=entry.resref end
+            if instantCast(sprite,entry.resref,spend,pt) then
+                fired[#fired+1]=entry.resref
+                applied[#applied+1]=entry
+            end
+        end
+        if #applied>0 then recordJustPrebuffed(sprite.m_id,tick,applied) end
+        return fired
+    end
+    function opener.holding(sprite,id,tick)
+        local since=opener.done[id]
+        if type(since)~='number' then return false end
+        local queued=sprite.m_queuedActions
+        local busy=sprite.m_curAction.m_actionID~=0 or (queued~=nil and queued.m_nCount>0)
+        if busy and tick>=since and tick-since<=M.pendingTicks then return true end
+        opener.done[id]=true
+        return false
+    end
+    function opener.longPrebuff(sprite,frame,id,family,own,tick)
+        if not nativePrebuffs() or opener.longDone[id] then return nil end
+        if opener.longCount>=M.cacheLimit then opener.longDone,opener.longCount={},0 end
+        opener.longDone[id]=true;opener.longCount=opener.longCount+1
+        local fired=runNativePrebuffs(sprite,own,frame.area,'long',tick)
+        if #fired==0 then return nil end
+        readings=sense.memory(g)
+        counts.longPrebuffs=counts.longPrebuffs+1
+        counts.nativePrebuffs=counts.nativePrebuffs+1
+        record({kind='prebuff',tick=tick,member=id,resref=text(sprite.m_resref:get()),family=family,phase='long',
+            spells=fired,instant=true})
+        return {instant=true}
+    end
+    function opener.fightPrebuff(sprite,frame,id,family,own,tick)
+        local queued,fired={},{}
+        local hadDesigner=false
+        if not opener.done[id] and type(own)=='table' and type(own.prebuff)=='table' then
+            local q,f=extrasList(sprite,own.prebuff,own.prebuffFrom,true)
+            if opener.doneCount>=M.cacheLimit then opener.done,opener.doneCount={},0 end
+            opener.doneCount=opener.doneCount+1
+            opener.done[id]=#q>0 and tick or true
+            for _,line in ipairs(q) do queued[#queued+1]=line end
+            for _,sp in ipairs(f) do fired[#fired+1]=sp end
+            if #q>0 or #f>0 then hadDesigner=true end
+        end
+        local hadNative=false
+        if nativePrebuffs() and not opener.shortDone[id] then
+            if opener.shortCount>=M.cacheLimit then opener.shortDone,opener.shortCount={},0 end
+            opener.shortDone[id]=true;opener.shortCount=opener.shortCount+1
+            opener.longDone[id]=true
+            local f=runNativePrebuffs(sprite,own,frame.area,'both',tick)
+            for _,sp in ipairs(f) do fired[#fired+1]=sp end
+            if #f>0 then hadNative=true end
+        end
+        if not hadDesigner and not hadNative then return nil end
+        readings=sense.memory(g)
+        if hadNative then counts.nativePrebuffs=counts.nativePrebuffs+1 end
+        local resref=text(sprite.m_resref:get())
+        if #queued>0 then
+            opener.done[id]=tick
+            counts.claims=counts.claims+1
+            record({kind='prebuff',tick=tick,member=id,resref=resref,family=family,
+                phase=hadNative and 'short' or nil,spells=#fired>0 and fired or nil,
+                actions=table.concat(queued,' ')})
+            return {queued=queued}
+        end
+        if hadDesigner then counts.fightPrebuffs=counts.fightPrebuffs+1 end
+        record({kind='prebuff',tick=tick,member=id,resref=resref,family=family,phase='short',
+            spells=fired,instant=true})
+        return {instant=true}
+    end
+    function opener.talkPrebuff(sprite,id,own,tick)
+        if not nativePrebuffs() or opener.shortDone[id] then return nil end
+        if opener.shortCount>=M.cacheLimit then opener.shortDone,opener.shortCount={},0 end
+        opener.shortDone[id]=true;opener.shortCount=opener.shortCount+1
+        opener.longDone[id]=true
+        local area=sprite.m_pArea and text(sprite.m_pArea.m_resref:get()) or nil
+        local fired=runNativePrebuffs(sprite,own,area,'both',tick)
+        if #fired==0 then return nil end
+        readings=sense.memory(g)
+        counts.nativePrebuffs=counts.nativePrebuffs+1
+        record({kind='prebuff',tick=tick,member=id,resref=text(sprite.m_resref:get()),phase='talk',
+            spells=fired,instant=true})
+        return fired
+    end
     function opener.of(id,own,tick)
         if type(own)~='table' or type(own.opener)~='table' then return nil end
         if type(own.openerFrom)=='number' and (difficulty() or 0)<own.openerFrom then return nil end
@@ -1976,6 +2461,264 @@ function M.new(g,options)
         counts.openerSteps=counts.openerSteps+1
         record({kind='opener',tick=tick,member=id,step=k,spell=spell})
     end
+    function opener.resetLoadouts()
+        opener.loadouts,opener.loadoutCount={},0
+    end
+    function opener.shortReady(id)
+        return opener.shortDone[id] or not nativePrebuffs()
+    end
+    function opener.auraLeft(id,tick)
+        local ends=opener.nativeAura[id]
+        if type(ends)~='number' or type(tick)~='number' or ends<=tick then return 0 end
+        return (ends-tick)/M.ticksPerSecond
+    end
+    function opener.ensureLoadout(sprite,id,own,area,snapshot,baseRows)
+        if not nativeContingencies() then return nil end
+        local cachedLoadout=opener.loadouts[id]
+        if cachedLoadout~=nil then return cachedLoadout or nil end
+        if not snapshot then
+            snapshot=creature.read(g,sprite,reader)
+            if not snapshot then return nil end
+        end
+        local mageRows,innates,wizardLevel={},{},0
+        if baseRows then
+            for _,r in ipairs(baseRows) do
+                if r.list=='mage' and (r.memorized or 0)>0 and r.spell then
+                    mageRows[#mageRows+1]=r
+                elseif r.list=='innate' and (r.ready or 0)>0 then
+                    innates[r.resref]=true
+                end
+            end
+            for _,s in ipairs(snapshot.spells) do
+                if s.list=='mage' and (s.casterLevel or 0)>wizardLevel then wizardLevel=s.casterLevel end
+            end
+        else
+            for _,s in ipairs(snapshot.spells) do
+                if s.list=='mage' and (s.memorized or 0)>0 then
+                    local lvl=s.casterLevel or snapshot.level or 1
+                    if lvl<1 then lvl=1 end
+                    if lvl>wizardLevel then wizardLevel=lvl end
+                    local c=classify(s.resref,lvl)
+                    if c then mageRows[#mageRows+1]={resref=s.resref,list='mage',level=s.level,spell=c} end
+                elseif s.list=='innate' and (s.ready or 0)>0 then
+                    innates[s.resref]=true
+                end
+            end
+        end
+        local hasExplicit=type(own)=='table' and (own.contingency~=nil or own.chain~=nil or own.sequencers~=nil)
+        if #mageRows==0 and not hasExplicit then
+            if opener.loadoutCount>=M.cacheLimit then opener.loadouts,opener.loadoutCount={},0 end
+            opener.loadouts[id]=false;opener.loadoutCount=opener.loadoutCount+1
+            return nil
+        end
+        if wizardLevel<=0 then wizardLevel=snapshot.level or 1 end
+        local cfg={}
+        if type(contingencyConfig)=='table' then
+            for k,v in pairs(contingencyConfig) do cfg[k]=v end
+        end
+        if defensiveContingencies then cfg.defensiveContingenciesOnly=true end
+        local built=contingency.build({
+            level=wizardLevel,
+            difficulty=difficulty() or 3,
+            spells=mageRows,
+            innates=innates,
+            orders=own,
+            area=area,
+            lookup=reader.lookup,
+            config=cfg,
+        })
+        local anyBuilt=built and (built.contingency~=nil or built.chain~=nil or (built.sequencers and #built.sequencers>0))
+        if opener.loadoutCount>=M.cacheLimit then opener.loadouts,opener.loadoutCount={},0 end
+        opener.loadouts[id]=anyBuilt and built or false
+        opener.loadoutCount=opener.loadoutCount+1
+        return anyBuilt and built or nil
+    end
+    local function replacedScsSequencer(resref,tiers)
+        local up=type(resref)=='string' and resref:upper() or ''
+        if tiers.minor and (up:sub(1,5)=='DW#MS' or up=='DW#DT11') then return true end
+        if tiers.sequencer and up:sub(1,5)=='DW#SQ' then return true end
+        if tiers.trigger and (up:sub(1,5)=='DW#TG' or up=='DW#DT0') then return true end
+        return false
+    end
+    function opener.appendSequencers(sprite,snapshot,rows)
+        if not nativeContingencies() then return end
+        local id=sprite.m_id
+        local resref=text(sprite.m_resref:get())
+        local area=sprite.m_pArea and text(sprite.m_pArea.m_resref:get()) or nil
+        local loadout=opener.ensureLoadout(sprite,id,orderBook[resref],area,snapshot,rows)
+        if not loadout or not loadout.sequencers or #loadout.sequencers==0 then return end
+        local tiers={}
+        for _,seq in ipairs(loadout.sequencers) do
+            if seq.tier then tiers[seq.tier]=true end
+        end
+        local write=0
+        for i=1,#rows do
+            local r=rows[i]
+            if not (r.list=='innate' and replacedScsSequencer(r.resref,tiers)) then
+                write=write+1
+                rows[write]=r
+            end
+        end
+        for i=write+1,#rows do rows[i]=nil end
+        local spent=opener.seqSpent[id]
+        local canUse=not targeting.disabled({state=g.EEex_Sprite_GetState(sprite)})
+        for _,seq in ipairs(loadout.sequencers) do
+            if not (spent and spent[seq.resref]) then
+                rows[#rows+1]={resref=seq.resref,list='innate',level=1,ready=1,memorized=1,usable=canUse,spell=seq.spell}
+            end
+        end
+    end
+    local function pickContingencyEnemy(frame,id,tick)
+        local focusId=director and director:plan(id,tick) and director:plan(id,tick).focus or nil
+        local best,bestDist=nil,math.huge
+        for _,e in ipairs(frame.enemies) do
+            if targeting.alive(e) and (e.sanctuary or 0)<=0 then
+                if focusId and e.id==focusId then
+                    local sp=get(e.id)
+                    if sp then return sp end
+                end
+                local d=targeting.distance(frame.self,e)
+                if d<bestDist then
+                    local sp=get(e.id)
+                    if sp then best,bestDist=sp,d end
+                end
+            end
+        end
+        return best
+    end
+    local function fireContingencyEntry(sprite,id,family,resref,entry,enemySprite,tick)
+        local fired,applied={},{}
+        for _,sub in ipairs(entry.spells) do
+            if instantCastAt(sprite,sub.resref,sub.delivery,enemySprite,nil,sub.spell) then
+                fired[#fired+1]=sub.resref
+                local roles=type(sub.spell)=='table' and sub.spell.roles or nil
+                if sub.delivery=='self' and roles and (roles.protection or roles.buff) then
+                    applied[#applied+1]={resref=sub.resref,span=60,protection=roles.protection,buff=roles.buff}
+                end
+            end
+        end
+        if #fired==0 then return false end
+        if #applied>0 then recordJustPrebuffed(id,tick,applied) end
+        displayCallout(sprite,entry.callout)
+        readings=sense.memory(g)
+        if entry.kind=='chain' then
+            counts.chains=counts.chains+1
+        else
+            counts.contingencies=counts.contingencies+1
+        end
+        record({kind=entry.kind,tick=tick,member=id,resref=resref,family=family,condition=entry.condition,
+            spells=fired,target=enemySprite and enemySprite.m_id or nil,instant=true})
+        return true
+    end
+    function opener.checkContingencies(sprite,id,family,tick)
+        if not nativeContingencies() then return false end
+        if opener.ctgFired[id] and opener.chainFired[id] then return false end
+        local resref=text(sprite.m_resref:get())
+        local area=sprite.m_pArea and text(sprite.m_pArea.m_resref:get()) or nil
+        local loadout=opener.ensureLoadout(sprite,id,orderBook[resref],area)
+        if not loadout or (not loadout.contingency and not loadout.chain) then return false end
+        local frame=sense.frame(g,sprite,tick,false,readings)
+        -- Guardrail #1: strictly require alive (HP > 0) and evil side with perceived enemies; a one-shot
+        -- blow to 0 HP never triggers a threshold contingency!
+        if not frame or sense.side(frame.self.ea)~='evil' or not targeting.alive(frame.self) or #frame.enemies==0 then
+            return false
+        end
+        local cs=casterState(sprite,tick)
+        local shield=defence.shield(cs.guard and cs.guard.roles)
+        local skins=math.max(frame.self.skins or 0,(cs.guard and cs.guard.stoneskins) or 0)
+        local weaponWard=shield.nonmagical or (shield.magicalUpTo or 0)>0 or
+            ((cs.guard and cs.guard.kinds and cs.guard.kinds.weapons or 0)>0)
+        local maxHp=math.max(1,tonumber(frame.self.maxHp) or 1)
+        local hpPct=((tonumber(frame.self.hp) or maxHp)*100)/maxHp
+        local nearDist=math.huge
+        for _,e in ipairs(frame.enemies) do
+            local d=targeting.distance(frame.self,e)
+            if d<nearDist then nearDist=d end
+        end
+        local state={alive=true,enemiesSeen=#frame.enemies,hpPct=hpPct,nearestEnemyDist=nearDist,
+            skins=skins,weaponWard=weaponWard}
+        local anyFired=false
+        if loadout.chain and not opener.chainFired[id] and g.EEex_Sprite_GetLocalInt(sprite,'chaincontingencyfired')==0 then
+            if contingency.shouldTrigger(loadout.chain,state,contingencyConfig) then
+                local needsEnemy=false
+                for _,sub in ipairs(loadout.chain.spells) do
+                    if sub.delivery=='enemy' then needsEnemy=true;break end
+                end
+                local enemySprite=needsEnemy and pickContingencyEnemy(frame,id,tick) or nil
+                if not needsEnemy or enemySprite then
+                    opener.chainFired[id]=true
+                    g.EEex_Sprite_SetLocalInt(sprite,'chaincontingencyfired',1)
+                    if fireContingencyEntry(sprite,id,family,resref,loadout.chain,enemySprite,tick) then
+                        anyFired=true
+                        -- Re-evaluate state if chain applied a self-ward!
+                        cs=casterState(sprite,tick)
+                        shield=defence.shield(cs.guard and cs.guard.roles)
+                        state.skins=math.max(frame.self.skins or 0,(cs.guard and cs.guard.stoneskins) or 0)
+                        state.weaponWard=shield.nonmagical or (shield.magicalUpTo or 0)>0 or
+                            ((cs.guard and cs.guard.kinds and cs.guard.kinds.weapons or 0)>0)
+                    end
+                end
+            end
+        end
+        if loadout.contingency and not opener.ctgFired[id] and g.EEex_Sprite_GetLocalInt(sprite,'ContingencyFired')==0 then
+            if contingency.shouldTrigger(loadout.contingency,state,contingencyConfig) then
+                local needsEnemy=loadout.contingency.spells[1] and loadout.contingency.spells[1].delivery=='enemy'
+                local enemySprite=needsEnemy and pickContingencyEnemy(frame,id,tick) or nil
+                if not needsEnemy or enemySprite then
+                    opener.ctgFired[id]=true
+                    g.EEex_Sprite_SetLocalInt(sprite,'ContingencyFired',1)
+                    if fireContingencyEntry(sprite,id,family,resref,loadout.contingency,enemySprite,tick) then
+                        anyFired=true
+                    end
+                end
+            end
+        end
+        return anyFired
+    end
+    function opener.fireNativeRelease(object,decision,tick)
+        local id=object.m_id
+        local loadout=opener.loadouts[id]
+        if type(loadout)~='table' or type(loadout.sequencers)~='table' then return 'skipped' end
+        local seq
+        for _,s in ipairs(loadout.sequencers) do
+            if s.resref==decision.spell then seq=s;break end
+        end
+        if not seq then return 'skipped' end
+        local spent=opener.seqSpent[id]
+        if spent and spent[seq.resref] then return 'skipped' end
+        local targetSprite=decision.target and not decision.self and not decision.point and get(decision.target) or nil
+        if decision.target and not decision.self and not decision.point and not targetSprite then return 'skipped' end
+        local fired,applied={},{}
+        for _,subRes in ipairs(seq.subs) do
+            local lvl=1
+            local ok,cl=pcall(g.EEex_Sprite_GetCasterLevelForSpell,object,subRes,false)
+            if ok and type(cl)=='number' and cl>0 then lvl=cl end
+            local subSpell=classify(subRes,lvl)
+            local delivery=(seq.selfOnly or decision.self) and 'self' or (decision.point and 'feet' or 'enemy')
+            if instantCastAt(object,subRes,delivery,targetSprite,decision.point,subSpell) then
+                fired[#fired+1]=subRes
+                local roles=type(subSpell)=='table' and subSpell.roles or nil
+                if delivery=='self' and roles and (roles.protection or roles.buff) then
+                    applied[#applied+1]={resref=subRes,span=60,protection=roles.protection,buff=roles.buff}
+                end
+            end
+        end
+        if #fired==0 then return 'skipped' end
+        if not spent then spent={};opener.seqSpent[id]=spent end
+        spent[seq.resref]=true
+        if #applied>0 then recordJustPrebuffed(id,tick,applied) end
+        g.EEex_Sprite_SetLocalInt(object,'firedsequencer',1)
+        opener.nativeAura[id]=tick+M.auraTicks
+        displayCallout(object,seq.callout)
+        readings=sense.memory(g)
+        counts.nativeSequencers=counts.nativeSequencers+1
+        counts.performed=counts.performed+1
+        if decision.openerStep then opener.took(id,decision.openerStep,tick,decision.spell) end
+        round(object,tick,M.roundTicks)
+        record({kind='sequencer',tick=tick,member=id,resref=text(object.m_resref:get()),tier=seq.tier,
+            spell=seq.resref,spells=fired,target=decision.target,point=decision.point,instant=true})
+        return true
+    end
 
     local function decide(view,family)
         if not enabled or missing then return decline(missing and 'missing' or 'off') end
@@ -1987,6 +2730,9 @@ function M.new(g,options)
         local sprite=get(id)
         if not sprite then return decline('no-sprite') end
         judge(tick)
+        if not frozen(id) and opener.shortReady(id) then
+            opener.checkContingencies(sprite,id,family,tick)
+        end
         local looked,lookError=pcall(look,sprite,tick,family)
         if not looked then zoneFailed('zone-look',lookError) end
         -- A creature in panic is not the engine's (Christopher, 2026-11-10: what a creature did before
@@ -2045,6 +2791,7 @@ function M.new(g,options)
         -- A way out of a zone, a step away, a walk behind an enemy or a walk into position runs while
         -- the creature walks it (walker:holding); then it is judged.
         if walker:holding(sprite,id,tick) then return hold() end
+        if opener.holding(sprite,id,tick) then return hold() end
         -- A wait runs while the creature does nothing, until it is over or waitTicks after the
         -- decision that made it; meanwhile the creature may still walk out of a zone that hurts it.
         -- An action it took up meanwhile (a block of SCS's above the hook) ends the wait.
@@ -2088,6 +2835,11 @@ function M.new(g,options)
         if unseen then
             local d=flee(sprite,id,tick,family)
             if d then return d end
+            local lp=opener.longPrebuff(sprite,frame,id,family,orderBook[text(sprite.m_resref:get())],tick)
+            if lp and lp.instant then
+                frame=sense.frame(g,sprite,tick,true,readings)
+                if not frame then return decline('no-frame') end
+            end
             returning=seeker:returning(frame,tick,mindFor(sprite,family),orderBook[text(sprite.m_resref:get())])
             if not returning and not M.ailing(frame) then
                 local rows,carried=book(sprite)
@@ -2097,6 +2849,16 @@ function M.new(g,options)
         else
             seeker:fight(sprite,frame,tick,orderBook[text(sprite.m_resref:get())])
             hider:fight(id)
+            local pb=opener.fightPrebuff(sprite,frame,id,family,orderBook[text(sprite.m_resref:get())],tick)
+            if pb and pb.queued then
+                if not frozen(id) then opener.checkContingencies(sprite,id,family,tick) end
+                return {own=true,response=table.concat(pb.queued,'\n'),kind='prebuff'}
+            end
+            local ctgFired=not frozen(id) and opener.checkContingencies(sprite,id,family,tick)
+            if (pb and pb.instant) or ctgFired then
+                frame=sense.frame(g,sprite,tick,true,readings)
+                if not frame then return decline('no-frame') end
+            end
         end
         local rows,carried=book(sprite)
         if not rows then failed('book',carried);return nil end
@@ -2238,7 +3000,7 @@ function M.new(g,options)
             for _,a in ipairs(frame.allies) do friends[a.id]=a end
             for _,h in ipairs(d.hits or {}) do
                 local f=friends[h]
-                if f then before[h]={hp=f.hp,state=f.state,held=f.held} end
+                if f then before[h]=M.careSnapshot(f) end
             end
         end
         local disable
@@ -2342,7 +3104,7 @@ function M.new(g,options)
             if not point then return 'skipped' end
             local kite,flank,position=decision.kind=='kite',decision.kind=='flank',decision.kind=='position'
             local first=''
-            if flank then first=takeUp(decision) end
+            if flank then first=takeUp(decision,false) end
             if not first then return 'skipped' end
             decision.response=chain(first,'MoveToPoint(['..point.x..'.'..point.y..'])')
             -- Its pace: the way to the spot the choice asked for over the seconds it gave the walk.
@@ -2394,6 +3156,10 @@ function M.new(g,options)
             seeker:mode(object,tick)
         elseif decision.kind=='hide' then
             hider:start(object,decision,tick)
+        elseif decision.kind=='prebuff' then
+            counts.fightPrebuffs=counts.fightPrebuffs+1
+        elseif type(decision.spell)=='string' and decision.spell:sub(1,5)=='BGSE#' then
+            return opener.fireNativeRelease(object,decision,tick)
         else
             if decision.kind=='veil' then
                 -- A creature that turned invisible meanwhile needs no veil.
@@ -2420,7 +3186,7 @@ function M.new(g,options)
                 at=decision.at,lands=decision.lands,openerStep=decision.openerStep}
         end
         counts.performed=counts.performed+1
-        round(object,tick,decision.cover)
+        if decision.kind~='prebuff' then round(object,tick,decision.cover) end
         return true
     end
     -- A decision that is not queued gives its claims in the group back.
@@ -2532,6 +3298,10 @@ function M.new(g,options)
         local ok,result=pcall(function()
             local tick=now()
             if type(tick)~='number' then return nil end
+            if type(opener.done[object.m_id])=='number' then
+                opener.done[object.m_id]=true
+                return ask({id=object.m_id},family)
+            end
             round(object,tick)
             if decision.idle then return nil end
             cut(object,tick)
@@ -2603,10 +3373,13 @@ function M.new(g,options)
     -- its orders hold back (combat-intent/prep.lua). Any other creature keeps SCS's own. A 'prep' row
     -- with held=true says so once a creature, kind and spell.
     function api:holdsPrep(family,id,kind,cast,spent)
-        if not api:searches(family,id) then return false end
+        local inTalk=(nativePrebuffs() or nativeContingencies()) and talks[id]~=nil and enabled and not missing and families[family]==true
+        if not api:searches(family,id) and not inTalk then return false end
         local ok,result=pcall(function()
-            local resref=text(get(id).m_resref:get())
-            if not prep.holds(kind,cast,spent,orderBook[resref]) then return false end
+            local sprite=get(id)
+            local resref=text(sprite.m_resref:get())
+            local area=sprite.m_pArea and text(sprite.m_pArea.m_resref:get()) or nil
+            if not prep.holds(kind,cast,spent,orderBook[resref],area,nativePrebuffs(),nativeContingencies()) then return false end
             local key=tostring(id)..'|'..tostring(kind)..'|'..tostring(cast)
             if not prepHeld[key] then
                 if prepHeldCount>=M.cacheLimit then prepHeld,prepHeldCount={},0 end
@@ -2654,43 +3427,6 @@ function M.new(g,options)
         failed('stay',result)
         return false
     end
-    -- Talk on sight, the designer's extras (orders.talkPrep, combat-intent/encounters.lua): the actions
-    -- that carry out what the creature adds before it speaks, one a line, once the game's difficulty is
-    -- orders.talkFrom or more. A cast: the spell cast (the spell itself, or a copy of it) of a spell it has
-    -- ready (spend), and the spell spent, while the spell cast is in this game; 'buff-potion': the first
-    -- potion it carries that strengthens or protects itself.
-    local function extrasFor(sprite)
-        local own=orderBook[text(sprite.m_resref:get())]
-        if type(own)~='table' or type(own.talkPrep)~='table' then return {} end
-        local level=difficulty()
-        if type(own.talkFrom)=='number' and (level or 0)<own.talkFrom then return {} end
-        local rows,carried=book(sprite)
-        local out={}
-        for _,e in ipairs(own.talkPrep) do
-            if e=='buff-potion' then
-                local found
-                for _,c in ipairs(type(carried)=='table' and carried or {}) do
-                    for _,a in ipairs(c.abilities) do
-                        local r=type(a.effect)=='table' and type(a.effect.roles)=='table' and a.effect.roles or {}
-                        for _,role in ipairs({r.buff,r.protection}) do
-                            if type(role)=='table' and type(role.who)=='table' and role.who.self then found=found or c.resref end
-                        end
-                    end
-                    if found then break end
-                end
-                if found then out[#out+1]=('UseItem("%s",Myself)'):format(found) end
-            elseif type(e)=='table' and reader.get('SPL',e.cast:upper()) then
-                for _,row in ipairs(type(rows)=='table' and rows or {}) do
-                    if row.resref==e.spend:upper() and type(row.ready)=='number' and row.ready>0 then
-                        out[#out+1]=('ReallyForceSpellRES("%s",Myself)'):format(e.cast:upper())
-                        out[#out+1]=('RemoveSpellRES("%s")'):format(e.spend:upper())
-                        break
-                    end
-                end
-            end
-        end
-        return out
-    end
     -- Talk on sight (BGSE_TalkHold, combat-intent/talk.lua): whether creature id's talk waits now while
     -- it prepares. On the first ask SCS's switch for preparing out of sight goes on (M.offscreen), so
     -- its prebuffs run in its scripts below the talk with SCS's difficulty rules; on the next ask it goes
@@ -2715,11 +3451,14 @@ function M.new(g,options)
             end
             local resref=text(sprite.m_resref:get())
             if event=='start' then
+                local own=orderBook[resref]
                 state.prior=g.EEex_Sprite_GetLocalInt(sprite,M.offscreen)
-                state.extras=#extrasFor(sprite)>0
+                local preview=type(own)=='table' and extrasList(sprite,own.talkPrep,own.talkFrom,false) or {}
+                state.extras=#preview>0
                 g.EEex_Sprite_SetLocalInt(sprite,M.offscreen,1)
                 counts.talkHolds=counts.talkHolds+1
                 record({kind='talk',tick=tick,member=id,resref=resref,phase='start',extras=state.extras})
+                opener.talkPrebuff(sprite,id,own,tick)
             end
             if restore then g.EEex_Sprite_SetLocalInt(sprite,M.offscreen,type(state.prior)=='number' and state.prior or 0) end
             if event=='done' or event=='timeout' then
@@ -2752,11 +3491,15 @@ function M.new(g,options)
         local ok,err=pcall(function()
             local sprite=get(id)
             if not sprite then return end
-            local list=extrasFor(sprite)
+            local resref=text(sprite.m_resref:get())
+            local own=orderBook[resref]
+            local list,fired={},{}
+            if type(own)=='table' then list,fired=extrasList(sprite,own.talkPrep,own.talkFrom,true) end
             for _,line in ipairs(list) do g.EEex_Action_QueueResponseStringOnAIBase(line,sprite) end
-            counts.talkExtras=counts.talkExtras+#list
-            record({kind='talk',tick=now(),member=id,resref=text(sprite.m_resref:get()),phase='extras',
-                actions=table.concat(list,' ')})
+            if #fired>0 then readings=sense.memory(g) end
+            counts.talkExtras=counts.talkExtras+#list+#fired
+            record({kind='talk',tick=now(),member=id,resref=resref,phase='extras',
+                spells=#fired>0 and fired or nil,actions=table.concat(list,' ')})
         end)
         if not ok then failed('talk-act',err) end
     end
@@ -2843,7 +3586,36 @@ function M.new(g,options)
         local book,bad=M.orderBook(t)
         if not book then return false,bad end
         orderBook,orderError=book,nil
+        opener.resetLoadouts()
         return true
+    end
+    function api:setPrebuffs(v)
+        assert(type(v)=='boolean')
+        prebuffsOn=v
+    end
+    function api:setContingencies(v)
+        assert(type(v)=='boolean')
+        contingenciesOn=v
+        opener.resetLoadouts()
+    end
+    function api:setDefensiveContingencies(v)
+        assert(type(v)=='boolean')
+        defensiveContingencies=v
+        opener.resetLoadouts()
+    end
+    function api:setShouts(v)
+        assert(type(v)=='boolean')
+        shoutsOn=v
+    end
+    function api:setAmbushes(v)
+        assert(type(v)=='boolean')
+        seeker:setAmbushes(v)
+    end
+    function api:orderFor(resref)
+        return type(resref)=='string' and orderBook[resref:upper()] or nil
+    end
+    function api:rng()
+        return function() return rng:nextInt(0,999999)/1000000 end
     end
     function api:invalidate()
         pending,running,judging,memory,stop,resumed={},{},{},{},nil,nil
@@ -2858,6 +3630,12 @@ function M.new(g,options)
         kept,keptCount={},0
         talks,talkCount={},0
         openings,openingCount={},0
+        opener.done,opener.doneCount={},0
+        opener.longDone,opener.longCount={},0
+        opener.shortDone,opener.shortCount={},0
+        opener.loadouts,opener.loadoutCount={},0
+        opener.ctgFired,opener.chainFired,opener.seqSpent,opener.nativeAura={},{},{},{}
+        justPrebuffed={}
         companions,companionCount={},0
         outside,outsideCount={},0
         readings=sense.memory(g)
@@ -2876,6 +3654,7 @@ function M.new(g,options)
         for _ in pairs(running) do busy=busy+1 end
         for _,mine in pairs(memory) do for _ in pairs(mine) do remembered=remembered+1 end end
         return {enabled=enabled,missing=missing or false,trace=trace,counts=copy(counts),reasons=copy(reasons),
+            defensiveContingencies=defensiveContingencies,
             pending=open,running=busy,judging=#judging,remembered=remembered,log=rows,lastError=lastError or false,
             markError=markError or false,guardError=guardError or false,weaponError=weaponError or false,
             wardError=wardError or false,zoneError=zoneError or false,witError=witError or false,

@@ -1,7 +1,8 @@
 // The designed encounters: what each fight's design changes in its creatures, one entry each, in story
-// order (bgse/lib/encounter.tpa). The design is docs/research/BOSS-01-bg1-early-encounters.md; the engine's
-// side of it is combat-intent/encounters.lua. Each entry adds what it changed to bgse_designed, its dialogue
-// lines to bgse_lines and the creatures it makes to bgse_new.
+// order (bgse/lib/encounter.tpa). The designs are docs/research/BOSS-01-bg1-early-encounters.md and
+// docs/research/BOSS-02-bg1-next-block.md; the engine's side of them is combat-intent/encounters.lua. Each
+// entry adds what it changed to bgse_designed, its dialogue lines to bgse_lines and the creatures it makes to
+// bgse_new.
 
 // 2. Silke, Beregost (Christopher, 2026-11-03 and 2026-11-04): she plans the ambush herself, so when her
 // "thugs" arrive she is given and drinks her Potion of Invulnerability and casts Mirror Image in sight of the party,
@@ -76,4 +77,298 @@ ACTION_IF (bgse_kestrels > 0) BEGIN
             line = ~EEex_LuaAction("if BGSE_Companion then BGSE_Companion(EEex_LuaAction_Object) end")~
     RET bgse_put END
   OUTER_SET bgse_designed += bgse_put
+END
+
+// 6. Mulahey, Nashkel Mines L4 (BOSS-02, Christopher 2026-11-12): WIS 17 gives him three usable 3rd-level
+// priest slots at Cleric 7, with Strength of One, Remove Paralysis and Prayer in his 3rd-level book; on Hard+
+// his reinforcement call splits into an immediate wave and a second archer/commando wave 15 seconds later from
+// the open northern passage, so one AoE spell does not end the whole fight at the cave door.
+LAF bgse_encounter INT_VAR wis = 17
+  STR_VAR cre = ~mulahe~
+          book = ~priest3=SPPR312,SPPR308,SPPR316~
+  RET bgse_changed END
+OUTER_SET bgse_designed += bgse_changed
+ACTION_IF (FILE_EXISTS_IN_GAME ~dw#mulkc.cre~) BEGIN
+  ACTION_FOR_EACH bgse_mulahey_area IN ~BG5405~ ~AR5405~ BEGIN
+    ACTION_IF (FILE_EXISTS_IN_GAME ~%bgse_mulahey_area%.bcs~) BEGIN
+      EXTEND_TOP ~%bgse_mulahey_area%.bcs~ ~bgse/scripts/bgse5405.baf~
+    END
+  END
+END
+
+// 7. Lamalha, Zeela, Telka & Maneira, Valley of the Tombs exit (BOSS-02, Christopher 2026-11-12): Lamalha's
+// own copy of LAMALHA so her talk waits while she prepares; Telka's elemental arrow stacks placed into her
+// quiver slots so she actually fires them as the dedicated sniper; Maneira raised to STR 15 so her stealth
+// opener hits like an assassin's.
+LAF bgse_encounter
+  STR_VAR cre = ~lamalh~
+          talk = ~LAMALHA>BGSELAMA~
+  RET bgse_changed END
+OUTER_SET bgse_designed += bgse_changed
+LAF bgse_encounter
+  STR_VAR cre = ~telka~
+          slots = ~QUIVER1:AROW08:20 QUIVER2:AROW09:20 QUIVER3:AROW04:20~
+  RET bgse_changed END
+OUTER_SET bgse_designed += bgse_changed
+LAF bgse_encounter INT_VAR str = 15
+  STR_VAR cre = ~maneir~
+  RET bgse_changed END
+OUTER_SET bgse_designed += bgse_changed
+
+// 8. Molkar, Drakar, Halacan & Morvin (BOSS-02, Christopher 2026-11-12): Molkar's own copy of MOLKAR so the
+// group prepares before he speaks; Drakar's unslotted Potion of Heroism given a real inventory slot.
+LAF bgse_encounter
+  STR_VAR cre = ~molkar~
+          talk = ~MOLKAR>BGSEMOLK~
+  RET bgse_changed END
+OUTER_SET bgse_designed += bgse_changed
+LAF bgse_encounter
+  STR_VAR cre = ~drakar~
+          carries = ~POTN09~
+  RET bgse_changed END
+OUTER_SET bgse_designed += bgse_changed
+
+// 9. Bandit Camp & Tazok's tent (BOSS-02, Christopher 2026-11-12): Venkt replaces short-duration Shield with
+// 9-hour Armor (SPWI102) in his 1st-level book and gets his unslotted third Extra Healing Potion in QUICK3;
+// inside Tazok's tent he wears only Armor (combat-intent/encounters.lua), while outside on the camp alarm he
+// prepares fully.
+LAF bgse_encounter
+  STR_VAR cre = ~venkt~
+          book = ~wizard1=SPWI118,SPWI104,SPWI116,SPWI116,SPWI102~
+          slots = ~QUICK3:POTN08:1~
+  RET bgse_changed END
+OUTER_SET bgse_designed += bgse_changed
+
+// 10. Drasus, Genthore, Kysus & Rezdan, Cloakwood Mine entrance (BOSS-02, Christopher 2026-11-12): Drasus's
+// own copy of DRASUS so he drinks his battle potion before speaking; Genthore gets an Oil of Speed for Hard+.
+LAF bgse_encounter
+  STR_VAR cre = ~drasus~
+          talk = ~DRASUS>BGSEDRAS~
+  RET bgse_changed END
+OUTER_SET bgse_designed += bgse_changed
+LAF bgse_encounter
+  STR_VAR cre = ~gentho~
+          carries = ~POTN14~
+  RET bgse_changed END
+OUTER_SET bgse_designed += bgse_changed
+
+// 11. Centeol, Cloakwood spider nest (BOSS-03, Christopher 2026-11-13): set as Mage at 54 HP without
+// WAND06 (dropped wand); a Hard+ Phase Spider joins from behind once Centeol turns hostile.
+LAF bgse_encounter
+  INT_VAR class = 1
+          hp = 54
+  STR_VAR cre = ~centeo~
+          remove_items = ~WAND06~
+          talk = ~CENTEOL>BGSECENT~
+          book = ~wizard1=SPWI112,SPWI112,SPWI106,SPWI118,SPWI118 wizard2=SPWI211,SPWI205,SPWI212,SPWI212 wizard3=SPWI312,SPWI303,SPWI311 wizard4=SPWI412,SPWI408~
+  RET bgse_changed END
+OUTER_SET bgse_designed += bgse_changed
+ACTION_IF (FILE_EXISTS_IN_GAME ~spidph.cre~) BEGIN
+  OUTER_TEXT_SPRINT bgse_cent_area ~~
+  ACTION_IF (FILE_EXISTS_IN_GAME ~bg2101.bcs~) BEGIN
+    OUTER_TEXT_SPRINT bgse_cent_area ~bg2101~
+  END ELSE ACTION_IF (FILE_EXISTS_IN_GAME ~ar2101.bcs~) BEGIN
+    OUTER_TEXT_SPRINT bgse_cent_area ~ar2101~
+  END
+  ACTION_IF (~%bgse_cent_area%~ STRING_COMPARE ~~) BEGIN
+    EXTEND_TOP ~%bgse_cent_area%.bcs~ ~bgse/scripts/bgse2101.baf~
+  END
+END
+
+// 12. Natasha, Cloakwood Mine L3 (BOSS-03, Christopher 2026-11-13): ruthless AoE mage carrying a Healing
+// potion in place of her unused scroll, using native L1-2 Minor Sequencer (DW#MS4) rather than DW#MS11.
+LAF bgse_encounter
+  STR_VAR cre = ~natash~
+          remove_items = ~SCRL1O~
+          carries = ~POTN08~
+          remove_spells = ~DW#MS11~
+          innates = ~DW#MS4~
+          book = ~wizard1=SPWI112,SPWI112,SPWI103,SPWI118,SPWI114 wizard2=SPWI204,SPWI204,SPWI219,SPWI212 wizard3=SPWI319,SPWI312,SPWI311,SPWI304,SPWI302 wizard4=SPWI404,SPWI406,SPWI408 wizard5=SPWI503,SPWI512~
+  RET bgse_changed END
+OUTER_SET bgse_designed += bgse_changed
+
+// 13. Rimefang +1 (custom katana) and Ogre Mage, Cloakwood Mine L3 (BOSS-03, Christopher 2026-11-13).
+OUTER_TEXT_SPRINT bgse_ogre_slots ~~
+ACTION_IF (FILE_EXISTS_IN_GAME ~sw1h44.itm~) OR (FILE_EXISTS_IN_GAME ~dw#katan.itm~) BEGIN
+  CREATE SPL ~bgsekt1c~
+    WRITE_LONG  0x08 (0 - 1)
+    WRITE_LONG  0x0c (0 - 1)
+    WRITE_SHORT 0x1c 4
+    WRITE_LONG  0x34 1
+    WRITE_LONG  0x64 0x72
+    WRITE_SHORT 0x68 1
+    WRITE_LONG  0x6a 0x9a
+    INSERT_BYTES 0x72 0x28
+    WRITE_BYTE  0x72 1
+    WRITE_SHORT 0x74 4
+    WRITE_BYTE  0x7e 1
+    WRITE_SHORT 0x80 30
+    WRITE_SHORT 0x82 1
+    WRITE_SHORT 0x94 1
+    WRITE_SHORT 0x98 1
+    LPF ADD_SPELL_EFFECT INT_VAR opcode = 321 target = 2 timing = 1 resist_dispel = 0 STR_VAR resource = ~BGSEKT1C~ END
+    LPF ADD_SPELL_EFFECT INT_VAR opcode = 40 target = 2 timing = 0 duration = 12 resist_dispel = 3 END
+    LPF ADD_SPELL_EFFECT INT_VAR opcode = 142 target = 2 parameter2 = 41 timing = 0 duration = 12 resist_dispel = 3 END
+
+  OUTER_TEXT_SPRINT bgse_katana_src ~sw1h44.itm~
+  ACTION_IF NOT (FILE_EXISTS_IN_GAME ~sw1h44.itm~) BEGIN
+    OUTER_TEXT_SPRINT bgse_katana_src ~dw#katan.itm~
+  END
+  COPY_EXISTING ~%bgse_katana_src%~ ~override/bgsekt01.itm~
+    WRITE_LONG  0x18 ((THIS BAND (BNOT 0x2)) BOR 0x44)
+    WRITE_SHORT 0x26 6
+    WRITE_BYTE  0x29 (THIS BAND (BNOT 0x10))
+    WRITE_BYTE  0x31 94
+    WRITE_LONG  0x34 1850
+    WRITE_SHORT 0x42 40
+    WRITE_LONG  0x4c 4
+    WRITE_LONG  0x60 1
+    LPF DELETE_EFFECT INT_VAR check_globals = 0 check_headers = 1 silent = 1 END
+    LPF DELETE_EFFECT INT_VAR check_globals = 1 check_headers = 0 match_opcode = 319 silent = 1 STR_VAR match_resource = ~C0SHAPE_~ END
+    READ_LONG  0x64 ab_off
+    READ_SHORT 0x68 ab_cnt
+    READ_LONG  0x6a fx_off
+    PATCH_IF (ab_cnt = 0) BEGIN
+      INSERT_BYTES ab_off 0x38
+      WRITE_SHORT 0x68 1
+      PATCH_IF (fx_off >= ab_off) BEGIN
+        WRITE_LONG 0x6a (fx_off + 0x38)
+      END
+    END ELSE PATCH_IF (ab_cnt > 1) BEGIN
+      SET drop = (ab_cnt - 1) * 0x38
+      DELETE_BYTES (ab_off + 0x38) drop
+      WRITE_SHORT 0x68 1
+      PATCH_IF (fx_off > ab_off) BEGIN
+        WRITE_LONG 0x6a (fx_off - drop)
+      END
+    END
+    READ_ASCII (ab_off + 0x04) ab_icon (8) NULL
+    PATCH_IF (~%ab_icon%~ STRING_EQUAL ~~) BEGIN
+      WRITE_ASCII (ab_off + 0x04) ~ISW1H44~ #8
+    END
+    READ_SHORT 0x6e eq_idx
+    READ_SHORT 0x70 eq_cnt
+    WRITE_BYTE  (ab_off + 0x00) 1
+    WRITE_BYTE  (ab_off + 0x02) 1
+    WRITE_BYTE  (ab_off + 0x0c) 1
+    WRITE_SHORT (ab_off + 0x0e) 1
+    WRITE_BYTE  (ab_off + 0x10) 0
+    WRITE_SHORT (ab_off + 0x12) 2
+    WRITE_SHORT (ab_off + 0x14) 1
+    WRITE_SHORT (ab_off + 0x16) 10
+    WRITE_SHORT (ab_off + 0x18) 1
+    WRITE_SHORT (ab_off + 0x1a) 1
+    WRITE_SHORT (ab_off + 0x1c) 3
+    WRITE_SHORT (ab_off + 0x1e) 0
+    WRITE_SHORT (ab_off + 0x20) (eq_idx + eq_cnt)
+    LPF ADD_ITEM_EFFECT INT_VAR type = 1 opcode = 12 target = 2 parameter1 = 1 parameter2 = 0x00020000 timing = 1 resist_dispel = 0 END
+    LPF ADD_ITEM_EFFECT INT_VAR type = 1 opcode = 146 target = 2 parameter1 = 1 parameter2 = 1 timing = 1 probability1 = 14 probability2 = 0 savingthrow = 1 resist_dispel = 0 STR_VAR resource = ~BGSEKT1C~ END
+    SAY NAME1 ~Katana~
+    SAY NAME2 ~Rimefang +1~
+    SAY UNIDENTIFIED_DESC ~The katana is a curved, single-edged slashing blade favored by warriors of Kara-Tur. Equally suited to sweeping cuts or quick draws, it balances reach with nimble handling.~
+    SAY DESC ~Forged in cold iron and quenched in winter brine, frost beads slowly along Rimefang's fuller even in the damp tunnels beneath the Cloakwood.
+
+STATISTICS:
+
+Equipped abilities:
+- Cold Damage: +1 cold damage per hit
+- Frostbite: 15% chance per hit to slow the target for 2 rounds (Save vs. Spell negates)
+
+THAC0: +1
+Damage: 1d10+1 (slashing), +1 cold
+Speed Factor: 2
+Proficiency Type: Katana
+Type: One-handed
+Requires:
+ 6 Strength
+
+Weight: 4~
+  OUTER_TEXT_SPRINT bgse_ogre_slots ~WEAPON1:BGSEKT01~
+END
+LAF bgse_encounter
+  INT_VAR level = 7
+          hp = 62
+          thac0 = 13
+          regen = 6
+  STR_VAR cre = ~ogrema03~
+          slots = EVAL ~%bgse_ogre_slots%~
+          book = ~wizard1=SPWI112,SPWI112,SPWI103,SPWI114 wizard2=SPWI212,SPWI212,SPWI201 wizard3=SPWI305,SPWI318,SPWI303 wizard4=SPWI408~
+  RET bgse_changed END
+OUTER_SET bgse_designed += bgse_changed
+
+// 14. Davaeorn, Cloakwood Mine L4 (BOSS-03, Christopher 2026-11-13): Conjure Lesser Fire Elemental prebuff
+// variant without self-paralysis (BGSE516P), plus BGSEDAVA replacing DAVAEORN to gate talk and suppress
+// SCS corner teleports and sequencer timer while BGSE is active.
+ACTION_IF (FILE_EXISTS_IN_GAME ~spwi516.spl~) BEGIN
+  COPY_EXISTING ~spwi516.spl~ ~override/bgse516p.spl~
+    LPF DELETE_EFFECT INT_VAR check_globals = 1 check_headers = 1 match_opcode = 165 silent = 1 END
+    LPF DELETE_EFFECT INT_VAR check_globals = 1 check_headers = 1 match_opcode = 142 match_parameter2 = 131 silent = 1 END
+    LPF DELETE_EFFECT INT_VAR check_globals = 1 check_headers = 1 match_opcode = 215 silent = 1 STR_VAR match_resource = ~SPELEMND~ END
+END
+LAF bgse_encounter
+  STR_VAR cre = ~davaeo~
+          book = ~wizard3=SPWI319,SPWI302,SPWI308,SPWI304,SPWI304,SPWI311 wizard4=SPWI408,SPWI406,SPWI402,SPWI402 wizard5=SPWI516,SPWI523,SPWI524,SPWI522~
+  RET bgse_changed END
+OUTER_SET bgse_designed += bgse_changed
+ACTION_IF (FILE_EXISTS_IN_GAME ~davaeorn.bcs~) AND (FILE_EXISTS_IN_GAME ~davaeo.cre~) BEGIN
+  OUTER_TEXT_SPRINT dava_head ~~~~~IF%LNL%  Global("BGSE_NoDavaSeq","LOCALS",0)%LNL%  EEex_LuaTrigger("return BGSE~=nil and BGSE.gate~=nil and BGSE.gate:on()==true")%LNL%THEN%LNL%  RESPONSE #100%LNL%    SetGlobal("BGSE_NoDavaSeq","LOCALS",1)%LNL%    SetGlobalTimer("davaeorn_sequencer","LOCALS",100000)%LNL%    Continue()%LNL%END%LNL%%LNL%IF%LNL%  Detect([PC])%LNL%  NumTimesTalkedTo(0)%LNL%  EEex_LuaTrigger("return BGSE_TalkExtras and BGSE_TalkExtras(EEex_LuaTrigger_Object,'','bgsedava') or false")%LNL%THEN%LNL%  RESPONSE #100%LNL%    EEex_LuaAction("if BGSE_TalkAct then BGSE_TalkAct(EEex_LuaAction_Object) end")%LNL%END%LNL%%LNL%~~~~~
+  COPY_EXISTING ~davaeorn.bcs~ ~override/bgsedava.bcs~
+    DECOMPILE_AND_PATCH BEGIN
+      REPLACE_TEXTUALLY ~\(NumTimesTalkedTo(0)[ %TAB%]*[%WNL%%LNL%]+\)~ ~\1  !EEex_LuaTrigger("return BGSE_TalkHold and BGSE_TalkHold(EEex_LuaTrigger_Object,'','bgsedava') or false")%LNL%~
+      REPLACE_TEXTUALLY ~\(^[ %TAB%]*Global("DavaeornTelTrack","LOCALS",[0-9]+)[ %TAB%]*[%WNL%%LNL%]+\)~ ~~~~~\1  EEex_LuaTrigger("return not (BGSE~=nil and BGSE.gate~=nil and BGSE.gate:on()==true)")%LNL%~~~~~
+      INSERT_BYTES 0 (STRING_LENGTH ~%dava_head%~)
+      WRITE_ASCIIE 0 ~%dava_head%~
+    END
+  COPY_EXISTING ~davaeo.cre~ ~override~
+    SET swapped = 0
+    PATCH_FOR_EACH off IN 0x248 0x250 0x258 0x260 0x268 BEGIN
+      READ_ASCII off scr (8) NULL
+      PATCH_IF (~%scr%~ STRING_EQUAL_CASE ~DAVAEORN~) BEGIN
+        WRITE_ASCII off ~BGSEDAVA~ #8
+        SET swapped = 1
+      END
+    END
+    PATCH_IF (swapped = 0) BEGIN
+      WRITE_ASCII 0x248 ~BGSEDAVA~ #8
+    END
+END
+
+// 15. Iron Throne top floor, Baldur's Gate (BOSS-03, Christopher 2026-11-13): pre-talk gate on Zhalimar,
+// Alai & Aasim drop wands for real potions/bracers, Diyab & Naaman tune books, Gardus wields fine sword.
+LAF bgse_encounter
+  STR_VAR cre = ~zhalim~
+          talk = ~ZHALIMAR>BGSEZHAL~
+  RET bgse_changed END
+OUTER_SET bgse_designed += bgse_changed
+LAF bgse_encounter
+  STR_VAR cre = ~alai~
+          remove_items = ~WAND07~
+          slots = ~GLOVES:BRAC02~
+          carries = ~POTN08 POTN14~
+          book = ~wizard3=SPWI305,SPWI319,SPWI306~
+  RET bgse_changed END
+OUTER_SET bgse_designed += bgse_changed
+LAF bgse_encounter
+  STR_VAR cre = ~aasim~
+          remove_items = ~WAND11~
+          carries = ~POTN08~
+          book = ~priest3=SPPR306,SPPR314,SPPR321~
+  RET bgse_changed END
+OUTER_SET bgse_designed += bgse_changed
+LAF bgse_encounter
+  STR_VAR cre = ~diyab~
+          book = ~priest3=SPPR306,SPPR314,SPPR308 priest4=SPPR408,SPPR406,SPPR404 priest5=SPPR502,SPPR503~
+  RET bgse_changed END
+OUTER_SET bgse_designed += bgse_changed
+LAF bgse_encounter
+  STR_VAR cre = ~naaman~
+          book = ~wizard3=SPWI319,SPWI306,SPWI312,SPWI311,SPWI302~
+  RET bgse_changed END
+OUTER_SET bgse_designed += bgse_changed
+ACTION_IF (FILE_EXISTS_IN_GAME ~dw#swd02.itm~) BEGIN
+  LAF bgse_encounter
+    STR_VAR cre = ~gardus~
+            slots = ~WEAPON1:DW#SWD02~
+    RET bgse_changed END
+  OUTER_SET bgse_designed += bgse_changed
 END

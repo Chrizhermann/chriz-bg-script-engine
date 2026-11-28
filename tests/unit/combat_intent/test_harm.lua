@@ -266,4 +266,74 @@ do
     groups=groups+1
 end
 
+-- 10. Strength-lowering debuffs (Ray of Enfeeblement sets STR 5; poison/contagion subtract points):
+-- count through arsenal.might (installed tables when given, else shipped STRMOD/STRMODEX) on weapons
+-- that take strength's hit or damage bonuses. A target already weaker or a bow without strength flags
+-- loses nothing.
+do
+    -- Fighter with STR 18/76 (+2 hit, +4 damage shipped) swinging 2 APR at THAC0 10 for 10 against AC 5:
+    -- 2 * 0.8 * 10 = 16 a round. Ray of Enfeeblement sets STR 5 (-2 hit, -1 damage: 4 worse THAC0, 5 less
+    -- damage) -> 2 * 0.6 * 5 = 6 a round, losing 10/16 = 0.625.
+    local strong=creature({attack={apr=2,thac0=10,damage=10,damageType=3,str=18,strExtra=76,
+        strengthHit=true,strengthDamage=true}})
+    local enfeeble=role({'strength'},{strengthSet=5})
+    assert(near(harm.weaken(enfeeble,strong,5),1-6/16))
+    assert(near(harm.debuff(enfeeble,strong,5),1-6/16))
+
+    -- Installed tables override shipped ones, including row 0 when STR drops to 0.
+    local custom={strmod={[0]={hit=-10,damage=-8},[5]={hit=-1,damage=-2},[18]={hit=1,damage=2}},
+        strmodex={[76]={hit=2,damage=3}}}
+    -- Custom 18/76 gives +3 hit, +5 damage; STR 5 gives -1 hit, -2 damage -> 4 worse THAC0, 7 less damage:
+    -- 2 * 0.6 * 3 = 3.6 of 16.
+    assert(near(harm.weaken(enfeeble,strong,5,custom),1-3.6/16))
+    local drainedZero=role({'strength'},{amounts={strength=20}})
+    -- Without tables row 0 clamps to shipped row 1 (-5 hit, -4 damage -> 7 worse THAC0, 8 less damage:
+    -- 2 * 0.45 * 2 = 1.8 of 16); with custom row 0 (-10 hit, -8 damage -> damage 0).
+    assert(near(harm.weaken(drainedZero,strong,5),1-1.8/16))
+    assert(near(harm.weaken(drainedZero,strong,5,custom),1))
+
+    -- Exceptional strength lowered alone (18/100 +3/+6 -> 18/40 +1/+3: 2 worse THAC0, 3 less damage).
+    local champ=creature({attack={apr=2,thac0=10,damage=10,damageType=3,str=18,strExtra=100,
+        strengthHit=true,strengthDamage=true}})
+    assert(near(harm.weaken(role({'strengthExtra'},{amounts={strengthExtra=60}}),champ,5),1-(2*0.7*7)/16))
+    assert(near(harm.weaken(role({'strengthExtra'},{strengthExtraSet=40}),champ,5),1-(2*0.7*7)/16))
+
+    -- Partial weapon flags (thrown/sling with damage only, or hit only), bow with neither, unknown STR,
+    -- or target already at STR 3 (< 5): no negative gain.
+    local sling=creature({attack={apr=2,thac0=10,damage=10,ranged=true,str=18,strExtra=76,
+        strengthHit=false,strengthDamage=true}})
+    assert(near(harm.weaken(enfeeble,sling,5),1-(2*0.8*5)/16))
+    local hitOnly=creature({attack={apr=2,thac0=10,damage=10,str=18,strExtra=76,
+        strengthHit=true,strengthDamage=false}})
+    assert(near(harm.weaken(enfeeble,hitOnly,5),1-(2*0.6*10)/16))
+    local archer=creature({attack={apr=2,thac0=10,damage=10,ranged=true,str=18,strExtra=76}})
+    assert(harm.weaken(enfeeble,archer,5)==0)
+    assert(harm.weaken(enfeeble,creature({attack={apr=2,thac0=10,damage=10,strengthHit=true,strengthDamage=true}}),5)==0)
+    local weakling=creature({attack={apr=2,thac0=10,damage=10,str=3,strengthHit=true,strengthDamage=true}})
+    assert(harm.weaken(enfeeble,weakling,5)==0)
+
+    -- Through choice.decide, Rezdan's Ray of Enfeeblement aims at the high-STR fighter over the archer
+    -- and uses input.tables.
+    local spells=require('combat-intent.spells')
+    local choice=require('combat-intent.choice')
+    local mind=require('combat-intent.mind')
+    local ray=spells.classify({kind='SPL',resref='TESTRAY',name=0,flags=1024,spellType=1,exclusion=0,school=0,
+        secondary=0,level=2,casting={},abilities={{form=1,flags=0,location=2,target=1,targetCount=0,range=40,
+        minLevel=1,speed=0,projectile=1,effects={{opcode=44,target=2,power=2,p1=5,p2=1,timing=0,resist=1,
+        duration=60,prob1=100,prob2=0,res='',dice=0,sides=0,save=1,saveBonus=0,special=0}}}}},1,function() end,{level=7})
+    local inp={tick=100,family='mage',frame={
+        self={id=1,x=0,y=0,hp=30,maxHp=30,state=0,held=0,ac=5,level=7,ids={class=1}},
+        allies={},
+        enemies={
+            creature({id=11,x=120,ac=4,sanctuary=0,action=0,protections={},attack=archer.attack}),
+            creature({id=12,x=120,ac=4,sanctuary=0,action=0,protections={},attack=strong.attack}),
+        }},
+        spells={{resref='TESTRAY',level=2,ready=1,memorized=1,usable=true,list='mage',spell=ray}},
+        plan={},memory={},mind=mind.new(),tables=custom}
+    local dec=choice.decide(inp)
+    assert(dec and dec.resref=='TESTRAY' and dec.target==12)
+    assert(near(dec.worth,(1-3.6/16)*harm.chance(ray.roles.debuff,inp.frame.enemies[2])))
+    groups=groups+1
+end
+
 return groups

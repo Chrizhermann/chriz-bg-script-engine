@@ -40,4 +40,71 @@ assert(select(2,orders.check({prepSkip={string.rep('x',65)}}))=='prepSkip' and o
 assert(select(2,orders.check({prepSkip={x='prebuff'}}))=='prepSkip')
 groups=groups+1
 
+-- 4. Area-scoped hold (noPrepIn, Venkt inside Tazok's tent BG1901 vs outdoor BG1900) and fight-start
+-- prebuff / prebuffFrom order checks.
+local venkt={noPrepIn={'BG1901','AR1901'}}
+for _,kind in ipairs({'prebuff','contingency','chain'}) do
+    assert(prep.holds(kind,'dwsw212','WIZARD_MIRROR_IMAGE',venkt,'bg1901')==true,kind)
+    assert(prep.holds(kind,'dwsw311','WIZARD_PROTECTION_FROM_NORMAL_MISSILES',venkt,'AR1901')==true,kind)
+    assert(prep.holds(kind,'dwsw212','WIZARD_MIRROR_IMAGE',venkt,'BG1900')==false,kind)
+    assert(prep.holds(kind,'dwsw212','WIZARD_MIRROR_IMAGE',venkt,'')==false,kind)
+    assert(prep.holds(kind,'dwsw212','WIZARD_MIRROR_IMAGE',venkt,nil)==false,kind)
+end
+assert(prep.holds('summon','dwsw212','',venkt,'BG1901')==false)
+assert(orders.check({noPrepIn={'BG1901','AR1901'},prebuff={{cast='SPPR301',spend='SPPR301'},'buff-potion'},prebuffFrom=4}))
+assert(select(2,orders.check({noPrepIn={}}))=='noPrepIn' and select(2,orders.check({noPrepIn='BG1901'}))=='noPrepIn')
+assert(select(2,orders.check({noPrepIn={'TOOLONGAREA'}}))=='noPrepIn' and select(2,orders.check({noPrepIn={x='BG1901'}}))=='noPrepIn')
+assert(select(2,orders.check({prebuff={}}))=='prebuff' and select(2,orders.check({prebuff='buff-potion'}))=='prebuff')
+assert(select(2,orders.check({prebuff={{cast='SPPR301'}}}))=='prebuff' and select(2,orders.check({prebuff={x='buff-potion'}}))=='prebuff')
+assert(select(2,orders.check({prebuff={'buff-potion'},prebuffFrom=0}))=='prebuffFrom')
+assert(select(2,orders.check({prebuff={'buff-potion'},prebuffFrom=6}))=='prebuffFrom')
+groups=groups+1
+
+-- 5. Phase 2a native prebuffs (nativePrebuffs=true): the engine holds back SCS's 'prebuff' blocks even
+-- without orders (and even when orders={prep=true}), while letting 'contingency' and 'chain' run until
+-- Phase 2b; when nativePrebuffs=false ([BGSE] Prebuffs=0), 'prebuff' falls back to SCS unless orders hold it.
+assert(prep.holds('prebuff','dwsw408','WIZARD_STONE_SKIN',nil,nil,true)==true)
+assert(prep.holds('prebuff','dwsw212','WIZARD_MIRROR_IMAGE',{prep=true},'BG2300',true)==true)
+assert(prep.holds('contingency','WIZARD_IMPROVED_INVISIBILITY',nil,nil,nil,true)==false)
+assert(prep.holds('chain','dw#cc12','',nil,nil,true)==false)
+assert(prep.holds('prebuff','dwsw408','WIZARD_STONE_SKIN',nil,nil,false)==false)
+groups=groups+1
+
+-- 6. Phase 2b native contingencies (nativeContingencies=true): holds back 'contingency' and 'chain'
+-- while leaving 'prebuff' to nativePrebuffs; orders.check validates contingency, chain and sequencers.
+assert(prep.holds('contingency','dw#ms0','WIZARD_IMPROVED_INVISIBILITY',nil,nil,false,true)==true)
+assert(prep.holds('chain','dw#cc12','',nil,nil,false,true)==true)
+assert(prep.holds('chain','dw#cc12','',{prep=true},'BG2300',true,true)==true)
+assert(prep.holds('prebuff','dwsw408','WIZARD_STONE_SKIN',nil,nil,false,true)==false)
+assert(prep.holds('contingency','dw#ms0','',nil,nil,true,false)==false)
+assert(prep.holds('chain','dw#cc12','',nil,nil,true,false)==false)
+
+assert(orders.check({contingency=false,chain=false,sequencers=false}))
+assert(orders.check({contingency='SPWI616',chain={'SPWI812','SPWI812','SPWI812'}}))
+assert(orders.check({contingency={spell='SPWI616',condition='emergency'},
+    chain={spells={'SPWI714','SPWI812'},condition='seen'},
+    sequencers={minor={'SPWI211','SPWI211'},sequencer={'SPWI303','SPWI303','SPWI303'},trigger=false}}))
+for _,bad in ipairs({
+    {contingency=true},{contingency=''},{contingency={}},{contingency={spell='SPWI616',condition='bad'}},
+    {contingency={spell='SPWI616',extra=1}},
+}) do
+    assert(select(2,orders.check(bad))=='contingency')
+end
+for _,bad in ipairs({
+    {chain=true},{chain={}},{chain={'SPWI812','SPWI812','SPWI812','SPWI812'}},
+    {chain={spells={}}},{chain={spells={'SPWI812'},condition='bad'}},{chain={spells={'SPWI812'},extra=1}},
+    {chain={x='SPWI812'}},
+}) do
+    assert(select(2,orders.check(bad))=='chain')
+end
+for _,bad in ipairs({
+    {sequencers=true},{sequencers={}},{sequencers={unknown={'SPWI211','SPWI211'}}},
+    {sequencers={minor={'SPWI211'}}},{sequencers={minor={'SPWI211','SPWI211','SPWI211'}}},
+    {sequencers={sequencer={'SPWI303','SPWI303','SPWI303','SPWI303'}}},
+    {sequencers={trigger={'SPWI605'}}},{sequencers={trigger=true}},
+}) do
+    assert(select(2,orders.check(bad))=='sequencers')
+end
+groups=groups+1
+
 return groups

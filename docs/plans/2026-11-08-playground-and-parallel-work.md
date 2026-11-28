@@ -135,6 +135,82 @@ with scripts of their own (trolls, golems, wyverns, ankhegs, some of them also i
   cannot die there, so damage spells are worth nothing to the engine and its celestials mostly swing; that says
   nothing about their choices against a real party. The Playground took this engine (a76f88b, the same engine
   code) on 2026-11-10 at 05:29 in five minutes; its spell mod stays e200515.
-- **Lesser Restoration's `CBMLRES`:** worth an entry in `spells.lua`'s `luaEffects` once the engine senses drained
-  abilities on its allies; until then it reads as unknown, which costs nothing else.
+- **Spell mod `f5e735d` and restoration/strength gaps** (2026-11-11 to 2026-11-12): the Playground took spell mod
+  `f5e735d` with engine `5dc6324` on 2026-11-11 at 20:09 (`faster-install` merged in). Non-lowering strength floors
+  (`CBTSTRF`), `CBMSIMU`, protagonist imprisonment (`CBMP1IM`), protagonist petrification (`CBMP1ST`), and Lesser
+  Restoration's `CBMLRES` are classified (`5dc6324`). Since then, `sense.lua` and `care.lua` also sense timed
+  attribute drain on allies (matching `CBMLRES`), weigh cures of level drain and attribute drain while accounting for
+  Restoration's self-fatigue instead of rejecting Lesser and Greater Restoration as self-harm, and `harm.lua` weighs
+  strength-lowering debuffs (such as *Ray of Enfeeblement*) through `arsenal.might`.
+- **BOSS-02 next five BG1 encounters** (designed and implemented 2026-11-12, [BOSS-02](../research/BOSS-02-bg1-next-block.md)):
+  Mulahey (WIS 17 and usable *Prayer*, `{{'SPPR316','SPPR211'}}` Hard+ opener, and a staggered second reinforcement
+  wave 15 seconds later from the northern passage in `BG5405.BCS`), Lamalha's party (`BGSELAMA` pre-talk preparation,
+  Zeela's Hard+ instant *Animate Dead* skeletons + *Bless* at fight start, Telka as dedicated elemental-arrow sniper
+  with slotted quiver stacks, Maneira at STR 15 as stealth/dart pressure), Molkar's party (`BGSEMOLK`, Drakar's slotted
+  *Potion of Heroism* and `{{'SPPR208','SPPR214'}}` Hard+ opener), Bandit Camp & Tazok's tent (`noPrepIn={'BG1901','AR1901'}`
+  so infiltrated Venkt wears only 9-hour *Armor* `SPWI102` inside the tent while stepping out fully prepared in `BG1900`
+  after the 2-round alarm, plus `{{'SPWI302','SPWI309'}}` Hard+ opener and Britik guarding), and Cloakwood Mine entrance
+  (`BGSEDRAS` pre-talk potion for Drasus, Genthore's *Oil of Speed*, Rezdan's *Chaos*/*Glitterdust* opener, and Kysus's
+  *Remove Magic*/*Slow*/*Monster Summoning III* -> `DW#MS0` opener). Ready for Playground and lab playtesting.
+- **Native Prebuffs (Prep Phase 2a), Local Fight Groups & Creature-Type Calls, and Offensive Consumables / 4-Quiver Ammo**
+  (2026-11-12, from Christopher's first live Playground session):
+  1. **Prep Phase 2a — Native `0.00s` Prebuff Engine (`combat-intent/prebuff.lua`, `combat-intent/prep.lua`,
+     `adapters/eeex/choice.lua`):** replaces SCS's slow script-queued `'prebuff'` blocks (`BGSE_Prep` holds `'prebuff'`
+     while `[BGSE] Prebuffs=1`; `Prebuffs=0` falls back cleanly to SCS). Spells are classified from live runtime SPL data
+     under We Overwrite (`M.CONFIG` in `combat-intent/prebuff.lua`): `'long'` all-day buffs (`>= 1800s`, e.g. *Stoneskin*,
+     *Iron Skins*, *Armor*, *Mind Blank*) fire synchronously out of sight (`unseen`) before combat contact so an invisible
+     scout or backstabber cannot catch a hostile mage unwarded; `'short'` fight-start buffs (`36..1799s`, e.g. *Mirror
+     Image*, *Shield*, *Blur*, *Haste*, *Minor Globe*, *Spirit Armor*, *Improved Invisibility*, *Bless*, *Chant*, *DUHM*,
+     *Free Action*, *Chaotic Commands*) fire in `0.00s` via `EEex_GameObject_ApplyEffect` (`op146` self / `op148` point at
+     the caster's feet, `dwFlags=1`) with synchronous spell-slot debit (`m_flags - 1`) and a same-tick `justPrebuffed`
+     bridge, proceeding in the exact same tick to the caster's round-1 combat action. Ultra-short tactical immunities
+     (`< 36s`: *PfMW*, *Mantle*, *Improved Alacrity*), *Sanctuary*, plain *Invisibility*, shapechanges and slot-locking
+     conjured weapons stay in the spellbook for live rounds.
+  2. **Prep Phase 2b — Native Contingencies, Chain Contingencies, Sequencers & Spell Triggers + BG2 Census Closure**
+     (implemented 2026-11-12, `combat-intent/contingency.lua`, `adapters/eeex/choice.lua`, `bgse/setup-bgse.tp2`):
+     - **Native Contingencies, Chain Contingencies, Sequencers & Spell Triggers (`[BGSE] Contingencies=1` by default):**
+       `BGSE_Prep` now holds `'contingency'` and `'chain'` alongside `'prebuff'`, replacing SCS's remaining `dw#` setup
+       blocks (`Contingencies=0` falls back cleanly to SCS). Packages represent spells prepared the day before and rested
+       over (**zero today-slot debit**). Candidate spells are classified from each wizard's live runtime spellbook under
+       We Overwrite: Minor Sequencer (`BGSE#MS`, lvl `7+`, 2x lvl `<= 2`), Contingency (`lvl 12+`, 1x lvl `<= min(6, floor(lvl/3))`),
+       Spell Sequencer (`BGSE#SQ`, lvl `14+`, 3x lvl `<= 4`), Spell Trigger (`BGSE#TG`, lvl `16+`, 3x lvl `<= 6`), and Chain
+       Contingency (`lvl 18+`, 3x lvl `<= 8`, defensive/summon on Core and party-safe offensive on Hard/Insane). Pure dispel
+       spells (*Dispel/Remove Magic*) and indiscriminate friendly-fire AoEs are never auto-built.
+     - **True `0.00s` Live Evaluation + Fairness Guardrails:** Contingencies and Chain Contingencies evaluate live on every
+       hook pass without opcode-232's 100-tick heartbeat lag or `.BCS` delay, even mid-walk, mid-attack, or while waiting on
+       a round aura — strictly while `HP > 0` (**Guardrail #1:** a true one-shot blow to `0 HP` never fires a `< 50% HP`
+       Contingency). Every fired package plays the authentic `SPCONTIN` shimmer (`op215`, `dwFlags=1`, `duration=4`) +
+       combat-log & overhead callout (`Contingency - Fired`, `Chain Contingency - Fired`, `Minor Sequencer - Fired`, `Spell
+       Sequencer - Fired`, `Spell Trigger - Fired`), and virtual `BGSE#` releases enforce the 6-second round aura (`nativeAura`)
+       unless Improved Alacrity is active.
+     - **Challenge-Mode Option (`[BGSE] DefensiveContingencies=1`):** forbids all offensive spells (damage, disable, debuff,
+       and *Dispel/Remove Magic*) inside enemy Contingencies and Chain Contingencies (allowing only protections, buffs, and
+       summons while keeping offensive Sequencers/Triggers). For the matching **player-side** Challenge-Mode rule later in the
+       CEBG installer / `chriz-bg-magic`, hook `filterContingencyMageSpells()` in `UI.MENU` (using the same runtime spell
+       classification filter when `currentSpellLevel` is Contingency `SPWI617` or Chain Contingency `SPWI908`, while leaving
+       Minor Sequencer `SPWI420`, Spell Sequencer `SPWI710` and Spell Trigger `SPWI809` unrestricted).
+     - **BG2 & ToB Placed Census Closure (`HOOK-03`):** audited all 18 unhooked BG2/ToB placed hostile entries: 17 are
+       non-combat dream actors, portals, caged props or scriptless ambient animals, and the sole real fighter (`PPDJINN2.CRE`,
+       Spellhold Noble Djinni with leading-quote script typo `"djinni0`) is overwritten in `bgse/setup-bgse.tp2` to `PPDJINN2`
+       / `DJINNI01` (100% real placed combat coverage; bespoke BG2/Ascension boss tuning in `encounters.lua` follows BG1's
+       block list).
+  3. **Local Fight Groups, Creature-Type Calls & Overhead Flair Shouts (`combat-intent/director.lua`,
+     `combat-intent/calls.lua`, `adapters/eeex/director.lua`, `bgse/lib/calls.tpa`):** replaces area-wide `director:clues`
+     telepathy on open maps (which pulled distant `BG2300` Hobgoblin packs from 2,000–3,900 px away) with local group
+     linking (`groupRadius = 560` px idle, `combatRadius = 1200` px when both members are actively engaged in combat with
+     the party, or linked via `director:alert`; scripted `BGSE_Hunt` / `orders.call='map'` alarms stay map-wide). Creature
+     call profiles in `calls.lua` (`M.CONFIG`): `'silent'` (mindless undead, constructs, oozes, insects/spiders, solitary
+     monsters), `'pack'` (`WOLF`, `DOG`, `WORG` — `sameRaceOnly=true`, `550..750` px, `0` hops, howl emotes without verbal
+     replies), and `'warband'` (intelligent humanoids/monsters + `LICH`/`VAMPIRE` — `600..850` px, `0` hops up to Core and
+     `1` relay hop on Hard/Insane). Rate-limited overhead shouts render via `EEex_Sprite_DisplayTextRef(..., {overHead=true})`
+     using WeiDU-resolved `BGSE_CALL_STRREFS` (`[BGSE] Shouts=0` mutes text).
+  4. **Offensive Consumables & All 4 Quiver Slots (`combat-intent/choice.lua`, `combat-intent/arsenal.lua`,
+     `adapters/eeex/sense.lua`):** intelligent enemies (`wit ~= 'dull'`, difficulty `>= 2`) evaluate offensive potions and
+     oils (`itemType == 9`: *Oil of Fiery Burning* `POTN13`, *Potion of Explosions* `POTN26`, *Potion of Fire Breath*
+     `POTN27`, plus modded offensive flasks under We Overwrite) via `UseItemPoint` / `UseItem`, and archers read and switch
+     across all four runtime quiver slots (`11..14` in `SLOTS.IDS`, `SelectWeaponAbility(11..14, 0)`).
+  5. **Mid-tier encounter pacing without Double Damage (ongoing playtest tuning):** keep early simple encounters fair while
+     using controlled warband relay hops on Hard/Insane, offensive consumables, enchanted ammo switching, and selective
+     encounter/patrol additions in later chapters so veterans coming from SCS Insane + Double Damage keep feeling real
+     bite outside main bosses.
 - **Later:** our own party AI script; our own classes, kits and races (see the main plan's ideas list).

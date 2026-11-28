@@ -5024,4 +5024,690 @@ assert(#w.instant==2 and c:inspect().counts.companions==2 and c:inspect().counts
 end)()
 groups=groups+1
 
+-- 53. Ability drain and level drain on friends: sense.guard and sense.abilityDrained recognize timed
+-- attribute drain matching CBMLRES (negative mode 0 signed or unsigned, mode 1 below 12, mode 2 below
+-- 100 across CHA/CON/DEX/INT/STR/WIS) while ignoring buffs, CBTSTRF floors, done or expired effects,
+-- and equipped/permanent effects. A priest casts Lesser Restoration on a drained ally, counts the
+-- outcome as cared when the drain clears (uncared when it stays), and choices.ailing wakes out of
+-- combat for level drain.
+;(function()
+local w=world()
+local function eff(op,ticks,kind,p1,p2,done)
+    return {m_effectId=op,m_durationType=kind or 4096,m_duration=ticks,m_effectAmount=p1 or 0,m_dWFlags=p2 or 0,
+        m_done=done or 0,m_res=str(''),m_sourceRes=str('TESTDRN')}
+end
+local function effectsOf(rec,lv) return spells.classify(rec,1,reader.lookup,{level=lv or 10}) end
+local ally=w.add(sprite(2,80,0,255,{levels={[7]='S3'},stats={[1]=60,[34]=9}}))
+-- Non-drains: buff +2, CBTSTRF p1=0, mode 1 at 12, mode 2 at 100, mode 3, done=1, expired, permanent, equipped.
+ally.m_timedEffectList={eff(44,500,4096,2,0),eff(44,500,4096,0,0),eff(19,500,4096,12,1),eff(15,500,4096,100,2),
+    eff(44,500,4096,-4,3),eff(44,500,4096,-4,0,1),eff(44,100,4096,-4,0),eff(44,500,1,-4,0)}
+ally.m_equipedEffectList={eff(44,500,4096,-4,0)}
+assert(sense.abilityDrained(w,ally,100)==false)
+assert(sense.guard(w,ally,100,effectsOf).conditions.abilityDrain==nil)
+-- Drains across all six attribute opcodes and modes (including unsigned 32-bit negative).
+for _,case in ipairs({{6,-2,0},{10,4294967293,0},{15,11,1},{19,99,2},{44,5,1},{49,-1,0}}) do
+    ally.m_timedEffectList={eff(case[1],100+270,4096,case[2],case[3])}
+    assert(sense.abilityDrained(w,ally,100)==true)
+    assert(sense.guard(w,ally,100,effectsOf).conditions.abilityDrain==18)
+end
+ally.m_equipedEffectList={}
+
+-- choices.ailing sees level drain with no enemy in sight.
+assert(choices.ailing({self={hp=20,maxHp=20,state=0,drained=0},allies={{hp=20,maxHp=20,state=0,drained=1}}})==true)
+assert(choices.ailing({self={hp=20,maxHp=20,state=0,drained=0},allies={{hp=20,maxHp=20,state=0,drained=0}}})==false)
+
+-- Full priest round with Lesser Restoration (CBMLRES + 224 + caster fatigue) on an ability-drained ally,
+-- then outcome judgement when the drain clears vs when it remains.
+records.TESTLRES={kind='SPL',resref='TESTLRES',name=0,flags=0,spellType=2,exclusion=0,school=0,secondary=0,level=4,
+    casting={},abilities={{form=1,flags=0,location=2,target=1,targetCount=0,range=30,minLevel=1,speed=2,projectile=1,
+    effects={fx(224,{timing=1}),fx(402,{res='CBMLRES',timing=1}),fx(93,{target=1,p1=7,timing=1})}}}}
+local priest=w.add(sprite(1,0,0,255,{levels={[7]='S2'},stats={[1]=50,[34]=10}}))
+local pbook={}
+priest.m_memorizedSpellsPriest=memorized(pbook)
+pbook[3]={{m_spellId=str('TESTLRES'),m_flags=1}}
+priest.buttons={'TESTLRES'}
+function priest:GetQuickButtons(kind)
+    if kind==2 then return {{m_count=1,m_bDisabled=0,m_abilityId={m_res=str('TESTLRES')}}} end
+    return {}
+end
+local foe=w.add(sprite(11,300,0,2,{stats={[1]=80}}))
+ally.m_timedEffectList={eff(44,100+360,4096,5,1)}
+local d=directors.new(w,{reader=reader})
+local c=choices.new(w,{reader=reader,director=d,seed=11})
+local rows={}
+c:setSink(function(r) rows[#rows+1]=r end)
+local function lastKind(k)
+    for i=#rows,1,-1 do if rows[i].kind==k then return rows[i] end end
+end
+runtime.install(w,{director=d,choice=c,version='test'})
+assert(w.BGSE_Claim(priest,'priest','s2')==true)
+assert(rows[#rows].kind=='choice' and rows[#rows].spell=='TESTLRES' and rows[#rows].castKind=='cure')
+w.BGSE_Act(priest)
+-- Start and finish the cast; CBMLRES clears the timed drain -> cared increments after the settle window.
+for _,fn in ipairs(w.listeners.started) do fn(priest,action(31,'TESTLRES',-1)) end
+w.ticks=130;priest.m_curAction={m_actionID=0};ally.m_timedEffectList={}
+assert(w.BGSE_Claim(priest,'priest','s2')==true and c:inspect().judging==1)
+w.ticks=165
+assert(w.BGSE_Claim(priest,'priest','s2')==true)
+assert(c:inspect().counts.cared==1 and c:inspect().counts.uncared==0)
+-- A second cast where the drain did not clear -> uncared increments; level drain clearing -> cared increments.
+ally.m_timedEffectList={eff(44,200+360,4096,5,1)}
+w.ticks=200;priest.castTimer=-1
+assert(w.BGSE_Claim(priest,'priest','s2')==true)
+w.BGSE_Act(priest)
+for _,fn in ipairs(w.listeners.started) do fn(priest,action(31,'TESTLRES',-1)) end
+w.ticks=230;priest.m_curAction={m_actionID=0}
+assert(w.BGSE_Claim(priest,'priest','s2')==true and c:inspect().judging==1)
+w.ticks=265
+assert(w.BGSE_Claim(priest,'priest','s2')==true)
+assert(c:inspect().counts.cared==1 and c:inspect().counts.uncared==1)
+ally.m_timedEffectList={};ally.stats[200]=2
+w.ticks=300;priest.castTimer=-1
+assert(w.BGSE_Claim(priest,'priest','s2')==true)
+w.BGSE_Act(priest)
+for _,fn in ipairs(w.listeners.started) do fn(priest,action(31,'TESTLRES',-1)) end
+w.ticks=330;priest.m_curAction={m_actionID=0};ally.stats[200]=0
+assert(w.BGSE_Claim(priest,'priest','s2')==true and c:inspect().judging==1)
+w.ticks=365
+assert(w.BGSE_Claim(priest,'priest','s2')==true)
+assert(c:inspect().counts.cared==2 and c:inspect().counts.uncared==1 and c:inspect().counts.errors==0)
+records.TESTLRES=nil
+end)()
+groups=groups+1
+
+-- 54. Area-scoped prep hold (orders.noPrepIn, Venkt in BG1901 vs BG1900) and fight-start prebuffs
+-- (orders.prebuff, orders.prebuffFrom, Zeela's skeletons + Bless and Venkt's Armor): BGSE_Prep holds
+-- SCS's prebuffs/contingencies/chains only in the named areas. On a creature's first decision in sight
+-- of an enemy at or above prebuffFrom, its ready prebuff spells and buff potion queue at once without
+-- marking SCS's round timer; while queued they hold, and when BGSE_Act runs on that hold once the queue
+-- drains, the round's real combat spell follows on the same tick without a 'cut' row.
+;(function()
+local w=world()
+w.EngineGlobals.g_pBaldurChitin.m_pObjectGame.m_options={m_nDifficultyLevel=4}
+records.TESTCOPY=spl('TESTCOPY',3,{fx(12,{p2=8*65536,dice=6,sides=6})})
+local orders={
+    TEST1={noPrepIn={'BG1901','AR1901'},
+        prebuff={{cast='TESTCOPY',spend='TESTBOLT'},{cast='TESTCOPY',spend='TESTBOLT'},'buff-potion'},prebuffFrom=4},
+    TEST2={prebuff={{cast='TESTCOPY',spend='TESTBOLT'}},prebuffFrom=5},
+}
+local d=directors.new(w,{reader=reader})
+local c=choices.new(w,{reader=reader,director=d,seed=97,orders=orders})
+local rows={}
+c:setSink(function(r) rows[#rows+1]=r end)
+local function lastKind(k)
+    for i=#rows,1,-1 do if rows[i].kind==k then return rows[i] end end
+end
+runtime.install(w,{director=d,choice=c,version='test'})
+
+local m=w.add(sprite(1,0,0,255,{levels={[7]='s1'},stats={[1]=50,[34]=6}}))
+m.m_queuedActions={m_nCount=0}
+learn(m,2,'TESTBOLT',1);learn(m,2,'TESTBALL',1)
+m.items[18]={cResRef=str('TESTHERO'),m_useCount1=1}
+m.m_pArea={m_resref=str('bg1901')}
+assert(w.BGSE_Prep(m,'mage','s1','prebuff','dwsw212','WIZARD_MIRROR_IMAGE')==true)
+assert(w.BGSE_Prep(m,'mage','s1','contingency','dw#ms0','')==true)
+m.m_pArea={m_resref=str('BG1900')}
+assert(w.BGSE_Prep(m,'mage','s1','prebuff','dwsw212','WIZARD_MIRROR_IMAGE')==false)
+m.m_pArea=nil
+assert(w.BGSE_Prep(m,'mage','s1','prebuff','dwsw212','WIZARD_MIRROR_IMAGE')==false)
+
+-- With no enemy in sight, fight-start prebuffs wait until an enemy is seen.
+w.ticks=100
+assert(w.BGSE_Claim(m,'mage','s1')==false and c:inspect().counts.fightPrebuffs==0)
+
+-- Enemy in sight: TESTBOLT has 1 ready copy, so the duplicate entry is skipped; round timer stays unset.
+w.add(sprite(11,100,0,2));w.add(sprite(12,140,0,2))
+w.ticks=110
+assert(w.BGSE_Claim(m,'mage','s1')==true)
+local before=#w.queued
+w.BGSE_Act(m)
+assert(c:inspect().counts.fightPrebuffs==1 and c:inspect().counts.marked==0)
+assert(w.queued[before+1].text=='ReallyForceSpellRES("TESTCOPY",Myself)\nRemoveSpellRES("TESTBOLT")\nUseItem("TESTHERO",Myself)',
+    w.queued[before+1].text)
+assert(rows[#rows].kind=='prebuff' and rows[#rows].member==1)
+
+-- While the prebuff actions sit in m_queuedActions, the engine holds; once drained, BGSE_Act on that hold
+-- immediately queues round 1's combat spell without logging a cut.
+m.m_queuedActions.m_nCount=2
+w.ticks=111
+assert(w.BGSE_Claim(m,'mage','s1')==true and c:inspect().counts.holds==1)
+m.m_queuedActions.m_nCount=0;m.items[18]=nil
+learn(m,2,'TESTBALL',1)
+before=#w.queued
+w.BGSE_Act(m)
+assert(c:inspect().counts.cut==0 and #w.queued==before+1 and w.queued[#w.queued].text:find('TESTBALL',1,true)~=nil)
+
+-- Below prebuffFrom (TEST2 requires 5 on difficulty 4): goes straight to combat spell; invalidate resets.
+local m2=w.add(sprite(2,0,40,255,{levels={[7]='s1'},stats={[1]=50,[34]=6}}))
+m2.m_queuedActions={m_nCount=0}
+learn(m2,2,'TESTBOLT',1);learn(m2,2,'TESTBALL',1)
+w.ticks=120
+assert(w.BGSE_Claim(m2,'mage','s1')==true and rows[#rows].kind=='choice' and c:inspect().counts.fightPrebuffs==1)
+c:invalidate()
+m.m_curAction={m_actionID=0};m.castTimer=-1
+learn(m,2,'TESTBOLT',1)
+w.ticks=200
+assert(w.BGSE_Claim(m,'mage','s1')==true and rows[#rows].kind=='prebuff')
+w.BGSE_Act(m)
+assert(c:inspect().counts.fightPrebuffs==2 and c:inspect().counts.errors==0,c:inspect().lastError)
+records.TESTCOPY=nil
+end)()
+groups=groups+1
+
+-- 55. Native prebuffs in 0.00s (Prep Phase 2a, EEex_GameObject_ApplyEffect), BGSE_Prep Phase 2a +
+-- Prebuffs=0 fallback, neutral-before-talk prebuffs, offensive potions (UseItemPoint) and 4th quiver
+-- slot switching (SelectWeaponAbility(14,0)).
+;(function()
+local w=world()
+tablesOf(w)
+w.EngineGlobals.g_pBaldurChitin.m_pObjectGame.m_options={m_nDifficultyLevel=4}
+local applied={}
+w.EEex_GameObject_ApplyEffect=function(sp,args)
+    applied[#applied+1]={id=sp.m_id,effectID=args.effectID,res=args.res,dwFlags=args.dwFlags,
+        tx=args.targetX,ty=args.targetY}
+end
+records.TESTSKNL=spl('TESTSKNL',4,{fx(218,{p1=6,duration=43200,target=1})},5,1)
+records.TESTMIRS=spl('TESTMIRS',2,{fx(159,{p1=5,duration=180,target=1})},5,1)
+records.TESTMIRS.abilities[1].speed=1
+records.TESTBLSP={kind='SPL',resref='TESTBLSP',name=0,flags=0,spellType=1,exclusion=0,school=0,secondary=0,
+    level=1,casting={},abilities={{form=1,flags=0,location=2,target=4,targetCount=0,range=30,minLevel=1,speed=1,
+    projectile=3,effects={fx(130,{target=2,duration=60})}}}}
+records.TESTPFMW=spl('TESTPFMW',6,{fx(120,{p2=1,duration=24,target=1})},5,1)
+ITEMS.TESTOIL={kind='ITM',resref='TESTOIL',flags=0,itemType=9,abilities={{form=3,flags=0,location=3,target=4,
+    range=30,speed=0,projectile=3,effects={fx(12,{p2=8*65536,dice=5,sides=6})}}}}
+ITEMS.TESTARW2={kind='ITM',resref='TESTARW2',flags=0x40,enchantment=2,itemType=5,proficiency=0,equipping={},
+    abilities={{location=1,attackType=2,launcher=1,dice=1,sides=6,thac0=2,damageBonus=4,flags=0,range=1,
+    damageType=4,projectile=2,effects={}}}}
+ITEMS.TESTPLNA={kind='ITM',resref='TESTPLNA',flags=0,enchantment=0,itemType=5,proficiency=0,equipping={},
+    abilities={{location=1,attackType=2,launcher=1,dice=1,sides=8,thac0=0,damageBonus=2,flags=0,range=1,
+    damageType=4,projectile=2,effects={}}}}
+
+local d=directors.new(w,{reader=reader})
+local c=choices.new(w,{reader=reader,director=d,seed=108,prebuffs=true,
+    orders={TEST3={talkPrep={{cast='TESTMIRS',spend='TESTMIRS'},'buff-potion'},talkFrom=4}}})
+local rows={}
+c:setSink(function(r) rows[#rows+1]=r end)
+local function lastKind(k)
+    for i=#rows,1,-1 do if rows[i].kind==k then return rows[i] end end
+end
+runtime.install(w,{director=d,choice=c,version='test'})
+
+-- Phase 2a BGSE_Prep: holds 'prebuff' while letting 'contingency' and 'chain' pass; setPrebuffs(false) falls back.
+local m=w.add(sprite(1,100,120,255,{levels={[7]='s1'},stats={[1]=24,[2]=10,[34]=9},m_baseStats={m_hitPoints=24,m_generalState=0}}))
+learn(m,3,'TESTSKNL',1)
+learn(m,1,'TESTMIRS',2) -- 2 copies memorized: justPrebuffed bridge prevents double-casting on round 1!
+learn(m,0,'TESTBLSP',1)
+learn(m,5,'TESTPFMW',1) -- 24s tactical immunity: must NOT be consumed by prebuffs!
+learn(m,2,'TESTBOLT',1)
+
+assert(w.BGSE_Prep(m,'mage','s1','prebuff','dwsw408','WIZARD_STONE_SKIN')==true)
+assert(w.BGSE_Prep(m,'mage','s1','contingency','dw#ms0','')==false)
+assert(w.BGSE_Prep(m,'mage','s1','chain','dw#cc12','')==false)
+c:setPrebuffs(false)
+assert(w.BGSE_Prep(m,'mage','s1','prebuff','dwsw212','WIZARD_MIRROR_IMAGE')==false)
+c:setPrebuffs(true)
+
+-- Out of sight (no enemies): long prebuff (TESTSKNL) fires instantly in 0.00s via op146 and spends its slot,
+-- while short prebuffs (TESTMIRS, TESTBLSP) wait for combat contact!
+w.ticks=100
+assert(w.BGSE_Claim(m,'mage','s1')==false)
+assert(#applied==1 and applied[1].res=='TESTSKNL' and applied[1].effectID==146 and applied[1].dwFlags==1)
+assert(m.book[3][1].m_flags==0 and m.book[1][1].m_flags==1 and m.book[5][1].m_flags==1)
+assert(c:inspect().counts.longPrebuffs==1 and c:inspect().counts.nativePrebuffs==1)
+local lpRow=lastKind('prebuff')
+assert(lpRow and lpRow.phase=='long' and lpRow.instant==true)
+
+-- Combat contact (dangerous enemy archer appears): short prebuffs (TESTMIRS op146 + point AoE TESTBLSP op148 at caster's feet)
+-- fire instantly in 0.00s AND in the exact same tick round-1 choice immediately picks TESTBOLT (not a 2nd TESTMIRS)!
+local foe11=w.add(armed(sturdy(sprite(11,110,120,2)),11,'TESTPLNA'))
+foe11.items[36]={cResRef=str('TESTBOW')}
+foe11.m_curAction=action(3,'',1)
+foe11.stats[8]=4;foe11.stats[7]=5
+w.ticks=120
+assert(w.BGSE_Claim(m,'mage','s1')==true)
+assert(#applied==3)
+assert(applied[2].res=='TESTMIRS' and applied[2].effectID==146)
+assert(applied[3].res=='TESTBLSP' and applied[3].effectID==148 and applied[3].tx==100 and applied[3].ty==120)
+-- 1st copy of TESTMIRS spent, 2nd copy still intact, TESTPFMW (24s) untouched!
+assert(m.book[1][1].m_flags==0 and m.book[1][2].m_flags==1 and m.book[5][1].m_flags==1)
+local chRow=lastKind('choice')
+assert(chRow and chRow.spell=='TESTBOLT')
+
+-- Same-tick mergeJustPrebuffed bridge: when a mage has 2 copies of short-duration TESTSTON (600s) and faces two
+-- melee fighters, copy #1 fires in 0.00s and round-1 decide() immediately sees guard.stoneskins>0 so copy #2 is NOT double-cast!
+local mDup=w.add(sprite(2,100,1400,255,{levels={[7]='s1'},stats={[1]=20,[2]=8,[34]=9},m_baseStats={m_hitPoints=20,m_generalState=0}}))
+learn(mDup,3,'TESTSTON',2)
+w.add(sturdy(armed(sprite(31,140,1400,2,{m_curAction=action(3,'',2)}),35,'TESTSWRD')))
+w.add(sturdy(armed(sprite(32,150,1400,2,{m_curAction=action(3,'',2)}),35,'TESTSWRD')))
+w.ticks=130
+assert(w.BGSE_Claim(mDup,'mage','s1')==true and rows[#rows].kind=='wait')
+assert(mDup.book[3][1].m_flags==0 and mDup.book[3][2].m_flags==1)
+
+-- Neutral-before-talk boss (EA=128): BGSE_TalkHold fires native long prebuff in 0.00s, holds SCS 'prebuff'
+-- during talk window even while EA=128, and BGSE_TalkAct fires talkPrep spell in 0.00s while queueing potion.
+local boss=w.add(sprite(3,500,500,128,{levels={[7]='s1'},stats={[1]=50,[34]=9}}))
+boss.m_queuedActions={m_nCount=0}
+learn(boss,3,'TESTSKNL',1)
+learn(boss,1,'TESTMIRS',1)
+boss.items[18]={cResRef=str('TESTHERO'),m_useCount1=1}
+w.ticks=200
+assert(w.BGSE_TalkHold(boss,'','dw#shdlg')==true)
+assert(w.BGSE_Prep(boss,'mage','s1','prebuff','dwsw408','WIZARD_STONE_SKIN')==true)
+w.ticks=203
+assert(w.BGSE_TalkHold(boss,'','dw#shdlg')==true)
+assert(w.BGSE_TalkExtras(boss,'','dw#shdlg')==true)
+local qBefore=#w.queued
+w.BGSE_TalkAct(boss)
+-- Spell cast ran instantly via ApplyEffect; only UseItem("TESTHERO",Myself) entered the action queue!
+assert(#w.queued==qBefore+1 and w.queued[#w.queued].text=='UseItem("TESTHERO",Myself)')
+
+-- Offensive potion (TESTOIL -> UseItemPoint) and 4th quiver slot (slot 14 -> SelectWeaponAbility(14,0)).
+local thrower=w.add(sprite(4,100,600,255,{levels={[7]='s3'},stats={[1]=60,[34]=6}}))
+thrower.items[18]={cResRef=str('TESTOIL'),m_useCount1=1}
+w.add(sprite(21,220,600,2,{stats={[1]=25},m_baseStats={m_hitPoints=25,m_generalState=0}}))
+w.add(sprite(22,240,600,2,{stats={[1]=25},m_baseStats={m_hitPoints=25,m_generalState=0}}))
+w.ticks=300
+assert(w.BGSE_Claim(thrower,'fighter','s3')==true)
+w.BGSE_Act(thrower)
+assert(w.queued[#w.queued].text:find('^UseItemPoint%("TESTOIL",%[%d+%.%d+%],0%)$')~=nil,w.queued[#w.queued].text)
+
+local archer=w.add(armed(sprite(5,100,1200,255,{levels={[7]='s3'},stats={[1]=60,[34]=8}}),11,'TESTARRW'))
+archer.items[36]={cResRef=str('TESTBOW')}
+archer.items[11]={cResRef=str('TESTARRW')}
+archer.items[14]={cResRef=str('TESTARW2')}
+archer.stats[8]=4;archer.stats[7]=10
+w.add(sturdy(sprite(31,300,1200,2)))
+w.ticks=400
+assert(w.BGSE_Claim(archer,'fighter','s3')==true)
+w.BGSE_Act(archer)
+assert(w.queued[#w.queued].text=='SelectWeaponAbility(14,0)\nAttackOneRound(EEex_Target("BGSE"))',w.queued[#w.queued].text)
+
+assert(c:inspect().counts.errors==0,c:inspect().lastError)
+records.TESTSKNL,records.TESTMIRS,records.TESTBLSP,records.TESTPFMW=nil,nil,nil,nil
+ITEMS.TESTOIL,ITEMS.TESTARW2,ITEMS.TESTPLNA=nil,nil,nil
+end)()
+groups=groups+1
+
+-- 56. Prep Phase 2b: native Contingencies & Chain Contingencies in 0.00s (zero slot debit, SPCONTIN +
+-- overhead callout, same-tick prebuff -> chain ordering, mid-round aura-wait 0.00s trigger, Guardrail #1
+-- one-shot kill protection, virtual BGSE#MS sequencer + nativeAura, and Challenge-Mode setDefensiveContingencies).
+;(function()
+local w=world()
+tablesOf(w)
+w.EngineGlobals.g_pBaldurChitin.m_pObjectGame.m_options={m_nDifficultyLevel=4}
+w.EEex_Sprite_GetCasterLevelForSpell=function(sp) return sp.stats[34] or 10 end
+w.BGSE_CALL_STRREFS={ctg_fired=9001,cc_fired=9002,msq_fired=9003,seq_fired=9004,trg_fired=9005}
+local applied,displayed={},{}
+w.EEex_GameObject_ApplyEffect=function(sp,args)
+    applied[#applied+1]={id=sp.m_id,effectID=args.effectID,res=args.res,dwFlags=args.dwFlags,
+        durationType=args.durationType,duration=args.duration,targetType=args.targetType,
+        tx=args.targetX,ty=args.targetY}
+    if args.res=='TESTSKNL' then sp.stats[88]=6 end
+end
+w.EEex_Sprite_DisplayTextRef=function(sp,strref,opts)
+    displayed[#displayed+1]={id=sp.m_id,strref=strref,overHead=opts and opts.overHead}
+end
+
+records.TESTSKNL=spl('TESTSKNL',4,{fx(218,{p1=6,duration=43200,target=1})},5,1)
+records.TESTMIRS=spl('TESTMIRS',2,{fx(159,{p1=5,duration=180,target=1})},5,1)
+records.TESTMIRS.abilities[1].speed=1
+records.TESTPFMW=spl('TESTPFMW',6,{fx(120,{p2=1,duration=24,target=1})},5,1)
+records.TESTACID=spl('TESTACID',2,{fx(12,{p2=1*65536,dice=8,sides=6})},1,2)
+records.TESTFING=spl('TESTFING',8,{fx(12,{p2=64*65536,dice=8,sides=6})},1,2)
+
+-- runtime.install defaults contingencies ON and honours [BGSE] Contingencies=0 / DefensiveContingencies=1.
+local wDef=world()
+wDef.EEex_GameObject_ApplyEffect=w.EEex_GameObject_ApplyEffect
+wDef.Infinity_GetINIValue=function(_,k)
+    if k=='Contingencies' then return 0 end
+    if k=='DefensiveContingencies' then return 1 end
+    return nil
+end
+local rDef=runtime.install(wDef,{reader=reader,version='test'})
+local mDef=wDef.add(sprite(9,0,0,255,{levels={[7]='s1'}}))
+assert(wDef.BGSE_Prep(mDef,'mage','s1','contingency','dw#ms0','')==false)
+rDef.choice:setContingencies(true)
+assert(wDef.BGSE_Prep(mDef,'mage','s1','contingency','dw#ms0','')==true)
+assert(wDef.BGSE_Prep(mDef,'mage','s1','chain','dw#cc12','')==true)
+
+local d=directors.new(w,{reader=reader})
+local c=choices.new(w,{reader=reader,director=d,seed=109,prebuffs=true,contingencies=true})
+local rows={}
+c:setSink(function(r) rows[#rows+1]=r end)
+local function lastKind(k)
+    for i=#rows,1,-1 do if rows[i].kind==k then return rows[i] end end
+end
+runtime.install(w,{director=d,choice=c,version='test'})
+
+local m=w.add(sprite(1,100,120,255,{levels={[7]='s1'},stats={[1]=40,[2]=8,[34]=18},m_baseStats={m_hitPoints=40,m_generalState=0}}))
+learn(m,3,'TESTSKNL',1)
+learn(m,1,'TESTMIRS',1)
+learn(m,5,'TESTPFMW',1)
+learn(m,1,'TESTACID',1)
+learn(m,7,'TESTFING',1)
+
+assert(w.BGSE_Prep(m,'mage','s1','contingency','dw#ms0','')==true)
+assert(w.BGSE_Prep(m,'mage','s1','chain','dw#cc12','')==true)
+c:setContingencies(false)
+assert(w.BGSE_Prep(m,'mage','s1','contingency','dw#ms0','')==false)
+assert(w.BGSE_Prep(m,'mage','s1','chain','dw#cc12','')==false)
+c:setContingencies(true)
+
+-- Combat contact at tick 120:
+-- 1) Prebuffs (TESTSKNL + TESTMIRS) fire FIRST in 0.00s (spending their 2 slots).
+-- 2) Chain Contingency ('seen': TESTSKNL + 2x TESTFING at foe11) fires in 0.00s with SPCONTIN + cc_fired,
+--    spending ZERO slots of TESTFING!
+-- 3) Emergency Contingency (TESTPFMW) stays armed in reserve because Stoneskin is active and HP == 100%!
+-- 4) Round-1 choice picks virtual Minor Sequencer BGSE#MS (2x TESTACID, 56 dmg, free innate) -> BGSE_Act
+--    fires both sub-spells via op146, plays SPCONTIN + msq_fired, sets firedsequencer=1, spends ZERO slots
+--    of TESTACID, queues 'NoAction()', and starts nativeAura!
+local foe11=w.add(sprite(11,180,120,2,{stats={[1]=120},m_baseStats={m_hitPoints=120,m_generalState=0}}))
+w.ticks=120
+assert(w.BGSE_Claim(m,'mage','s1')==true)
+assert(c:inspect().counts.chains==1 and c:inspect().counts.contingencies==0)
+assert(m.locals.chaincontingencyfired==1 and (m.locals.ContingencyFired or 0)==0)
+-- Prebuffs spent TESTSKNL & TESTMIRS, while TESTPFMW, TESTACID, and TESTFING all keep m_flags == 1!
+assert(m.book[3][1].m_flags==0 and m.book[1][1].m_flags==0)
+assert(m.book[5][1].m_flags==1 and m.book[1][2].m_flags==1 and m.book[7][1].m_flags==1)
+assert(#displayed==1 and displayed[1].strref==9002 and displayed[1].overHead==true)
+local chRow=lastKind('choice')
+assert(chRow and (chRow.spell=='BGSE#SQ' or chRow.spell=='BGSE#TG') and chRow.release==true)
+
+w.BGSE_Act(m)
+assert(w.queued[#w.queued].text=='NoAction()')
+assert(c:inspect().counts.nativeSequencers==1 and m.locals.firedsequencer==1)
+-- TESTACID memorized slot STILL untouched!
+assert(m.book[1][2].m_flags==1)
+assert(#displayed==2 and (displayed[2].strref==9004 or displayed[2].strref==9005))
+local sawShimmer,acidHits=false,0
+for _,a in ipairs(applied) do
+    if a.effectID==215 and a.res=='SPCONTIN' and a.durationType==0 and a.duration==4 then sawShimmer=true end
+    if a.effectID==146 and a.res=='TESTACID' and a.id==11 and a.targetType==2 then acidHits=acidHits+1 end
+end
+assert(sawShimmer and acidHits==3)
+
+-- Next tick (130): nativeAura is active (5.33s left), BGSE#MS is spent, and m has no weapon -> waits on aura!
+w.ticks=130
+assert(w.BGSE_Claim(m,'mage','s1')==true)
+local waitRow=lastKind('wait')
+assert(waitRow and waitRow.tick==130 and waitRow.reason=='aura')
+
+-- Mid-round at tick 135 (STILL inside waits[1]!): m takes a heavy hit dropping HP to 18/40 (45% <= 50%)!
+-- Emergency Contingency (TESTPFMW) fires IMMEDIATELY in 0.00s without waiting for aura or round end!
+m.m_baseStats.m_hitPoints=18
+w.ticks=135
+assert(w.BGSE_Claim(m,'mage','s1')==true)
+assert(c:inspect().counts.contingencies==1 and m.locals.ContingencyFired==1)
+assert(#displayed==3 and displayed[3].strref==9001)
+-- Zero slot debit on TESTPFMW!
+assert(m.book[5][1].m_flags==1)
+local ctgRow=lastKind('contingency')
+assert(ctgRow and ctgRow.tick==135 and ctgRow.spells[1]=='TESTPFMW',
+    tostring(ctgRow and ctgRow.tick)..':'..tostring(ctgRow and ctgRow.spells and ctgRow.spells[1]))
+
+-- Guardrail #1 (One-Shot Kill): mage m2 drops straight from 30/30 HP to 0 HP in one blow -> dead mage
+-- NEVER triggers its < 50% HP Contingency!
+local m2=w.add(sprite(2,100,900,255,{levels={[7]='s1'},stats={[1]=30,[2]=8,[34]=15},m_baseStats={m_hitPoints=30,m_generalState=0}}))
+learn(m2,3,'TESTSKNL',1)
+learn(m2,5,'TESTPFMW',1)
+w.add(sprite(21,260,900,2,{stats={[1]=80},m_baseStats={m_hitPoints=80,m_generalState=0}}))
+w.ticks=200
+assert(w.BGSE_Claim(m2,'mage','s1')==true)
+assert(c:inspect().counts.contingencies==1) -- still armed!
+m2.m_baseStats.m_hitPoints=0 -- one-shotted to 0 HP!
+w.ticks=205
+w.BGSE_Claim(m2,'mage','s1')
+assert(c:inspect().counts.contingencies==1 and (m2.locals.ContingencyFired or 0)==0)
+
+-- Challenge-Mode setDefensiveContingencies(true): rebuilds loadouts with zero offensive spells in Chain Contingency!
+c:setDefensiveContingencies(true)
+local m3=w.add(sprite(3,100,1700,255,{levels={[7]='s1'},stats={[1]=40,[2]=8,[34]=18},m_baseStats={m_hitPoints=40,m_generalState=0}}))
+learn(m3,3,'TESTSKNL',1)
+learn(m3,1,'TESTMIRS',1)
+learn(m3,5,'TESTPFMW',1)
+learn(m3,7,'TESTFING',1)
+local foe31=w.add(sprite(31,260,1700,2,{stats={[1]=100},m_baseStats={m_hitPoints=100,m_generalState=0}}))
+w.ticks=300
+assert(w.BGSE_Claim(m3,'mage','s1')==true)
+-- Defensive fallback Chain ('hp50') stays armed at 100% HP; when HP drops to 18/40, it fires ONLY wards, never TESTFING!
+assert(c:inspect().counts.chains==1)
+local fingBefore=0
+for _,a in ipairs(applied) do if a.res=='TESTFING' then fingBefore=fingBefore+1 end end
+m3.m_baseStats.m_hitPoints=18
+w.ticks=305
+assert(w.BGSE_Claim(m3,'mage','s1')==true)
+assert(c:inspect().counts.chains==2)
+local fingAfter=0
+for _,a in ipairs(applied) do if a.res=='TESTFING' then fingAfter=fingAfter+1 end end
+assert(fingAfter==fingBefore)
+
+assert(c:inspect().counts.errors==0,c:inspect().lastError)
+records.TESTSKNL,records.TESTMIRS,records.TESTPFMW,records.TESTACID,records.TESTFING=nil,nil,nil,nil,nil
+end)()
+groups=groups+1
+
+-- 57. Point-target instantCast fallback (target==4 -> effectID 148, sourceTarget -1), extrasList buff
+-- bridge preventing duplicate round-1 buff casts, and overnight SPWI408 / SPPR506 rest-buff parity with
+-- slot-level and specialist-kit / class exclusion checks.
+;(function()
+local w=world()
+tablesOf(w)
+w.EngineGlobals.g_pBaldurChitin.m_pObjectGame.m_options={m_nDifficultyLevel=3}
+local applied={}
+w.EEex_GameObject_ApplyEffect=function(sp,args)
+    applied[#applied+1]={id=sp.m_id,effectID=args.effectID,res=args.res,sourceTarget=args.sourceTarget,
+        tx=args.targetX,ty=args.targetY}
+    if sp.m_id==6 and args.res=='TESTPTBF' then
+        sp.m_timedEffectList[#sp.m_timedEffectList+1]={m_effectId=206,m_durationType=4096,m_duration=140+1000,
+            m_spellLevel=2,m_effectAmount=0,m_dWFlags=0,m_res=str('TESTPTBF'),m_sourceRes=str('TESTPTBF')}
+    end
+end
+
+-- Real SPWI408 (Abjurer exclusion 0x40), SPPR506 (Cleric/Paladin exclusion 0x40000000), and point-AoE
+-- priest buff TESTPTBF (abilities[1].target == 4, Chant/Bless pattern).
+records.SPWI408=spl('SPWI408',4,{fx(218,{p1=6,duration=43200,target=1})},5,1)
+records.SPWI408.exclusion=0x40
+records.SPPR506=spl('SPPR506',5,{fx(218,{p1=6,duration=43200,target=1})},5,2)
+records.SPPR506.exclusion=0x40000000
+records.TESTPTBF={kind='SPL',resref='TESTPTBF',name=0,flags=0,spellType=2,exclusion=0,school=0,secondary=0,
+    level=2,casting={},abilities={{form=1,flags=0,location=2,target=4,targetCount=0,range=30,minLevel=1,speed=1,
+    projectile=3,effects={fx(130,{target=2,duration=60})}}}}
+records.TESTGLBE=spl('TESTGLBE',4,{fx(102,{p1=3,duration=180,target=1})},5,1)
+records.TESTFIRE=spl('TESTFIRE',3,{fx(12,{p2=8*65536,dice=6,sides=6})},1,1)
+
+local d=directors.new(w,{reader=reader})
+local c=choices.new(w,{reader=reader,director=d,seed=110,prebuffs=true,
+    orders={TESTPT={prebuff={{cast='TESTPTBF',spend='TESTPTBF'}},prebuffFrom=2}}})
+runtime.install(w,{director=d,choice=c,version='test'})
+
+-- Enchanter mage (kit=0x200) with 4th-level spell TESTGLBE memorized and NO SPWI408 -> gets free overnight
+-- SPWI408 (0 slots spent!), while Abjurer (kit=0x40) with 4th-level spell is excluded, and low mage (max lvl 3) gets none.
+local ench=w.add(sprite(1,100,120,255,{levels={[7]='s1'},stats={[1]=40,[34]=9},
+    m_typeAI={m_EnemyAlly=255,m_Class=1},m_baseStats={m_hitPoints=40,m_generalState=0,m_mageSpecialization=0x200}}))
+learn(ench,3,'TESTGLBE',1)
+local abj=w.add(sprite(2,100,400,255,{levels={[7]='s1'},stats={[1]=40,[34]=9},
+    m_typeAI={m_EnemyAlly=255,m_Class=1},m_baseStats={m_hitPoints=40,m_generalState=0,m_mageSpecialization=0x40}}))
+learn(abj,3,'TESTGLBE',1)
+local lowm=w.add(sprite(3,100,700,255,{levels={[7]='s1'},stats={[1]=25,[34]=5},
+    m_typeAI={m_EnemyAlly=255,m_Class=1},m_baseStats={m_hitPoints=25,m_generalState=0,m_mageSpecialization=0}}))
+learn(lowm,2,'TESTFIRE',1)
+
+-- Druid (m_Class=11) with 5th-level priest slot -> gets free SPPR506; Cleric (m_Class=3) -> excluded from SPPR506.
+local druid=w.add(sprite(4,100,1000,255,{levels={[7]='s1'},stats={[1]=45,[34]=10},
+    m_typeAI={m_EnemyAlly=255,m_Class=11},m_baseStats={m_hitPoints=45,m_generalState=0,m_mageSpecialization=0}}))
+druid.pbook={[4]={{m_spellId=str('TESTPTBF'),m_flags=1}}}
+druid.m_memorizedSpellsPriest=memorized(druid.pbook)
+druid.buttons={'TESTPTBF'}
+local cleric=w.add(sprite(5,100,1300,255,{levels={[7]='s1'},stats={[1]=45,[34]=10},
+    m_typeAI={m_EnemyAlly=255,m_Class=3},m_baseStats={m_hitPoints=45,m_generalState=0,m_mageSpecialization=0}}))
+cleric.pbook={[4]={{m_spellId=str('TESTPTBF'),m_flags=1}}}
+cleric.m_memorizedSpellsPriest=memorized(cleric.pbook)
+cleric.buttons={'TESTPTBF'}
+
+w.ticks=100
+w.BGSE_Claim(ench,'mage','s1')
+w.BGSE_Claim(abj,'mage','s1')
+w.BGSE_Claim(lowm,'mage','s1')
+w.BGSE_Claim(druid,'priest','s1')
+w.BGSE_Claim(cleric,'priest','s1')
+local skinIds={}
+for _,a in ipairs(applied) do skinIds[a.res..':'..a.id]=a end
+assert(skinIds['SPWI408:1'] and not skinIds['SPWI408:2'] and not skinIds['SPWI408:3'])
+assert(skinIds['SPPR506:4'] and not skinIds['SPPR506:5'])
+assert(ench.book[3][1].m_flags==1 and druid.pbook[4][1].m_flags==1)
+
+-- Point-target extrasList prebuff (TESTPTBF with target==4) fires via effectID 148 & sourceTarget -1 even
+-- when instantCast point argument is nil, AND populates justPrebuffed.buff!
+local pCaster=w.add(sprite(6,200,2000,255,{levels={[7]='s1'},m_resref=str('TESTPT'),stats={[1]=50,[34]=7},
+    m_typeAI={m_EnemyAlly=255,m_Class=3},m_baseStats={m_hitPoints=50,m_generalState=0}}))
+pCaster.pbook={[1]={{m_spellId=str('TESTPTBF'),m_flags=1},{m_spellId=str('TESTPTBF'),m_flags=1}}}
+pCaster.m_memorizedSpellsPriest=memorized(pCaster.pbook)
+pCaster.buttons={'TESTPTBF'}
+w.add(sprite(61,260,2000,2,{stats={[1]=40},m_baseStats={m_hitPoints=40,m_generalState=0}}))
+w.ticks=140
+w.BGSE_Claim(pCaster,'priest','s1')
+local ptHits=0
+for _,a in ipairs(applied) do
+    if a.id==6 and a.res=='TESTPTBF' then
+        assert(a.effectID==148 and a.sourceTarget==-1 and a.tx==200 and a.ty==2000)
+        ptHits=ptHits+1
+    end
+end
+assert(ptHits>=1)
+
+assert(c:inspect().counts.errors==0,c:inspect().lastError)
+records.SPWI408,records.SPPR506,records.TESTPTBF,records.TESTGLBE,records.TESTFIRE=nil,nil,nil,nil,nil
+end)()
+groups=groups+1
+
+-- 58. opener.appendSequencers strips SCS sequencer innates whose tier is replaced by
+-- loadout.sequencers (even after BGSE#MS/#SQ/#TG is spent), restores them when native
+-- contingencies turn off, and preserves innates of unreplaced tiers in auto/partial overrides.
+;(function()
+local w=world()
+tablesOf(w)
+w.EngineGlobals.g_pBaldurChitin.m_pObjectGame.m_options={m_nDifficultyLevel=3}
+w.EEex_GameObject_ApplyEffect=function() end
+w.EEex_Sprite_GetCasterLevelForSpell=function(sp) return sp.stats[34] or 10 end
+
+records.TESTACID=spl('TESTACID',2,{fx(12,{p2=16*65536,dice=3,sides=6})},1,1)
+records.TESTMM=spl('TESTMM',1,{fx(12,{p2=0,dice=4,sides=4})},1,1)
+records['DW#MS4']=spl('DW#MS4',1,{fx(12,{p2=0,dice=7,sides=6})},1,1)
+records['DW#DT11']=spl('DW#DT11',1,{fx(12,{p2=0,dice=20,sides=6})},1,1)
+records['DW#SQ1']=spl('DW#SQ1',1,{fx(12,{p2=0,dice=20,sides=6})},1,1)
+records['DW#TG1']=spl('DW#TG1',1,{fx(12,{p2=0,dice=20,sides=6})},1,1)
+records['DW#DT0']=spl('DW#DT0',1,{fx(12,{p2=0,dice=20,sides=6})},1,1)
+
+local orders={
+    TESTNAT={sequencers={minor={'TESTACID','TESTACID'}}},
+    TESTSQ={sequencers={sequencer={'TESTACID','TESTACID','TESTACID'}}},
+    TESTTRG={sequencers={trigger={'TESTACID','TESTACID','TESTACID'}}},
+}
+local d=directors.new(w,{reader=reader})
+local c=choices.new(w,{reader=reader,director=d,seed=111,contingencies=true,orders=orders})
+local rows={}
+c:setSink(function(r) rows[#rows+1]=r end)
+local function lastKind(k)
+    for i=#rows,1,-1 do if rows[i].kind==k then return rows[i] end end
+end
+runtime.install(w,{director=d,choice=c,version='test'})
+
+local function addFoe(id,y)
+    return w.add(sprite(id,180,y,2,{stats={[1]=200},m_baseStats={m_hitPoints=200,m_generalState=0}}))
+end
+local function addMage(id,y,resref,level)
+    local sp=sprite(id,100,y,255,{levels={[7]='s1'},m_resref=resref and str(resref) or nil,
+        stats={[1]=60,[2]=level,[34]=level},m_baseStats={m_hitPoints=60,m_generalState=0}})
+    sp.m_queuedActions={m_nCount=0}
+    return w.add(sp)
+end
+
+-- (a) Explicit minor sequencer suppresses DW#MS4 on Round 1, keeps DW#MS4 suppressed on
+--     Round 2 after BGSE#MS is spent, and restores DW#MS4 when setContingencies(false).
+local mNat=addMage(1,120,'TESTNAT',9)
+gift(mNat,'DW#MS4')
+learn(mNat,0,'TESTMM',1)
+addFoe(11,120)
+
+w.ticks=100
+assert(w.BGSE_Claim(mNat,'mage','s1')==true)
+assert(lastKind('choice').spell=='BGSE#MS')
+w.BGSE_Act(mNat)
+
+w.ticks=200
+assert(w.BGSE_Claim(mNat,'mage','s1')==true)
+assert(lastKind('choice').spell=='TESTMM')
+
+c:setContingencies(false)
+w.ticks=400
+assert(w.BGSE_Claim(mNat,'mage','s1')==true)
+assert(lastKind('choice').spell=='DW#MS4')
+c:setContingencies(true)
+
+-- (b) DW#DT11 is also suppressed when the minor tier is replaced.
+local mDt11=addMage(2,720,'TESTNAT',9)
+gift(mDt11,'DW#DT11')
+learn(mDt11,0,'TESTMM',1)
+addFoe(21,720)
+w.ticks=500
+assert(w.BGSE_Claim(mDt11,'mage','s1')==true)
+assert(lastKind('choice').spell=='BGSE#MS')
+
+-- (c) Only replaced tiers are stripped: overriding minor leaves DW#SQ1 intact.
+local mCross=addMage(3,1320,'TESTNAT',9)
+gift(mCross,'DW#MS4')
+gift(mCross,'DW#SQ1')
+learn(mCross,0,'TESTMM',1)
+addFoe(31,1320)
+w.ticks=600
+assert(w.BGSE_Claim(mCross,'mage','s1')==true)
+assert(lastKind('choice').spell=='DW#SQ1')
+
+-- (d) Explicit sequencer replaces DW#SQ1; explicit trigger replaces DW#TG1 and DW#DT0.
+local mSeq=addMage(4,1920,'TESTSQ',14)
+gift(mSeq,'DW#SQ1')
+learn(mSeq,0,'TESTMM',1)
+addFoe(41,1920)
+w.ticks=700
+assert(w.BGSE_Claim(mSeq,'mage','s1')==true)
+assert(lastKind('choice').spell=='BGSE#SQ')
+
+local mTrg1=addMage(5,2520,'TESTTRG',16)
+gift(mTrg1,'DW#TG1')
+learn(mTrg1,0,'TESTMM',1)
+addFoe(51,2520)
+w.ticks=800
+assert(w.BGSE_Claim(mTrg1,'mage','s1')==true)
+assert(lastKind('choice').spell=='BGSE#TG')
+
+local mDt0=addMage(6,3120,'TESTTRG',16)
+gift(mDt0,'DW#DT0')
+learn(mDt0,0,'TESTMM',1)
+addFoe(61,3120)
+w.ticks=900
+assert(w.BGSE_Claim(mDt0,'mage','s1')==true)
+assert(lastKind('choice').spell=='BGSE#TG')
+
+-- (e) Without orders.sequencers, existing DW#MS4 suppresses auto BGSE#MS and stays available
+--     alongside auto-built BGSE#SQ, firing on Round 2 once BGSE#SQ is spent.
+local mAuto=addMage(7,3720,nil,14)
+gift(mAuto,'DW#MS4')
+learn(mAuto,1,'TESTACID',1)
+learn(mAuto,0,'TESTMM',1)
+addFoe(71,3720)
+w.ticks=1000
+assert(w.BGSE_Claim(mAuto,'mage','s1')==true)
+assert(lastKind('choice').spell=='BGSE#SQ')
+w.BGSE_Act(mAuto)
+
+w.ticks=1100
+assert(w.BGSE_Claim(mAuto,'mage','s1')==true)
+assert(lastKind('choice').spell=='DW#MS4')
+
+assert(c:inspect().counts.errors==0,c:inspect().lastError)
+records.TESTACID,records.TESTMM=nil,nil
+records['DW#MS4'],records['DW#DT11'],records['DW#SQ1'],records['DW#TG1'],records['DW#DT0']=nil,nil,nil,nil,nil
+end)()
+groups=groups+1
+
 return groups

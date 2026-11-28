@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from tools import build_runtime, hook_rule
-from tools.ie_resources import parse_spl
+from tools.ie_resources import parse_itm, parse_spl
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / 'tests/fixtures/hook'
@@ -112,6 +112,7 @@ TRIGGER = """IDS V1.0
 0x4018 NumTimesTalkedToGT(I:Num*)
 0x4019 AttackedBy(O:Object*,I:Style*AStyles)
 0x401A Exists(O:Object*)
+0x401B DifficultyGT(I:Amount*Difflev)
 0x4089 OR(I:OrCount*)
 """
 ACTION = """IDS V1.0
@@ -163,10 +164,16 @@ ACTION = """IDS V1.0
 45 StartCutSceneEx(S:Cutscene*,I:CheckTriggers*Boolean)
 46 JumpToPoint(P:Target*)
 47 EscapeArea()
+48 CreateCreature(S:NewObject*,P:Location*,I:Face*Dir)
+49 FaceObject(O:Object*)
+50 StartDialogNoSetInterrupt(O:Object*)
 """
 IDS = {
     'OBJECT': ('IDS V1.0\n0 Nothing\n1 Myself\n12 NearestEnemyOf\n18 LastSeenBy\n20 LastHeardBy\n21 Player1\n22 Player2\n'
                '40 NearestDoor\n'),
+    'DIFFLEV': 'IDS V1.0\n1 EASIEST\n2 EASY\n3 NORMAL\n4 HARD\n5 HARDEST\n',
+    'DIR': 'IDS V1.0\n0 S\n5 NW\n',
+    'GTIMES': 'IDS V1.0\n6 ONE_ROUND\n',
     'EA': 'IDS V1.0\n0 ANYONE\n2 PC\n30 GOODCUTOFF\n128 NEUTRAL\n255 ENEMY\n',
     'ASTYLES': 'IDS V1.0\n0 DEFAULT\n',
     'GENERAL': 'IDS V1.0\n0 ANYONE\n',
@@ -516,6 +523,16 @@ def test_installer_matches_reference_and_is_reversible(tmp_path: Path) -> None:
     assert entries == sorted([f"['{n.lower()}']='{f}'," for n, (f, _) in HOOKED.items()] +
                              [f"['{n.lower()}']='auto'," for n in OWN]), registry
     assert 'BGSE_HOOKED={' in registry
+    assert 'BGSE_CALL_STRREFS={' in registry
+    import importlib
+    lua = importlib.import_module('lupa.lua51').LuaRuntime()
+    lua.execute("package.path=... .. '/?.lua;' .. package.path", ROOT.as_posix())
+    lua.execute(registry)
+    all_lines = lua.execute("return require('combat-intent.calls').allLines()")
+    call_strrefs = lua.globals().BGSE_CALL_STRREFS
+    for idx in range(1, len(all_lines) + 1):
+        entry = all_lines[idx]
+        assert isinstance(call_strrefs[entry['key']], int) and call_strrefs[entry['key']] >= 0, entry['key']
     # The engine's own hook: the fight scripts creatures carry that are not SCS's have it at their top and are
     # otherwise as they were, as tools/hook_rule.py says of their compiled form; the talk script beside one, the
     # fight scripts nobody carries and the SCS-hooked ones (which ask already) are not touched (UNTOUCHED, HOOKED
@@ -801,9 +818,12 @@ def _book_cre(book, wis=14, items=(), name='') -> bytes:
         index += len(spells)
     words = [0xFFFF] * 38 + [0, 0]
     records = b''
-    for i, (item, slot) in enumerate(items):
-        records += item.encode('ascii').ljust(8, b'\0') + struct.pack('<HHHHI', 0, 0, 0, 0, 0)
-        words[slot] = i
+    for i, entry in enumerate(items):
+        item, slot = entry[0], entry[1]
+        charges = entry[2] if len(entry) > 2 else 0
+        records += item.encode('ascii').ljust(8, b'\0') + struct.pack('<HHHHI', 0, charges, 0, 0, 0)
+        if slot is not None:
+            words[slot] = i
     slots = struct.pack('<40H', *words)
     at = 0x2D4
     struct.pack_into('<II', head, 0x2A0, at, len(known) // 12)
@@ -1163,5 +1183,503 @@ def test_greywolf_brings_kestrel(tmp_path: Path, variant: str) -> None:
                 assert struct.unpack_from('<H', data, item_at + 20 * words[slot] + 10)[0] == count, (name, slot)
         script = _decompile(tmp_path, ['BGSEKEST'])['BGSEKEST']
         assert 'Allegiance("Greywolf",ENEMY)' in script and 'EscapeArea()' in script and 'MoveToObject("Greywolf")' in script
+    _install(tmp_path, '--force-uninstall-list', '0')
+    assert _snapshot(tmp_path) == before
+
+
+MULAHEY_AREA = """IF
+  Global("DMWWMulaheyFlunky","MYAREA",1)
+  Global("DW#Mulahey_Override","GLOBAL",0)
+  DifficultyGT(3)
+THEN
+  RESPONSE #100
+    SetGlobal("DMWWMulaheyFlunky","MYAREA",0)
+    CreateCreature("dw#mulkc",[217.591],5)
+END
+"""
+LAMALHA_BAF = """IF
+  See([PC])
+  NumTimesTalkedTo(0)
+THEN
+  RESPONSE #100
+    SmallWait(2)
+    FaceObject([PC])
+    StartDialogue("lamalh",[PC])
+END
+"""
+DRASUS_BAF = """IF
+  See([PC])
+  NumTimesTalkedTo(0)
+THEN
+  RESPONSE #100
+    StartDialogNoSetInterrupt(LastSeenBy)
+END
+"""
+
+
+@pytest.mark.parametrize('variant', ['plain', 'edited'])
+def test_boss02_encounters_overwrite_slots_unslotted_items_talks_and_mulahey_waves(tmp_path: Path, variant: str) -> None:
+    _fake_game(tmp_path)
+    (tmp_path / 'fixture/bg5405.baf').write_text(MULAHEY_AREA, encoding='ascii')
+    (tmp_path / 'fixture/lamalha.baf').write_text(LAMALHA_BAF, encoding='ascii')
+    (tmp_path / 'fixture/drasus.baf').write_text(DRASUS_BAF, encoding='ascii')
+    (tmp_path / 'fixture/extra.tp2').write_text(
+        'BACKUP ~fixture/backup-extra~\nAUTHOR ~BGSE test~\nBEGIN ~BOSS-02~\n'
+        'COMPILE ~fixture/bg5405.baf~\nCOMPILE ~fixture/lamalha.baf~\nCOMPILE ~fixture/drasus.baf~\n',
+        encoding='ascii')
+    _run(tmp_path, 'fixture/extra.tp2', '--force-install-list', '0')
+    for res in ('SPPR312', 'SPPR308', 'SPPR316', 'SPPR314'):
+        s = bytearray(_spl(2))
+        struct.pack_into('<I', s, 0x34, 3)
+        (tmp_path / f'override/{res}.SPL').write_bytes(bytes(s))
+    for res in ('SPWI118', 'SPWI104', 'SPWI116', 'SPWI102', 'SPWI114'):
+        s = bytearray(_spl(1))
+        struct.pack_into('<I', s, 0x34, 1)
+        (tmp_path / f'override/{res}.SPL').write_bytes(bytes(s))
+    for item in ('AROW08', 'AROW09', 'AROW04', 'AROW01', 'AROW10', 'POTN09', 'POTN08', 'POTN14'):
+        (tmp_path / f'override/{item}.ITM').write_bytes(b'ITM V1  ' + bytes(0x72 - 8))
+
+    mulahe_book = {(0, 3): ['SPPR312', 'SPPR312', 'SPPR308', 'SPPR316'] if variant == 'plain' else ['SPPR314']}
+    (tmp_path / 'override/MULAHE.CRE').write_bytes(_book_cre(mulahe_book, 11 if variant == 'plain' else 22))
+    (tmp_path / 'override/DW#MULKC.CRE').write_bytes(_cre(['', '', '', '', ''], []))
+    (tmp_path / 'override/LAMALH.CRE').write_bytes(_cre(['', 'LAMALHA', '', '', ''], []))
+    (tmp_path / 'override/DRASUS.CRE').write_bytes(_cre(['', 'DRASUS', '', '', ''], []))
+    telka_items = ([('AROW08', 13, 20), ('AROW09', None, 20), ('AROW04', None, 20)] if variant == 'plain' else
+                   [('AROW01', 13, 40), ('AROW01', 14, 12), ('AROW10', 15, 5)])
+    (tmp_path / 'override/TELKA.CRE').write_bytes(_book_cre({}, 7, telka_items))
+    maneir = bytearray(_cre(['', '', '', '', ''], []))
+    maneir[0x238] = 12 if variant == 'plain' else 18
+    (tmp_path / 'override/MANEIR.CRE').write_bytes(bytes(maneir))
+    # Drakar's only POTN09 is unslotted (slot None); carries must ignore unslotted records and place a real one.
+    (tmp_path / 'override/DRAKAR.CRE').write_bytes(_book_cre({}, 11, [('POTN08', 18, 2), ('POTN09', None, 1)]))
+    venkt_items = ([('POTN08', 18, 1), ('POTN08', 19, 1), ('POTN08', None, 1)] if variant == 'plain' else
+                   [('POTN08', 18, 1), ('POTN08', 19, 1), ('POTN09', 20, 3)])
+    venkt_book = {(1, 1): ['SPWI118', 'SPWI104', 'SPWI116', 'SPWI116', 'SPWI114'] if variant == 'plain' else ['SPWI114']}
+    (tmp_path / 'override/VENKT.CRE').write_bytes(_book_cre(venkt_book, 9, venkt_items))
+    (tmp_path / 'override/GENTHO.CRE').write_bytes(_book_cre({}, 13, []))
+
+    before = _snapshot(tmp_path)
+    lam_src = _decompile(tmp_path, ['LAMALHA'])['LAMALHA']
+    dra_src = _decompile(tmp_path, ['DRASUS'])['DRASUS']
+    output = _install(tmp_path, '--force-install-list', '0')
+    assert 'SUCCESSFULLY INSTALLED' in output, output
+    installed = _snapshot(tmp_path)
+
+    mulahe = installed['override/mulahe.cre']
+    assert mulahe[0x23B] == 17
+    assert Counter(_book_of(mulahe)[0][(0, 3)]) == Counter(['SPPR312', 'SPPR308', 'SPPR316'])
+    area_baf = _decompile(tmp_path, ['BG5405'])['BG5405']
+    assert 'BGSEMulaheyWave' in area_baf and '[360.380]' in area_baf and 'BGSE.gate:on()' in area_baf
+
+    assert installed['override/lamalh.cre'][0x250:0x258] == b'BGSELAMA'
+    assert installed['override/drasus.cre'][0x250:0x258] == b'BGSEDRAS'
+    assert _decompile(tmp_path, ['BGSELAMA'])['BGSELAMA'] == hook_rule.patch_talk(lam_src, 'BGSELAMA', own=True)[0]
+    assert _decompile(tmp_path, ['BGSEDRAS'])['BGSEDRAS'] == hook_rule.patch_talk(dra_src, 'BGSEDRAS', own=True)[0]
+
+    telka = installed['override/telka.cre']
+    assert {s: _items_of(telka)[s] for s in (13, 14, 15)} == {13: 'AROW08', 14: 'AROW09', 15: 'AROW04'}
+    slot_at, item_at, _ = struct.unpack_from('<III', telka, 0x2B8)
+    words = struct.unpack_from('<40H', telka, slot_at)
+    assert [struct.unpack_from('<H', telka, item_at + 20 * words[s] + 10)[0] for s in (13, 14, 15)] == [20, 20, 20]
+
+    assert installed['override/maneir.cre'][0x238] == 15
+    assert _items_of(installed['override/drakar.cre'])[21] == 'POTN09'
+
+    venkt = installed['override/venkt.cre']
+    assert Counter(_book_of(venkt)[0][(1, 1)]) == Counter(['SPWI118', 'SPWI104', 'SPWI116', 'SPWI116', 'SPWI102'])
+    assert _items_of(venkt)[20] == 'POTN08'
+    vslot, vitem, _ = struct.unpack_from('<III', venkt, 0x2B8)
+    vwords = struct.unpack_from('<40H', venkt, vslot)
+    assert struct.unpack_from('<H', venkt, vitem + 20 * vwords[20] + 10)[0] == 1
+    assert _items_of(installed['override/gentho.cre'])[21] == 'POTN14'
+
+    _install(tmp_path, '--force-uninstall-list', '0', '--force-install-list', '0')
+    assert _snapshot(tmp_path) == installed
+    _install(tmp_path, '--force-uninstall-list', '0')
+    assert _snapshot(tmp_path) == before
+
+
+@pytest.mark.parametrize('variant', ['typo', 'edited', 'fallback'])
+def test_ppdjinn2_overwrite_assigns_hooked_djinni_script_and_restores_cleanly(tmp_path: Path, variant: str) -> None:
+    _fake_game(tmp_path)
+    bcs_name = 'DJINNI01' if variant == 'fallback' else 'PPDJINN2'
+    (tmp_path / f'fixture/{bcs_name.lower()}.baf').write_text(
+        'IF\n  See(NearestEnemyOf(Myself))\nTHEN\n  RESPONSE #100\n    AttackReevaluate(NearestEnemyOf(Myself),30)\nEND\n',
+        encoding='ascii')
+    (tmp_path / 'fixture/djinni.tp2').write_text(
+        f'BACKUP ~fixture/backup-djinni~\nAUTHOR ~BGSE test~\nBEGIN ~djinni~\nCOMPILE ~fixture/{bcs_name.lower()}.baf~\n',
+        encoding='ascii')
+    _run(tmp_path, 'fixture/djinni.tp2', '--force-install-list', '0')
+    old_default = '"djinni0' if variant == 'typo' else ('CUSTOMDJ' if variant == 'edited' else '')
+    (tmp_path / 'override/PPDJINN2.CRE').write_bytes(_cre(['', '', '', '', old_default], []))
+
+    before = _snapshot(tmp_path)
+    output = _install(tmp_path, '--force-install-list', '0')
+    assert 'SUCCESSFULLY INSTALLED' in output, output
+    installed = _snapshot(tmp_path)
+    assert installed['override/ppdjinn2.cre'][0x268:0x270] == bcs_name.encode('ascii').ljust(8, b'\x00')
+    registry = installed['override/m_bgsehk.lua'].decode('ascii')
+    assert f"['{bcs_name.lower()}']='auto'," in registry
+
+    _install(tmp_path, '--force-uninstall-list', '0')
+    assert _snapshot(tmp_path) == before
+
+
+def _fx_v1(opcode: int, target: int = 1, p1: int = 0, p2: int = 0, timing: int = 1, duration: int = 0,
+           res: str = '', prob1: int = 100, prob2: int = 0, save: int = 0, resist: int = 0) -> bytes:
+    return struct.pack('<HBBiIBBIBB8siiIiI', opcode, target, 0, p1, p2, timing, resist, duration,
+                       prob1, prob2, res.encode('ascii'), 0, 0, save, 0, 0)
+
+
+def _patch_cre(data: bytes, *, cls: int | None = None, level: int | None = None, hp: int | None = None,
+               thac0: int | None = None, scripts: list[str] | None = None, effs=()) -> bytes:
+    buf = bytearray(data)
+    if cls is not None:
+        buf[0x273] = cls
+    if level is not None:
+        buf[0x234] = level
+    if hp is not None:
+        struct.pack_into('<HH', buf, 0x24, hp, hp)
+    if thac0 is not None:
+        buf[0x52] = thac0 & 0xFF
+    if scripts is not None:
+        for i, name in enumerate(scripts):
+            buf[0x248 + 8 * i:0x250 + 8 * i] = name.encode('ascii').ljust(8, b'\0')
+    if effs:
+        fx_off, fx_cnt = struct.unpack_from('<II', buf, 0x2C4)
+        assert fx_cnt == 0 and buf[0x33] == 0
+        blob = b''.join(effs)
+        assert fx_off == len(buf)
+        struct.pack_into('<II', buf, 0x2C4, fx_off, len(effs))
+        buf.extend(blob)
+    return bytes(buf)
+
+
+def _cre_effects_v1(data: bytes):
+    assert data[0x33] == 0
+    fx_off, fx_cnt = struct.unpack_from('<II', data, 0x2C4)
+    out = []
+    for i in range(fx_cnt):
+        op, target, _, p1, p2, timing, resist, dur = struct.unpack_from('<HBBiIBBI', data, fx_off + 48 * i)
+        out.append((op, target, p1, p2, timing, resist, dur))
+    return out
+
+
+def _itm_file(*, flags: int = 0x2C, usab3: int = 0x2F, ab_cnt: int = 1, eq_effects=(), hdr_effects=()) -> bytes:
+    head = bytearray(0x72)
+    head[:8] = b'ITM V1  '
+    struct.pack_into('<II', head, 0x08, 0xFFFFFFFF, 0xFFFFFFFF)
+    struct.pack_into('<IH', head, 0x18, flags, 20)
+    head[0x29] = usab3
+    head[0x31] = 94
+    struct.pack_into('<I', head, 0x34, 750)
+    ab_off = 0x72
+    fx_off = ab_off + 56 * ab_cnt
+    struct.pack_into('<IHIHH', head, 0x64, ab_off, ab_cnt, fx_off, 0, len(eq_effects))
+    abilities = bytearray()
+    all_fx = b''.join(eq_effects)
+    fx_idx = len(eq_effects)
+    for i in range(ab_cnt):
+        ab = bytearray(56)
+        ab[0] = 1
+        ab[2] = 3 if i > 0 else 1
+        if ab_cnt == 1 or i > 0:
+            ab[4:12] = b'ISW1H44\0'
+        ab[0x0C] = 1
+        struct.pack_into('<H', ab, 0x0E, 1)
+        ab[0x12] = 5
+        struct.pack_into('<hBBBBhH', ab, 0x14, 0, 8, 0, 1, 0, 0, 3)
+        hfx = hdr_effects[i] if i < len(hdr_effects) else ()
+        struct.pack_into('<HH', ab, 0x1E, len(hfx), fx_idx)
+        fx_idx += len(hfx)
+        all_fx += b''.join(hfx)
+        abilities += ab
+    return bytes(head + abilities + all_fx)
+
+
+@pytest.mark.parametrize('variant', ['plain', 'edited'])
+def test_boss03_encounters_and_resources(tmp_path: Path, variant: str) -> None:
+    _fake_game(tmp_path)
+    (tmp_path / 'override/STATE.IDS').write_text(
+        'IDS V1.0\n0x00000FC0 STATE_REALLY_DEAD\n0x00000001 STATE_CHARMED\n0x00000020 STATE_HELPLESS\n',
+        encoding='ascii')
+    (tmp_path / 'override/SNDSLOT.IDS').write_text(
+        'IDS V1.0\n0 INITIAL_MEETING\n1 BATTLE_CRY3\n2 BATTLE_CRY4\n3 BATTLE_CRY5\n', encoding='ascii')
+    (tmp_path / 'override/GTIMES.IDS').write_text(
+        'IDS V1.0\n' + ''.join(f'{s} {n}\n' for n, s in GTIMES.items()) + '12 TWO_ROUNDS\n24 FOUR_ROUNDS\n',
+        encoding='ascii')
+    (tmp_path / 'override/TRIGGER.IDS').write_text(
+        TRIGGER + '0x410E EEex_LuaTrigger(S:Chunk*)\n0x4037 StateCheck(O:Object*,I:State*State)\n', encoding='ascii')
+    (tmp_path / 'override/ACTION.IDS').write_text(
+        ACTION + '472 EEex_LuaAction(S:Chunk*)\n139 VerbalConstant(O:Object*,I:Constant*SndSlot)\n'
+        '337 ReallyForceSpellPoint(P:Target*,I:Spell*Spell)\n', encoding='ascii')
+
+    (tmp_path / 'fixture/bg2101.baf').write_text(
+        'IF\n  Global("EnteredArea","MYAREA",0)\nTHEN\n  RESPONSE #100\n    SetGlobal("EnteredArea","MYAREA",1)\nEND\n',
+        encoding='ascii')
+    (tmp_path / 'fixture/ar2101.baf').write_text(
+        'IF\n  Global("UnrelatedBG2","MYAREA",0)\nTHEN\n  RESPONSE #100\n    SetGlobal("UnrelatedBG2","MYAREA",1)\nEND\n',
+        encoding='ascii')
+    (tmp_path / 'fixture/centeol.baf').write_text(
+        'IF\n  See([PC])\n  !Allegiance(Myself,ENEMY)\n  !StateCheck(Myself,STATE_CHARMED)\n'
+        '  NumTimesTalkedTo(0)\nTHEN\n  RESPONSE #100\n    SmallWait(2)\n'
+        '    StartDialogue("centeo",[PC])\nEND\n', encoding='ascii')
+    (tmp_path / 'fixture/zhalimar.baf').write_text(
+        'IF\n  See([PC])\n  NumTimesTalkedTo(0)\nTHEN\n  RESPONSE #100\n    SmallWait(2)\n'
+        '    StartDialogue("zhalim",[PC])\nEND\n', encoding='ascii')
+    (tmp_path / 'fixture/davaeorn.baf').write_text(
+        'IF\n  Detect([PC])\n  NumTimesTalkedTo(0)\nTHEN\n  RESPONSE #100\n'
+        '    VerbalConstant(Myself,INITIAL_MEETING)\n'
+        '    StartDialogue("davaeo",LastSeenBy(Myself))\nEND\n\n'
+        'IF\n  !GlobalTimerNotExpired("castspell","LOCALS")\n  Range(NearestEnemyOf(Myself),5)\n'
+        '  !StateCheck(LastSeenBy(Myself),STATE_HELPLESS)\n  Global("DavaeornTelTrack","LOCALS",0)\n'
+        '  HaveSpell(WIZARD_DIMENSION_DOOR)\nTHEN\n  RESPONSE #100\n'
+        '    SetGlobal("DavaeornTelTrack","LOCALS",1)\n'
+        '    ReallyForceSpellPoint([788.460],WIZARD_DIMENSION_DOOR)\n'
+        '    RemoveSpell(WIZARD_DIMENSION_DOOR)\nEND\n\n'
+        'IF\n  !GlobalTimerNotExpired("castspell","LOCALS")\n  Range(NearestEnemyOf(Myself),5)\n'
+        '  Global("DavaeornTelTrack","LOCALS",1)\n  HaveSpell(WIZARD_DIMENSION_DOOR)\nTHEN\n  RESPONSE #100\n'
+        '    SetGlobal("DavaeornTelTrack","LOCALS",0)\n'
+        '    ReallyForceSpellPoint([714.888],WIZARD_DIMENSION_DOOR)\n'
+        '    RemoveSpell(WIZARD_DIMENSION_DOOR)\nEND\n\n'
+        'IF\n  See(NearestEnemyOf(Myself))\nTHEN\n  RESPONSE #100\n'
+        '    AttackReevaluate(NearestEnemyOf(Myself),30)\nEND\n', encoding='ascii')
+    (tmp_path / 'fixture/boss03.tp2').write_text(
+        'BACKUP ~fixture/backup-boss03~\nAUTHOR ~BGSE test~\nBEGIN ~BOSS-03~\n'
+        'COMPILE ~fixture/bg2101.baf~\nCOMPILE ~fixture/ar2101.baf~\n'
+        'COMPILE ~fixture/centeol.baf~\nCOMPILE ~fixture/zhalimar.baf~\nCOMPILE ~fixture/davaeorn.baf~\n',
+        encoding='ascii')
+    _run(tmp_path, 'fixture/boss03.tp2', '--force-install-list', '0')
+
+    wiz_by_lvl = {
+        1: ('SPWI101', 'SPWI103', 'SPWI106', 'SPWI112', 'SPWI114', 'SPWI118'),
+        2: ('SPWI201', 'SPWI204', 'SPWI205', 'SPWI211', 'SPWI212', 'SPWI219'),
+        3: ('SPWI302', 'SPWI303', 'SPWI304', 'SPWI305', 'SPWI306', 'SPWI308', 'SPWI311', 'SPWI312', 'SPWI318', 'SPWI319'),
+        4: ('SPWI402', 'SPWI404', 'SPWI406', 'SPWI408', 'SPWI412'),
+        5: ('SPWI503', 'SPWI512', 'SPWI522', 'SPWI523', 'SPWI524'),
+    }
+    for lvl, names in wiz_by_lvl.items():
+        for res in names:
+            s = bytearray(_spl(1))
+            struct.pack_into('<I', s, 0x34, lvl)
+            (tmp_path / f'override/{res}.SPL').write_bytes(bytes(s))
+    sp516_extra = [(215, 1, 0, 0, 18, 'SPELEMND'), (177, 1, 0, 1, 0, 'CBMWLF'), (142, 1, 131, 0, 18, '')]
+    if variant == 'edited':
+        sp516_extra = [(165, 1, 0, 0, 12, ''), (142, 1, 131, 0, 12, ''), (215, 1, 0, 0, 12, 'SPELEMND')] + sp516_extra
+    sp516 = bytearray(_spl(1, opcode=165, target=1, extra=sp516_extra))
+    struct.pack_into('<I', sp516, 0x34, 5)
+    (tmp_path / 'override/SPWI516.SPL').write_bytes(bytes(sp516))
+
+    pri_by_lvl = {
+        1: ('SPPR101',),
+        3: ('SPPR306', 'SPPR308', 'SPPR314', 'SPPR321'),
+        4: ('SPPR404', 'SPPR406', 'SPPR408'),
+        5: ('SPPR502', 'SPPR503'),
+    }
+    for lvl, names in pri_by_lvl.items():
+        for res in names:
+            s = bytearray(_spl(2))
+            struct.pack_into('<I', s, 0x34, lvl)
+            (tmp_path / f'override/{res}.SPL').write_bytes(bytes(s))
+    for res in ('DW#MS11', 'DW#MS4'):
+        (tmp_path / f'override/{res}.SPL').write_bytes(_spl(4))
+
+    for item in ('WAND06', 'WAND07', 'WAND11', 'SCRL1O', 'POTN08', 'POTN14', 'BRAC02', 'DW#SWD02'):
+        (tmp_path / f'override/{item}.ITM').write_bytes(b'ITM V1  ' + bytes(0x72 - 8))
+    if variant == 'plain':
+        sw1h44 = _itm_file(flags=0x2C, usab3=0x2F, ab_cnt=1)
+    else:
+        sw1h44 = _itm_file(
+            flags=0x2E, usab3=0x3F, ab_cnt=2,
+            eq_effects=[_fx_v1(0, 1, 1, 0, 2), _fx_v1(319, 2, 0, 9, 2, res='C0SHAPE_')],
+            hdr_effects=[[_fx_v1(12, 2, 0, 0x10000, 1)], [_fx_v1(12, 2, 0, 0x10000, 1)]],
+        )
+    (tmp_path / 'override/SW1H44.ITM').write_bytes(sw1h44)
+
+    (tmp_path / 'override/SPIDPH.CRE').write_bytes(_cre(['', '', '', '', ''], []))
+    cent_items = [('WAND06', 18, 1)] if variant == 'plain' else [('WAND06', 18, 1), ('WAND06', None, 2)]
+    cent_book = {} if variant == 'plain' else {(1, 1): ['SPWI101', 'SPWI101'], (1, 4): ['SPWI402']}
+    (tmp_path / 'override/CENTEO.CRE').write_bytes(_patch_cre(
+        _book_cre(cent_book, items=cent_items, name='CENTEOL'),
+        cls=3 if variant == 'plain' else 2, hp=30 if variant == 'plain' else 99,
+        scripts=['CENTEOL', '', '', '', ''] if variant == 'plain' else ['', '', 'CENTEOL', '', ''],
+    ))
+
+    nat_items = [('SCRL1O', 18, 1)] if variant == 'plain' else [('SCRL1O', 18, 1), ('SCRL1O', None, 1)]
+    nat_book = {(2, 1): ['DW#MS11']} if variant == 'plain' else {(2, 1): ['DW#MS11', 'DW#MS4'], (1, 1): ['SPWI101']}
+    (tmp_path / 'override/NATASH.CRE').write_bytes(_patch_cre(
+        _book_cre(nat_book, items=nat_items, name='NATASHA'),
+        scripts=['', '', '', '', ''],
+    ))
+
+    ogre_items = [] if variant == 'plain' else [('WAND06', 9, 1)]
+    ogre_effs = () if variant == 'plain' else (_fx_v1(98, 1, 1, 2, 9), _fx_v1(0, 1, 1, 0, 9))
+    ogre_book = {} if variant == 'plain' else {(1, 1): ['SPWI101', 'SPWI101'], (1, 3): ['SPWI302']}
+    (tmp_path / 'override/OGREMA03.CRE').write_bytes(_patch_cre(
+        _book_cre(ogre_book, items=ogre_items),
+        cls=19, level=4 if variant == 'plain' else 10, hp=40 if variant == 'plain' else 110,
+        thac0=16 if variant == 'plain' else 7, scripts=['', '', '', '', ''], effs=ogre_effs,
+    ))
+
+    dava_book = {} if variant == 'plain' else {(1, 3): ['SPWI302', 'SPWI302'], (1, 5): ['SPWI503']}
+    (tmp_path / 'override/DAVAEO.CRE').write_bytes(_patch_cre(
+        _book_cre(dava_book, name='Davaeorn'),
+        scripts=['DAVAEORN', '', '', '', ''] if variant == 'plain' else ['', 'DAVAEORN', '', '', ''],
+    ))
+
+    (tmp_path / 'override/ZHALIM.CRE').write_bytes(_cre(
+        ['', 'ZHALIMAR', '', '', ''] if variant == 'plain' else ['', '', 'ZHALIMAR', '', ''], [], name='ZHALIMAR',
+    ))
+    alai_items = [('WAND07', 18, 5)] if variant == 'plain' else [('WAND07', 3, 5), ('WAND07', None, 2)]
+    (tmp_path / 'override/ALAI.CRE').write_bytes(_patch_cre(
+        _book_cre({} if variant == 'plain' else {(1, 3): ['SPWI302']}, items=alai_items),
+        scripts=['', '', '', '', ''],
+    ))
+    aasim_items = [('WAND11', 18, 5)] if variant == 'plain' else [('WAND11', 18, 5), ('WAND11', None, 1)]
+    (tmp_path / 'override/AASIM.CRE').write_bytes(_patch_cre(
+        _book_cre({} if variant == 'plain' else {(0, 3): ['SPPR308']}, items=aasim_items),
+        scripts=['', '', '', '', ''],
+    ))
+    (tmp_path / 'override/DIYAB.CRE').write_bytes(_patch_cre(
+        _book_cre({} if variant == 'plain' else {(0, 1): ['SPPR101'], (0, 3): ['SPPR321'], (0, 5): ['SPPR502']}),
+        scripts=['', '', '', '', ''],
+    ))
+    (tmp_path / 'override/NAAMAN.CRE').write_bytes(_patch_cre(
+        _book_cre({} if variant == 'plain' else {(1, 3): ['SPWI303', 'SPWI303']}),
+        scripts=['', '', '', '', ''],
+    ))
+    (tmp_path / 'override/GARDUS.CRE').write_bytes(_patch_cre(
+        _book_cre({}, items=[] if variant == 'plain' else [('BRAC02', 9, 1)]),
+        scripts=['', '', '', '', ''],
+    ))
+
+    before = _snapshot(tmp_path)
+    cent_src = _decompile(tmp_path, ['CENTEOL'])['CENTEOL']
+    zhal_src = _decompile(tmp_path, ['ZHALIMAR'])['ZHALIMAR']
+    output = _install(tmp_path, '--force-install-list', '0')
+    assert 'SUCCESSFULLY INSTALLED' in output, output
+    installed = _snapshot(tmp_path)
+
+    centeo = installed['override/centeo.cre']
+    assert centeo[0x273] == 1
+    assert struct.unpack_from('<HH', centeo, 0x24) == (54, 54)
+    assert 'WAND06' not in _items_of(centeo).values()
+    assert b'BGSECENT' in centeo[0x248:0x270] and b'CENTEOL' not in centeo[0x248:0x270]
+    assert _decompile(tmp_path, ['BGSECENT'])['BGSECENT'] == hook_rule.patch_talk(cent_src, 'BGSECENT', own=True)[0]
+    cbook = {k: Counter(v) for k, v in _book_of(centeo)[0].items()}
+    assert cbook == {
+        (1, 1): Counter(['SPWI112', 'SPWI112', 'SPWI106', 'SPWI118', 'SPWI118']),
+        (1, 2): Counter(['SPWI211', 'SPWI205', 'SPWI212', 'SPWI212']),
+        (1, 3): Counter(['SPWI312', 'SPWI303', 'SPWI311']),
+        (1, 4): Counter(['SPWI412', 'SPWI408']),
+    }, cbook
+    assert installed['override/ar2101.bcs'] == before['override/ar2101.bcs']
+    bg2101_baf = _decompile(tmp_path, ['BG2101'])['BG2101']
+    assert 'BGSE_Spidph' in bg2101_baf and 'CreateCreature("SPIDPH",[649.269],S)' in bg2101_baf
+
+    natash = installed['override/natash.cre']
+    assert 'SCRL1O' not in _items_of(natash).values()
+    assert 'POTN08' in _items_of(natash).values()
+    nbook_raw, nknown = _book_of(natash)
+    nbook = {k: Counter(v) for k, v in nbook_raw.items()}
+    assert 'DW#MS11' not in nbook.get((2, 1), {})
+    assert ('DW#MS4', 0, 2) in nknown and nbook[(2, 1)]['DW#MS4'] == 1
+    for lvl, expected in (
+        (1, ['SPWI112', 'SPWI112', 'SPWI103', 'SPWI118', 'SPWI114']),
+        (2, ['SPWI204', 'SPWI204', 'SPWI219', 'SPWI212']),
+        (3, ['SPWI319', 'SPWI312', 'SPWI311', 'SPWI304', 'SPWI302']),
+        (4, ['SPWI404', 'SPWI406', 'SPWI408']),
+        (5, ['SPWI503', 'SPWI512']),
+    ):
+        assert nbook[(1, lvl)] == Counter(expected), (lvl, nbook)
+
+    kspell = parse_spl(installed['override/bgsekt1c.spl'], 'BGSEKT1C')
+    assert kspell['spellType'] == 4 and len(kspell['abilities']) == 1
+    assert [(e['opcode'], e['timing'], e['duration'], e['p2'], e['resist'], e['res'])
+            for e in kspell['abilities'][0]['effects']] == [
+        (321, 1, 0, 0, 0, 'BGSEKT1C'),
+        (40, 0, 12, 0, 3, ''),
+        (142, 0, 12, 41, 3, ''),
+    ]
+    kitem_bytes = installed['override/bgsekt01.itm']
+    kitem = parse_itm(kitem_bytes, 'BGSEKT01')
+    assert (kitem['flags'] & 0x2) == 0 and (kitem['flags'] & 0x44) == 0x44
+    assert (kitem_bytes[0x29] & 0x10) == 0
+    assert kitem['proficiency'] == 94 and kitem['enchantment'] == 1
+    assert not any(e['opcode'] == 319 for e in kitem['equipping'])
+    if variant == 'edited':
+        assert [e['opcode'] for e in kitem['equipping']] == [0]
+    assert len(kitem['abilities']) == 1
+    kab = kitem['abilities'][0]
+    assert (kab['attackType'], kab['location'], kab['speed'], kab['thac0'],
+            kab['dice'], kab['sides'], kab['damageBonus'], kab['damageType']) == (1, 1, 2, 1, 1, 10, 1, 3)
+    assert [(e['opcode'], e['target'], e['p1'], e['p2'], e['prob1'], e['prob2'], e['save'], e['res'])
+            for e in kab['effects']] == [
+        (12, 2, 1, 0x20000, 100, 0, 0, ''),
+        (146, 2, 1, 1, 14, 0, 1, 'BGSEKT1C'),
+    ]
+
+    ogre = installed['override/ogrema03.cre']
+    assert ogre[0x234] == 7 and struct.unpack_from('<HH', ogre, 0x24) == (62, 62) and ogre[0x52] == 13
+    assert _items_of(ogre)[9] == 'BGSEKT01'
+    ogre_slot_at = struct.unpack_from('<I', ogre, 0x2B8)[0]
+    assert struct.unpack_from('<H', ogre, ogre_slot_at + 38 * 2)[0] == 0
+    ogre_fx = _cre_effects_v1(ogre)
+    assert [(op, p1, p2, tm) for op, _, p1, p2, tm, _, _ in ogre_fx if op == 98] == [(98, 6, 3, 9)]
+    if variant == 'edited':
+        assert any(op == 0 for op, *_ in ogre_fx)
+    obook = {k: Counter(v) for k, v in _book_of(ogre)[0].items()}
+    assert {k: obook[k] for k in ((1, 1), (1, 2), (1, 3), (1, 4))} == {
+        (1, 1): Counter(['SPWI112', 'SPWI112', 'SPWI103', 'SPWI114']),
+        (1, 2): Counter(['SPWI212', 'SPWI212', 'SPWI201']),
+        (1, 3): Counter(['SPWI305', 'SPWI318', 'SPWI303']),
+        (1, 4): Counter(['SPWI408']),
+    }, obook
+
+    sp516p = parse_spl(installed['override/bgse516p.spl'], 'BGSE516P')
+    assert [(e['opcode'], e['res']) for e in sp516p['abilities'][0]['effects']] == [(177, 'CBMWLF')]
+    dava_baf = _decompile(tmp_path, ['BGSEDAVA'])['BGSEDAVA']
+    assert 'BGSE_NoDavaSeq' in dava_baf
+    assert 'BGSE_TalkExtras' in dava_baf
+    assert 'BGSE_TalkHold' in dava_baf
+    assert 'not (BGSE~=nil and BGSE.gate~=nil and BGSE.gate:on()==true)' in dava_baf
+    assert "['bgsedava']='auto'," in installed['override/m_bgsehk.lua'].decode('ascii')
+    davaeo = installed['override/davaeo.cre']
+    assert b'BGSEDAVA' in davaeo[0x248:0x270] and b'DAVAEORN' not in davaeo[0x248:0x270]
+    dbook = {k: Counter(v) for k, v in _book_of(davaeo)[0].items()}
+    assert {k: dbook[k] for k in ((1, 3), (1, 4), (1, 5))} == {
+        (1, 3): Counter(['SPWI319', 'SPWI302', 'SPWI308', 'SPWI304', 'SPWI304', 'SPWI311']),
+        (1, 4): Counter(['SPWI408', 'SPWI406', 'SPWI402', 'SPWI402']),
+        (1, 5): Counter(['SPWI516', 'SPWI523', 'SPWI524', 'SPWI522']),
+    }, dbook
+
+    zhalim = installed['override/zhalim.cre']
+    assert b'BGSEZHAL' in zhalim[0x248:0x270] and b'ZHALIMAR' not in zhalim[0x248:0x270]
+    assert _decompile(tmp_path, ['BGSEZHAL'])['BGSEZHAL'] == hook_rule.patch_talk(zhal_src, 'BGSEZHAL', own=True)[0]
+
+    alai = installed['override/alai.cre']
+    alai_items = _items_of(alai)
+    assert alai_items[3] == 'BRAC02' and 'WAND07' not in alai_items.values()
+    assert {'POTN08', 'POTN14'} <= set(alai_items.values())
+    assert Counter(_book_of(alai)[0][(1, 3)]) == Counter(['SPWI305', 'SPWI319', 'SPWI306'])
+
+    aasim = installed['override/aasim.cre']
+    aasim_items = _items_of(aasim)
+    assert 'WAND11' not in aasim_items.values() and 'POTN08' in aasim_items.values()
+    assert Counter(_book_of(aasim)[0][(0, 3)]) == Counter(['SPPR306', 'SPPR314', 'SPPR321'])
+
+    diyab_book = {k: Counter(v) for k, v in _book_of(installed['override/diyab.cre'])[0].items()}
+    assert {k: diyab_book[k] for k in ((0, 3), (0, 4), (0, 5))} == {
+        (0, 3): Counter(['SPPR306', 'SPPR314', 'SPPR308']),
+        (0, 4): Counter(['SPPR408', 'SPPR406', 'SPPR404']),
+        (0, 5): Counter(['SPPR502', 'SPPR503']),
+    }, diyab_book
+
+    assert Counter(_book_of(installed['override/naaman.cre'])[0][(1, 3)]) == Counter(
+        ['SPWI319', 'SPWI306', 'SPWI312', 'SPWI311', 'SPWI302'])
+    assert _items_of(installed['override/gardus.cre'])[9] == 'DW#SWD02'
+
+    _install(tmp_path, '--force-uninstall-list', '0', '--force-install-list', '0')
+    assert _snapshot(tmp_path) == installed
     _install(tmp_path, '--force-uninstall-list', '0')
     assert _snapshot(tmp_path) == before

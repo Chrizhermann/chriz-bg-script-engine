@@ -25,13 +25,29 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 ENGINE_NAME = 'Chriz Playground'
 ENGINE_TP2 = 'bgse/setup-bgse.tp2'
+KITS_TP2 = 'setup-chriz-bg-kits.tp2'
 MAGIC_TP2 = 'setup-chriz-bg-magic.tp2'
+RACES_TP2 = 'setup-chriz-bg-playable-races.tp2'
 ENGINE_FILES = ('bgse',)
+KITS_FILES = (KITS_TP2, 'chriz-bg-kits')
 MAGIC_FILES = (MAGIC_TP2, 'chriz-bg-magic', 'defs')
-# The intended setup (AGENTS.md): Insane without double damage, no maximum hit points.
+RACES_FILES = (RACES_TP2, 'chriz-bg-playable-races')
+KITS_COMPONENTS = ('100', '110', '200', '201', '202', '203', '204', '210', '220', '300', '310', '320')
+KITS_SKIP = frozenset(('111',))
+RACES_COMPONENTS = ('101',)
+
+
+def kits_components(tp2_text, configured=None):
+    """Component numbers to install from setup-chriz-bg-kits.tp2: explicit list, or all except alt 111."""
+    if configured:
+        return [str(c) for c in configured]
+    found = [m.group(1) for m in re.finditer(r'\bDESIGNATED\s+(\d+)\b', tp2_text) if m.group(1) not in KITS_SKIP]
+    return found or list(KITS_COMPONENTS)
+# The intended setup (AGENTS.md): Insane without double damage, no maximum hit points, and the debug console on.
 PROFILE = (('Game Options', 'Difficulty Level', '5'),
            ('Game Options', 'Suppress Extra Difficulty Damage', '1'),
            ('Game Options', 'Maximum HP', '0'),
+           ('Program Options', 'Debug Mode', '1'),
            ('Program Options', 'EET Installation State', '2'),
            ('Program Options', 'Cloud Saves Enabled', '0'))
 START = '@echo off\r\nstart "" /d "%~dp0game" "%~dp0game\\InfinityLoader.exe"\r\n'
@@ -113,10 +129,13 @@ def unpack(repo, ref, names, game):
 
 
 def take_out(config, root):
-    """The engine, then the spell mod, with the files that installed them; each last first."""
+    """The engine, kits, spell mod, and playable races, with the files that installed them; last first."""
     game = root / 'game'
     log = (game / 'WeiDU.log').read_text(encoding='utf-8', errors='replace')
-    for label, tp2, names in (('engine-out', ENGINE_TP2, ENGINE_FILES), ('magic-out', MAGIC_TP2, MAGIC_FILES)):
+    for label, tp2, names in (('engine-out', ENGINE_TP2, ENGINE_FILES),
+                              ('kits-out', KITS_TP2, KITS_FILES),
+                              ('magic-out', MAGIC_TP2, MAGIC_FILES),
+                              ('races-out', RACES_TP2, RACES_FILES)):
         numbers = components(log, tp2)
         if numbers:
             weidu(config, root, label, tp2, '--force-uninstall-list', *[str(n) for n in reversed(numbers)])
@@ -128,10 +147,21 @@ def take_out(config, root):
                 path.unlink()
 
 
-def put_in(config, root, engine, magic):
+def put_in(config, root, engine, magic, kits=None, races=None):
     game = root / 'game'
-    done = {'magic': unpack(config['magic_repo'], magic, MAGIC_FILES, game)}
+    done = {}
+    if config.get('races_repo') and races:
+        done['races'] = unpack(config['races_repo'], races, RACES_FILES, game)
+        race_list = [str(c) for c in (config.get('races_components') or RACES_COMPONENTS)]
+        weidu(config, root, 'races-in', RACES_TP2, '--force-install-list', *race_list)
+    done['magic'] = unpack(config['magic_repo'], magic, MAGIC_FILES, game)
     weidu(config, root, 'magic-in', MAGIC_TP2, '--force-install-list', '0')
+    if config.get('kits_repo') and kits:
+        done['kits'] = unpack(config['kits_repo'], kits, KITS_FILES, game)
+        kits_tp2 = game / KITS_TP2
+        kits_text = kits_tp2.read_text(encoding='utf-8', errors='replace') if kits_tp2.exists() else ''
+        kit_list = kits_components(kits_text, config.get('kits_components'))
+        weidu(config, root, 'kits-in', KITS_TP2, '--force-install-list', *kit_list)
     done['engine'] = unpack(config['engine_repo'], engine, ENGINE_FILES, game)
     # Component 0 the engine, 10 the playtest recorder.
     tp2 = (game / ENGINE_TP2).read_text(encoding='utf-8', errors='replace')
@@ -167,16 +197,28 @@ def setup(args):
                                      encoding='ascii')
     profile = documents() / ENGINE_NAME
     (profile / 'save').mkdir(parents=True, exist_ok=True)
-    options = profile / 'Baldur.lua'
-    text = options.read_text(encoding='utf-8') if options.exists() else ''
-    options.write_text('\n'.join(profile_lines(text)) + '\n', encoding='utf-8')
+    write_profile(profile)
     (root / 'Start Playground.cmd').write_bytes(START.encode('ascii'))
     config = {'weidu': str(Path(args.weidu).resolve()), 'engine_repo': str(REPO), 'magic_repo': str(Path(args.magic_repo).resolve()),
               'engine': args.engine or 'HEAD', 'magic': args.magic or 'origin/main'}
+    if args.kits_repo:
+        config['kits_repo'] = str(Path(args.kits_repo).resolve())
+        config['kits'] = args.kits or 'main'
+    if args.races_repo:
+        config['races_repo'] = str(Path(args.races_repo).resolve())
+        config['races'] = args.races or 'claude/we-overwrite'
+        config['races_components'] = list(RACES_COMPONENTS)
     save(root, config)
-    config['installed'] = put_in(config, root, config['engine'], config['magic'])
+    config['installed'] = put_in(config, root, config['engine'], config['magic'],
+                                 config.get('kits'), config.get('races'))
     save(root, config)
     print(json.dumps(config['installed'], indent=1))
+
+
+def write_profile(profile, values=PROFILE):
+    options = profile / 'Baldur.lua'
+    text = options.read_text(encoding='utf-8') if options.exists() else ''
+    options.write_text('\n'.join(profile_lines(text, values)) + '\n', encoding='utf-8')
 
 
 def update(args):
@@ -185,10 +227,23 @@ def update(args):
     busy = running(root / 'game')
     if busy:
         raise SystemExit(f'the Playground runs ({" ".join(busy)}): close the game first')
-    engine, magic = args.engine or config['engine'], args.magic or config['magic']
+    profile = documents() / ENGINE_NAME
+    if (profile / 'Baldur.lua').exists():
+        write_profile(profile, (('Program Options', 'Debug Mode', '1'),))
+    engine = args.engine or config['engine']
+    magic = args.magic or config['magic']
+    kits = args.kits or config.get('kits')
+    races = args.races or config.get('races')
     take_out(config, root)
     config['engine'], config['magic'] = engine, magic
-    config['installed'] = put_in(config, root, engine, magic)
+    if kits is not None:
+        config['kits'] = kits
+    if races is not None:
+        config['races'] = races
+    if config.get('kits_repo') or config.get('races_repo'):
+        config['installed'] = put_in(config, root, engine, magic, kits, races)
+    else:
+        config['installed'] = put_in(config, root, engine, magic)
     save(root, config)
     print(json.dumps(config['installed'], indent=1))
 
@@ -197,8 +252,13 @@ def status(args):
     root = Path(args.root)
     config = load(root)
     log = (root / 'game' / 'WeiDU.log').read_text(encoding='utf-8', errors='replace')
-    print(json.dumps({'installed': config.get('installed'), 'engine': components(log, ENGINE_TP2),
-                      'magic': components(log, MAGIC_TP2)}, indent=1))
+    out = {'installed': config.get('installed'), 'engine': components(log, ENGINE_TP2),
+           'magic': components(log, MAGIC_TP2)}
+    if config.get('kits_repo') or components(log, KITS_TP2):
+        out['kits'] = components(log, KITS_TP2)
+    if config.get('races_repo') or components(log, RACES_TP2):
+        out['races'] = components(log, RACES_TP2)
+    print(json.dumps(out, indent=1))
 
 
 def main(argv):
@@ -208,10 +268,14 @@ def main(argv):
     make.add_argument('lab')
     make.add_argument('--weidu', required=True)
     make.add_argument('--magic-repo', required=True)
+    make.add_argument('--kits-repo')
+    make.add_argument('--races-repo')
     for command in (make, commands.add_parser('update'), commands.add_parser('status')):
         command.add_argument('--root', default=str(default_root()))
         command.add_argument('--engine')
         command.add_argument('--magic')
+        command.add_argument('--kits')
+        command.add_argument('--races')
     args = parser.parse_args(argv)
     {'setup': setup, 'update': update, 'status': status}[args.command](args)
 

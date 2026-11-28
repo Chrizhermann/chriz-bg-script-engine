@@ -82,7 +82,7 @@ M.scores={str=36,strExtra=37,int=38,dex=40}
 M.charm,M.maze=5,213
 -- The quiver slots, whose ammunition a launcher shoots, the fist slot, the magic weapon slot and
 -- the weapon slots (SLOTS.IDS).
-M.quiver={11,12,13}
+M.quiver={11,12,13,14}
 M.fistSlot=10
 M.magicSlot=34
 M.weaponSlots={35,36,37,38}
@@ -126,10 +126,12 @@ M.breakable={[31]=true,[95]=true,[191]=true,[192]=true}
 M.prefixes={'SPPR','SPWI','SPIN','SPCL'}
 -- Conditions a cure takes away, by the opcode that sets them (combat-intent/spells.lua's labels;
 -- combat-intent/care.lua weighs them). Hold (II) (185) stands apart: opcode 162, the cure of
--- holds, does not remove it (IESDP).
+-- holds, does not remove it (IESDP). Temporary attribute drain (M.abilityDrain: CHA, CON, DEX,
+-- INT, STR, WIS) is recognized on timed effects the same way the spell mod's CBMLRES cures it.
 M.conditions={[39]='sleep',[3]='berserk',[24]='panic',[45]='stun',[210]='stun',[38]='silence',[74]='blind',
     [76]='feeblemind',[78]='disease',[80]='deaf',[109]='hold',[175]='hold',[185]='hold2',[128]='confusion',
     [165]='pause',[25]='poison'}
+M.abilityDrain={[6]=true,[10]=true,[15]=true,[19]=true,[44]=true,[49]=true}
 
 local function band(g,a,b) return g.EEex_BAnd(a,b) end
 local function stat(g,sprite,n)
@@ -710,10 +712,28 @@ end
 -- that have not started are left out of its roles. With a memory, what the effects say comes from it
 -- (recall: a condition's seconds left are then up to knownTicks old); the skins and images are
 -- counted afresh every time, as hits use them up without an effect coming or going.
+local function drainsAbility(e)
+    if (e.m_done or 0)~=0 or not M.abilityDrain[e.m_effectId] then return false end
+    local amount,mode=number(e.m_effectAmount),number(e.m_dWFlags)%65536
+    if amount>=2147483648 then amount=amount-4294967296 end
+    return (mode==0 and amount<0) or (mode==1 and amount<12) or (mode==2 and amount<100)
+end
+function M.abilityDrained(g,sprite,tick)
+    local found=false
+    local seen=0
+    g.EEex_Utility_IterateCPtrList(sprite.m_timedEffectList,function(e)
+        seen=seen+1
+        if seen>M.maxEffects then return true end
+        if e.m_durationType==M.timedEffect and drainsAbility(e) and number(e.m_duration)>tick then
+            found=true;return true
+        end
+    end)
+    return found
+end
 local function shields(g,sprite,tick,classify,level)
     local list,sources,recast,conditions={},{},{},{}
     local poison=0
-    for _,effects in ipairs({sprite.m_timedEffectList,sprite.m_equipedEffectList}) do
+    for n,effects in ipairs({sprite.m_timedEffectList,sprite.m_equipedEffectList}) do
         local seen=0
         g.EEex_Utility_IterateCPtrList(effects,function(e)
             seen=seen+1
@@ -743,6 +763,9 @@ local function shields(g,sprite,tick,classify,level)
                         poison=poison+rate*math.min(left,spells.overTime)
                     end
                 end
+            elseif n==1 and kind==M.timedEffect and drainsAbility(e) then
+                local left=(number(e.m_duration)-tick)/15
+                if left>0 then conditions.abilityDrain=math.max(conditions.abilityDrain or 0,left) end
             end
             if timing and type(op)=='number' then
                 local source=name(e.m_sourceRes)

@@ -9,7 +9,7 @@ local M={}
 
 -- STATE.IDS bits (engine constants).
 M.STATE={sleeping=0x1,panic=0x4,stunned=0x8,invisible=0x10,helpless=0x20,reallyDead=0xFC0,
-    charmed=0x2000,slowed=0x10000,blind=0x40000,feebleminded=0x100000,improvedInvisible=0x400000,
+    charmed=0x2000,hasted=0x8000,slowed=0x10000,blind=0x40000,feebleminded=0x100000,improvedInvisible=0x400000,
     confused=0x80000000}
 -- Out of the fight: STATE_DISABLED as the installed STATE.IDS defines it (sleeping, panic, stunned,
 -- helpless, charmed, feebleminded, confused) but charmed, since a charm puts its creature on its

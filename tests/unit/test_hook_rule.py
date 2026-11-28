@@ -1145,6 +1145,19 @@ def test_a_designed_creatures_own_talk_script_holds_only_its_talk():
         '  NumTimesTalkedTo(0)\n  !' + hook_rule.talk_guard('', 'bgsekarl') + '\nTHEN\n') in second, second
     assert hook_rule.patch_talk(patched, 'bgsekarl', own=True) == (None, 0)
     assert hook_rule.patch_talk(text('B-HKOWN'), 'bgsekarl', own=True) == (None, 0)
+    # Designed copies of LAMALHA/MOLKAR (StartDialogue with dialog file) and DRASUS (StartDialogNoSetInterrupt(LastSeenBy))
+    # take the hold only with own=True; SCS's automatic scan (own=False) leaves both forms alone.
+    lamalha = ('IF\n  See([PC])\n  NumTimesTalkedTo(0)\nTHEN\n  RESPONSE #100\n    SmallWait(2)\n'
+               '    FaceObject([PC])\n    StartDialogue("lamalh",[PC])\nEND\n')
+    drasus = ('IF\n  See([PC])\n  NumTimesTalkedTo(0)\nTHEN\n  RESPONSE #100\n'
+              '    StartDialogNoSetInterrupt(LastSeenBy)\nEND\n')
+    for src, copy_name in ((lamalha, 'BGSELAMA'), (drasus, 'BGSEDRAS')):
+        assert hook_rule.is_talk(src) is False
+        assert hook_rule.is_talk(src, own=True) is True
+        assert hook_rule.patch_talk('// DMWW_\n' + src, copy_name) == (None, 0)
+        own_patched, own_count = hook_rule.patch_talk(src, copy_name, own=True)
+        assert own_count == 1 and own_patched.startswith(hook_rule.talk_extras_block(copy_name.lower()))
+        assert hook_rule.talk_guard('', copy_name.lower()) in own_patched
 
 @pytest.mark.parametrize('triggers,responses,idle', [
     # SCS's casters: no enemy perceived, unhurt, not in a fight. Its monsters: no enemy seen, not in a fight, idle.

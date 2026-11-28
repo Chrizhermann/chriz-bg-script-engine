@@ -1,0 +1,1256 @@
+// Install-time relocation for travel "Waylaid" ambush scripts (Christopher, 2026-11-28).
+// Mirrors tools/ambush_rule.py in pure integer arithmetic and emits dual blocks gated on
+// BGSE_AmbushOn() so [BGSE] Enabled=0 or [BGSE] Ambushes=0 falls back to vanilla coordinates.
+
+// Collect CRE resrefs whose CRE EA < 200 or whose CRE scripts carry a dialogue action.
+// When bgse_spawn_cres (|RES1|RES2|...) is non-empty, inspect only those CREs + RESUNA.
+// Returns |RES1|RES2|... (upper case).
+DEFINE_ACTION_FUNCTION bgse_ambush_talkers
+  STR_VAR bgse_spawn_cres = ~~
+  RET bgse_talkers
+BEGIN
+  OUTER_TEXT_SPRINT bgse_talkers ~|~
+  ACTION_CLEAR_ARRAY bgse_dlg_act
+  ACTION_CLEAR_ARRAY bgse_check_scr
+  ACTION_CLEAR_ARRAY bgse_talk_scr
+  ACTION_CLEAR_ARRAY bgse_cre_list
+  ACTION_FOR_EACH name IN ~Dialog~ ~Dialogue~ ~StartDialog~ ~StartDialogue~
+      ~StartDialogNoSet~ ~StartDialogueNoSet~ ~DialogForceInterrupt~ ~DialogueForceInterrupt~
+      ~StartDialogInterrupt~ ~StartDialogueInterrupt~
+      ~StartDialogNoSetInterrupt~ ~StartDialogueNoSetInterrupt~
+      ~StartDialogOverride~ ~StartDialogueOverride~
+      ~StartDialogOverrideInterrupt~ ~StartDialogueOverrideInterrupt~
+      ~StartDialogNoName~ ~StartDialogueNoName~ BEGIN
+    OUTER_SET id = IDS_OF_SYMBOL (~ACTION~ ~%name%~)
+    ACTION_IF (id >= 0) BEGIN
+      OUTER_SET $bgse_dlg_act(~%id%~) = 1
+    END
+  END
+
+  ACTION_IF (STRING_LENGTH ~%bgse_spawn_cres%~ > 1) BEGIN
+    OUTER_PATCH ~%bgse_spawn_cres%~ BEGIN
+      REPLACE_EVALUATE CASE_SENSITIVE ~\([^|]+\)~ BEGIN
+        TEXT_SPRINT res ~%MATCH1%~
+        TO_UPPER res
+        SET $bgse_cre_list(~%res%~) = 1
+      END ~%MATCH0%~
+    END
+    OUTER_SET $bgse_cre_list(~RESUNA~) = 1
+
+    ACTION_PHP_EACH bgse_cre_list AS res => _ BEGIN
+      ACTION_IF (~%res%~ STRING_EQUAL ~RESUNA~) BEGIN
+        OUTER_TEXT_SPRINT bgse_talkers ~%bgse_talkers%RESUNA|~
+      END ELSE ACTION_IF (FILE_EXISTS_IN_GAME ~%res%.cre~) BEGIN
+        OUTER_SET added = 0
+        COPY_EXISTING ~%res%.cre~ ~override~
+          PATCH_IF (BUFFER_LENGTH >= 0x2d4) BEGIN
+            READ_ASCII 0 sig (8)
+            PATCH_IF (~%sig%~ STRING_EQUAL ~CRE V1.0~) BEGIN
+              READ_BYTE 0x270 ea
+              PATCH_IF (ea < 200) BEGIN
+                TEXT_SPRINT bgse_talkers ~%bgse_talkers%%res%|~
+                SET added = 1
+              END ELSE BEGIN
+                FOR (o = 0x248; o < 0x270; o += 8) BEGIN
+                  READ_ASCII o scr (8) NULL
+                  TO_UPPER scr
+                  PATCH_IF (STRING_LENGTH ~%scr%~ > 0) AND NOT (~%scr%~ STRING_EQUAL ~NONE~) BEGIN
+                    SET $bgse_check_scr(~%scr%~) = 1
+                  END
+                END
+              END
+            END
+          END
+        BUT_ONLY
+      END
+    END
+
+    ACTION_PHP_EACH bgse_check_scr AS scr => _ BEGIN
+      ACTION_IF (FILE_EXISTS_IN_GAME ~%scr%.bcs~) BEGIN
+        OUTER_SET has_dlg = 0
+        COPY_EXISTING ~%scr%.bcs~ ~override~
+          REPLACE_EVALUATE CASE_SENSITIVE ~AC[%MNL%%LNL%]+\([0-9]+\)OB~ BEGIN
+            PATCH_IF (VARIABLE_IS_SET $bgse_dlg_act(~%MATCH1%~)) BEGIN
+              SET has_dlg = 1
+            END
+          END ~%MATCH0%~
+        BUT_ONLY
+        ACTION_IF (has_dlg = 1) BEGIN
+          OUTER_SET $bgse_talk_scr(~%scr%~) = 1
+        END
+      END
+    END
+
+    ACTION_PHP_EACH bgse_cre_list AS res => _ BEGIN
+      ACTION_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%res%|~ ~%bgse_talkers%~) < 0)
+          AND (FILE_EXISTS_IN_GAME ~%res%.cre~) BEGIN
+        COPY_EXISTING ~%res%.cre~ ~override~
+          PATCH_IF (BUFFER_LENGTH >= 0x2d4) BEGIN
+            READ_ASCII 0 sig (8)
+            PATCH_IF (~%sig%~ STRING_EQUAL ~CRE V1.0~) BEGIN
+              SET is_talk = 0
+              FOR (o = 0x248; o < 0x270; o += 8) BEGIN
+                READ_ASCII o scr (8) NULL
+                TO_UPPER scr
+                PATCH_IF (VARIABLE_IS_SET $bgse_talk_scr(~%scr%~)) BEGIN
+                  SET is_talk = 1
+                END
+              END
+              PATCH_IF (is_talk = 1) BEGIN
+                TEXT_SPRINT bgse_talkers ~%bgse_talkers%%res%|~
+              END
+            END
+          END
+        BUT_ONLY
+      END
+    END
+  END ELSE BEGIN
+    COPY_EXISTING_REGEXP GLOB ~^.+\.cre$~ ~override~
+      PATCH_IF (BUFFER_LENGTH >= 0x2d4) BEGIN
+        READ_ASCII 0 sig (8)
+        PATCH_IF (~%sig%~ STRING_EQUAL ~CRE V1.0~) BEGIN
+          READ_BYTE 0x270 ea
+          SET is_talk = (ea < 200) ? 1 : 0
+          PATCH_IF (~%SOURCE_RES%~ STRING_EQUAL_CASE ~RESUNA~) BEGIN
+            SET is_talk = 1
+          END
+          PATCH_IF (is_talk = 0) BEGIN
+            FOR (o = 0x248; o < 0x270; o += 8) BEGIN
+              READ_ASCII o scr (8) NULL
+              TO_UPPER scr
+              PATCH_IF (STRING_LENGTH ~%scr%~ > 0) AND NOT (~%scr%~ STRING_EQUAL ~NONE~) BEGIN
+                SET $bgse_check_scr(~%scr%~) = 1
+              END
+            END
+          END ELSE BEGIN
+            TEXT_SPRINT res ~%SOURCE_RES%~
+            TO_UPPER res
+            TEXT_SPRINT bgse_talkers ~%bgse_talkers%%res%|~
+          END
+        END
+      END
+    BUT_ONLY
+
+    ACTION_PHP_EACH bgse_check_scr AS scr => _ BEGIN
+      ACTION_IF (FILE_EXISTS_IN_GAME ~%scr%.bcs~) BEGIN
+        OUTER_SET has_dlg = 0
+        COPY_EXISTING ~%scr%.bcs~ ~override~
+          REPLACE_EVALUATE CASE_SENSITIVE ~AC[%MNL%%LNL%]+\([0-9]+\)OB~ BEGIN
+            PATCH_IF (VARIABLE_IS_SET $bgse_dlg_act(~%MATCH1%~)) BEGIN
+              SET has_dlg = 1
+            END
+          END ~%MATCH0%~
+        BUT_ONLY
+        ACTION_IF (has_dlg = 1) BEGIN
+          OUTER_SET $bgse_talk_scr(~%scr%~) = 1
+        END
+      END
+    END
+
+    COPY_EXISTING_REGEXP GLOB ~^.+\.cre$~ ~override~
+      PATCH_IF (BUFFER_LENGTH >= 0x2d4) BEGIN
+        READ_ASCII 0 sig (8)
+        PATCH_IF (~%sig%~ STRING_EQUAL ~CRE V1.0~) BEGIN
+          TEXT_SPRINT res ~%SOURCE_RES%~
+          TO_UPPER res
+          PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%res%|~ ~%bgse_talkers%~) < 0) BEGIN
+            SET is_talk = 0
+            FOR (o = 0x248; o < 0x270; o += 8) BEGIN
+              READ_ASCII o scr (8) NULL
+              TO_UPPER scr
+              PATCH_IF (VARIABLE_IS_SET $bgse_talk_scr(~%scr%~)) BEGIN
+                SET is_talk = 1
+              END
+            END
+            PATCH_IF (is_talk = 1) BEGIN
+              TEXT_SPRINT bgse_talkers ~%bgse_talkers%%res%|~
+            END
+          END
+        END
+      END
+    BUT_ONLY
+  END
+END
+
+// Build partitioned candidate slices from 4-bit <wed>SR.BMP (or default 80x80 open grid).
+// Record size = 16 bytes: x(2), y(2), oct(1), qual(1), gidx(2), p_sq(4), m_sq(4).
+// Partitioned outputs match tools/ambush_rule.py raster-order tie breaking via gidx.
+DEFINE_PATCH_FUNCTION bgse_ambush_candidates
+  INT_VAR anchor_x = 640
+          anchor_y = 480
+          anchor_x2 = 640
+          anchor_y2 = 480
+  STR_VAR bgse_sr_bmp = ~~
+  RET bgse_cand_cnt
+      bgse_cand_p bgse_cnt_p
+      bgse_cand_dl bgse_cnt_dl
+      bgse_cand_dc bgse_cnt_dc
+      bgse_cand_ho0 bgse_cnt_ho0
+      bgse_cand_ho1 bgse_cnt_ho1
+      bgse_cand_ho2 bgse_cnt_ho2
+      bgse_cand_ho3 bgse_cnt_ho3
+      bgse_cand_ho4 bgse_cnt_ho4
+      bgse_cand_ho5 bgse_cnt_ho5
+      bgse_cand_ho6 bgse_cnt_ho6
+      bgse_cand_ho7 bgse_cnt_ho7
+      bgse_cand_hb0 bgse_cnt_hb0
+      bgse_cand_hb1 bgse_cnt_hb1
+      bgse_cand_hb2 bgse_cnt_hb2
+      bgse_cand_hb3 bgse_cnt_hb3
+      bgse_cand_hb4 bgse_cnt_hb4
+      bgse_cand_hb5 bgse_cnt_hb5
+      bgse_cand_hb6 bgse_cnt_hb6
+      bgse_cand_hb7 bgse_cnt_hb7
+BEGIN
+  SET w = 80
+  SET h = 80
+  SET has_bmp = 0
+  SET data_off = 0
+  SET bmp_raw_h = 0
+  SET bmp_len = STRING_LENGTH ~%bgse_sr_bmp%~
+  PATCH_IF (bmp_len >= 54) BEGIN
+    INNER_PATCH ~%bgse_sr_bmp%~ BEGIN
+      READ_ASCII 0 bm_sig (2)
+      PATCH_IF (~%bm_sig%~ STRING_EQUAL ~BM~) BEGIN
+        READ_LONG 10 data_off
+        READ_SLONG 18 bmp_w
+        READ_SLONG 22 bmp_raw_h
+        READ_SHORT 28 bpp
+        SET bmp_h = (bmp_raw_h < 0) ? (0 - bmp_raw_h) : bmp_raw_h
+        PATCH_IF (bmp_w > 0) AND (bmp_h > 0) AND (bpp = 4) BEGIN
+          SET w = bmp_w
+          SET h = bmp_h
+          SET has_bmp = 1
+        END
+      END
+    END
+  END
+
+  SET total = w * h
+  SET use_border = (w > 8) AND (h > 8) ? 1 : 0
+  SET min_c = (use_border = 1) ? 4 : 0
+  SET max_cx = (use_border = 1) ? (w - 4) : w
+  SET max_cy = (use_border = 1) ? (h - 4) : h
+
+  SET bgse_cand_cnt = 0
+  SET bgse_cnt_p = 0
+  SET bgse_cnt_dl = 0
+  SET bgse_cnt_dc = 0
+  FOR (k = 0; k < 8; k += 1) BEGIN
+    SET $ho_cnt(~%k%~) = 0
+    SET $hb_cnt(~%k%~) = 0
+  END
+
+  // Buffer layout pass 1: [cands: total*16][raw_walk: total][bmp: bmp_len]
+  SET all_cap = total * 16
+  INNER_PATCH_SAVE bgse_work_buf ~%bgse_sr_bmp%~ BEGIN
+    INSERT_BYTES 0 (all_cap + total)
+    PATCH_IF (has_bmp = 0) BEGIN
+      FOR (i = 0; i < total; i += 1) BEGIN
+        WRITE_BYTE (all_cap + i) 1
+      END
+    END ELSE BEGIN
+      SET stride = (((w * 4) + 31) / 32) * 4
+      SET row_bytes = (w + 1) / 2
+      SET bmp_base = all_cap + total
+      FOR (cy = 0; cy < h; cy += 1) BEGIN
+        SET ry = (bmp_raw_h > 0) ? (h - 1 - cy) : cy
+        SET row_off = data_off + ry * stride
+        PATCH_IF (row_off + row_bytes <= bmp_len) BEGIN
+          FOR (cx = 0; cx < w; cx += 1) BEGIN
+            SET b = BYTE_AT (bmp_base + row_off + (cx / 2))
+            SET nib = ((cx BAND 1) = 0) ? ((b / 16) BAND 15) : (b BAND 15)
+            SET walk = ((nib = 0) OR (nib = 8) OR (nib = 10) OR (nib = 12) OR (nib = 13)) ? 0 : 1
+            WRITE_BYTE (all_cap + cy * w + cx) walk
+          END
+        END
+      END
+    END
+
+    // Single pass: check distance ring BEFORE 3x3 walkability and inline octant
+    FOR (cy = min_c; cy < max_cy; cy += 1) BEGIN
+      SET y = cy * 12 + 6
+      SET dy = y - anchor_y
+      SET dy2 = y - anchor_y2
+      SET dy_sq = dy * dy
+      SET dy2_sq = dy2 * dy2
+      SET band = cy / 10
+      PATCH_IF (band > 7) BEGIN SET band = 7 END
+      FOR (cx = min_c; cx < max_cx; cx += 1) BEGIN
+        PATCH_IF ((BYTE_AT (all_cap + cy * w + cx)) != 0) BEGIN
+          SET x = cx * 16 + 8
+          SET dx = x - anchor_x
+          SET dx2 = x - anchor_x2
+          SET p_sq = dx * dx + dy_sq
+          SET m_sq2 = dx2 * dx2 + dy2_sq
+          SET m_sq = (p_sq <= m_sq2) ? p_sq : m_sq2
+          PATCH_IF (m_sq <= 490000) AND (p_sq >= 30625) BEGIN
+            SET fat = 1
+            FOR (ndy = (0 - 1); ndy <= 1; ndy += 1) BEGIN
+              SET ny = cy + ndy
+              PATCH_IF (ny < 0) OR (ny >= h) BEGIN
+                SET fat = 0
+                SET ndy = 2
+              END ELSE BEGIN
+                FOR (ndx = (0 - 1); ndx <= 1; ndx += 1) BEGIN
+                  SET nx = cx + ndx
+                  PATCH_IF (nx < 0) OR (nx >= w) OR ((BYTE_AT (all_cap + ny * w + nx)) = 0) BEGIN
+                    SET fat = 0
+                    SET ndx = 2
+                    SET ndy = 2
+                  END
+                END
+              END
+            END
+            SET q = (fat = 1) ? 2 : 1
+            SET ax = (dx < 0) ? (0 - dx) : dx
+            SET ay = (dy < 0) ? (0 - dy) : dy
+            PATCH_IF (ay * 1000 <= ax * 414) BEGIN
+              SET oct = (dx >= 0) ? 0 : 4
+            END ELSE PATCH_IF (ay * 1000 <= ax * 2414) BEGIN
+              PATCH_IF (dx >= 0) AND (dy >= 0) BEGIN
+                SET oct = 1
+              END ELSE PATCH_IF (dx < 0) AND (dy >= 0) BEGIN
+                SET oct = 3
+              END ELSE PATCH_IF (dx < 0) AND (dy < 0) BEGIN
+                SET oct = 5
+              END ELSE BEGIN
+                SET oct = 7
+              END
+            END ELSE BEGIN
+              SET oct = (dy >= 0) ? 2 : 6
+            END
+            SET rec = bgse_cand_cnt * 16
+            WRITE_SHORT rec x
+            WRITE_SHORT (rec + 2) y
+            WRITE_BYTE (rec + 4) oct
+            WRITE_BYTE (rec + 5) q
+            WRITE_SHORT (rec + 6) bgse_cand_cnt
+            WRITE_LONG (rec + 8) p_sq
+            WRITE_LONG (rec + 12) m_sq
+            SET bgse_cand_cnt += 1
+            PATCH_IF (p_sq <= 75625) BEGIN SET bgse_cnt_p += 1 END
+            PATCH_IF (p_sq >= 90000) AND (p_sq <= 126025) BEGIN SET bgse_cnt_dl += 1 END
+            PATCH_IF (p_sq >= 133225) AND (p_sq <= 235225) BEGIN SET bgse_cnt_dc += 1 END
+            PATCH_IF (m_sq >= 230400) BEGIN
+              SET $ho_cnt(~%oct%~) += 1
+              SET $hb_cnt(~%band%~) += 1
+            END
+          END
+        END
+      END
+    END
+
+    // Strip raw_walk + bmp, leaving only [0 .. bgse_cand_cnt*16), then pack partitioned buffers
+    SET all_len = bgse_cand_cnt * 16
+    DELETE_BYTES all_len (BUFFER_LENGTH - all_len)
+    SET off_p = all_len
+    SET off_dl = off_p + bgse_cnt_p * 16
+    SET off_dc = off_dl + bgse_cnt_dl * 16
+    SET cur_off = off_dc + bgse_cnt_dc * 16
+    FOR (k = 0; k < 8; k += 1) BEGIN
+      SET $ho_start(~%k%~) = cur_off
+      SET $ho_off(~%k%~) = cur_off
+      SET cur_off += ($ho_cnt(~%k%~)) * 16
+    END
+    FOR (k = 0; k < 8; k += 1) BEGIN
+      SET $hb_start(~%k%~) = cur_off
+      SET $hb_off(~%k%~) = cur_off
+      SET cur_off += ($hb_cnt(~%k%~)) * 16
+    END
+    SET extra_bytes = cur_off - all_len
+    INSERT_BYTES all_len extra_bytes
+
+    SET cur_p = off_p
+    SET cur_dl = off_dl
+    SET cur_dc = off_dc
+    FOR (i = 0; i < bgse_cand_cnt; i += 1) BEGIN
+      SET rec = i * 16
+      SET y = SHORT_AT (rec + 2)
+      SET oct = BYTE_AT (rec + 4)
+      SET p_sq = LONG_AT (rec + 8)
+      SET m_sq = LONG_AT (rec + 12)
+      SET w0 = LONG_AT rec
+      SET w1 = LONG_AT (rec + 4)
+      SET w2 = LONG_AT (rec + 8)
+      SET w3 = LONG_AT (rec + 12)
+      PATCH_IF (p_sq <= 75625) BEGIN
+        WRITE_LONG cur_p w0
+        WRITE_LONG (cur_p + 4) w1
+        WRITE_LONG (cur_p + 8) w2
+        WRITE_LONG (cur_p + 12) w3
+        SET cur_p += 16
+      END
+      PATCH_IF (p_sq >= 90000) AND (p_sq <= 126025) BEGIN
+        WRITE_LONG cur_dl w0
+        WRITE_LONG (cur_dl + 4) w1
+        WRITE_LONG (cur_dl + 8) w2
+        WRITE_LONG (cur_dl + 12) w3
+        SET cur_dl += 16
+      END
+      PATCH_IF (p_sq >= 133225) AND (p_sq <= 235225) BEGIN
+        WRITE_LONG cur_dc w0
+        WRITE_LONG (cur_dc + 4) w1
+        WRITE_LONG (cur_dc + 8) w2
+        WRITE_LONG (cur_dc + 12) w3
+        SET cur_dc += 16
+      END
+      PATCH_IF (m_sq >= 230400) BEGIN
+        SET dst = $ho_off(~%oct%~)
+        WRITE_LONG dst w0
+        WRITE_LONG (dst + 4) w1
+        WRITE_LONG (dst + 8) w2
+        WRITE_LONG (dst + 12) w3
+        SET $ho_off(~%oct%~) = dst + 16
+        SET band = (y - 6) / 120
+        PATCH_IF (band < 0) BEGIN SET band = 0 END
+        PATCH_IF (band > 7) BEGIN SET band = 7 END
+        SET bdst = $hb_off(~%band%~)
+        WRITE_LONG bdst w0
+        WRITE_LONG (bdst + 4) w1
+        WRITE_LONG (bdst + 8) w2
+        WRITE_LONG (bdst + 12) w3
+        SET $hb_off(~%band%~) = bdst + 16
+      END
+    END
+
+    READ_ASCII off_p bgse_cand_p (bgse_cnt_p * 16)
+    READ_ASCII off_dl bgse_cand_dl (bgse_cnt_dl * 16)
+    READ_ASCII off_dc bgse_cand_dc (bgse_cnt_dc * 16)
+    SET bgse_cnt_ho0 = $ho_cnt(~0~)  READ_ASCII ($ho_start(~0~)) bgse_cand_ho0 (bgse_cnt_ho0 * 16)
+    SET bgse_cnt_ho1 = $ho_cnt(~1~)  READ_ASCII ($ho_start(~1~)) bgse_cand_ho1 (bgse_cnt_ho1 * 16)
+    SET bgse_cnt_ho2 = $ho_cnt(~2~)  READ_ASCII ($ho_start(~2~)) bgse_cand_ho2 (bgse_cnt_ho2 * 16)
+    SET bgse_cnt_ho3 = $ho_cnt(~3~)  READ_ASCII ($ho_start(~3~)) bgse_cand_ho3 (bgse_cnt_ho3 * 16)
+    SET bgse_cnt_ho4 = $ho_cnt(~4~)  READ_ASCII ($ho_start(~4~)) bgse_cand_ho4 (bgse_cnt_ho4 * 16)
+    SET bgse_cnt_ho5 = $ho_cnt(~5~)  READ_ASCII ($ho_start(~5~)) bgse_cand_ho5 (bgse_cnt_ho5 * 16)
+    SET bgse_cnt_ho6 = $ho_cnt(~6~)  READ_ASCII ($ho_start(~6~)) bgse_cand_ho6 (bgse_cnt_ho6 * 16)
+    SET bgse_cnt_ho7 = $ho_cnt(~7~)  READ_ASCII ($ho_start(~7~)) bgse_cand_ho7 (bgse_cnt_ho7 * 16)
+    SET bgse_cnt_hb0 = $hb_cnt(~0~)  READ_ASCII ($hb_start(~0~)) bgse_cand_hb0 (bgse_cnt_hb0 * 16)
+    SET bgse_cnt_hb1 = $hb_cnt(~1~)  READ_ASCII ($hb_start(~1~)) bgse_cand_hb1 (bgse_cnt_hb1 * 16)
+    SET bgse_cnt_hb2 = $hb_cnt(~2~)  READ_ASCII ($hb_start(~2~)) bgse_cand_hb2 (bgse_cnt_hb2 * 16)
+    SET bgse_cnt_hb3 = $hb_cnt(~3~)  READ_ASCII ($hb_start(~3~)) bgse_cand_hb3 (bgse_cnt_hb3 * 16)
+    SET bgse_cnt_hb4 = $hb_cnt(~4~)  READ_ASCII ($hb_start(~4~)) bgse_cand_hb4 (bgse_cnt_hb4 * 16)
+    SET bgse_cnt_hb5 = $hb_cnt(~5~)  READ_ASCII ($hb_start(~5~)) bgse_cand_hb5 (bgse_cnt_hb5 * 16)
+    SET bgse_cnt_hb6 = $hb_cnt(~6~)  READ_ASCII ($hb_start(~6~)) bgse_cand_hb6 (bgse_cnt_hb6 * 16)
+    SET bgse_cnt_hb7 = $hb_cnt(~7~)  READ_ASCII ($hb_start(~7~)) bgse_cand_hb7 (bgse_cnt_hb7 * 16)
+  END
+END
+
+// Pick best candidate in slice [bgse_cand_cnt] on a ring. Breaks ties by smallest gidx.
+DEFINE_PATCH_FUNCTION bgse_ambush_pick_ring_slice
+  INT_VAR bgse_cand_cnt = 0
+          ring_lo = 0
+          ring_hi = 0
+          target_sq = 0
+          target_oct = 0
+          min_q = 1
+          min_space_sq = 3136
+          use_min_sq = 0
+          placed_cnt = 0
+          found = 0
+          best_score = 0
+          best_gidx = 999999
+          pick_x = 0
+          pick_y = 0
+          pick_oct = 0
+  STR_VAR bgse_cand_buf = ~~
+          placed_buf = ~~
+  RET found
+      best_score
+      best_gidx
+      pick_x
+      pick_y
+      pick_oct
+BEGIN
+  PATCH_IF (bgse_cand_cnt > 0) BEGIN
+    SET cand_base = placed_cnt * 4
+    INNER_PATCH ~%placed_buf%%bgse_cand_buf%~ BEGIN
+      FOR (i = 0; i < bgse_cand_cnt; i += 1) BEGIN
+        SET rec = cand_base + i * 16
+        SET q = BYTE_AT (rec + 5)
+        PATCH_IF (q >= min_q) BEGIN
+          SET d_sq = (use_min_sq != 0) ? (LONG_AT (rec + 12)) : (LONG_AT (rec + 8))
+          PATCH_IF (d_sq >= ring_lo) AND (d_sq <= ring_hi) BEGIN
+            SET cx = SHORT_AT rec
+            SET cy = SHORT_AT (rec + 2)
+            SET ok = 1
+            FOR (p = 0; p < placed_cnt; p += 1) BEGIN
+              SET px = SHORT_AT (p * 4)
+              SET py = SHORT_AT (p * 4 + 2)
+              SET sdx = cx - px
+              SET sdy = cy - py
+              PATCH_IF (sdx * sdx + sdy * sdy < min_space_sq) BEGIN
+                SET ok = 0
+                SET p = placed_cnt
+              END
+            END
+            PATCH_IF (ok = 1) BEGIN
+              SET coct = BYTE_AT (rec + 4)
+              SET od = coct - target_oct
+              PATCH_IF (od < 0) BEGIN SET od += 8 END
+              PATCH_IF (od > 4) BEGIN SET od = 8 - od END
+              SET diff = d_sq - target_sq
+              PATCH_IF (diff < 0) BEGIN SET diff = 0 - diff END
+              SET score = od * 1000000 + diff
+              SET gidx = SHORT_AT (rec + 6)
+              PATCH_IF (found = 0) OR (score < best_score) OR ((score = best_score) AND (gidx < best_gidx)) BEGIN
+                SET found = 1
+                SET best_score = score
+                SET best_gidx = gidx
+                SET pick_x = cx
+                SET pick_y = cy
+                SET pick_oct = coct
+              END
+            END
+          END
+        END
+      END
+    END
+  END
+END
+
+// Pick best candidate closest to (anchor_pt_x, anchor_pt_y) within slice. Breaks ties by smallest gidx.
+DEFINE_PATCH_FUNCTION bgse_ambush_pick_near_slice
+  INT_VAR bgse_cand_cnt = 0
+          ring_lo = 0
+          ring_hi = 0
+          anchor_pt_x = 0
+          anchor_pt_y = 0
+          min_q = 1
+          min_space_sq = 3136
+          use_min_sq = 0
+          placed_cnt = 0
+          use_dot = 0
+          dot_ax = 0
+          dot_ay = 0
+          dot_lx = 0
+          dot_ly = 0
+          found = 0
+          best_dist = 0
+          best_gidx = 999999
+          pick_x = 0
+          pick_y = 0
+          pick_oct = 0
+  STR_VAR bgse_cand_buf = ~~
+          placed_buf = ~~
+  RET found
+      best_dist
+      best_gidx
+      pick_x
+      pick_y
+      pick_oct
+BEGIN
+  PATCH_IF (bgse_cand_cnt > 0) BEGIN
+    SET cand_base = placed_cnt * 4
+    SET ldx = dot_lx - dot_ax
+    SET ldy = dot_ly - dot_ay
+    INNER_PATCH ~%placed_buf%%bgse_cand_buf%~ BEGIN
+      FOR (i = 0; i < bgse_cand_cnt; i += 1) BEGIN
+        SET rec = cand_base + i * 16
+        SET q = BYTE_AT (rec + 5)
+        PATCH_IF (q >= min_q) BEGIN
+          SET d_sq = (use_min_sq != 0) ? (LONG_AT (rec + 12)) : (LONG_AT (rec + 8))
+          PATCH_IF (d_sq >= ring_lo) AND (d_sq <= ring_hi) BEGIN
+            SET cx = SHORT_AT rec
+            SET cy = SHORT_AT (rec + 2)
+            SET dot_ok = 1
+            PATCH_IF (use_dot != 0) BEGIN
+              PATCH_IF (((cx - dot_ax) * ldx + (cy - dot_ay) * ldy) <= 0) BEGIN
+                SET dot_ok = 0
+              END
+            END
+            PATCH_IF (dot_ok = 1) BEGIN
+              SET ok = 1
+              FOR (p = 0; p < placed_cnt; p += 1) BEGIN
+                SET px = SHORT_AT (p * 4)
+                SET py = SHORT_AT (p * 4 + 2)
+                SET sdx = cx - px
+                SET sdy = cy - py
+                PATCH_IF (sdx * sdx + sdy * sdy < min_space_sq) BEGIN
+                  SET ok = 0
+                  SET p = placed_cnt
+                END
+              END
+              PATCH_IF (ok = 1) BEGIN
+                SET dx = cx - anchor_pt_x
+                SET dy = cy - anchor_pt_y
+                SET dist = dx * dx + dy * dy
+                SET gidx = SHORT_AT (rec + 6)
+                PATCH_IF (found = 0) OR (dist < best_dist) OR ((dist = best_dist) AND (gidx < best_gidx)) BEGIN
+                  SET found = 1
+                  SET best_dist = dist
+                  SET best_gidx = gidx
+                  SET pick_x = cx
+                  SET pick_y = cy
+                  SET pick_oct = BYTE_AT (rec + 4)
+                END
+              END
+            END
+          END
+        END
+      END
+    END
+  END
+END
+
+// Pick best candidate on hostile ring [230400..490000] scanning matching octants in increasing angular distance.
+DEFINE_PATCH_FUNCTION bgse_ambush_pick_hostile_ring
+  INT_VAR target_oct = 0
+          min_q = 1
+          min_space_sq = 3136
+          placed_cnt = 0
+          bgse_cnt_ho0 = 0 bgse_cnt_ho1 = 0 bgse_cnt_ho2 = 0 bgse_cnt_ho3 = 0
+          bgse_cnt_ho4 = 0 bgse_cnt_ho5 = 0 bgse_cnt_ho6 = 0 bgse_cnt_ho7 = 0
+  STR_VAR placed_buf = ~~
+          bgse_cand_ho0 = ~~ bgse_cand_ho1 = ~~ bgse_cand_ho2 = ~~ bgse_cand_ho3 = ~~
+          bgse_cand_ho4 = ~~ bgse_cand_ho5 = ~~ bgse_cand_ho6 = ~~ bgse_cand_ho7 = ~~
+  RET found
+      pick_x
+      pick_y
+      pick_oct
+BEGIN
+  SET found = 0
+  SET best_score = 0
+  SET best_gidx = 999999
+  SET pick_x = 0
+  SET pick_y = 0
+  SET pick_oct = 0
+  SET $ho_n(~0~) = bgse_cnt_ho0  TEXT_SPRINT $ho_b(~0~) ~%bgse_cand_ho0%~
+  SET $ho_n(~1~) = bgse_cnt_ho1  TEXT_SPRINT $ho_b(~1~) ~%bgse_cand_ho1%~
+  SET $ho_n(~2~) = bgse_cnt_ho2  TEXT_SPRINT $ho_b(~2~) ~%bgse_cand_ho2%~
+  SET $ho_n(~3~) = bgse_cnt_ho3  TEXT_SPRINT $ho_b(~3~) ~%bgse_cand_ho3%~
+  SET $ho_n(~4~) = bgse_cnt_ho4  TEXT_SPRINT $ho_b(~4~) ~%bgse_cand_ho4%~
+  SET $ho_n(~5~) = bgse_cnt_ho5  TEXT_SPRINT $ho_b(~5~) ~%bgse_cand_ho5%~
+  SET $ho_n(~6~) = bgse_cnt_ho6  TEXT_SPRINT $ho_b(~6~) ~%bgse_cand_ho6%~
+  SET $ho_n(~7~) = bgse_cnt_ho7  TEXT_SPRINT $ho_b(~7~) ~%bgse_cand_ho7%~
+  FOR (od = 0; od <= 4; od += 1) BEGIN
+    SET o1 = (target_oct + od) BAND 7
+    LPF bgse_ambush_pick_ring_slice INT_VAR bgse_cand_cnt = $ho_n(~%o1%~)
+        ring_lo = 230400 ring_hi = 490000 target_sq = 291600 target_oct = target_oct
+        min_q = min_q min_space_sq = min_space_sq use_min_sq = 1 placed_cnt = placed_cnt
+        found = found best_score = best_score best_gidx = best_gidx
+        pick_x = pick_x pick_y = pick_y pick_oct = pick_oct
+      STR_VAR bgse_cand_buf = EVAL $ho_b(~%o1%~) placed_buf = EVAL ~%placed_buf%~
+      RET found best_score best_gidx pick_x pick_y pick_oct END
+    PATCH_IF (od > 0) AND (od < 4) BEGIN
+      SET o2 = (target_oct + 8 - od) BAND 7
+      LPF bgse_ambush_pick_ring_slice INT_VAR bgse_cand_cnt = $ho_n(~%o2%~)
+          ring_lo = 230400 ring_hi = 490000 target_sq = 291600 target_oct = target_oct
+          min_q = min_q min_space_sq = min_space_sq use_min_sq = 1 placed_cnt = placed_cnt
+          found = found best_score = best_score best_gidx = best_gidx
+          pick_x = pick_x pick_y = pick_y pick_oct = pick_oct
+        STR_VAR bgse_cand_buf = EVAL $ho_b(~%o2%~) placed_buf = EVAL ~%placed_buf%~
+        RET found best_score best_gidx pick_x pick_y pick_oct END
+    END
+    PATCH_IF (found = 1) BEGIN SET od = 5 END
+  END
+END
+
+// Pick best candidate on hostile ring nearest (anchor_pt_x, anchor_pt_y) expanding outward across y-bands.
+DEFINE_PATCH_FUNCTION bgse_ambush_pick_hostile_near
+  INT_VAR anchor_pt_x = 0
+          anchor_pt_y = 0
+          min_q = 1
+          min_space_sq = 3136
+          placed_cnt = 0
+          bgse_cnt_hb0 = 0 bgse_cnt_hb1 = 0 bgse_cnt_hb2 = 0 bgse_cnt_hb3 = 0
+          bgse_cnt_hb4 = 0 bgse_cnt_hb5 = 0 bgse_cnt_hb6 = 0 bgse_cnt_hb7 = 0
+  STR_VAR placed_buf = ~~
+          bgse_cand_hb0 = ~~ bgse_cand_hb1 = ~~ bgse_cand_hb2 = ~~ bgse_cand_hb3 = ~~
+          bgse_cand_hb4 = ~~ bgse_cand_hb5 = ~~ bgse_cand_hb6 = ~~ bgse_cand_hb7 = ~~
+  RET found
+      pick_x
+      pick_y
+      pick_oct
+BEGIN
+  SET found = 0
+  SET best_dist = 0
+  SET best_gidx = 999999
+  SET pick_x = 0
+  SET pick_y = 0
+  SET pick_oct = 0
+  SET $hb_n(~0~) = bgse_cnt_hb0  TEXT_SPRINT $hb_b(~0~) ~%bgse_cand_hb0%~
+  SET $hb_n(~1~) = bgse_cnt_hb1  TEXT_SPRINT $hb_b(~1~) ~%bgse_cand_hb1%~
+  SET $hb_n(~2~) = bgse_cnt_hb2  TEXT_SPRINT $hb_b(~2~) ~%bgse_cand_hb2%~
+  SET $hb_n(~3~) = bgse_cnt_hb3  TEXT_SPRINT $hb_b(~3~) ~%bgse_cand_hb3%~
+  SET $hb_n(~4~) = bgse_cnt_hb4  TEXT_SPRINT $hb_b(~4~) ~%bgse_cand_hb4%~
+  SET $hb_n(~5~) = bgse_cnt_hb5  TEXT_SPRINT $hb_b(~5~) ~%bgse_cand_hb5%~
+  SET $hb_n(~6~) = bgse_cnt_hb6  TEXT_SPRINT $hb_b(~6~) ~%bgse_cand_hb6%~
+  SET $hb_n(~7~) = bgse_cnt_hb7  TEXT_SPRINT $hb_b(~7~) ~%bgse_cand_hb7%~
+  SET b0 = (anchor_pt_y - 6) / 120
+  PATCH_IF (b0 < 0) BEGIN SET b0 = 0 END
+  PATCH_IF (b0 > 7) BEGIN SET b0 = 7 END
+  SET lo_open = 1
+  SET hi_open = 1
+  FOR (delta = 0; delta < 8; delta += 1) BEGIN
+    SET b1 = b0 - delta
+    PATCH_IF (lo_open = 1) AND (b1 >= 0) BEGIN
+      SET min_dy = (delta = 0) ? 0 : (anchor_pt_y - (b1 * 120 + 114))
+      PATCH_IF (found = 1) AND (min_dy > 0) AND (min_dy * min_dy > best_dist) BEGIN
+        SET lo_open = 0
+      END ELSE BEGIN
+        LPF bgse_ambush_pick_near_slice INT_VAR bgse_cand_cnt = $hb_n(~%b1%~)
+            ring_lo = 230400 ring_hi = 490000 anchor_pt_x = anchor_pt_x anchor_pt_y = anchor_pt_y
+            min_q = min_q min_space_sq = min_space_sq use_min_sq = 1 placed_cnt = placed_cnt
+            found = found best_dist = best_dist best_gidx = best_gidx
+            pick_x = pick_x pick_y = pick_y pick_oct = pick_oct
+          STR_VAR bgse_cand_buf = EVAL $hb_b(~%b1%~) placed_buf = EVAL ~%placed_buf%~
+          RET found best_dist best_gidx pick_x pick_y pick_oct END
+      END
+    END ELSE BEGIN
+      SET lo_open = 0
+    END
+    PATCH_IF (delta > 0) BEGIN
+      SET b2 = b0 + delta
+      PATCH_IF (hi_open = 1) AND (b2 <= 7) BEGIN
+        SET min_dy = (b2 * 120 + 6) - anchor_pt_y
+        PATCH_IF (found = 1) AND (min_dy > 0) AND (min_dy * min_dy > best_dist) BEGIN
+          SET hi_open = 0
+        END ELSE BEGIN
+          LPF bgse_ambush_pick_near_slice INT_VAR bgse_cand_cnt = $hb_n(~%b2%~)
+              ring_lo = 230400 ring_hi = 490000 anchor_pt_x = anchor_pt_x anchor_pt_y = anchor_pt_y
+              min_q = min_q min_space_sq = min_space_sq use_min_sq = 1 placed_cnt = placed_cnt
+              found = found best_dist = best_dist best_gidx = best_gidx
+              pick_x = pick_x pick_y = pick_y pick_oct = pick_oct
+            STR_VAR bgse_cand_buf = EVAL $hb_b(~%b2%~) placed_buf = EVAL ~%placed_buf%~
+            RET found best_dist best_gidx pick_x pick_y pick_oct END
+        END
+      END ELSE BEGIN
+        SET hi_open = 0
+      END
+    END
+    PATCH_IF (lo_open = 0) AND (hi_open = 0) BEGIN SET delta = 8 END
+  END
+END
+
+// Append (px, py) onto placed_buf (4 bytes per entry).
+DEFINE_PATCH_FUNCTION bgse_ambush_add_placed
+  INT_VAR placed_cnt = 0
+          px = 0
+          py = 0
+  STR_VAR placed_buf = ~~
+  RET placed_buf
+      placed_cnt
+BEGIN
+  INNER_PATCH_SAVE placed_buf ~%placed_buf%~ BEGIN
+    SET at = placed_cnt * 4
+    INSERT_BYTES at 4
+    WRITE_SHORT at px
+    WRITE_SHORT (at + 2) py
+  END
+  SET placed_cnt += 1
+END
+
+// Patch one decompiled ambush script (bgse_baf). Requires bgse_aside from bgse/lib/hook.tpa.
+DEFINE_PATCH_FUNCTION bgse_ambush_baf
+  INT_VAR area_idx = 0
+          anchor_x = 640
+          anchor_y = 480
+          anchor_x2 = 640
+          anchor_y2 = 480
+          bgse_cand_cnt = 0
+          bgse_cnt_p = 0 bgse_cnt_dl = 0 bgse_cnt_dc = 0
+          bgse_cnt_ho0 = 0 bgse_cnt_ho1 = 0 bgse_cnt_ho2 = 0 bgse_cnt_ho3 = 0
+          bgse_cnt_ho4 = 0 bgse_cnt_ho5 = 0 bgse_cnt_ho6 = 0 bgse_cnt_ho7 = 0
+          bgse_cnt_hb0 = 0 bgse_cnt_hb1 = 0 bgse_cnt_hb2 = 0 bgse_cnt_hb3 = 0
+          bgse_cnt_hb4 = 0 bgse_cnt_hb5 = 0 bgse_cnt_hb6 = 0 bgse_cnt_hb7 = 0
+  STR_VAR bgse_baf = ~~
+          bgse_talkers = ~|~
+          bgse_cand_p = ~~ bgse_cand_dl = ~~ bgse_cand_dc = ~~
+          bgse_cand_ho0 = ~~ bgse_cand_ho1 = ~~ bgse_cand_ho2 = ~~ bgse_cand_ho3 = ~~
+          bgse_cand_ho4 = ~~ bgse_cand_ho5 = ~~ bgse_cand_ho6 = ~~ bgse_cand_ho7 = ~~
+          bgse_cand_hb0 = ~~ bgse_cand_hb1 = ~~ bgse_cand_hb2 = ~~ bgse_cand_hb3 = ~~
+          bgse_cand_hb4 = ~~ bgse_cand_hb5 = ~~ bgse_cand_hb6 = ~~ bgse_cand_hb7 = ~~
+  RET bgse_blocks
+      bgse_baf
+BEGIN
+  SET bgse_blocks = 0
+  TEXT_SPRINT on_line ~  EEex_LuaTrigger("return BGSE_AmbushOn and BGSE_AmbushOn() or false")~
+  TEXT_SPRINT off_line ~  !EEex_LuaTrigger("return BGSE_AmbushOn and BGSE_AmbushOn() or false")~
+  INNER_PATCH_SAVE bgse_baf ~%bgse_baf%~ BEGIN
+    PATCH_IF (INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~%MNL%~) >= 0) BEGIN
+      REPLACE_TEXTUALLY CASE_SENSITIVE EXACT_MATCH ~%MNL%~ ~~
+    END
+    PATCH_IF (INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~BGSE_AmbushOn~) < 0) AND (bgse_cand_cnt > 0) BEGIN
+      SET pos = 0
+      SET block_idx = 0
+      WHILE (pos >= 0) BEGIN
+        SET stop = 0 - 1
+        SET start = INDEX_BUFFER (CASE_SENSITIVE ~^IF%LNL%~ pos)
+        PATCH_IF (start >= 0) BEGIN
+          SET end = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~%LNL%END%LNL%~ start)
+          PATCH_IF (end >= 0) BEGIN
+            SET stop = end + 5
+          END
+        END
+        PATCH_IF (stop < 0) BEGIN
+          SET pos = 0 - 1
+        END ELSE BEGIN
+          READ_ASCII start block (stop - start)
+          SET pos = stop
+          SET cur_idx = block_idx
+          SET block_idx += 1
+          PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~JumpToPoint(~ ~%block%~) < 0)
+              AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~MoveBetweenAreas(~ ~%block%~) < 0)
+              AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~LeaveAreaLUA~ ~%block%~) < 0)
+              AND (INDEX (CASE_SENSITIVE EXACT_MATCH ~CreateCreatureImpassable(~ ~%block%~) < 0)
+              AND (INDEX (CASE_SENSITIVE ~^    CreateCreature("~ ~%block%~) >= 0) BEGIN
+            SET n = 0
+            SET planar_cnt = 0
+            SET has_talker = 0
+            INNER_PATCH ~%block%~ BEGIN
+              REPLACE_EVALUATE CASE_SENSITIVE ~^    CreateCreature("\([^"]+\)",\[\([0-9]+\)\.\([0-9]+\)\],\([A-Za-z0-9_]+\))~ BEGIN
+                TEXT_SPRINT res ~%MATCH1%~
+                TO_UPPER res
+                SET sx = MATCH2
+                SET sy = MATCH3
+                SET dx = sx - anchor_x
+                SET dy = sy - anchor_y
+                SET dx2 = sx - anchor_x2
+                SET dy2 = sy - anchor_y2
+                SET p_sq = dx * dx + dy * dy
+                SET m_sq2 = dx2 * dx2 + dy2 * dy2
+                SET m_sq = (p_sq <= m_sq2) ? p_sq : m_sq2
+                SET is_p = (INDEX (CASE_SENSITIVE ~^GITH~ ~%res%~) = 0) ? 1 : 0
+                SET is_t = (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%res%|~ ~%bgse_talkers%~) >= 0) ? 1 : 0
+                SET $sp_x(~%n%~) = sx
+                SET $sp_y(~%n%~) = sy
+                SET $sp_psq(~%n%~) = p_sq
+                SET $sp_msq(~%n%~) = m_sq
+                SET $sp_t(~%n%~) = is_t
+                SET planar_cnt += is_p
+                PATCH_IF (is_t = 1) BEGIN SET has_talker = 1 END
+                SET n += 1
+              END ~%MATCH0%~
+            END
+            PATCH_IF (n > 0) BEGIN
+              // Mode: 0=hostile, 1=dialogue, 2=planar
+              SET mode = 0
+              PATCH_IF (planar_cnt > 0) AND (planar_cnt * 2 >= n) BEGIN
+                SET mode = 2
+              END ELSE PATCH_IF (has_talker = 1)
+                  OR (INDEX (CASE_SENSITIVE EXACT_MATCH ~MoveViewObject(~ ~%block%~) >= 0)
+                  OR (INDEX (CASE_SENSITIVE EXACT_MATCH ~DisplayStringHead(~ ~%block%~) >= 0)
+                  OR (INDEX (CASE_SENSITIVE EXACT_MATCH ~Dialogue(~ ~%block%~) >= 0)
+                  OR (INDEX (CASE_SENSITIVE EXACT_MATCH ~StartDialog~ ~%block%~) >= 0) BEGIN
+                SET mode = 1
+              END
+              // Check if already sensible
+              SET skip = 1
+              SET min_pair = (mode = 1) ? 1600 : 2304
+              SET min_dist = (mode = 2) ? 25600 : ((mode = 1) ? 48400 : 216225)
+              FOR (i = 0; i < n; i += 1) BEGIN
+                SET d = (mode = 0) ? $sp_msq(~%i%~) : $sp_psq(~%i%~)
+                PATCH_IF (d < min_dist) BEGIN SET skip = 0 END
+              END
+              PATCH_IF (skip = 1) BEGIN
+                FOR (i = 0; i < n; i += 1) BEGIN
+                  FOR (j = i + 1; j < n; j += 1) BEGIN
+                    SET pdx = $sp_x(~%i%~) - $sp_x(~%j%~)
+                    SET pdy = $sp_y(~%i%~) - $sp_y(~%j%~)
+                    PATCH_IF (pdx * pdx + pdy * pdy < min_pair) BEGIN SET skip = 0 END
+                  END
+                END
+              END
+              PATCH_IF (skip = 0) BEGIN
+                SET seed_oct = ((cur_idx * 3) + area_idx) BAND 7
+                SET ok_all = 1
+                TEXT_SPRINT placed_buf ~~
+                SET placed_cnt = 0
+                PATCH_IF (mode = 2) BEGIN
+                  FOR (i = 0; i < n; i += 1) BEGIN
+                    SET toct = (seed_oct + i * 2) BAND 7
+                    LPF bgse_ambush_pick_ring_slice INT_VAR bgse_cand_cnt = bgse_cnt_p ring_lo = 30625 ring_hi = 75625
+                        target_sq = 50625 target_oct = toct min_q = 2 min_space_sq = 3136 use_min_sq = 0
+                        placed_cnt = placed_cnt STR_VAR bgse_cand_buf = EVAL ~%bgse_cand_p%~ placed_buf = EVAL ~%placed_buf%~
+                      RET found pick_x pick_y pick_oct END
+                    PATCH_IF (found = 0) BEGIN
+                      LPF bgse_ambush_pick_ring_slice INT_VAR bgse_cand_cnt = bgse_cnt_p ring_lo = 30625 ring_hi = 75625
+                          target_sq = 50625 target_oct = toct min_q = 1 min_space_sq = 3136 use_min_sq = 0
+                          placed_cnt = placed_cnt STR_VAR bgse_cand_buf = EVAL ~%bgse_cand_p%~ placed_buf = EVAL ~%placed_buf%~
+                        RET found pick_x pick_y pick_oct END
+                    END
+                    PATCH_IF (found = 0) BEGIN
+                      LPF bgse_ambush_pick_ring_slice INT_VAR bgse_cand_cnt = bgse_cnt_p ring_lo = 30625 ring_hi = 75625
+                          target_sq = 50625 target_oct = toct min_q = 1 min_space_sq = 1600 use_min_sq = 0
+                          placed_cnt = placed_cnt STR_VAR bgse_cand_buf = EVAL ~%bgse_cand_p%~ placed_buf = EVAL ~%placed_buf%~
+                        RET found pick_x pick_y pick_oct END
+                    END
+                    PATCH_IF (found = 0) BEGIN
+                      SET ok_all = 0
+                      SET i = n
+                    END ELSE BEGIN
+                      SET $ch_x(~%i%~) = pick_x
+                      SET $ch_y(~%i%~) = pick_y
+                      SET $ch_f(~%i%~) = ((pick_oct * 2) + 4) BAND 15
+                      LPF bgse_ambush_add_placed INT_VAR placed_cnt = placed_cnt px = pick_x py = pick_y
+                        STR_VAR placed_buf = EVAL ~%placed_buf%~ RET placed_buf placed_cnt END
+                    END
+                  END
+                END ELSE PATCH_IF (mode = 1) BEGIN
+                  SET leader_idx = 0
+                  FOR (i = 0; i < n; i += 1) BEGIN
+                    PATCH_IF ($sp_t(~%i%~) = 1) BEGIN
+                      SET leader_idx = i
+                      SET i = n
+                    END
+                  END
+                  LPF bgse_ambush_pick_ring_slice INT_VAR bgse_cand_cnt = bgse_cnt_dl ring_lo = 90000 ring_hi = 126025
+                      target_sq = 105625 target_oct = seed_oct min_q = 2 min_space_sq = 3136 use_min_sq = 0
+                      placed_cnt = placed_cnt STR_VAR bgse_cand_buf = EVAL ~%bgse_cand_dl%~ placed_buf = EVAL ~%placed_buf%~
+                    RET found pick_x pick_y pick_oct END
+                  PATCH_IF (found = 0) BEGIN
+                    LPF bgse_ambush_pick_ring_slice INT_VAR bgse_cand_cnt = bgse_cnt_dl ring_lo = 90000 ring_hi = 126025
+                        target_sq = 105625 target_oct = seed_oct min_q = 1 min_space_sq = 3136 use_min_sq = 0
+                        placed_cnt = placed_cnt STR_VAR bgse_cand_buf = EVAL ~%bgse_cand_dl%~ placed_buf = EVAL ~%placed_buf%~
+                      RET found pick_x pick_y pick_oct END
+                  END
+                  PATCH_IF (found = 0) BEGIN
+                    SET ok_all = 0
+                  END ELSE BEGIN
+                    SET lx = pick_x
+                    SET ly = pick_y
+                    SET $ch_x(~%leader_idx%~) = lx
+                    SET $ch_y(~%leader_idx%~) = ly
+                    SET $ch_f(~%leader_idx%~) = ((pick_oct * 2) + 4) BAND 15
+                    LPF bgse_ambush_add_placed INT_VAR placed_cnt = placed_cnt px = lx py = ly
+                      STR_VAR placed_buf = EVAL ~%placed_buf%~ RET placed_buf placed_cnt END
+                    FOR (i = 0; i < n; i += 1) BEGIN
+                      PATCH_IF (i != leader_idx) BEGIN
+                        LPF bgse_ambush_pick_near_slice INT_VAR bgse_cand_cnt = bgse_cnt_dc ring_lo = 133225 ring_hi = 235225
+                            anchor_pt_x = lx anchor_pt_y = ly min_q = 2 min_space_sq = 3136 use_min_sq = 0
+                            placed_cnt = placed_cnt use_dot = 1 dot_ax = anchor_x dot_ay = anchor_y dot_lx = lx dot_ly = ly
+                            STR_VAR bgse_cand_buf = EVAL ~%bgse_cand_dc%~ placed_buf = EVAL ~%placed_buf%~
+                          RET found pick_x pick_y pick_oct END
+                        PATCH_IF (found = 0) BEGIN
+                          LPF bgse_ambush_pick_near_slice INT_VAR bgse_cand_cnt = bgse_cnt_dc ring_lo = 133225 ring_hi = 235225
+                              anchor_pt_x = lx anchor_pt_y = ly min_q = 1 min_space_sq = 3136 use_min_sq = 0
+                              placed_cnt = placed_cnt use_dot = 1 dot_ax = anchor_x dot_ay = anchor_y dot_lx = lx dot_ly = ly
+                              STR_VAR bgse_cand_buf = EVAL ~%bgse_cand_dc%~ placed_buf = EVAL ~%placed_buf%~
+                            RET found pick_x pick_y pick_oct END
+                        END
+                        PATCH_IF (found = 0) BEGIN
+                          LPF bgse_ambush_pick_near_slice INT_VAR bgse_cand_cnt = bgse_cnt_dc ring_lo = 133225 ring_hi = 235225
+                              anchor_pt_x = lx anchor_pt_y = ly min_q = 1 min_space_sq = 3136 use_min_sq = 0
+                              placed_cnt = placed_cnt use_dot = 0
+                              STR_VAR bgse_cand_buf = EVAL ~%bgse_cand_dc%~ placed_buf = EVAL ~%placed_buf%~
+                            RET found pick_x pick_y pick_oct END
+                        END
+                        PATCH_IF (found = 0) BEGIN
+                          LPF bgse_ambush_pick_near_slice INT_VAR bgse_cand_cnt = bgse_cnt_dc ring_lo = 133225 ring_hi = 235225
+                              anchor_pt_x = lx anchor_pt_y = ly min_q = 1 min_space_sq = 1600 use_min_sq = 0
+                              placed_cnt = placed_cnt use_dot = 0
+                              STR_VAR bgse_cand_buf = EVAL ~%bgse_cand_dc%~ placed_buf = EVAL ~%placed_buf%~
+                            RET found pick_x pick_y pick_oct END
+                        END
+                        PATCH_IF (found = 0) BEGIN
+                          SET ok_all = 0
+                          SET i = n
+                        END ELSE BEGIN
+                          SET $ch_x(~%i%~) = pick_x
+                          SET $ch_y(~%i%~) = pick_y
+                          SET $ch_f(~%i%~) = ((pick_oct * 2) + 4) BAND 15
+                          LPF bgse_ambush_add_placed INT_VAR placed_cnt = placed_cnt px = pick_x py = pick_y
+                            STR_VAR placed_buf = EVAL ~%placed_buf%~ RET placed_buf placed_cnt END
+                        END
+                      END
+                    END
+                  END
+                END ELSE BEGIN
+                  SET flanks = (n <= 2) ? 1 : ((n <= 7) ? 2 : 3)
+                  SET $flank_oct(~0~) = seed_oct
+                  SET $flank_oct(~1~) = (seed_oct + 3) BAND 7
+                  SET $flank_oct(~2~) = (seed_oct + 5) BAND 7
+                  FOR (f = 0; f < flanks; f += 1) BEGIN SET $has_anc(~%f%~) = 0 END
+                  FOR (i = 0; i < n; i += 1) BEGIN
+                    SET f = i - ((i / flanks) * flanks)
+                    PATCH_IF ($has_anc(~%f%~) = 0) BEGIN
+                      SET foct = $flank_oct(~%f%~)
+                      LPF bgse_ambush_pick_hostile_ring INT_VAR target_oct = foct min_q = 2 min_space_sq = 3136
+                          placed_cnt = placed_cnt
+                          bgse_cnt_ho0 = bgse_cnt_ho0 bgse_cnt_ho1 = bgse_cnt_ho1 bgse_cnt_ho2 = bgse_cnt_ho2 bgse_cnt_ho3 = bgse_cnt_ho3
+                          bgse_cnt_ho4 = bgse_cnt_ho4 bgse_cnt_ho5 = bgse_cnt_ho5 bgse_cnt_ho6 = bgse_cnt_ho6 bgse_cnt_ho7 = bgse_cnt_ho7
+                        STR_VAR placed_buf = EVAL ~%placed_buf%~
+                          bgse_cand_ho0 = EVAL ~%bgse_cand_ho0%~ bgse_cand_ho1 = EVAL ~%bgse_cand_ho1%~
+                          bgse_cand_ho2 = EVAL ~%bgse_cand_ho2%~ bgse_cand_ho3 = EVAL ~%bgse_cand_ho3%~
+                          bgse_cand_ho4 = EVAL ~%bgse_cand_ho4%~ bgse_cand_ho5 = EVAL ~%bgse_cand_ho5%~
+                          bgse_cand_ho6 = EVAL ~%bgse_cand_ho6%~ bgse_cand_ho7 = EVAL ~%bgse_cand_ho7%~
+                        RET found pick_x pick_y pick_oct END
+                      PATCH_IF (found = 0) BEGIN
+                        LPF bgse_ambush_pick_hostile_ring INT_VAR target_oct = foct min_q = 1 min_space_sq = 3136
+                            placed_cnt = placed_cnt
+                            bgse_cnt_ho0 = bgse_cnt_ho0 bgse_cnt_ho1 = bgse_cnt_ho1 bgse_cnt_ho2 = bgse_cnt_ho2 bgse_cnt_ho3 = bgse_cnt_ho3
+                            bgse_cnt_ho4 = bgse_cnt_ho4 bgse_cnt_ho5 = bgse_cnt_ho5 bgse_cnt_ho6 = bgse_cnt_ho6 bgse_cnt_ho7 = bgse_cnt_ho7
+                          STR_VAR placed_buf = EVAL ~%placed_buf%~
+                            bgse_cand_ho0 = EVAL ~%bgse_cand_ho0%~ bgse_cand_ho1 = EVAL ~%bgse_cand_ho1%~
+                            bgse_cand_ho2 = EVAL ~%bgse_cand_ho2%~ bgse_cand_ho3 = EVAL ~%bgse_cand_ho3%~
+                            bgse_cand_ho4 = EVAL ~%bgse_cand_ho4%~ bgse_cand_ho5 = EVAL ~%bgse_cand_ho5%~
+                            bgse_cand_ho6 = EVAL ~%bgse_cand_ho6%~ bgse_cand_ho7 = EVAL ~%bgse_cand_ho7%~
+                          RET found pick_x pick_y pick_oct END
+                      END
+                      PATCH_IF (found = 0) BEGIN
+                        LPF bgse_ambush_pick_hostile_ring INT_VAR target_oct = foct min_q = 1 min_space_sq = 1600
+                            placed_cnt = placed_cnt
+                            bgse_cnt_ho0 = bgse_cnt_ho0 bgse_cnt_ho1 = bgse_cnt_ho1 bgse_cnt_ho2 = bgse_cnt_ho2 bgse_cnt_ho3 = bgse_cnt_ho3
+                            bgse_cnt_ho4 = bgse_cnt_ho4 bgse_cnt_ho5 = bgse_cnt_ho5 bgse_cnt_ho6 = bgse_cnt_ho6 bgse_cnt_ho7 = bgse_cnt_ho7
+                          STR_VAR placed_buf = EVAL ~%placed_buf%~
+                            bgse_cand_ho0 = EVAL ~%bgse_cand_ho0%~ bgse_cand_ho1 = EVAL ~%bgse_cand_ho1%~
+                            bgse_cand_ho2 = EVAL ~%bgse_cand_ho2%~ bgse_cand_ho3 = EVAL ~%bgse_cand_ho3%~
+                            bgse_cand_ho4 = EVAL ~%bgse_cand_ho4%~ bgse_cand_ho5 = EVAL ~%bgse_cand_ho5%~
+                            bgse_cand_ho6 = EVAL ~%bgse_cand_ho6%~ bgse_cand_ho7 = EVAL ~%bgse_cand_ho7%~
+                          RET found pick_x pick_y pick_oct END
+                      END
+                      PATCH_IF (found != 0) BEGIN
+                        SET $has_anc(~%f%~) = 1
+                        SET $anc_x(~%f%~) = pick_x
+                        SET $anc_y(~%f%~) = pick_y
+                      END
+                    END ELSE BEGIN
+                      SET fx = $anc_x(~%f%~)
+                      SET fy = $anc_y(~%f%~)
+                      LPF bgse_ambush_pick_hostile_near INT_VAR anchor_pt_x = fx anchor_pt_y = fy min_q = 2 min_space_sq = 3136
+                          placed_cnt = placed_cnt
+                          bgse_cnt_hb0 = bgse_cnt_hb0 bgse_cnt_hb1 = bgse_cnt_hb1 bgse_cnt_hb2 = bgse_cnt_hb2 bgse_cnt_hb3 = bgse_cnt_hb3
+                          bgse_cnt_hb4 = bgse_cnt_hb4 bgse_cnt_hb5 = bgse_cnt_hb5 bgse_cnt_hb6 = bgse_cnt_hb6 bgse_cnt_hb7 = bgse_cnt_hb7
+                        STR_VAR placed_buf = EVAL ~%placed_buf%~
+                          bgse_cand_hb0 = EVAL ~%bgse_cand_hb0%~ bgse_cand_hb1 = EVAL ~%bgse_cand_hb1%~
+                          bgse_cand_hb2 = EVAL ~%bgse_cand_hb2%~ bgse_cand_hb3 = EVAL ~%bgse_cand_hb3%~
+                          bgse_cand_hb4 = EVAL ~%bgse_cand_hb4%~ bgse_cand_hb5 = EVAL ~%bgse_cand_hb5%~
+                          bgse_cand_hb6 = EVAL ~%bgse_cand_hb6%~ bgse_cand_hb7 = EVAL ~%bgse_cand_hb7%~
+                        RET found pick_x pick_y pick_oct END
+                      PATCH_IF (found = 0) BEGIN
+                        LPF bgse_ambush_pick_hostile_near INT_VAR anchor_pt_x = fx anchor_pt_y = fy min_q = 1 min_space_sq = 3136
+                            placed_cnt = placed_cnt
+                            bgse_cnt_hb0 = bgse_cnt_hb0 bgse_cnt_hb1 = bgse_cnt_hb1 bgse_cnt_hb2 = bgse_cnt_hb2 bgse_cnt_hb3 = bgse_cnt_hb3
+                            bgse_cnt_hb4 = bgse_cnt_hb4 bgse_cnt_hb5 = bgse_cnt_hb5 bgse_cnt_hb6 = bgse_cnt_hb6 bgse_cnt_hb7 = bgse_cnt_hb7
+                          STR_VAR placed_buf = EVAL ~%placed_buf%~
+                            bgse_cand_hb0 = EVAL ~%bgse_cand_hb0%~ bgse_cand_hb1 = EVAL ~%bgse_cand_hb1%~
+                            bgse_cand_hb2 = EVAL ~%bgse_cand_hb2%~ bgse_cand_hb3 = EVAL ~%bgse_cand_hb3%~
+                            bgse_cand_hb4 = EVAL ~%bgse_cand_hb4%~ bgse_cand_hb5 = EVAL ~%bgse_cand_hb5%~
+                            bgse_cand_hb6 = EVAL ~%bgse_cand_hb6%~ bgse_cand_hb7 = EVAL ~%bgse_cand_hb7%~
+                          RET found pick_x pick_y pick_oct END
+                      END
+                      PATCH_IF (found = 0) BEGIN
+                        LPF bgse_ambush_pick_hostile_near INT_VAR anchor_pt_x = fx anchor_pt_y = fy min_q = 1 min_space_sq = 1600
+                            placed_cnt = placed_cnt
+                            bgse_cnt_hb0 = bgse_cnt_hb0 bgse_cnt_hb1 = bgse_cnt_hb1 bgse_cnt_hb2 = bgse_cnt_hb2 bgse_cnt_hb3 = bgse_cnt_hb3
+                            bgse_cnt_hb4 = bgse_cnt_hb4 bgse_cnt_hb5 = bgse_cnt_hb5 bgse_cnt_hb6 = bgse_cnt_hb6 bgse_cnt_hb7 = bgse_cnt_hb7
+                          STR_VAR placed_buf = EVAL ~%placed_buf%~
+                            bgse_cand_hb0 = EVAL ~%bgse_cand_hb0%~ bgse_cand_hb1 = EVAL ~%bgse_cand_hb1%~
+                            bgse_cand_hb2 = EVAL ~%bgse_cand_hb2%~ bgse_cand_hb3 = EVAL ~%bgse_cand_hb3%~
+                            bgse_cand_hb4 = EVAL ~%bgse_cand_hb4%~ bgse_cand_hb5 = EVAL ~%bgse_cand_hb5%~
+                            bgse_cand_hb6 = EVAL ~%bgse_cand_hb6%~ bgse_cand_hb7 = EVAL ~%bgse_cand_hb7%~
+                          RET found pick_x pick_y pick_oct END
+                      END
+                    END
+                    PATCH_IF (found = 0) BEGIN
+                      SET ok_all = 0
+                      SET i = n
+                    END ELSE BEGIN
+                      SET $ch_x(~%i%~) = pick_x
+                      SET $ch_y(~%i%~) = pick_y
+                      SET $ch_f(~%i%~) = ((pick_oct * 2) + 4) BAND 15
+                      LPF bgse_ambush_add_placed INT_VAR placed_cnt = placed_cnt px = pick_x py = pick_y
+                        STR_VAR placed_buf = EVAL ~%placed_buf%~ RET placed_buf placed_cnt END
+                    END
+                  END
+                END
+                PATCH_IF (ok_all = 1) BEGIN
+                  SET rep_idx = 0
+                  INNER_PATCH_SAVE reloc ~%block%~ BEGIN
+                    REPLACE_EVALUATE CASE_SENSITIVE ~^\(    CreateCreature("\([^"]+\)",\)\[\([0-9]+\)\.\([0-9]+\)\],[A-Za-z0-9_]+\().*$\)~ BEGIN
+                      SET nx = $ch_x(~%rep_idx%~)
+                      SET ny = $ch_y(~%rep_idx%~)
+                      SET nf = $ch_f(~%rep_idx%~)
+                      SET rep_idx += 1
+                    END ~%MATCH1%[%nx%.%ny%],%nf%%MATCH5%~
+                  END
+                  INNER_PATCH_SAVE reloc_blk ~%reloc%~ BEGIN
+                    LPF bgse_aside INT_VAR bgse_from = 0 bgse_to = BUFFER_LENGTH STR_VAR bgse_lines = EVAL ~%on_line%~ END
+                  END
+                  INNER_PATCH_SAVE orig_blk ~%block%~ BEGIN
+                    LPF bgse_aside INT_VAR bgse_from = 0 bgse_to = BUFFER_LENGTH STR_VAR bgse_lines = EVAL ~%off_line%~ END
+                  END
+                  TEXT_SPRINT dual ~%reloc_blk%%orig_blk%~
+                  DELETE_BYTES start (stop - start)
+                  INSERT_BYTES start (STRING_LENGTH ~%dual%~)
+                  WRITE_ASCIIE start ~%dual%~
+                  SET pos = start + (STRING_LENGTH ~%dual%~)
+                  SET bgse_blocks += 1
+                END
+              END
+            END
+          END
+        END
+      END
+    END
+  END
+END
+
+// Install-time entrypoint: relocate random-encounter area scripts present in the game.
+DEFINE_ACTION_FUNCTION bgse_install_ambushes
+  RET bgse_ambush_scripts
+      bgse_ambush_blocks
+BEGIN
+  OUTER_SET bgse_ambush_scripts = 0
+  OUTER_SET bgse_ambush_blocks = 0
+  ACTION_CLEAR_ARRAY bgse_cand_cache
+  ACTION_CLEAR_ARRAY bgse_dec_baf
+  ACTION_CLEAR_ARRAY bgse_orig_bcs
+  OUTER_TEXT_SPRINT bgse_spawn_cres ~|~
+
+  // Pass 1: decompile present target scripts once and collect only spawned CRE resrefs.
+  OUTER_SET area_idx = 0
+  ACTION_FOR_EACH area IN ~BG5600~ ~BG5601~ ~BG5700~ ~BG5701~ ~BG5800~ ~BG5801~
+      ~BG5900~ ~BG5901~ ~BG6000~ ~BG6001~ ~BG6100~
+      ~AR0041~ ~AR0042~ ~AR0043~ ~AR0044~ ~AR0045~ ~AR0046~ BEGIN
+    ACTION_IF (FILE_EXISTS_IN_GAME ~%area%.bcs~) BEGIN
+      COPY_EXISTING ~%area%.bcs~ ~override~
+        READ_ASCII 0 orig_bcs (BUFFER_LENGTH)
+        SET $bgse_has_script(~%area%~) = 0
+        PATCH_TRY
+          INNER_PATCH_SAVE baf ~%orig_bcs%~ BEGIN
+            DECOMPILE_BCS_TO_BAF
+          END
+          PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~BGSE_AmbushOn~ ~%baf%~) < 0)
+              AND (INDEX (CASE_SENSITIVE ~CreateCreature("~ ~%baf%~) >= 0) BEGIN
+            SET $bgse_has_script(~%area%~) = 1
+            TEXT_SPRINT $bgse_orig_bcs(~%area%~) ~%orig_bcs%~
+            TEXT_SPRINT $bgse_dec_baf(~%area%~) ~%baf%~
+            INNER_PATCH ~%baf%~ BEGIN
+              REPLACE_EVALUATE CASE_SENSITIVE ~^    CreateCreature("\([^"]+\)"~ BEGIN
+                TEXT_SPRINT r ~%MATCH1%~
+                TO_UPPER r
+                PATCH_IF (INDEX (CASE_SENSITIVE EXACT_MATCH ~|%r%|~ ~%bgse_spawn_cres%~) < 0) BEGIN
+                  TEXT_SPRINT bgse_spawn_cres ~%bgse_spawn_cres%%r%|~
+                END
+              END ~%MATCH0%~
+            END
+          END
+        WITH DEFAULT
+        END
+      BUT_ONLY
+    END
+    OUTER_SET area_idx += 1
+  END
+
+  LAF bgse_ambush_talkers STR_VAR bgse_spawn_cres = EVAL ~%bgse_spawn_cres%~ RET bgse_talkers END
+
+  // Pass 2: build/reuse cached candidates per (WED, anchors) and compile modified scripts.
+  OUTER_SET area_idx = 0
+  ACTION_FOR_EACH area IN ~BG5600~ ~BG5601~ ~BG5700~ ~BG5701~ ~BG5800~ ~BG5801~
+      ~BG5900~ ~BG5901~ ~BG6000~ ~BG6001~ ~BG6100~
+      ~AR0041~ ~AR0042~ ~AR0043~ ~AR0044~ ~AR0045~ ~AR0046~ BEGIN
+    ACTION_IF (VARIABLE_IS_SET $bgse_has_script(~%area%~)) AND ($bgse_has_script(~%area%~) = 1) BEGIN
+      OUTER_SET anchor_x = 640
+      OUTER_SET anchor_y = 480
+      OUTER_SET anchor_x2 = 640
+      OUTER_SET anchor_y2 = 480
+      ACTION_IF (INDEX (CASE_INSENSITIVE ~^AR004~ ~%area%~) = 0) BEGIN
+        OUTER_SET anchor_x = 513
+        OUTER_SET anchor_y = 528
+        OUTER_SET anchor_x2 = 600
+        OUTER_SET anchor_y2 = 500
+      END
+      OUTER_TEXT_SPRINT wed ~%area%~
+      ACTION_IF (FILE_EXISTS_IN_GAME ~%area%.are~) BEGIN
+        COPY_EXISTING ~%area%.are~ ~override~
+          PATCH_IF (BUFFER_LENGTH >= 0x10) BEGIN
+            READ_ASCII 0x08 are_wed (8) NULL
+            PATCH_IF (STRING_LENGTH ~%are_wed%~ > 0) BEGIN
+              TO_UPPER are_wed
+              TEXT_SPRINT wed ~%are_wed%~
+            END
+          END
+        BUT_ONLY
+      END
+      OUTER_TEXT_SPRINT ckey ~%wed%_%anchor_x%_%anchor_y%_%anchor_x2%_%anchor_y2%~
+      ACTION_IF NOT (VARIABLE_IS_SET $bgse_cand_cache(~%ckey%~)) BEGIN
+        OUTER_TEXT_SPRINT sr_bmp ~~
+        ACTION_IF (FILE_EXISTS_IN_GAME ~%wed%SR.bmp~) BEGIN
+          COPY_EXISTING ~%wed%SR.bmp~ ~override~
+            READ_ASCII 0 sr_bmp (BUFFER_LENGTH)
+          BUT_ONLY
+        END
+        OUTER_PATCH ~~ BEGIN
+          LPF bgse_ambush_candidates INT_VAR anchor_x = anchor_x anchor_y = anchor_y
+              anchor_x2 = anchor_x2 anchor_y2 = anchor_y2
+            STR_VAR bgse_sr_bmp = EVAL ~%sr_bmp%~
+            RET $cache_cnt(~%ckey%~) = bgse_cand_cnt
+                $cache_p(~%ckey%~) = bgse_cand_p    $cache_np(~%ckey%~) = bgse_cnt_p
+                $cache_dl(~%ckey%~) = bgse_cand_dl  $cache_ndl(~%ckey%~) = bgse_cnt_dl
+                $cache_dc(~%ckey%~) = bgse_cand_dc  $cache_ndc(~%ckey%~) = bgse_cnt_dc
+                $cache_ho0(~%ckey%~) = bgse_cand_ho0 $cache_nho0(~%ckey%~) = bgse_cnt_ho0
+                $cache_ho1(~%ckey%~) = bgse_cand_ho1 $cache_nho1(~%ckey%~) = bgse_cnt_ho1
+                $cache_ho2(~%ckey%~) = bgse_cand_ho2 $cache_nho2(~%ckey%~) = bgse_cnt_ho2
+                $cache_ho3(~%ckey%~) = bgse_cand_ho3 $cache_nho3(~%ckey%~) = bgse_cnt_ho3
+                $cache_ho4(~%ckey%~) = bgse_cand_ho4 $cache_nho4(~%ckey%~) = bgse_cnt_ho4
+                $cache_ho5(~%ckey%~) = bgse_cand_ho5 $cache_nho5(~%ckey%~) = bgse_cnt_ho5
+                $cache_ho6(~%ckey%~) = bgse_cand_ho6 $cache_nho6(~%ckey%~) = bgse_cnt_ho6
+                $cache_ho7(~%ckey%~) = bgse_cand_ho7 $cache_nho7(~%ckey%~) = bgse_cnt_ho7
+                $cache_hb0(~%ckey%~) = bgse_cand_hb0 $cache_nhb0(~%ckey%~) = bgse_cnt_hb0
+                $cache_hb1(~%ckey%~) = bgse_cand_hb1 $cache_nhb1(~%ckey%~) = bgse_cnt_hb1
+                $cache_hb2(~%ckey%~) = bgse_cand_hb2 $cache_nhb2(~%ckey%~) = bgse_cnt_hb2
+                $cache_hb3(~%ckey%~) = bgse_cand_hb3 $cache_nhb3(~%ckey%~) = bgse_cnt_hb3
+                $cache_hb4(~%ckey%~) = bgse_cand_hb4 $cache_nhb4(~%ckey%~) = bgse_cnt_hb4
+                $cache_hb5(~%ckey%~) = bgse_cand_hb5 $cache_nhb5(~%ckey%~) = bgse_cnt_hb5
+                $cache_hb6(~%ckey%~) = bgse_cand_hb6 $cache_nhb6(~%ckey%~) = bgse_cnt_hb6
+                $cache_hb7(~%ckey%~) = bgse_cand_hb7 $cache_nhb7(~%ckey%~) = bgse_cnt_hb7
+          END
+        END
+        OUTER_SET $bgse_cand_cache(~%ckey%~) = 1
+      END
+
+      ACTION_IF ($cache_cnt(~%ckey%~) > 0) BEGIN
+        OUTER_SET patched = 0
+        OUTER_TEXT_SPRINT orig_bcs $bgse_orig_bcs(~%area%~)
+        OUTER_TEXT_SPRINT baf $bgse_dec_baf(~%area%~)
+        COPY_EXISTING ~%area%.bcs~ ~override~
+          PATCH_TRY
+            LPF bgse_ambush_baf INT_VAR area_idx = area_idx anchor_x = anchor_x anchor_y = anchor_y
+                anchor_x2 = anchor_x2 anchor_y2 = anchor_y2
+                bgse_cand_cnt = $cache_cnt(~%ckey%~)
+                bgse_cnt_p = $cache_np(~%ckey%~) bgse_cnt_dl = $cache_ndl(~%ckey%~) bgse_cnt_dc = $cache_ndc(~%ckey%~)
+                bgse_cnt_ho0 = $cache_nho0(~%ckey%~) bgse_cnt_ho1 = $cache_nho1(~%ckey%~)
+                bgse_cnt_ho2 = $cache_nho2(~%ckey%~) bgse_cnt_ho3 = $cache_nho3(~%ckey%~)
+                bgse_cnt_ho4 = $cache_nho4(~%ckey%~) bgse_cnt_ho5 = $cache_nho5(~%ckey%~)
+                bgse_cnt_ho6 = $cache_nho6(~%ckey%~) bgse_cnt_ho7 = $cache_nho7(~%ckey%~)
+                bgse_cnt_hb0 = $cache_nhb0(~%ckey%~) bgse_cnt_hb1 = $cache_nhb1(~%ckey%~)
+                bgse_cnt_hb2 = $cache_nhb2(~%ckey%~) bgse_cnt_hb3 = $cache_nhb3(~%ckey%~)
+                bgse_cnt_hb4 = $cache_nhb4(~%ckey%~) bgse_cnt_hb5 = $cache_nhb5(~%ckey%~)
+                bgse_cnt_hb6 = $cache_nhb6(~%ckey%~) bgse_cnt_hb7 = $cache_nhb7(~%ckey%~)
+              STR_VAR bgse_baf = EVAL ~%baf%~ bgse_talkers = EVAL ~%bgse_talkers%~
+                bgse_cand_p = EVAL $cache_p(~%ckey%~) bgse_cand_dl = EVAL $cache_dl(~%ckey%~) bgse_cand_dc = EVAL $cache_dc(~%ckey%~)
+                bgse_cand_ho0 = EVAL $cache_ho0(~%ckey%~) bgse_cand_ho1 = EVAL $cache_ho1(~%ckey%~)
+                bgse_cand_ho2 = EVAL $cache_ho2(~%ckey%~) bgse_cand_ho3 = EVAL $cache_ho3(~%ckey%~)
+                bgse_cand_ho4 = EVAL $cache_ho4(~%ckey%~) bgse_cand_ho5 = EVAL $cache_ho5(~%ckey%~)
+                bgse_cand_ho6 = EVAL $cache_ho6(~%ckey%~) bgse_cand_ho7 = EVAL $cache_ho7(~%ckey%~)
+                bgse_cand_hb0 = EVAL $cache_hb0(~%ckey%~) bgse_cand_hb1 = EVAL $cache_hb1(~%ckey%~)
+                bgse_cand_hb2 = EVAL $cache_hb2(~%ckey%~) bgse_cand_hb3 = EVAL $cache_hb3(~%ckey%~)
+                bgse_cand_hb4 = EVAL $cache_hb4(~%ckey%~) bgse_cand_hb5 = EVAL $cache_hb5(~%ckey%~)
+                bgse_cand_hb6 = EVAL $cache_hb6(~%ckey%~) bgse_cand_hb7 = EVAL $cache_hb7(~%ckey%~)
+              RET bgse_blocks bgse_baf END
+            PATCH_IF (bgse_blocks > 0) BEGIN
+              DELETE_BYTES 0 BUFFER_LENGTH
+              INSERT_BYTES 0 (STRING_LENGTH ~%bgse_baf%~)
+              WRITE_ASCIIE 0 ~%bgse_baf%~
+              COMPILE_BAF_TO_BCS
+              SET patched = bgse_blocks
+            END
+          WITH DEFAULT
+            SET patched = 0
+            DELETE_BYTES 0 BUFFER_LENGTH
+            INSERT_BYTES 0 (STRING_LENGTH ~%orig_bcs%~)
+            WRITE_ASCIIE 0 ~%orig_bcs%~
+          END
+        BUT_ONLY_IF_IT_CHANGES
+        ACTION_IF (patched > 0) BEGIN
+          OUTER_SET bgse_ambush_scripts += 1
+          OUTER_SET bgse_ambush_blocks += patched
+          PRINT ~BGSE ambush: %area%.bcs (%patched% ambush blocks relocated)~
+        END
+      END
+    END
+    OUTER_SET area_idx += 1
+  END
+END

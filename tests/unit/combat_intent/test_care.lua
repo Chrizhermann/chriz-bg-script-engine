@@ -243,4 +243,63 @@ local d=choice.decide(i)
 assert(d.kind=='heal' and d.use==true)
 groups=groups+1
 
+-- 7. Restoration: Lesser Restoration (opcode 224 + CBMLRES + caster fatigue) and Greater Restoration
+-- cure level drain (f.drained, lasting without an end even when effects are unread) and temporary
+-- attribute drain (guard.conditions.abilityDrain), weighing the caster's own fatigue against the cast;
+-- damage, disables or group debuffs on the caster's side still disqualify a spell from care.
+do
+    local lesser=spell('TESTLRES',4,{fx(224,{timing=1}),fx(402,{res='CBMLRES',timing=1}),
+        fx(93,{target=1,p1=7,timing=1})},{speed=2})
+    local greater=spell('TESTGRES',7,{fx(17,{p1=100,p2=2,timing=1}),fx(224,{timing=1}),
+        fx(93,{target=1,p1=7,timing=1})},{speed=3})
+    local gives=care.care(lesser)
+    assert(gives and gives.cure.kinds.drain and gives.cure.kinds.abilityDrain and gives.own.kinds.fatigue)
+    assert(care.care(greater).heal and care.care(greater).own.kinds.fatigue)
+    assert(select(2,care.care(spell('TESTSLFD',4,{fx(17,{p1=20}),fx(12,{target=1,dice=2,sides=6})})))=='offensive')
+    assert(select(2,care.care(spell('TESTSLFP',4,{fx(17,{p1=20}),fx(45,{target=1,duration=12})})))=='offensive')
+    assert(select(2,care.care(spell('TESTGRPD',4,{fx(17,{p1=20}),fx(12,{target=6,dice=1,sides=6})})))=='offensive')
+    assert(select(2,care.care(spell('TESTGRPW',4,{fx(17,{p1=20}),fx(40,{target=6,duration=18})})))=='offensive')
+
+    local has,left=care.condition({drained=2,guard=false},'drain')
+    assert(has==true and left==math.huge)
+    has,left=care.condition({drained=0,guard={conditions={}}},'drain')
+    assert(has==false and left==0)
+    has,left=care.condition(friend(2,{guard={roles={},conditions={abilityDrain=18},poison=0}}),'abilityDrain')
+    assert(has==true and left==18)
+    has,left=care.condition(friend(2),'abilityDrain')
+    assert(has==false and left==0)
+
+    -- Ability drain on a full-health ally: worth 0.45 less the rested priest's 7 fatigue drawback.
+    local i7=input({rejected={}})
+    i7.frame.enemies={enemy(11,{ac=5})}
+    local drainedAlly=friend(2,{x=110,guard={roles={},conditions={abilityDrain=24},poison=0}})
+    i7.frame.allies={drainedAlly}
+    i7.spells={row('TESTLRES',lesser,4)}
+    local harm=require('combat-intent.harm')
+    local defence=require('combat-intent.defence')
+    local drawback=harm.debuff(gives.own,i7.frame.self,5)
+    assert(drawback>0 and drawback<0.05)
+    local o7=only(i7,'cure')[1]
+    assert(o7 and o7.target==2 and near(o7.worth,(0.45-drawback)*defence.through(i7,nil,2*care.speedSeconds)))
+
+    -- Level drain without ability drain: worth 0.50 less the fatigue drawback.
+    drainedAlly.guard.conditions={}
+    drainedAlly.drained=2
+    o7=only(i7,'cure')[1]
+    assert(o7 and o7.target==2 and near(o7.worth,(0.5-drawback)*defence.through(i7,nil,2*care.speedSeconds)))
+
+    -- With neither drain present, no option (the drawback does not turn 0 into another rejection).
+    drainedAlly.drained=0
+    i7.rejected={}
+    assert(#only(i7)==0 and i7.rejected['care-no-worth']==1)
+
+    -- A heavy self-debuff on the caster that costs more than the cure gives yields no option.
+    local exhausting=spell('TESTEXHS',4,{fx(402,{res='CBMLRES',timing=1}),fx(40,{target=1,duration=30})},{speed=0})
+    drainedAlly.guard.conditions={abilityDrain=18}
+    i7.spells={row('TESTEXHS',exhausting,4)}
+    i7.rejected={}
+    assert(#only(i7)==0 and i7.rejected['care-no-worth']==1)
+end
+groups=groups+1
+
 return groups

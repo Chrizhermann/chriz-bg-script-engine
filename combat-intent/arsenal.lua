@@ -22,7 +22,7 @@ local targeting=require('combat-intent.targeting')
 local M={}
 -- SLOTS.IDS: the fist, the quiver, the magic weapon slot and the weapon slots.
 M.FIST=10
-M.QUIVER={11,12,13}
+M.QUIVER={11,12,13,14}
 M.MAGIC=34
 M.WEAPONS={35,36,37,38}
 -- Ammunition's launcher field (bow, crossbow, sling) as the item category of the weapon that
@@ -353,12 +353,15 @@ function M.others(tables,c)
     local apr=M.decode(stats.apr)
     local part,final=share(tables,c,selectedRecord)
     local rest=number(apr) and apr>0 and not final and apr-part or 0
+    local emittedQuiver={}
+    if inHand and inHand.quiver then emittedQuiver[tostring(inHand.slot)..':'..tostring(inHand.quiver)]=true end
     for _,slot in ipairs(M.WEAPONS) do
         local record=recordAt(c.items,slot)
         for i,a in ipairs(abilities(record)) do
             if striking(a) and not (inHand and inHand.slot==slot and inHand.number==i-1) then
                 local s=M.striker(c.items,slot,i-1)
                 if s and s.slot==slot then
+                    if s.quiver then emittedQuiver[tostring(s.slot)..':'..tostring(s.quiver)]=true end
                     local hit,damage=M.bonus(tables,c,s)
                     local w=attack(c,s,hit,own(s)+strengthDamage(tables,c,s)+damage)
                     local mine,last=share(tables,c,s.record)
@@ -366,6 +369,18 @@ function M.others(tables,c)
                     out[#out+1]=w
                 end
             end
+        end
+    end
+    for _,q in ipairs(M.QUIVER) do
+        local s=M.striker(c.items,q,0)
+        if s and s.quiver==q and not emittedQuiver[tostring(s.slot)..':'..tostring(q)] then
+            emittedQuiver[tostring(s.slot)..':'..tostring(q)]=true
+            local hit,damage=M.bonus(tables,c,s)
+            local w=attack(c,s,hit,own(s)+strengthDamage(tables,c,s)+damage)
+            w.slot=q;w.abilityNum=0;w.quiver=q
+            local mine,last=share(tables,c,s.record)
+            w.apr=math.max(M.minApr,math.min(M.maxApr,last or rest+mine))
+            out[#out+1]=w
         end
     end
     return out

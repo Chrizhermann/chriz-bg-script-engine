@@ -7,16 +7,15 @@ local orders=require('combat-intent.orders')
 local groups=0
 
 -- 1. Each entry is a creature file of at most eight characters in capitals and passes the orders'
--- check; Tarnesh, Karlat and Neira have the light preference for the protagonist, never "always"; Greywolf
--- has none.
+-- check; the bounty hunters have the light preference for the protagonist, never "always".
 local count=0
 for resref,o in pairs(encounters.ORDERS) do
     assert(type(resref)=='string' and #resref>0 and #resref<=8 and resref==resref:upper(),resref)
     assert(orders.check(o),resref)
     count=count+1
 end
-assert(count==4)
-for _,resref in ipairs({'TARNES','KARLAT','NEIRA'}) do
+assert(count==24)
+for _,resref in ipairs({'TARNES','KARLAT','NEIRA','LAMALH','ZEELA','TELKA','MANEIR','MOLKAR','DRAKAR','HALACA','MORVIN'}) do
     local o=encounters.ORDERS[resref]
     assert(o.target=='protagonist' and o.bonus==encounters.LIGHT and not o.always,resref)
 end
@@ -76,6 +75,47 @@ assert(#karlat.talkPrep==1 and karlat.talkPrep[1]=='buff-potion' and karlat.talk
 local greywolf=encounters.ORDERS.GREYWO
 assert(greywolf.companion.weak=='BGSEKES1' and greywolf.companion.strong=='BGSEKES2' and greywolf.companion.strongFrom==4)
 assert(greywolf.target==nil and greywolf.opener==nil and greywolf.talkPrep==nil)
+groups=groups+1
+
+-- 6. BOSS-02 encounters (Christopher, 2026-11-12): Mulahey's Prayer/Silence opener; Zeela's instant
+-- Animate Dead + Bless prebuffs and the Telka/Maneira sniper vs stealth split; Drakar's Hold/DUHM opener;
+-- Venkt's infiltrated-tent hold (BG1901/AR1901) with long Armor prebuff and Britik's guard post; Drasus's
+-- pre-talk potion, Genthore's Oil of Speed, and Rezdan & Kysus's coordinated Hard+ openers.
+local mulahe=encounters.ORDERS.MULAHE
+assert(mulahe.openerFrom==4 and mulahe.opener[1][1]=='SPPR316' and mulahe.opener[1][2]=='SPPR211')
+local zeela=encounters.ORDERS.ZEELA
+assert(zeela.prebuffFrom==4 and zeela.prebuff[1].cast=='SPPR301' and zeela.prebuff[2].cast=='SPPR101')
+assert(encounters.ORDERS.TELKA.hide==false and encounters.ORDERS.MANEIR.hide==true)
+assert(encounters.ORDERS.LAMALH.openerFrom==4 and encounters.ORDERS.DRAKAR.openerFrom==4)
+local venkt=encounters.ORDERS.VENKT
+assert(venkt.noPrepIn[1]=='BG1901' and venkt.noPrepIn[2]=='AR1901')
+assert(venkt.prebuffFrom==2 and venkt.prebuff[1].cast=='SPWI102' and venkt.openerFrom==4)
+assert(encounters.ORDERS.BRITIK.guard==true)
+assert(encounters.ORDERS.DRASUS.talkPrep[1]=='buff-potion' and encounters.ORDERS.DRASUS.talkFrom==4)
+assert(encounters.ORDERS.GENTHO.opener[1]=='POTN14' and encounters.ORDERS.GENTHO.openerFrom==4)
+assert(encounters.ORDERS.REZDAN.opener[1][1]=='SPWI508' and encounters.ORDERS.REZDAN.openerFrom==4)
+assert(encounters.ORDERS.KYSUS.opener[1][3]=='SPWI504' and encounters.ORDERS.KYSUS.opener[2]=='DW#MS0')
+assert(encounters.ORDERS.NATASH.ruthless==true)
+assert(encounters.ORDERS.NATASH.sequencers.minor[1]=='SPWI204' and encounters.ORDERS.NATASH.sequencers.minor[2]=='SPWI204')
+assert(encounters.ORDERS.OGREMA03.prebuffFrom==1 and encounters.ORDERS.OGREMA03.prebuff[1].cast=='SPWI305')
+assert(encounters.ORDERS.OGREMA03.talkFrom==1 and encounters.ORDERS.OGREMA03.talkPrep[1].cast=='SPWI305')
+assert(encounters.ORDERS.DAVAEO.prebuffFrom==4)
+assert(encounters.ORDERS.DAVAEO.prebuff[1].cast=='BGSE516P' and encounters.ORDERS.DAVAEO.prebuff[1].spend=='SPWI516')
+assert(encounters.ORDERS.ALAI.prebuffFrom==3 and encounters.ORDERS.ALAI.prebuff[1].cast=='SPWI305')
+assert(encounters.ORDERS.ALAI.talkFrom==3 and encounters.ORDERS.ALAI.talkPrep[1].cast=='SPWI305')
+assert(encounters.ORDERS.DIYAB.prebuffFrom==3 and encounters.ORDERS.DIYAB.prebuff[1].cast=='SPPR408' and encounters.ORDERS.DIYAB.prebuff[2].cast=='SPPR406')
+assert(encounters.ORDERS.DIYAB.talkFrom==3 and encounters.ORDERS.DIYAB.talkPrep[1].cast=='SPPR408' and encounters.ORDERS.DIYAB.talkPrep[2].cast=='SPPR406')
+local locks=encounters.arenaLocks()
+assert(locks.BG5405[1]=='Door5404' and locks.AR5405[1]=='Door5404')
+assert(locks.BG2101[1]=='Door2100' and locks.AR2101[1]=='Door2100')
+assert(locks.BG1803[1]=='Door1802' and locks.BG1803[2]=='Door1801')
+assert(locks.AR1803[1]=='Door1802' and locks.AR1803[2]=='Door1801')
+assert(locks.BG0615[1]=='Door0614' and locks.BG0615[2]=='Door0621')
+assert(locks.AR0615[1]=='Door0614' and locks.AR0615[2]=='Door0621')
+locks.BG0615[1]='OTHER'
+locks.NEWAREA={'X'}
+assert(encounters.ARENA_LOCKS.BG0615[1]=='Door0614' and encounters.ARENA_LOCKS.NEWAREA==nil)
+assert(encounters.arenaLocks().BG0615[1]=='Door0614' and encounters.arenaLocks().NEWAREA==nil)
 groups=groups+1
 
 return groups

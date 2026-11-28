@@ -19,6 +19,8 @@ REQUIRE_PREDICATE (IDS_OF_SYMBOL (~ACTION~ ~EEex_LuaAction~) = 472)
 
 INCLUDE ~bgse/lib/hook.tpa~
 INCLUDE ~bgse/lib/encounter.tpa~
+INCLUDE ~bgse/lib/calls.tpa~
+INCLUDE ~bgse/lib/ambush.tpa~
 
 COPY ~bgse/lua/M_BGSE.lua~ ~override~
 
@@ -111,6 +113,24 @@ ACTION_BASH_FOR ~override~ ~^.+\.bcs$~ BEGIN
       END
     END
   BUT_ONLY_IF_IT_CHANGES
+END
+// Spellhold's Noble Djinni (PPDJINN2.CRE in AR1514, the sole real combat actor among BG2's 18 census
+// entries without a hooked script; HOOK-03): overwrite its default script slot (0x268) with PPDJINN2
+// (or DJINNI01) instead of its broken '"djinni0' typo, before the CRE gift/teleport and carried passes.
+ACTION_IF (FILE_EXISTS_IN_GAME ~ppdjinn2.cre~) BEGIN
+  ACTION_IF (FILE_EXISTS_IN_GAME ~ppdjinn2.bcs~) BEGIN
+    COPY_EXISTING ~ppdjinn2.cre~ ~override~
+      PATCH_IF (BUFFER_LENGTH >= 0x2d4) BEGIN
+        WRITE_ASCII 0x268 ~PPDJINN2~ #8
+      END
+    BUT_ONLY_IF_IT_CHANGES
+  END ELSE ACTION_IF (FILE_EXISTS_IN_GAME ~djinni01.bcs~) BEGIN
+    COPY_EXISTING ~ppdjinn2.cre~ ~override~
+      PATCH_IF (BUFFER_LENGTH >= 0x2d4) BEGIN
+        WRITE_ASCII 0x268 ~DJINNI01~ #8
+      END
+    BUT_ONLY_IF_IT_CHANGES
+  END
 END
 // Creatures SCS lets teleport only by script get a real innate teleport, which the engine casts
 // like any spell (Christopher, 2026-10-26); one with a teleport of its own (most fiends have the
@@ -240,6 +260,7 @@ OUTER_SET bgse_designed = 0
 OUTER_SET bgse_lines = 0
 OUTER_SET bgse_new = 0
 INCLUDE ~bgse/encounters.tpa~
+LAF bgse_install_ambushes RET bgse_ambush_scripts bgse_ambush_blocks END
 // The engine's own hook (2026-11-10: the engine takes over every creature, also one without an SCS script, such
 // as BG1's gnolls, xvarts, ankhegs and wyverns). A script gets one hook block at its top when a creature carries
 // it (a creature file's five slots, an area actor's six, the five of a creature stored in an area), it holds an
@@ -327,6 +348,7 @@ ACTION_IF (STRING_LENGTH ~%bgse_fight%~ > 0) BEGIN
     END
   END
 END
+LAF bgse_register_call_strrefs RET bgse_call_strrefs END
 // The engine reads which scripts carry the hook, to tell a creature's hooked scripts from
 // others in its script slots (adapters/eeex/hook.lua).
 <<<<<<<< .../bgse-inline/M_BGSEHK.lua
@@ -334,6 +356,8 @@ END
 -- their family: SCS's scripts by SCS's kind, the game's other fight scripts as 'auto'.
 BGSE_HOOKED={
 %bgse_registry%}
+BGSE_CALL_STRREFS={
+%bgse_call_strrefs%}
 >>>>>>>>
 COPY ~.../bgse-inline/M_BGSEHK.lua~ ~override~ EVALUATE_BUFFER
 PRINT ~BGSE hook: %bgse_hooked% SCS scripts hooked, %bgse_copied% SCS blocks guarded, %bgse_aside% SCS cloud blocks yield to the engine, %bgse_hunted% SCS hunting blocks yield to the engine's search, %bgse_skipped% left as they are.~
@@ -347,6 +371,7 @@ PRINT ~BGSE idle: %bgse_idle% SCS idle gates (no enemy perceived, not in a fight
 PRINT ~BGSE hunt: %bgse_called% walks at party members a creature does not perceive, in scripts the SCS rule did not hook, yield to the engine's search.~
 PRINT ~BGSE talk: %bgse_talked% SCS talk-on-sight blocks wait while the engine prepares the creature.~
 PRINT ~BGSE encounter: %bgse_designed% designed creatures changed, %bgse_lines% lines added to dialogues, %bgse_new% new creatures made.~
+PRINT ~BGSE ambush: %bgse_ambush_scripts% random-encounter scripts updated (%bgse_ambush_blocks% ambush blocks given sensible positions).~
 PRINT ~BGSE own: %bgse_owned% fight scripts that are not SCS's ask the engine first.~
 
 BEGIN ~Chriz BG Script Engine: record a playtest (experimental, needs EEex)~

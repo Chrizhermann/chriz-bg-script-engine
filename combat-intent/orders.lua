@@ -29,7 +29,11 @@
 --
 -- prep=false holds back all of SCS's preparation for the creature (its prebuffs, contingencies and
 -- chain contingencies); prepSkip holds back what it names: kinds ('prebuff', 'contingency', 'chain')
--- or spells, as SCS's blocks cast or spend them (combat-intent/prep.lua).
+-- or spells, as SCS's blocks cast or spend them; noPrepIn holds back all of SCS's preparation when
+-- the creature stands in one of the areas it names (combat-intent/prep.lua).
+--
+-- ruthless=true allows area offensive, debuff and removal spells even when allies stand in the blast
+-- area; foes charmed by the caster's side and the caster itself are still protected.
 --
 -- leave=true lets the creature leave the fight for good as its SCS script has it (its vanishing exit
 -- when badly hurt, bgse/lib/hook.tpa); by default the engine keeps it in the fight (Christopher,
@@ -43,7 +47,9 @@
 -- talkPrep says what a talk-on-sight creature adds to its preparation before it speaks
 -- (combat-intent/talk.lua), from the game's difficulty talkFrom (1 to 5, default 1) up: a spell it has
 -- ready, cast at once, {cast=spell or a copy of it, spend=spell}, which spends that spell; or
--- 'buff-potion', its best potion that strengthens or protects it.
+-- 'buff-potion', its best potion that strengthens or protects it. prebuff adds the same at once when
+-- the creature's fight begins in sight of an enemy, from prebuffFrom (1 to 5, default 1) up
+-- (Christopher, 2026-11-12: Zeela's skeletons and AoE buff, Venkt's long Armor inside Tazok's tent).
 --
 -- opener says how the creature opens its fight, from the game's difficulty openerFrom (1 to 5, default
 -- 1) up (Christopher, 2026-11-04, for Neira: "das muss alles nicht komplett starr sein"): steps in
@@ -83,6 +89,41 @@ local function extra(v)
     return resref(v.cast) and resref(v.spend)
 end
 local function level(v) return number(v) and v>=1 and v<=5 and v==math.floor(v) end
+local CONDITIONS={seen=true,hp75=true,hp50=true,emergency=true}
+local function validSpellList(v,minN,maxN)
+    if type(v)~='table' or #v<minN or #v>maxN then return false end
+    for i,s in pairs(v) do if type(i)~='number' or not resref(s) then return false end end
+    return true
+end
+local function validContingency(v)
+    if v==false or resref(v) then return true end
+    if type(v)~='table' or not resref(v.spell) then return false end
+    for f,val in pairs(v) do
+        if f=='condition' then if not CONDITIONS[val] then return false end
+        elseif f~='spell' then return false end
+    end
+    return true
+end
+local function validChain(v)
+    if v==false or validSpellList(v,1,3) then return true end
+    if type(v)~='table' or not validSpellList(v.spells,1,3) then return false end
+    for f,val in pairs(v) do
+        if f=='condition' then if not CONDITIONS[val] then return false end
+        elseif f~='spells' then return false end
+    end
+    return true
+end
+local function validSequencers(v)
+    if v==false then return true end
+    if type(v)~='table' or next(v)==nil then return false end
+    local caps={minor=2,sequencer=3,trigger=3}
+    for f,val in pairs(v) do
+        local cap=caps[f]
+        if not cap then return false end
+        if val~=false and not validSpellList(val,2,cap) then return false end
+    end
+    return true
+end
 -- One step of an opener: a spell or item, a list of them, or {watch=seconds}.
 local function step(v)
     if resref(v) then return true end
@@ -107,30 +148,41 @@ function M.check(o)
             elseif not selector(v) then return false,'target' end
         elseif k=='always' then
             if type(v)~='boolean' then return false,'always' end
-        elseif k=='guard' or k=='hide' or k=='prep' or k=='doors' or k=='leave' then
+        elseif k=='guard' or k=='hide' or k=='prep' or k=='doors' or k=='leave' or k=='ruthless' then
             if type(v)~='boolean' then return false,k end
         elseif k=='await' then
             if v~='guard' and v~='post' and v~='stand' then return false,k end
         elseif k=='insight' then
             if v~='exact' and v~='estimate' and v~='rough' and v~='none' then return false,k end
+        elseif k=='call' then
+            if v~='silent' and v~='pack' and v~='warband' and v~='map' then return false,k end
         elseif k=='prepSkip' then
             if type(v)~='table' or #v==0 then return false,k end
             for i,s in pairs(v) do
                 if type(i)~='number' or type(s)~='string' or #s>64 or not s:match('^[%w#_%-]+$') then return false,k end
             end
+        elseif k=='noPrepIn' then
+            if type(v)~='table' or #v==0 then return false,k end
+            for i,a in pairs(v) do if type(i)~='number' or not resref(a) then return false,k end end
         elseif k=='bonus' then
             if not number(v) or v<0 or v>100 then return false,'bonus' end
-        elseif k=='talkPrep' then
+        elseif k=='talkPrep' or k=='prebuff' then
             if type(v)~='table' or #v==0 then return false,k end
             for i,e in pairs(v) do if type(i)~='number' or not extra(e) then return false,k end end
         elseif k=='opener' then
             if type(v)~='table' or #v==0 then return false,k end
             for i,s in pairs(v) do if type(i)~='number' or not step(s) then return false,k end end
-        elseif k=='talkFrom' or k=='openerFrom' then
+        elseif k=='talkFrom' or k=='openerFrom' or k=='prebuffFrom' then
             if not level(v) then return false,k end
         elseif k=='companion' then
             if type(v)~='table' or not resref(v.weak) or not resref(v.strong) or not level(v.strongFrom) then return false,k end
             for f in pairs(v) do if f~='weak' and f~='strong' and f~='strongFrom' then return false,k end end
+        elseif k=='contingency' then
+            if not validContingency(v) then return false,k end
+        elseif k=='chain' then
+            if not validChain(v) then return false,k end
+        elseif k=='sequencers' then
+            if not validSequencers(v) then return false,k end
         else return false,tostring(k) end
     end
     return true

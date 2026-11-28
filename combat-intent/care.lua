@@ -28,13 +28,15 @@ local threat=require('combat-intent.threat')
 local defence=require('combat-intent.defence')
 local weapons=require('combat-intent.weapons')
 local ids=require('combat-intent.ids')
+local harm=require('combat-intent.harm')
 local M={}
 M.ROUND=6
 -- What freeing a friend of each condition is worth for the full time (fullSeconds), as the same
--- disable on an enemy is worth (choice.DISABLE); blindness, deafness and disease hinder without
--- taking the friend out. Conditions that matter only for casters count a fifth on others.
+-- disable on an enemy is worth (choice.DISABLE); blindness, deafness, disease and drained levels
+-- or attributes hinder without taking the friend out. Conditions that matter only for casters
+-- count a fifth on others.
 M.CONDITION={sleep=0.8,hold=1,stun=1,panic=0.7,confusion=0.8,berserk=0.4,feeblemind=1,silence=0.7,
-    pause=0.8,blind=0.3,deaf=0.2,disease=0.1}
+    pause=0.8,drain=0.5,abilityDrain=0.45,blind=0.3,deaf=0.2,disease=0.1}
 M.CASTERS_ONLY={feeblemind=true,silence=true,deaf=true}
 M.fullSeconds=18
 -- Seconds a condition counts for when the friend's effects could not be read.
@@ -102,9 +104,14 @@ function M.standing(f,t,s,r,killBonus,hp)
 end
 
 -- Whether friend f has condition label now, and its seconds left: the effect on f (its guard's
--- conditions) while its state still shows it; a hold shows in the HELD stat. A friend whose
--- effects could not be read counts by its state alone, for unknownSeconds.
+-- conditions) while its state still shows it; a hold shows in the HELD stat, drained levels in
+-- LEVELDRAIN (f.drained, lasting until restored). A friend whose effects could not be read counts
+-- by its state alone, for unknownSeconds.
 function M.condition(f,label)
+    if label=='drain' then
+        if number(f.drained) and f.drained>0 then return true,math.huge end
+        return false,0
+    end
     local shown
     if label=='hold' then shown=number(f.held) and f.held>0
     elseif M.STATE[label] then shown=targeting.has(f.state,M.STATE[label]) end
@@ -151,8 +158,10 @@ function M.cured(role,f)
 end
 
 -- The heal and cure roles of a spell or item ability that reach friends, or nil and why it is no
--- care: an attack, a spell that also harms or removes, one that reaches the party (for the
--- engine's creatures that is the enemy), or one without such roles.
+-- care: an attack, a spell that damages or disables the caster or its group, one that reaches the
+-- party (for the engine's creatures that is the enemy), or one without such roles. A debuff on the
+-- caster itself (Lesser and Greater Restoration's fatigue) rides along as own and is weighed
+-- against the cast.
 function M.care(spell)
     if type(spell)~='table' or type(spell.roles)~='table' then return nil,'unclassified' end
     local h,c=spell.roles.heal,spell.roles.cure
@@ -161,13 +170,22 @@ function M.care(spell)
     end
     if not reaches(h) and not reaches(c) then return nil,'no-care' end
     if spell.partial then return nil,'partial' end
-    if spell.offensive or spell.selfHarm then return nil,'offensive' end
+    if spell.offensive then return nil,'offensive' end
+    for _,name in ipairs({'damage','disable'}) do
+        local r=spell.roles[name]
+        if type(r)=='table' and type(r.who)=='table' and (r.who.self or r.who.casterGroup) then
+            return nil,'offensive'
+        end
+    end
+    local d=spell.roles.debuff
+    if type(d)=='table' and type(d.who)=='table' and d.who.casterGroup then return nil,'offensive' end
     for _,r in ipairs({h,c}) do
         if type(r)=='table' and type(r.who)=='table' and (r.who.party or r.who.everyone or r.who.nonparty) then
             return nil,'party'
         end
     end
-    return {heal=reaches(h) and h or nil,cure=reaches(c) and c or nil}
+    local own=type(d)=='table' and type(d.who)=='table' and d.who.self and d or nil
+    return {heal=reaches(h) and h or nil,cure=reaches(c) and c or nil,own=own}
 end
 
 -- Where a care spell can be cast: on the caster, and at each ally it sees (targeting.seen) within
@@ -281,22 +299,26 @@ function M.options(input,rejected)
     end
     local function consider(resref,spell,gives,level,item)
         local cast=(number(spell.speed) and spell.speed or 0)*M.speedSeconds
+        local drawback=gives.own and harm.debuff(gives.own,caster,threat.armour(frame.enemies),input.tables) or 0
         local best,why
         local candidates=item and {{self=true,friend=caster,walk=0}} or aims(input,spell)
         for _,aim in ipairs(candidates) do
             -- Who each role reaches; healing an enemy in an area that spares no one counts
-            -- against the cast.
+            -- against the cast, and so does a debuff the spell puts on the caster itself.
             local reach,order,worth,hits={},{},0,{}
-            for name,role in pairs(gives) do
-                local friends,foes=receivers(input,spell,role,aim)
-                for _,f in ipairs(friends) do
-                    if not reach[f] then reach[f]={};order[#order+1]=f end
-                    reach[f][name]=role
-                end
-                if name=='heal' then
-                    for _,e in ipairs(foes) do
-                        local maxHp=number(e.maxHp) and e.maxHp>0 and e.maxHp or nil
-                        if maxHp then worth=worth-M.healed(role,e)/maxHp end
+            for _,name in ipairs({'heal','cure'}) do
+                local role=gives[name]
+                if role then
+                    local friends,foes=receivers(input,spell,role,aim)
+                    for _,f in ipairs(friends) do
+                        if not reach[f] then reach[f]={};order[#order+1]=f end
+                        reach[f][name]=role
+                    end
+                    if name=='heal' then
+                        for _,e in ipairs(foes) do
+                            local maxHp=number(e.maxHp) and e.maxHp>0 and e.maxHp or nil
+                            if maxHp then worth=worth-M.healed(role,e)/maxHp end
+                        end
                     end
                 end
             end
@@ -307,6 +329,7 @@ function M.options(input,rejected)
                 if w>0 then worth=worth+w;hits[#hits+1]=f.id
                 elseif no and (why==nil or why=='no-worth') then why=no end
             end
+            if #hits>0 then worth=worth-drawback end
             -- A walk into range comes first and lowers the worth (weapons.paced).
             worth=worth*weapons.paced(aim.walk)
             if worth>0 and (not best or worth>best.worth) then best={aim=aim,worth=worth,hits=hits} end

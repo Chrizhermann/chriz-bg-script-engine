@@ -32,6 +32,7 @@
 -- member has moved away from the walk's spot.
 local sense=require('adapters.eeex.sense')
 local search=require('combat-intent.search')
+local ambush=require('combat-intent.ambush')
 local targeting=require('combat-intent.targeting')
 local doorRules=require('combat-intent.doors')
 local doorReader=require('adapters.eeex.doors')
@@ -97,6 +98,7 @@ function M.new(g,options)
     local record=type(options.record)=='function' and options.record or function() end
     local rng=options.rng
     local reader=options.reader
+    local ambushes=options.ambushes~=false
     local states,stateCount={},0
     local counts={hunts=0,walks=0,looks=0,returns=0,gaveUp=0,detects=0,modals=0,teleports=0,hitClues=0,guards=0,
         stuck=0,guardFailures=0,awaits=0,guardWalks=0,readyFailures=0,doors=0,doorsOpened=0,doorsShut=0,
@@ -191,7 +193,7 @@ function M.new(g,options)
             if s.guard then counts.guards=counts.guards+1 end
         end
         s.since,s.gaveUp,s.tactical,s.act,s.aim,s.back,s.stuck,s.awaiting=nil,nil,nil,nil,nil,nil,0,nil
-        s.searched,s.clues,s.hits,s.called={},{},{},nil
+        s.searched,s.clues,s.hits,s.called,s.ambushTick={},{},{},nil,nil
     end
 
     -- Whether two creatures stand in the same area.
@@ -339,6 +341,30 @@ function M.new(g,options)
                 local object=g.EEex_GameObject_Get(c.id)
                 if object and g.EEex_GameObject_IsSprite(object,false) and together(object,sprite) then
                     out[#out+1]={kind='called',id=c.id,x=object.m_pos.x,y=object.m_pos.y,tick=c.tick}
+                end
+            end
+        end
+        -- Sensible Fog-of-War travel ambushes: until first contact (not s.fought, not s.gaveUp),
+        -- approach the nearest living party member in the same area so relocated packs converge.
+        local ambushesOn=type(ambushes)=='function' and ambushes()==true or ambushes==true
+        if #out==0 and ambush.shouldApproach({enabled=ambushesOn,area=frame.area,ea=frame.self.ea,
+            fought=s.fought,gaveUp=s.gaveUp}) then
+            local getter=rawget(g,'EEex_Sprite_GetInPortrait')
+            if type(getter)=='function' then
+                local party={}
+                for i=0,5 do
+                    local okP,p=pcall(getter,i)
+                    if okP and p and g.EEex_GameObject_IsSprite(p,false) and together(p,sprite) then
+                        local okPos,px,py=pcall(function() return p.m_pos.x,p.m_pos.y end)
+                        if okPos and type(px)=='number' and type(py)=='number' and not away[p.m_id] then
+                            party[#party+1]={id=p.m_id,x=px,y=py}
+                        end
+                    end
+                end
+                local nearest=ambush.nearestParty(frame.self,party)
+                if nearest then
+                    if not s.ambushTick or tick<s.ambushTick then s.ambushTick=tick end
+                    out[#out+1]={kind='called',id=nearest.id,x=nearest.x,y=nearest.y,tick=s.ambushTick}
                 end
             end
         end
@@ -628,6 +654,10 @@ function M.new(g,options)
         if not a then return end
         s.act=nil
         if a.kind=='door' and type(tick)=='number' then judged(s,id,a,tick,why or 'stop') end
+    end
+    function seeker:setAmbushes(value)
+        if type(value)=='function' then ambushes=value
+        else ambushes=(value==true) end
     end
     function seeker:invalidate() states,stateCount={},0 end
     function seeker:inspect()

@@ -1,0 +1,47 @@
+// Mulahey's Hard+ reinforcement waves in Nashkel Mines L4 (BOSS-02, Christopher 2026-11-12; SCS blueprint,
+// credit DavidW): when the engine's kill switch is on, intercept SCS's Hard+ spawn so one AoE spell at the
+// south cave door does not wipe out all ten reinforcements at once. Wave 1 (four kobold guards and two melee
+// skeletons) arrives immediately as before; Wave 2 (two kobold commandos with fire arrows and two skeleton
+// archers) arrives 15 seconds later from the open northern passage [360.380]. With BGSE switched off, SCS's
+// original block below runs unchanged.
+IF
+  EEex_LuaTrigger("return BGSE~=nil and BGSE.gate~=nil and BGSE.gate:on()==true")
+  Global("DMWWMulaheyFlunky","MYAREA",1)
+  Global("DW#Mulahey_Override","GLOBAL",0)
+  OR(5)
+    INI("DMWW_genai_difficulty",0)
+    INI("DMWW_genai_difficulty",4)
+    INI("DMWW_genai_difficulty",5)
+    INI("DMWW_genai_difficulty",6)
+    INI("DMWW_genai_difficulty",7)
+  OR(5)
+    DifficultyGT(3)
+    INI("DMWW_genai_difficulty",4)
+    INI("DMWW_genai_difficulty",5)
+    INI("DMWW_genai_difficulty",6)
+    INI("DMWW_genai_difficulty",7)
+THEN
+  RESPONSE #100
+    SetGlobal("DMWWMulaheyFlunky","MYAREA",0)
+    IncrementGlobal("BGSEMulaheyWave","MYAREA",1)
+    SetGlobalTimer("BGSEMulaheyTimer","MYAREA",15)
+    CreateCreature("dw#mulka",[217.591],5)
+    CreateCreature("dw#mulka",[217.591],5)
+    CreateCreature("dw#mulka",[217.591],5)
+    CreateCreature("dw#mulka",[217.591],5)
+    CreateCreature("dw#mulsk",[222.502],5)
+    CreateCreature("dw#mulsk",[222.502],5)
+END
+
+IF
+  GlobalGT("BGSEMulaheyWave","MYAREA",0)
+  GlobalTimerExpired("BGSEMulaheyTimer","MYAREA")
+THEN
+  RESPONSE #100
+    IncrementGlobal("BGSEMulaheyWave","MYAREA",-1)
+    SetGlobalTimer("BGSEMulaheyTimer","MYAREA",15)
+    CreateCreature("dw#mulkc",[360.380],0)
+    CreateCreature("dw#mulkc",[360.380],0)
+    CreateCreature("dw#mulsa",[360.380],0)
+    CreateCreature("dw#mulsa",[360.380],0)
+END

@@ -32,6 +32,70 @@ M.ORDERS={
     -- below (a young apprentice), clearly stronger above (a seasoned partner); both creature files come from
     -- the installer (bgse/encounters.tpa). Greywolf himself stays as SCS has him.
     GREYWO={companion={weak='BGSEKES1',strong='BGSEKES2',strongFrom=4}},
+    -- Mulahey, Nashkel Mines (BOSS-02, 2026-11-12): WIS 17 and Prayer in his 3rd-level book come from the
+    -- installer, together with the staggered second reinforcement wave from the northern passage on Hard+.
+    -- From Hard he opens with Prayer on himself and his guards/skeletons, or enemy-only Silence by worth.
+    MULAHE={opener={{'SPPR316','SPPR211'}},openerFrom=4},
+    -- Lamalha's assassin party, Valley of the Tombs exit (BOSS-02, 2026-11-12): bounty hunters sent after
+    -- the protagonist. From Hard, Zeela's Animate Dead skeletons stand beside her right as the fight starts
+    -- and her AoE Bless catches the skeletons too; Lamalha prepares before speaking (BGSELAMA) and opens
+    -- with Silence or Hold Person. Telka stays out of stealth as the dedicated elemental-arrow sniper, while
+    -- Maneira handles stealth pressure and Darts of Wounding.
+    LAMALH={target='protagonist',bonus=M.LIGHT,opener={{'SPPR211','SPPR208'}},openerFrom=4},
+    ZEELA={target='protagonist',bonus=M.LIGHT,
+        prebuff={{cast='SPPR301',spend='SPPR301'},{cast='SPPR101',spend='SPPR101'}},prebuffFrom=4},
+    TELKA={target='protagonist',bonus=M.LIGHT,hide=false},
+    MANEIR={target='protagonist',bonus=M.LIGHT,hide=true},
+    -- Molkar's bounty-hunter party (BOSS-02, 2026-11-12): kept close to SCS; Molkar's talk waits while the
+    -- group prepares (BGSEMOLK), Drakar gets a slotted Potion of Heroism in the installer and opens from
+    -- Hard with Hold Person for the three melee fighters or Draw Upon Holy Might.
+    MOLKAR={target='protagonist',bonus=M.LIGHT},
+    DRAKAR={target='protagonist',bonus=M.LIGHT,opener={{'SPPR208','SPPR214'}},openerFrom=4},
+    HALACA={target='protagonist',bonus=M.LIGHT},
+    MORVIN={target='protagonist',bonus=M.LIGHT},
+    -- Bandit Camp & Tazok's tent (BOSS-02, 2026-11-12): inside the infiltrated tent (BG1901/AR1901) nobody
+    -- expects an attack, so Venkt holds back SCS's short combat prebuffs and wears only his long Armor
+    -- (SPWI102); when the outdoor camp alarm brings him out into BG1900 two rounds in, he steps out fully
+    -- prepared. From Hard he opens with Remove Magic or Monster Summoning I; Britik guards the tent post.
+    VENKT={noPrepIn={'BG1901','AR1901'},prebuff={{cast='SPWI102',spend='SPWI102'}},prebuffFrom=2,
+        opener={{'SPWI302','SPWI309'}},openerFrom=4},
+    BRITIK={guard=true},
+    -- Drasus, Genthore, Kysus & Rezdan, Cloakwood Mine entrance (BOSS-02, 2026-11-12): full Iron Throne
+    -- guard prebuffs stay. From Hard, Drasus drinks his battle potion before speaking (BGSEDRAS), Genthore
+    -- drinks his Oil of Speed on round 1, Rezdan opens with Chaos or Glitterdust, and Kysus opens with
+    -- Remove Magic, Slow or Monster Summoning III (never gambling round 1 on the 3-round Lesser Elemental
+    -- contest) followed by his twin Acid Arrow Minor Sequencer.
+    DRASUS={talkPrep={'buff-potion'},talkFrom=4},
+    GENTHO={opener={'POTN14'},openerFrom=4},
+    REZDAN={opener={{'SPWI508','SPWI224'}},openerFrom=4},
+    KYSUS={opener={{'SPWI302','SPWI312','SPWI504'},'DW#MS0'},openerFrom=4},
+    -- Natasha, Cloakwood Mines L3 (BOSS-03, 2026-11-13): ruthless Invoker who fires AoE spells even when
+    -- prison guards stand in the blast, backed by a twin Snilloc's Snowball Swarm Minor Sequencer.
+    NATASH={ruthless=true,sequencers={minor={'SPWI204','SPWI204'}}},
+    -- Oni / Ogre Mage, Cloakwood Mines L3 (BOSS-03, 2026-11-13): opens instantly hasted on every difficulty.
+    OGREMA03={talkPrep={{cast='SPWI305',spend='SPWI305'}},talkFrom=1,
+        prebuff={{cast='SPWI305',spend='SPWI305'}},prebuffFrom=1},
+    -- Davaeorn, Cloakwood Mines L4 (BOSS-03, 2026-11-13): from Hard, enters combat with his Lesser Fire
+    -- Elemental already bound (BGSE516P, no 3-round self-paralysis; prebuff only so WIZELSUM sees ENEMY).
+    DAVAEO={prebuff={{cast='BGSE516P',spend='SPWI516'}},prebuffFrom=4},
+    -- Iron Throne top floor, Baldur's Gate (BOSS-03, 2026-11-13): from Core, Alai hastes the team and Diyab
+    -- lays down Protection from Evil 10' Radius and Defensive Harmony.
+    ALAI={talkPrep={{cast='SPWI305',spend='SPWI305'}},talkFrom=3,
+        prebuff={{cast='SPWI305',spend='SPWI305'}},prebuffFrom=3},
+    DIYAB={talkPrep={{cast='SPPR408',spend='SPPR408'},{cast='SPPR406',spend='SPPR406'}},talkFrom=3,
+        prebuff={{cast='SPPR408',spend='SPPR408'},{cast='SPPR406',spend='SPPR406'}},prebuffFrom=3},
+}
+
+-- Boss arena exit travel-region names keyed by area resref (BG1-in-EET BG* and standalone AR*).
+M.ARENA_LOCKS={
+    BG5405={'Door5404'},
+    AR5405={'Door5404'},
+    BG2101={'Door2100'},
+    AR2101={'Door2100'},
+    BG1803={'Door1802','Door1801'},
+    AR1803={'Door1802','Door1801'},
+    BG0615={'Door0614','Door0621'},
+    AR0615={'Door0614','Door0621'},
 }
 
 local function copy(v)
@@ -42,4 +106,6 @@ local function copy(v)
 end
 -- A copy of the orders, so that whoever takes them cannot change this book.
 function M.orders() return copy(M.ORDERS) end
+-- A copy of the boss arena exit lock table.
+function M.arenaLocks() return copy(M.ARENA_LOCKS) end
 return M

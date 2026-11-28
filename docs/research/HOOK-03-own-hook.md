@@ -179,3 +179,25 @@ come back as designed behaviour when the fights are gone through one by one.
 - SCS's pursuit helpers above combat scripts (`DW#C3AS1`, `DW#C3AS2`, `BANDIT`, `DW#C3HST`; BOSS-02) hold no
   attack and get no hook; their walks at unseen party members still run. Their own guard is separate work.
 - Siege of Dragonspear's fights now run on the engine too, before Christopher's SoD Remix looks at them.
+
+## The 18 unhooked BG2 and ToB placed creatures (2026-11-12)
+
+In the fight census above (`tools/fight_census.py` on `Playground\game` / `eet-nosr-2`), 1,007 of 1,025 hostile placed
+creatures in BG2 and ToB already asked the engine (`854` through SCS's hook and `153` through the own hook), leaving `18`
+placed hostile actors counted as `other`. Inspecting all 18 creature and area-actor records showed that **17 are non-combat
+props, dream cutscenes or caged/scriptless ambience**, and **only 1 (`PPDJINN2.CRE`) is an actual fighter**:
+
+| Placed entries | Resref(s) & Area(s) | Scripts carried | Finding |
+|---|---|---|---|
+| 3 | `SAREVOKD` (`AR0015`), `DRSAR` x2 (`AR1516`) | `MVSAREV`, `DRSAR1`, `NONE` | Dream-cutscene Sarevok actors, never fought |
+| 4 | `MEPHSP1..4` (`AR0602`) | `MEPHSP1..4` | Chateau Irenicus Mephit Portals (spawner props destroyed by melee/keys, no attacks or casts) |
+| 1 | `IDEMON01` (`AR0602`) | `IDEMON01` | Chateau Irenicus caged Cambion prop (dialogue/escape cutscene only) |
+| 6 | `TRANIM02` x4, `TRANIM03` x2 (`AR2000`) | `NONE` | Scriptless ambient Trademeet animal actors |
+| 1 | `UDRUNNER` (`AR2100`) | `UDRUNNER` | Underdark drow messenger runner (flees/despawns on sight, no combat block) |
+| 1 | `GORIMP01` (`AR3004`) | `GORIMP01` | Watcher's Keep Riddle-Imp dialogue referee (never fights) |
+| 1 | `UHOSTILE` (`AR4500`) | `NONE` | Pocket Plane invisible hostility marker |
+| **1** | **`PPDJINN2`** (`AR1514`, Spellhold) | `NONE`..`'"djinni0'` | **Real fighter** (Noble Djinni): unhooked only because `PPDJINN2.CRE` had a leading-quote typo (`"djinni0`) in its default script slot (`0x268`), while `PPDJINN2.BCS` / `DJINNI01.BCS` exists and gets hooked |
+
+**Resolution (`bgse/setup-bgse.tp2`):** before the `bgse_carried` own-hook scan, `setup-bgse.tp2` overwrites `PPDJINN2.CRE`'s
+default script slot (`0x268`) under We Overwrite to `PPDJINN2` when `PPDJINN2.BCS` is in game (else `DJINNI01`), so `bgse_carried`
+hooks its script and registers it in `M_BGSEHK.lua`. Real placed combat-creature coverage in BG2 and ToB is now **100%**.

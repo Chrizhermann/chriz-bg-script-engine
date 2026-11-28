@@ -396,7 +396,7 @@ def parse_cre(data, resref):
                   'spell': data[0x58]},
         'level': max(data[0x234], data[0x235], data[0x236]), 'strength': data[0x238],
         'strengthExtra': data[0x239], 'ea': data[0x270], 'general': data[0x271], 'race': data[0x272],
-        'class': data[0x273], 'specific': data[0x274], 'gender': data[0x275], 'alignment': data[0x27B],
+        'class': data[0x273], 'kit': _unpack('<H', data, 0x246)[0], 'specific': data[0x274], 'gender': data[0x275], 'alignment': data[0x27B],
         'items': items, 'slots': slots, 'opcodes': opcodes,
     }
 

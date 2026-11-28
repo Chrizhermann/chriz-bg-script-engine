@@ -212,4 +212,37 @@ assert(hand.item=='BITE' and hand.body==true and find(others,'SPIT').body==true 
 assert(find(others,'BLADE').body==nil and find(others,'ODD').body==nil and arsenal.DROPPABLE==4)
 groups=groups+1
 
+-- 9. All four runtime quiver slots (11..14) and alternate quiver ammunition stacks in arsenal.others:
+-- an archer with plain arrows in slot 11 and enchanted/elemental arrows in slot 14 sees slot 14 as a
+-- switchable option (slot=14, abilityNum=0, quiver=14) with its own enchantment, damage and hits.
+do
+    local PLAIN=item({flags=0,enchantment=0,itemType=5},{ability({attackType=2,launcher=1,dice=1,sides=6,
+        damageType=4,projectile=2})})
+    local ICE_ARROWS=item({flags=0x40,enchantment=2,itemType=5},{ability({attackType=2,launcher=1,dice=1,sides=6,
+        thac0=2,damageBonus=3,damageType=4,projectile=2})})
+    local archer=fighter(11,0,{apr=3,thac0Right=5,damageRight=4})
+    archer.items[11]={resref='AROW01',record=PLAIN}
+    archer.items[14]={resref='AROW09',record=ICE_ARROWS}
+    local h9=arsenal.hand(TABLES,archer)
+    assert(h9.item=='BOW' and h9.ammo=='AROW01' and h9.enchantment==1)
+    local o9=arsenal.others(TABLES,archer)
+    local altBow
+    for _,w in ipairs(o9) do if w.slot==14 then altBow=w end end
+    assert(altBow and altBow.item=='BOW' and altBow.ammo=='AROW09' and altBow.abilityNum==0 and altBow.quiver==14)
+    assert(altBow.magical and altBow.enchantment==2 and near(altBow.damage,11.5) and altBow.thac0==6)
+    -- Plain unenchanted bow with plain arrows in slot 11 vs enchanted arrows in slot 14: only slot 14 is magical.
+    archer.items[36]={resref='PLAINBOW',record=item({flags=0,enchantment=0,itemType=15,proficiency=104},{ability({attackType=4,range=100})})}
+    assert(not arsenal.hand(TABLES,archer).magical)
+    local altPlain
+    for _,w in ipairs(arsenal.others(TABLES,archer)) do if w.slot==14 then altPlain=w end end
+    assert(altPlain and altPlain.magical and altPlain.enchantment==2)
+    -- With only slot 14 populated and sword in hand, the bow shoots slot 14 directly.
+    local swordInHand=fighter(35,0,{apr=2,thac0Right=3,damageRight=2})
+    swordInHand.items[11]=nil
+    swordInHand.items[14]={resref='AROW09',record=ICE_ARROWS}
+    local bowFrom14=find(arsenal.others(TABLES,swordInHand),'BOW')
+    assert(bowFrom14 and bowFrom14.ammo=='AROW09' and bowFrom14.enchantment==2)
+end
+groups=groups+1
+
 return groups

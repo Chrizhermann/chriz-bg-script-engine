@@ -63,23 +63,26 @@ M.EVIL_CUTOFF=200
 -- with the member's own spells against its party, is Christopher's to decide, so the own hook leaves
 -- it alone.
 M.CHARMED_PC=254
-local function ini(g,key)
+local function ini(g,key,default)
+    local fallback=default==nil and 1 or default
     local get=rawget(g,'Infinity_GetINIValue')
-    if type(get)~='function' then return 1 end
-    local ok,value=pcall(get,'BGSE',key,1)
+    if type(get)~='function' then return fallback end
+    local ok,value=pcall(get,'BGSE',key,fallback)
     if ok and type(value)=='number' then return value end
-    return 1
+    return fallback
 end
 M.ini=ini
 function M.settings(g)
     local families={}
     for family,key in pairs(M.keys) do families[family]=ini(g,key)~=0 end
-    return {enabled=ini(g,'Enabled')~=0,families=families,others=ini(g,'Others')~=0}
+    return {enabled=ini(g,'Enabled')~=0,families=families,others=ini(g,'Others')~=0,
+        ambushes=ini(g,'Ambushes')~=0,respawns=ini(g,'Respawns')~=0}
 end
 local function store(g,key,value)
     local set=rawget(g,'Infinity_SetINIValue')
     if type(set)=='function' then pcall(set,'BGSE',key,value and 1 or 0) end
 end
+M.store=store
 -- Game time, in ticks (15 per second). Every block of one script pass sees the same tick,
 -- and game time stands still while the game is paused.
 function M.gameTime(g)
@@ -148,6 +151,8 @@ function M.install(g,options)
     local settings=M.settings(g)
     local clock=options.now or function() return M.gameTime(g) end
     local director,choice,prepare,held=options.director,options.choice,options.prepare,options.held
+    if director==false then director=nil end
+    if choice==false then choice=nil end
     local replaced=options.replaced
     local walker=options.lower
     if walker==nil then
@@ -157,6 +162,7 @@ function M.install(g,options)
     if walker==false then walker=nil end
     local dutyFaults=0
     local others=settings.others~=false
+    local ambushes=options.ambushes~=false and settings.ambushes~=false
     -- id -> the block that queued the hook's last response (sn, rs, rn) and the actions it queued;
     -- owned counts them (at most M.ownLimit: creatures that died with a record keep it until then).
     local mine,owned={},0
@@ -316,12 +322,19 @@ function M.install(g,options)
         if choice then choice:setEnabled(value) end
         if persist then store(g,'Choice',value) end
     end
+    function root.setAmbushes(value,persist)
+        assert(type(value)=='boolean')
+        ambushes=value
+        if choice and type(choice.setAmbushes)=='function' then choice:setAmbushes(value) end
+        if persist then store(g,'Ambushes',value) end
+    end
     -- Experiments install a decider here: function(actor, family) -> nil | {response=...} | {hold=true}.
     function root.setDecider(fn) gate:setDecider(fn) end
     function root.inspect()
         local state=gate:inspect()
         state.replaced={count=replacing.count,errors=replacing.errors}
         state.others=others
+        state.ambushes=ambushes
         if walker then
             local ok,value=pcall(walker.inspect)
             state.lower=ok and value or {error=tostring(value)}
@@ -473,6 +486,11 @@ function M.install(g,options)
             gate:act(actor(object))
         end)
     end
+    -- True when sensible travel ambush coordinates are enabled ([BGSE] Enabled=1 and Ambushes=1).
+    g.BGSE_AmbushOn=function()
+        local ok,value=pcall(function() return gate:on()==true and ambushes==true end)
+        return ok and value==true
+    end
     -- Engine state is session-local: a load or a return to the menu forgets every claim.
     -- One listener serves every reinstall; it always reaches the current root.
     if not root.listening and type(rawget(g,'EEex_GameState_AddDestroyedListener'))=='function' then
@@ -482,6 +500,12 @@ function M.install(g,options)
             if type(current)=='table' and type(current.forget)=='function' then pcall(current.forget) end
             if type(current)=='table' and current.director then pcall(current.director.invalidate,current.director) end
             if type(current)=='table' and current.choice then pcall(current.choice.invalidate,current.choice) end
+            if type(current)=='table' and current.arena and type(current.arena.onDestroyed)=='function' then
+                pcall(current.arena.onDestroyed,current.arena)
+            end
+            if type(current)=='table' and current.respawn and type(current.respawn.onDestroyed)=='function' then
+                pcall(current.respawn.onDestroyed,current.respawn)
+            end
         end)
         root.listening=true
     end
