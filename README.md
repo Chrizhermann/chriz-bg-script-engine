@@ -26,6 +26,11 @@ live group-level decision layer on top of SCS without throwing away what already
 - **Encounter Flow & Safe Travel:** Supports difficulty-scaled openers, talk-on-sight
   preparation, and lower-script duty forwarding while leaving scripted area transitions and travel
   triggers with the game's scripts. Always fails soft back to SCS if declined or toggled off.
+- **Sensible Ambushes & Fog-of-War Respawns:** Places random travel ambushes onto walkable
+  Fog-of-War flanking positions and realistic dialogue/planar offsets (`[BGSE] Ambushes=1`),
+  moves melee rest-interruption spawns onto a fair camp perimeter, and paces Fog-of-War respawn
+  points by party distance and area tier (`[BGSE] Respawns=1`) without capping total waves.
+  Enabled by default whenever Combat Intent is active.
 
 ### Naming
 
@@ -43,9 +48,11 @@ No public release has shipped yet. Current verified work on `main` runs in dispo
 
 - **Kernel & BCS→Lua Bridge (`bgse/setup-bgse.tp2`, `kernel/`, `adapters/eeex/`):**
   - Component `0` hooks SCS combat scripts (mage, priest, general-AI, monster, ambushes, calls for
-    help, talk-on-sight, idle gates), adds the engine's `own` hook on non-SCS fight scripts, and
-    forwards lower-script duties (`adapters/eeex/lower.lua`) for enemy celestials and shouting
-    creatures.
+    help, talk-on-sight, idle gates), adds the engine's `own` hook on non-SCS fight scripts,
+    relocates random travel ambush blocks onto verified walkable Fog-of-War positions
+    (`bgse/lib/ambush.tpa`), governs in-place rest perimeters and Fog-of-War respawn points by
+    default (`[BGSE] Ambushes=1`, `[BGSE] Respawns=1`), and forwards lower-script duties
+    (`adapters/eeex/lower.lua`) for enemy celestials and shouting creatures.
   - Component `10` (`bgse-recorder`) provides an independent playtest recorder (`M_BGSERC.lua`).
 - **Combat Intent & Spell Integration (`combat-intent/`):**
   - Group director, shared perception and observer-bound beliefs, reservation leases, spatial and
@@ -68,6 +75,7 @@ No public release has shipped yet. Current verified work on `main` runs in dispo
 - [Building an Encounter (`docs/ENCOUNTERS.md`)](docs/ENCOUNTERS.md)
 - [Playground Guide (`docs/PLAYGROUND.md`)](docs/PLAYGROUND.md)
 - Plans: [Combat Intent on SCS](docs/plans/2026-10-14-combat-intent-on-scs.md) ·
+  [Sensible Ambushes & Respawns](docs/plans/2026-11-28-sensible-ambushes-and-respawns.md) ·
   [Playground & Parallel Work](docs/plans/2026-11-08-playground-and-parallel-work.md) ·
   [2026-08 Architecture](docs/plans/2026-08-27-script-engine-architecture-design.md)
 - Research & Fight Sheets: [`docs/research/`](docs/research/) (`BOSS-01`, `BOSS-02`, `FIGHTS-01`,
